@@ -107,3 +107,27 @@ test("egress ON with empty allowlist blocks external hosts (deny-until-listed)",
     if (prevList !== undefined) process.env.ARMOSPHERA_ONE_EGRESS_ALLOWLIST = prevList;
   }
 });
+
+test("resolveLawsDbPath honors ARMOSPHERA_ONE_LAWS_DB", () => {
+  const prev = process.env.ARMOSPHERA_ONE_LAWS_DB;
+  process.env.ARMOSPHERA_ONE_LAWS_DB = "/tmp/laws-x.sqlite";
+  try { assert.strictEqual(config.resolveLawsDbPath(), "/tmp/laws-x.sqlite"); }
+  finally { if (prev === undefined) delete process.env.ARMOSPHERA_ONE_LAWS_DB; else process.env.ARMOSPHERA_ONE_LAWS_DB = prev; }
+});
+
+test("resolveLawsDbPath defaults to laws.sqlite in the data dir", () => {
+  const prevLaws = process.env.ARMOSPHERA_ONE_LAWS_DB;
+  const prevDir = process.env.ARMOSPHERA_ONE_DATA_DIR;
+  delete process.env.ARMOSPHERA_ONE_LAWS_DB;
+  process.env.ARMOSPHERA_ONE_DATA_DIR = "/tmp/aoc-dd";
+  try { assert.strictEqual(config.resolveLawsDbPath(), "/tmp/aoc-dd/laws.sqlite"); }
+  finally {
+    if (prevLaws !== undefined) process.env.ARMOSPHERA_ONE_LAWS_DB = prevLaws;
+    if (prevDir === undefined) delete process.env.ARMOSPHERA_ONE_DATA_DIR; else process.env.ARMOSPHERA_ONE_DATA_DIR = prevDir;
+  }
+});
+
+test("lawEmbed defaults to bge-m3 on loopback Ollama", () => {
+  assert.strictEqual(config.lawEmbed.model, "bge-m3");
+  assert.strictEqual(config.lawEmbed.baseUrl, "http://127.0.0.1:11434");
+});

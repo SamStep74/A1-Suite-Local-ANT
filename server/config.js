@@ -33,6 +33,10 @@ function resolveDbPath() {
   return path.join(resolveDataDir(), "armosphera-one.db");
 }
 
+function resolveLawsDbPath() {
+  return process.env.ARMOSPHERA_ONE_LAWS_DB || path.join(computeDataDir(), "laws.sqlite");
+}
+
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
 
 function allowEgress() {
@@ -84,10 +88,15 @@ const ai = Object.freeze({
   localModel: process.env.LOCAL_AI_MODEL || "gemma3:4b"
 });
 
+const lawEmbed = Object.freeze({
+  model: process.env.LAW_EMBED_MODEL || "bge-m3",
+  baseUrl: (process.env.LAW_EMBED_BASE || "http://127.0.0.1:11434").replace(/\/+$/, "")
+});
+
 module.exports = {
   PRODUCT,
-  computeDataDir, ensureDir, resolveDataDir, resolveDbPath,
+  computeDataDir, ensureDir, resolveDataDir, resolveDbPath, resolveLawsDbPath,
   allowEgress, egressAllowlist, assertEgressAllowed, EgressBlockedError,
   safeFetch, setFetchImpl,
-  ai
+  ai, lawEmbed
 };
