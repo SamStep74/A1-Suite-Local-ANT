@@ -1,8 +1,8 @@
 {
-  "name": "armosphera-one",
+  "name": "armosphera-one-claude",
   "version": "0.1.0",
   "private": true,
-  "description": "Armenia-localized SaaS suite with Zoho One workflow parity, Armosphera CRM, and HayHashvapah finance integration.",
+  "description": "Armosphera One Claude — sovereign, self-hostable Armenian business operating system with Zoho One functional parity. Local-first, offline-capable, opt-in AI.",
   "type": "commonjs",
   "main": "server/index.js",
   "scripts": {

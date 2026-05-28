@@ -641,7 +641,7 @@ function App() {
 
   useEffect(() => { load(); }, []);
 
-  if (loading) return <div className="boot">Armosphera One</div>;
+  if (loading) return <div className="boot">Armosphera One Claude</div>;
   if (!session || !suite) return <Login onDone={load} />;
 
   return (
@@ -792,7 +792,7 @@ function Login({ onDone }) {
         <div className="brand-lockup">
           <div className="mark">A1</div>
           <div>
-            <strong>Armosphera One</strong>
+            <strong>Armosphera One Claude</strong>
             <span>Հայաստանի բիզնես օպերացիոն համակարգ</span>
           </div>
         </div>
@@ -3364,7 +3364,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
         <div className="brand-lockup compact">
           <div className="mark">A1</div>
           <div>
-            <strong>Armosphera One</strong>
+            <strong>Armosphera One Claude</strong>
             <span>{suite.organization.market}</span>
           </div>
         </div>
