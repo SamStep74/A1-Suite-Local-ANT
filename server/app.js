@@ -115,6 +115,8 @@ const ROLE_DASHBOARD_CONFIGS = {
 
 const config = require("./config");
 const rag = require("./rag");
+const accounting = require("./accounting");
+const ledger = require("./ledger");
 
 function buildApp(options = {}) {
   const db = options.db || openDatabase(options.dbPath || process.env.ARMOSPHERA_ONE_DB);
@@ -2820,6 +2822,16 @@ function registerApi(app, db) {
     const user = await app.auth(request);
     const result = createLegalQuestion(db, user, request.body || {});
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.question.customerId) };
+  });
+
+  app.get("/api/finance/trial-balance", async request => {
+    const user = await app.auth(request);
+    return ledger.trialBalance(db, user.org_id);
+  });
+
+  app.get("/api/finance/statements", async request => {
+    const user = await app.auth(request);
+    return accounting.financialStatements(ledger.buildLedgerModel(db, user.org_id));
   });
 
   app.get("/api/legal/law-search", async request => {
