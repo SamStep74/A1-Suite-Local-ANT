@@ -83,3 +83,14 @@ test("vatReport nets output VAT (524) against input VAT (526)", () => {
   assert.strictEqual(r.inputVat, 100);
   assert.strictEqual(r.netVatPayable, 100);
 });
+
+test("payroll run posts a balanced Dt 714 / Kt 521+525 entry", () => {
+  const { db, orgId } = freshDb();
+  ledger.postPayrollRun(db, orgId, { id: "pr-1", gross: 600000, net: 436500, totalDeductions: 163500, date: "2026-05-31" });
+  const tb = ledger.trialBalance(db, orgId);
+  const byCode = Object.fromEntries(tb.rows.map(r => [r.code, r]));
+  assert.strictEqual(byCode["714"].balance, 600000);
+  assert.strictEqual(byCode["521"].balance, -436500);
+  assert.strictEqual(byCode["525"].balance, -163500);
+  assert.strictEqual(tb.balanced, true);
+});

@@ -648,6 +648,22 @@ function initSchema(db) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS payroll_runs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      employee_name TEXT NOT NULL DEFAULT '',
+      gross INTEGER NOT NULL,
+      income_tax INTEGER NOT NULL,
+      pension INTEGER NOT NULL,
+      stamp_duty INTEGER NOT NULL,
+      total_deductions INTEGER NOT NULL,
+      net INTEGER NOT NULL,
+      run_date TEXT NOT NULL,
+      period_key TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS finance_bank_transactions (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

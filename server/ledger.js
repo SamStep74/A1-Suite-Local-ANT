@@ -8,9 +8,11 @@ const CHART = [
   { code: "221", name: "Դեբիտորական պարտքեր", type: "asset" },
   { code: "521", name: "Կրեդիտորական պարտքեր", type: "liability" },
   { code: "524", name: "ԱԱՀ վճարվելիք", type: "liability" },
+  { code: "525", name: "Հաշվարկներ բյուջեի և հիմնադրամների հետ", type: "liability" },
   { code: "526", name: "ԱԱՀ դեբետ (մուտքային)", type: "asset" },
   { code: "611", name: "Հասույթ", type: "income" },
-  { code: "711", name: "Ծախսեր", type: "expense" }
+  { code: "711", name: "Ծախսեր", type: "expense" },
+  { code: "714", name: "Աշխատավարձի ծախս", type: "expense" }
 ];
 
 function ensureChartOfAccounts(db, orgId) {
@@ -121,4 +123,16 @@ function vatReport(db, orgId, periodKey = "") {
   };
 }
 
-module.exports = { CHART, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError };
+function postPayrollRun(db, orgId, run) {
+  const gross = Math.round(Number(run.gross) || 0);
+  const net = Math.round(Number(run.net) || 0);
+  const deductions = Math.round(Number(run.totalDeductions != null ? run.totalDeductions : gross - net) || 0);
+  const date = run.date || run.run_date || new Date().toISOString().slice(0, 10);
+  const periodKey = run.period_key || "";
+  const ids = [];
+  if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: "714", creditCode: "521", amount: net, memo: `Payroll net ${run.employeeName || run.id}`, sourceType: "payroll", sourceId: run.id, periodKey }));
+  if (deductions > 0) ids.push(postEntry(db, orgId, { date, debitCode: "714", creditCode: "525", amount: deductions, memo: `Payroll withholdings ${run.id}`, sourceType: "payroll", sourceId: run.id, periodKey }));
+  return ids.filter(Boolean);
+}
+
+module.exports = { CHART, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError };
