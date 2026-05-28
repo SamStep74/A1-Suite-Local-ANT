@@ -49,20 +49,25 @@ class EgressBlockedError extends Error {
     super(`egress blocked: ${host} — outbound network is off. Set ARMOSPHERA_ONE_ALLOW_EGRESS=1 and add the host to ARMOSPHERA_ONE_EGRESS_ALLOWLIST.`);
     this.name = "EgressBlockedError";
     this.code = "EGRESS_BLOCKED";
-    this.statusCode = 502;
+    this.statusCode = 403;
   }
 }
 
 function hostOf(url) {
-  try { return new URL(url).hostname.toLowerCase(); } catch { return ""; }
+  try {
+    let h = new URL(url).hostname.toLowerCase();
+    if (h.startsWith("[") && h.endsWith("]")) h = h.slice(1, -1); // IPv6 literal [::1] -> ::1
+    if (h.endsWith(".")) h = h.slice(0, -1);                       // strip FQDN trailing dot
+    return h;
+  } catch { return ""; }
 }
 
 function assertEgressAllowed(url) {
   const host = hostOf(url);
-  if (LOOPBACK.has(host)) return;
+  if (LOOPBACK.has(host)) return; // loopback is always permitted — local-first IPC is never gated
   if (!allowEgress()) throw new EgressBlockedError(host || String(url));
   const list = egressAllowlist();
-  if (list.length && !list.includes(host)) throw new EgressBlockedError(host || String(url));
+  if (!list.includes(host)) throw new EgressBlockedError(host || String(url)); // deny unless explicitly allowlisted
 }
 
 let fetchImpl = (...args) => globalThis.fetch(...args);

@@ -88,3 +88,22 @@ test("safeFetch blocks before calling fetch when egress is off", async () => {
     if (prev !== undefined) process.env.ARMOSPHERA_ONE_ALLOW_EGRESS = prev;
   }
 });
+
+test("IPv6 loopback [::1] is allowed when egress is off", () => {
+  const prev = process.env.ARMOSPHERA_ONE_ALLOW_EGRESS;
+  delete process.env.ARMOSPHERA_ONE_ALLOW_EGRESS;
+  try { assert.doesNotThrow(() => config.assertEgressAllowed("http://[::1]:9000/hook")); }
+  finally { if (prev !== undefined) process.env.ARMOSPHERA_ONE_ALLOW_EGRESS = prev; }
+});
+
+test("egress ON with empty allowlist blocks external hosts (deny-until-listed)", () => {
+  const prevAllow = process.env.ARMOSPHERA_ONE_ALLOW_EGRESS;
+  const prevList = process.env.ARMOSPHERA_ONE_EGRESS_ALLOWLIST;
+  process.env.ARMOSPHERA_ONE_ALLOW_EGRESS = "1";
+  delete process.env.ARMOSPHERA_ONE_EGRESS_ALLOWLIST;
+  try { assert.throws(() => config.assertEgressAllowed("https://example.com/x"), /egress blocked/); }
+  finally {
+    if (prevAllow === undefined) delete process.env.ARMOSPHERA_ONE_ALLOW_EGRESS; else process.env.ARMOSPHERA_ONE_ALLOW_EGRESS = prevAllow;
+    if (prevList !== undefined) process.env.ARMOSPHERA_ONE_EGRESS_ALLOWLIST = prevList;
+  }
+});
