@@ -51,7 +51,10 @@ function postEntry(db, orgId, entry) {
 function postInvoicePosted(db, orgId, invoice) {
   const total = Math.round(Number(invoice.total) || 0);
   const vat = Math.round(Number(invoice.vat) || 0);
-  const net = total - vat;
+  // Prefer the source document's net (subtotal) so the ledger matches the invoice
+  // exactly; fall back to total - vat when no subtotal is supplied.
+  const hasSubtotal = invoice.subtotal !== undefined && invoice.subtotal !== null && invoice.subtotal !== "";
+  const net = hasSubtotal ? Math.round(Number(invoice.subtotal) || 0) : total - vat;
   const date = invoice.date || invoice.issue_date || new Date().toISOString().slice(0, 10);
   const periodKey = invoice.period_key || "";
   const ids = [];

@@ -47,6 +47,16 @@ test("posting is idempotent per source", () => {
   assert.strictEqual(count, 2);
 });
 
+test("invoice net is taken from the source subtotal when provided", () => {
+  const { db, orgId } = freshDb();
+  // total/vat round-trip would mis-split; subtotal is authoritative.
+  ledger.postInvoicePosted(db, orgId, { id: "inv-sub", total: 151, vat: 50, subtotal: 101, date: "2026-05-10" });
+  const byCode = Object.fromEntries(ledger.trialBalance(db, orgId).rows.map(r => [r.code, r]));
+  assert.strictEqual(byCode["611"].balance, -101);
+  assert.strictEqual(byCode["524"].balance, -50);
+  assert.strictEqual(byCode["221"].balance, 151);
+});
+
 test("posting into a closed period is blocked", () => {
   const { db, orgId } = freshDb();
   const now = new Date().toISOString();
