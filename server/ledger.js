@@ -1,0 +1,93 @@
+"use strict";
+const crypto = require("node:crypto");
+const accounting = require("./accounting");
+
+const CHART = [
+  { code: "251", name: "Դրամարկղ", type: "asset" },
+  { code: "252", name: "Հաշվարկային հաշիվ", type: "asset" },
+  { code: "221", name: "Դեբիտորական պարտքեր", type: "asset" },
+  { code: "521", name: "Կրեդիտորական պարտքեր", type: "liability" },
+  { code: "524", name: "ԱԱՀ վճարվելիք", type: "liability" },
+  { code: "611", name: "Հասույթ", type: "income" },
+  { code: "711", name: "Ծախսեր", type: "expense" }
+];
+
+function ensureChartOfAccounts(db, orgId) {
+  const insert = db.prepare("INSERT OR IGNORE INTO ledger_accounts (id, org_id, code, name, type) VALUES (?, ?, ?, ?, ?)");
+  for (const a of CHART) insert.run(`acct-${orgId}-${a.code}`, orgId, a.code, a.name, a.type);
+}
+
+class PeriodLockedError extends Error {
+  constructor(periodKey) {
+    super(`finance period ${periodKey} is closed — cannot post ledger entries`);
+    this.name = "PeriodLockedError";
+    this.code = "PERIOD_LOCKED";
+    this.statusCode = 409;
+  }
+}
+
+function assertPeriodOpen(db, orgId, periodKey) {
+  if (!periodKey) return;
+  const row = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(orgId, periodKey);
+  if (row && row.status === "closed") throw new PeriodLockedError(periodKey);
+}
+
+function postEntry(db, orgId, entry) {
+  const { date, debitCode, creditCode, amount, memo = "", sourceType = "", sourceId = "", periodKey = "" } = entry;
+  const value = Math.round(Number(amount) || 0);
+  if (value <= 0) return null;
+  assertPeriodOpen(db, orgId, periodKey);
+  ensureChartOfAccounts(db, orgId);
+  const id = `jrn-${crypto.randomUUID()}`;
+  const now = new Date().toISOString();
+  const res = db.prepare(`
+    INSERT OR IGNORE INTO ledger_journal
+      (id, org_id, entry_date, debit_code, credit_code, amount, memo, source_type, source_id, period_key, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(id, orgId, String(date).slice(0, 10), debitCode, creditCode, value, memo, sourceType, sourceId, periodKey, now);
+  return res.changes > 0 ? id : null;
+}
+
+function postInvoicePosted(db, orgId, invoice) {
+  const total = Math.round(Number(invoice.total) || 0);
+  const vat = Math.round(Number(invoice.vat) || 0);
+  const net = total - vat;
+  const date = invoice.date || invoice.issue_date || new Date().toISOString().slice(0, 10);
+  const periodKey = invoice.period_key || "";
+  const ids = [];
+  if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: "221", creditCode: "611", amount: net, memo: `Invoice ${invoice.number || invoice.id}`, sourceType: "invoice", sourceId: invoice.id, periodKey }));
+  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: "221", creditCode: "524", amount: vat, memo: `VAT ${invoice.number || invoice.id}`, sourceType: "invoice", sourceId: invoice.id, periodKey }));
+  return ids.filter(Boolean);
+}
+
+function postPaymentReceived(db, orgId, payment) {
+  return [postEntry(db, orgId, {
+    date: payment.date || payment.paid_at || new Date().toISOString().slice(0, 10),
+    debitCode: "251", creditCode: "221", amount: payment.amount,
+    memo: `Payment ${payment.id}`, sourceType: "payment", sourceId: payment.id, periodKey: payment.period_key || ""
+  })].filter(Boolean);
+}
+
+function buildLedgerModel(db, orgId) {
+  ensureChartOfAccounts(db, orgId);
+  const accounts = db.prepare("SELECT code, name, type FROM ledger_accounts WHERE org_id = ?").all(orgId)
+    .map(a => ({ id: a.code, code: a.code, name: a.name, type: a.type }));
+  const journal = db.prepare("SELECT entry_date, debit_code, credit_code, amount FROM ledger_journal WHERE org_id = ?").all(orgId)
+    .map(j => ({ date: j.entry_date, debitAccount: j.debit_code, creditAccount: j.credit_code, amount: j.amount }));
+  return { accounts, journal, invoices: [], expenses: [], bills: [], budgets: [] };
+}
+
+function trialBalance(db, orgId) {
+  const model = buildLedgerModel(db, orgId);
+  const balances = accounting.calculateBalances(model);
+  const byCode = new Map(model.accounts.map(a => [a.code, a]));
+  let totalDebit = 0, totalCredit = 0;
+  const rows = Object.entries(balances).map(([code, b]) => {
+    totalDebit += b.debit; totalCredit += b.credit;
+    const acc = byCode.get(code) || {};
+    return { code, name: acc.name || code, type: acc.type || "", debit: accounting.roundMoney(b.debit), credit: accounting.roundMoney(b.credit), balance: accounting.roundMoney(b.balance) };
+  }).sort((a, b) => String(a.code).localeCompare(String(b.code)));
+  return { rows, totalDebit: accounting.roundMoney(totalDebit), totalCredit: accounting.roundMoney(totalCredit), balanced: Math.abs(totalDebit - totalCredit) < 0.01 };
+}
+
+module.exports = { CHART, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError };

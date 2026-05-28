@@ -605,6 +605,34 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_finance_payments_customer
       ON finance_payments(org_id, customer_id, paid_at DESC);
 
+    CREATE TABLE IF NOT EXISTS ledger_accounts (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      type TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_accounts_code
+      ON ledger_accounts(org_id, code);
+
+    CREATE TABLE IF NOT EXISTS ledger_journal (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      entry_date TEXT NOT NULL,
+      debit_code TEXT NOT NULL,
+      credit_code TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      memo TEXT NOT NULL DEFAULT '',
+      source_type TEXT NOT NULL DEFAULT '',
+      source_id TEXT NOT NULL DEFAULT '',
+      period_key TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_journal_source
+      ON ledger_journal(org_id, source_type, source_id, debit_code, credit_code);
+
     CREATE TABLE IF NOT EXISTS finance_bank_transactions (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
