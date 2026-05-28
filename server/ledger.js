@@ -8,6 +8,7 @@ const CHART = [
   { code: "221", name: "Դեբիտորական պարտքեր", type: "asset" },
   { code: "521", name: "Կրեդիտորական պարտքեր", type: "liability" },
   { code: "524", name: "ԱԱՀ վճարվելիք", type: "liability" },
+  { code: "526", name: "ԱԱՀ դեբետ (մուտքային)", type: "asset" },
   { code: "611", name: "Հասույթ", type: "income" },
   { code: "711", name: "Ծախսեր", type: "expense" }
 ];
@@ -93,4 +94,31 @@ function trialBalance(db, orgId) {
   return { rows, totalDebit: accounting.roundMoney(totalDebit), totalCredit: accounting.roundMoney(totalCredit), balanced: Math.abs(totalDebit - totalCredit) < 0.01 };
 }
 
-module.exports = { CHART, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError };
+function postExpensePosted(db, orgId, expense) {
+  const total = Math.round(Number(expense.total) || 0);
+  const vat = Math.round(Number(expense.vat) || 0);
+  const hasSubtotal = expense.subtotal !== undefined && expense.subtotal !== null && expense.subtotal !== "";
+  const net = hasSubtotal ? Math.round(Number(expense.subtotal) || 0) : total - vat;
+  const date = expense.date || expense.incurred_on || new Date().toISOString().slice(0, 10);
+  const periodKey = expense.period_key || "";
+  const ids = [];
+  if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: "711", creditCode: "521", amount: net, memo: `Expense ${expense.description || expense.id}`, sourceType: "expense", sourceId: expense.id, periodKey }));
+  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: "526", creditCode: "521", amount: vat, memo: `Input VAT ${expense.id}`, sourceType: "expense", sourceId: expense.id, periodKey }));
+  return ids.filter(Boolean);
+}
+
+function vatReport(db, orgId, periodKey = "") {
+  const filter = periodKey ? "AND period_key = ?" : "";
+  const args = periodKey ? [orgId, periodKey] : [orgId];
+  const outputVat = db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM ledger_journal WHERE org_id = ? AND credit_code = '524' ${filter}`).get(...args).v;
+  const inputVat = db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM ledger_journal WHERE org_id = ? AND debit_code = '526' ${filter}`).get(...args).v;
+  return {
+    periodKey: periodKey || "all",
+    outputVat: accounting.roundMoney(outputVat),
+    inputVat: accounting.roundMoney(inputVat),
+    netVatPayable: accounting.roundMoney(outputVat - inputVat),
+    note: "Indicative VAT from posted ledger entries; review with an Armenian accountant before filing."
+  };
+}
+
+module.exports = { CHART, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError };

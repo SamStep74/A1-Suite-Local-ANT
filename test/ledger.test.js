@@ -64,3 +64,22 @@ test("posting into a closed period is blocked", () => {
     VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)`).run("per-closed", orgId, "2099-01", "2099-01-01", "2099-01-31", "closed", now, now);
   assert.throws(() => ledger.postEntry(db, orgId, { date: "2099-01-10", debitCode: "221", creditCode: "611", amount: 1000, sourceType: "invoice", sourceId: "inv-x", periodKey: "2099-01" }), /PERIOD_LOCKED|closed/);
 });
+
+test("expense posting debits expense + input VAT and credits payable", () => {
+  const { db, orgId } = freshDb();
+  ledger.postExpensePosted(db, orgId, { id: "exp-t1", subtotal: 500, vat: 100, total: 600, date: "2026-05-10" });
+  const byCode = Object.fromEntries(ledger.trialBalance(db, orgId).rows.map(r => [r.code, r]));
+  assert.strictEqual(byCode["711"].balance, 500);
+  assert.strictEqual(byCode["526"].balance, 100);
+  assert.strictEqual(byCode["521"].balance, -600);
+});
+
+test("vatReport nets output VAT (524) against input VAT (526)", () => {
+  const { db, orgId } = freshDb();
+  ledger.postInvoicePosted(db, orgId, { id: "inv-v1", total: 1200, vat: 200, subtotal: 1000, date: "2026-05-10" });
+  ledger.postExpensePosted(db, orgId, { id: "exp-v1", subtotal: 500, vat: 100, total: 600, date: "2026-05-10" });
+  const r = ledger.vatReport(db, orgId);
+  assert.strictEqual(r.outputVat, 200);
+  assert.strictEqual(r.inputVat, 100);
+  assert.strictEqual(r.netVatPayable, 100);
+});

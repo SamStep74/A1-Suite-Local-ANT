@@ -633,6 +633,21 @@ function initSchema(db) {
     CREATE UNIQUE INDEX IF NOT EXISTS idx_ledger_journal_source
       ON ledger_journal(org_id, source_type, source_id, debit_code, credit_code);
 
+    CREATE TABLE IF NOT EXISTS expenses (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      description TEXT NOT NULL DEFAULT '',
+      vendor TEXT NOT NULL DEFAULT '',
+      subtotal INTEGER NOT NULL,
+      vat INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      incurred_on TEXT NOT NULL,
+      period_key TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS finance_bank_transactions (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
