@@ -1,0 +1,26 @@
+{
+  "name": "armosphera-one",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Armenia-localized SaaS suite with Zoho One workflow parity, Armosphera CRM, and HayHashvapah finance integration.",
+  "type": "commonjs",
+  "main": "server/index.js",
+  "scripts": {
+    "start": "node server/index.js",
+    "dev": "NODE_ENV=development node --watch server/index.js",
+    "build:ui": "npm --prefix web install && npm --prefix web run build",
+    "test": "node --test",
+    "smoke": "node scripts/smoke.js"
+  },
+  "engines": {
+    "node": ">=22.5"
+  },
+  "dependencies": {
+    "@fastify/cookie": "^11.0.2",
+    "@fastify/static": "^9.0.0",
+    "fastify": "^5.0.0"
+  },
+  "devDependencies": {
+    "@playwright/test": "^1.60.0"
+  }
+}
