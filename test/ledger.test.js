@@ -51,6 +51,6 @@ test("posting into a closed period is blocked", () => {
   const { db, orgId } = freshDb();
   const now = new Date().toISOString();
   db.prepare(`INSERT INTO finance_periods (id, org_id, period_key, starts_on, ends_on, status, reason, created_at, updated_at)
-    VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)`).run("per-closed", orgId, "2026-05", "2026-05-01", "2026-05-31", "closed", now, now);
-  assert.throws(() => ledger.postEntry(db, orgId, { date: "2026-05-10", debitCode: "221", creditCode: "611", amount: 1000, sourceType: "invoice", sourceId: "inv-x", periodKey: "2026-05" }), /PERIOD_LOCKED|closed/);
+    VALUES (?, ?, ?, ?, ?, ?, '', ?, ?)`).run("per-closed", orgId, "2099-01", "2099-01-01", "2099-01-31", "closed", now, now);
+  assert.throws(() => ledger.postEntry(db, orgId, { date: "2099-01-10", debitCode: "221", creditCode: "611", amount: 1000, sourceType: "invoice", sourceId: "inv-x", periodKey: "2099-01" }), /PERIOD_LOCKED|closed/);
 });
