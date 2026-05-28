@@ -2824,6 +2824,39 @@ function registerApi(app, db) {
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.question.customerId) };
   });
 
+  app.get("/api/finance/vat-report", async request => {
+    const user = await app.auth(request);
+    const period = String((request.query && request.query.period) || "").trim();
+    return ledger.vatReport(db, user.org_id, period);
+  });
+
+  app.get("/api/finance/expenses", async request => {
+    const user = await app.auth(request);
+    const rows = db.prepare("SELECT id, description, vendor, subtotal, vat, total, incurred_on AS incurredOn, period_key AS periodKey FROM expenses WHERE org_id = ? ORDER BY incurred_on DESC, created_at DESC").all(user.org_id);
+    return { expenses: rows };
+  });
+
+  app.post("/api/finance/expenses", async request => {
+    const user = await app.auth(request);
+    const body = request.body || {};
+    const subtotal = Math.round(Number(body.subtotal) || 0);
+    const vat = Math.round(Number(body.vat) || 0);
+    if (subtotal <= 0) { const e = new Error("Expense subtotal is required"); e.statusCode = 400; throw e; }
+    const total = subtotal + vat;
+    const incurredOn = /^\d{4}-\d{2}-\d{2}$/.test(body.incurredOn || "") ? body.incurredOn : new Date().toISOString().slice(0, 10);
+    const periodKey = incurredOn.slice(0, 7);
+    const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
+    if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
+    const id = randomId("expense");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO expenses (id, org_id, description, vendor, subtotal, vat, total, currency, incurred_on, period_key, created_by_user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'AMD', ?, ?, ?, ?)`)
+      .run(id, user.org_id, String(body.description || "").slice(0, 200), String(body.vendor || "").slice(0, 120), subtotal, vat, total, incurredOn, periodKey, user.id, now);
+    ledger.postExpensePosted(db, user.org_id, { id, description: body.description, subtotal, vat, total, date: incurredOn, period_key: periodKey });
+    audit(db, user.org_id, user.id, "finance.expense.created", { expenseId: id, total, vat });
+    return { expense: { id, subtotal, vat, total, incurredOn, periodKey } };
+  });
+
   app.get("/api/finance/trial-balance", async request => {
     const user = await app.auth(request);
     return ledger.trialBalance(db, user.org_id);
