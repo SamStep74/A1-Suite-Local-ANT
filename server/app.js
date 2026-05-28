@@ -114,6 +114,7 @@ const ROLE_DASHBOARD_CONFIGS = {
 };
 
 const config = require("./config");
+const rag = require("./rag");
 
 function buildApp(options = {}) {
   const db = options.db || openDatabase(options.dbPath || process.env.ARMOSPHERA_ONE_DB);
@@ -123,6 +124,7 @@ function buildApp(options = {}) {
     secret: process.env.COOKIE_SECRET || "armosphera-one-dev-cookie-secret"
   });
 
+  try { rag.init(config.resolveLawsDbPath()); } catch { /* legal KB optional */ }
   app.decorate("db", db);
   app.decorate("auth", async request => {
     const token = request.cookies.sid || bearerToken(request.headers.authorization);
@@ -2818,6 +2820,16 @@ function registerApi(app, db) {
     const user = await app.auth(request);
     const result = createLegalQuestion(db, user, request.body || {});
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.question.customerId) };
+  });
+
+  app.get("/api/legal/law-search", async request => {
+    await app.auth(request);
+    const q = String((request.query && request.query.q) || "").trim();
+    const k = Math.min(20, Math.max(1, Number(request.query && request.query.k) || 8));
+    const s = rag.stats();
+    if (!q) return { ...s, query: "", results: [] };
+    const results = s.ready ? await rag.searchHybrid(q, k) : [];
+    return { ...s, query: q, results };
   });
 
   app.get("/api/legal/sources", async request => {
