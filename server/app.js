@@ -42902,7 +42902,18 @@ function selectLegalSources(db, orgId, topic, questionText) {
       excerpt: legalSourceExcerpt(source.id)
     });
   }
-  return sources;
+  return groundLegalSources(sources, questionText);
+}
+
+function groundLegalSources(sources, questionText) {
+  if (!rag.stats().ready) return sources;
+  const hits = rag.search(questionText, 3);
+  if (!hits.length) return sources;
+  const citation = hits.slice(0, 2)
+    .map(h => `[${h.lawTitle} · ${h.article}] ${String(h.text).replace(/\s+/g, " ").trim()}`)
+    .join("  ")
+    .slice(0, 800);
+  return sources.map(s => ({ ...s, excerpt: citation }));
 }
 
 function legalSourceExcerpt(sourceId) {
