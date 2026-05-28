@@ -113,6 +113,8 @@ const ROLE_DASHBOARD_CONFIGS = {
   }
 };
 
+const config = require("./config");
+
 function buildApp(options = {}) {
   const db = options.db || openDatabase(options.dbPath || process.env.ARMOSPHERA_ONE_DB);
   const app = fastify({ logger: options.logger ?? false });
@@ -43295,7 +43297,7 @@ async function attemptWebhookDelivery(db, orgId, deliveryId) {
   let nextRetryAt = new Date(Date.now() + 1000 * 60 * 15).toISOString();
 
   try {
-    const response = await fetch(delivery.url, {
+    const response = await config.safeFetch(delivery.url, {
       method: "POST",
       headers: {
         "content-type": "application/json",
