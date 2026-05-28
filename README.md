@@ -36,6 +36,27 @@ Demo owner:
   (`AI_PROVIDER=local`, Ollama on `127.0.0.1:11434`), with cloud providers opt-in per
   deployment and subject to the same egress allowlist above.
 
+## Legal knowledge base (RA-law RAG)
+
+Armenian-law retrieval is local and offline-first. Lexical search (BM25) needs no
+model and no network. Optional semantic re-ranking uses a local Ollama embedder
+(`bge-m3`) over loopback; if it is absent, search falls back to BM25 automatically.
+
+Install the prebuilt knowledge base:
+
+```bash
+node scripts/install-laws.js [path-to-laws.sqlite]
+```
+
+With no argument it looks for an existing HayHashvapah build at
+`~/Library/Application Support/HayHashvapahWebClaude/data/laws.sqlite`. The KB is
+copied to `~/Library/Application Support/ArmospheraOneClaude/laws.sqlite` (override
+with `ARMOSPHERA_ONE_LAWS_DB`). Query it via `GET /api/legal/law-search?q=...`.
+
+Rebuilding from source PDFs (chunk by `Հոդված`, then embed with `bge-m3`) is the
+operator path documented in the HayHashvapah project; it requires `pdftotext` and a
+local Ollama embedder.
+
 ## Configuration
 
 | Env var | Purpose | Default |
@@ -49,6 +70,9 @@ Demo owner:
 | `AI_PROVIDER` | Scaffolding (not yet wired): `local` / `claude` / `openai` / `auto` | `local` |
 | `LOCAL_AI_BASE_URL` | Local AI endpoint (Ollama, OpenAI-compatible) | `http://127.0.0.1:11434/v1` |
 | `LOCAL_AI_MODEL` | Local AI model | `gemma3:4b` |
+| `ARMOSPHERA_ONE_LAWS_DB` | Override the legal KB path | `<data dir>/laws.sqlite` |
+| `LAW_EMBED_MODEL` | Local embedder model for semantic search | `bge-m3` |
+| `LAW_EMBED_BASE` | Local embedder base URL (loopback) | `http://127.0.0.1:11434` |
 
 ## Test
 
