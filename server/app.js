@@ -45978,6 +45978,15 @@ function postDraftInvoice(db, user, draftInvoice, body) {
     }
   });
   audit(db, user.org_id, user.id, "finance.invoice.posted", { draftInvoiceId: draftInvoice.id, invoiceId, number });
+  ledger.postInvoicePosted(db, user.org_id, {
+    id: invoiceId,
+    number,
+    total: draftInvoice.total,
+    vat: draftInvoice.vat,
+    subtotal: draftInvoice.subtotal,
+    period_key: draftInvoice.periodKey,
+    date: draftInvoice.issueDate
+  });
 
   return {
     idempotent: false,
@@ -46065,6 +46074,13 @@ async function recordInvoicePayment(db, user, invoice, body) {
     }
   });
   audit(db, user.org_id, user.id, "finance.payment.received", { invoiceId: invoice.id, paymentId, amount: Math.round(amount), reference });
+  ledger.postPaymentReceived(db, user.org_id, {
+    id: paymentId,
+    invoice_id: invoice.id,
+    amount: Math.round(amount),
+    date: paidAt,
+    period_key: periodKey
+  });
 
   const payment = getFinancePayment(db, user.org_id, paymentId);
   const updatedInvoice = getInvoice(db, user.org_id, invoice.id);
