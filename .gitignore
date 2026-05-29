@@ -13,3 +13,4 @@ public/assets/
 public/index.html
 reports/
 web/node_modules/
+deploy/*.log

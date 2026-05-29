@@ -10,7 +10,9 @@
     "dev": "NODE_ENV=development node --watch server/index.js",
     "build:ui": "npm --prefix web install && npm --prefix web run build",
     "test": "node --test",
-    "smoke": "node scripts/smoke.js"
+    "smoke": "node scripts/smoke.js",
+    "install:server": "bash deploy/install.sh",
+    "backup": "bash deploy/backup.sh"
   },
   "engines": {
     "node": ">=22.5"
