@@ -664,6 +664,37 @@ function initSchema(db) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS bills (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      supplier TEXT NOT NULL DEFAULT '',
+      description TEXT NOT NULL DEFAULT '',
+      subtotal INTEGER NOT NULL,
+      vat INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      bill_date TEXT NOT NULL,
+      due_date TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'open',
+      period_key TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS bill_payments (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      bill_id TEXT NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
+      amount INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      paid_at TEXT NOT NULL,
+      method TEXT NOT NULL DEFAULT 'bank-transfer',
+      reference TEXT NOT NULL DEFAULT '',
+      period_key TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
     CREATE TABLE IF NOT EXISTS finance_bank_transactions (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

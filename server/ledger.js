@@ -135,4 +135,37 @@ function postPayrollRun(db, orgId, run) {
   return ids.filter(Boolean);
 }
 
-module.exports = { CHART, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError };
+function postBillPosted(db, orgId, bill) {
+  const total = Math.round(Number(bill.total) || 0);
+  const vat = Math.round(Number(bill.vat) || 0);
+  const hasSubtotal = bill.subtotal !== undefined && bill.subtotal !== null && bill.subtotal !== "";
+  const net = hasSubtotal ? Math.round(Number(bill.subtotal) || 0) : total - vat;
+  const date = bill.date || bill.bill_date || new Date().toISOString().slice(0, 10);
+  const periodKey = bill.period_key || "";
+  const ids = [];
+  if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: "711", creditCode: "521", amount: net, memo: `Bill ${bill.supplier || bill.id}`, sourceType: "bill", sourceId: bill.id, periodKey }));
+  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: "526", creditCode: "521", amount: vat, memo: `Bill VAT ${bill.id}`, sourceType: "bill", sourceId: bill.id, periodKey }));
+  return ids.filter(Boolean);
+}
+
+function postBillPayment(db, orgId, payment) {
+  return [postEntry(db, orgId, {
+    date: payment.date || payment.paid_at || new Date().toISOString().slice(0, 10),
+    debitCode: "521", creditCode: "251", amount: payment.amount,
+    memo: `Bill payment ${payment.id}`, sourceType: "bill_payment", sourceId: payment.id, periodKey: payment.period_key || ""
+  })].filter(Boolean);
+}
+
+function buildPayablesModel(db, orgId) {
+  const bills = db.prepare("SELECT id, supplier, bill_date AS date, due_date AS dueDate, total, status FROM bills WHERE org_id = ?").all(orgId).map(b => {
+    const paid = db.prepare("SELECT COALESCE(SUM(amount),0) AS p FROM bill_payments WHERE org_id = ? AND bill_id = ?").get(orgId, b.id).p;
+    return { ...b, paidAmount: paid };
+  });
+  return { bills };
+}
+
+function payablesReport(db, orgId, asOf) {
+  return accounting.calculatePayables(buildPayablesModel(db, orgId), { asOf: asOf || new Date().toISOString().slice(0, 10) });
+}
+
+module.exports = { CHART, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, postBillPosted, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError };

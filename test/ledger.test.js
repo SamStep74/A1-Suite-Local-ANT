@@ -94,3 +94,34 @@ test("payroll run posts a balanced Dt 714 / Kt 521+525 entry", () => {
   assert.strictEqual(byCode["525"].balance, -163500);
   assert.strictEqual(tb.balanced, true);
 });
+
+test("posting a bill debits expense + input VAT and credits payable", () => {
+  const { db, orgId } = freshDb();
+  ledger.postBillPosted(db, orgId, { id: "bill-t1", subtotal: 500, vat: 100, total: 600, date: "2026-05-10" });
+  const byCode = Object.fromEntries(ledger.trialBalance(db, orgId).rows.map(r => [r.code, r]));
+  assert.strictEqual(byCode["711"].balance, 500);
+  assert.strictEqual(byCode["526"].balance, 100);
+  assert.strictEqual(byCode["521"].balance, -600);
+});
+
+test("paying a bill settles the payable from cash, staying balanced", () => {
+  const { db, orgId } = freshDb();
+  ledger.postBillPosted(db, orgId, { id: "bill-t1", subtotal: 500, vat: 100, total: 600, date: "2026-05-10" });
+  ledger.postBillPayment(db, orgId, { id: "bp-t1", amount: 600, date: "2026-05-12" });
+  const tb = ledger.trialBalance(db, orgId);
+  const byCode = Object.fromEntries(tb.rows.map(r => [r.code, r]));
+  assert.strictEqual(byCode["521"].balance, 0);
+  assert.strictEqual(byCode["251"].balance, -600);
+  assert.strictEqual(tb.balanced, true);
+});
+
+test("payablesReport ages an outstanding bill", () => {
+  const { db, orgId } = freshDb();
+  const now = new Date().toISOString();
+  db.prepare(`INSERT INTO bills (id, org_id, supplier, subtotal, vat, total, bill_date, due_date, status, created_at)
+    VALUES ('bill-ap', ?, 'Acme', 500, 100, 600, '2026-04-01', '2026-04-15', 'open', ?)`).run(orgId, now);
+  const r = ledger.payablesReport(db, orgId, "2026-05-29");
+  assert.strictEqual(r.totalOutstanding, 600);
+  assert.strictEqual(r.openBills.length, 1);
+  assert.ok(r.openBills[0].daysPastDue > 0);
+});
