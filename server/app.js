@@ -117,6 +117,7 @@ const config = require("./config");
 const rag = require("./rag");
 const accounting = require("./accounting");
 const ledger = require("./ledger");
+const payroll = require("./payroll");
 
 function buildApp(options = {}) {
   const db = options.db || openDatabase(options.dbPath || process.env.ARMOSPHERA_ONE_DB);
@@ -2865,6 +2866,36 @@ function registerApi(app, db) {
   app.get("/api/finance/statements", async request => {
     const user = await app.auth(request);
     return accounting.financialStatements(ledger.buildLedgerModel(db, user.org_id));
+  });
+
+  app.post("/api/payroll/calculate", async request => {
+    await app.auth(request);
+    const body = request.body || {};
+    return { payroll: payroll.calculatePayroll(body.gross, { config: body.config }) };
+  });
+
+  app.get("/api/payroll/runs", async request => {
+    const user = await app.auth(request);
+    const runs = db.prepare("SELECT id, employee_name AS employeeName, gross, income_tax AS incomeTax, pension, stamp_duty AS stampDuty, total_deductions AS totalDeductions, net, run_date AS runDate, period_key AS periodKey FROM payroll_runs WHERE org_id = ? ORDER BY run_date DESC, created_at DESC").all(user.org_id);
+    return { runs };
+  });
+
+  app.post("/api/payroll/run", async request => {
+    const user = await app.auth(request);
+    const body = request.body || {};
+    const calc = payroll.calculatePayroll(body.gross, { config: body.config });
+    const runDate = /^\d{4}-\d{2}-\d{2}$/.test(body.runDate || "") ? body.runDate : new Date().toISOString().slice(0, 10);
+    const periodKey = runDate.slice(0, 7);
+    const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
+    if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
+    const id = randomId("payroll");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO payroll_runs (id, org_id, employee_name, gross, income_tax, pension, stamp_duty, total_deductions, net, run_date, period_key, created_by_user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, user.org_id, String(body.employeeName || "").slice(0, 160), calc.gross, calc.incomeTax, calc.pension, calc.stampDuty, calc.totalDeductions, calc.net, runDate, periodKey, user.id, now);
+    ledger.postPayrollRun(db, user.org_id, { id, employeeName: body.employeeName, gross: calc.gross, net: calc.net, totalDeductions: calc.totalDeductions, date: runDate, period_key: periodKey });
+    audit(db, user.org_id, user.id, "finance.payroll.run", { payrollRunId: id, gross: calc.gross, net: calc.net });
+    return { run: { id, ...calc, runDate, periodKey } };
   });
 
   app.get("/api/legal/law-search", async request => {
