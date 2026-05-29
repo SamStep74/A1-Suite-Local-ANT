@@ -2933,6 +2933,25 @@ function registerApi(app, db) {
     return ledger.trialBalance(db, user.org_id);
   });
 
+  app.get("/api/finance/opening-balances", async request => {
+    const user = await app.auth(request);
+    return ledger.openingBalances(db, user.org_id);
+  });
+
+  app.post("/api/finance/opening-balances", async request => {
+    const user = await app.auth(request);
+    requirePilotAccountantReviewWriter(user); // Owner/Admin/Accountant only
+    const body = request.body || {};
+    const asOf = /^\d{4}-\d{2}-\d{2}$/.test(body.asOf || "") ? body.asOf : new Date().toISOString().slice(0, 10);
+    const periodKey = asOf.slice(0, 7);
+    const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
+    if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
+    const entries = Array.isArray(body.entries) ? body.entries : [];
+    const result = ledger.postOpeningBalances(db, user.org_id, { asOf, period_key: periodKey, entries });
+    audit(db, user.org_id, user.id, "finance.opening_balances.set", { asOf, count: result.count });
+    return ledger.openingBalances(db, user.org_id);
+  });
+
   app.get("/api/finance/statements", async request => {
     const user = await app.auth(request);
     return accounting.financialStatements(ledger.buildLedgerModel(db, user.org_id));
