@@ -12,7 +12,8 @@ const CHART = [
   { code: "526", name: "ԱԱՀ դեբետ (մուտքային)", type: "asset" },
   { code: "611", name: "Հասույթ", type: "income" },
   { code: "711", name: "Ծախսեր", type: "expense" },
-  { code: "714", name: "Աշխատավարձի ծախս", type: "expense" }
+  { code: "714", name: "Աշխատավարձի ծախս", type: "expense" },
+  { code: "331", name: "Բացման մնացորդների կապիտալ", type: "equity" }
 ];
 
 function ensureChartOfAccounts(db, orgId) {
@@ -49,6 +50,71 @@ function postEntry(db, orgId, entry) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(id, orgId, String(date).slice(0, 10), debitCode, creditCode, value, memo, sourceType, sourceId, periodKey, now);
   return res.changes > 0 ? id : null;
+}
+
+const OPENING_BALANCE_EQUITY_CODE = "331";
+
+function accountTypeByCode(code) {
+  const acct = CHART.find(a => a.code === String(code));
+  return acct ? acct.type : null;
+}
+
+// Post one account's opening balance against the Opening Balance Equity account (331).
+// Debit-natured accounts (asset/expense): Dt <code> / Kt 331. Credit-natured
+// (liability/equity/income): Dt 331 / Kt <code>. Idempotent per (account, asOf date).
+function postOpeningBalance(db, orgId, entry) {
+  const code = String(entry.code || "");
+  const amount = Math.round(Number(entry.amount) || 0);
+  if (amount <= 0) return [];
+  if (code === OPENING_BALANCE_EQUITY_CODE) return []; // never set the contra directly
+  const type = accountTypeByCode(code);
+  if (!type) return []; // unknown account code — skip
+  const date = String(entry.date || entry.asOf || new Date().toISOString().slice(0, 10)).slice(0, 10);
+  const periodKey = entry.period_key || entry.periodKey || "";
+  const sourceId = `ob-${date}-${code}`;
+  const debitNatured = type === "asset" || type === "expense";
+  const leg = debitNatured
+    ? { debitCode: code, creditCode: OPENING_BALANCE_EQUITY_CODE }
+    : { debitCode: OPENING_BALANCE_EQUITY_CODE, creditCode: code };
+  const id = postEntry(db, orgId, {
+    date, ...leg, amount,
+    memo: `Opening balance ${code}`, sourceType: "opening_balance", sourceId, periodKey
+  });
+  return id ? [id] : [];
+}
+
+function postOpeningBalances(db, orgId, payload) {
+  const asOf = /^\d{4}-\d{2}-\d{2}$/.test(payload.asOf || "")
+    ? payload.asOf : new Date().toISOString().slice(0, 10);
+  const periodKey = payload.period_key || payload.periodKey || "";
+  const entries = Array.isArray(payload.entries) ? payload.entries : [];
+  const posted = [];
+  for (const e of entries) {
+    for (const id of postOpeningBalance(db, orgId, { code: e.code, amount: e.amount, date: asOf, period_key: periodKey })) {
+      posted.push(id);
+    }
+  }
+  return { asOf, posted, count: posted.length };
+}
+
+// List current opening balances (one row per account whose opening balance was set),
+// plus the net opening equity introduced (asset openings − liability openings).
+function openingBalances(db, orgId) {
+  ensureChartOfAccounts(db, orgId);
+  const rows = db.prepare(
+    "SELECT entry_date, debit_code, credit_code, amount FROM ledger_journal WHERE org_id = ? AND source_type = 'opening_balance' ORDER BY entry_date, id"
+  ).all(orgId);
+  const byCode = new Map(CHART.map(a => [a.code, a]));
+  const entries = rows.map(r => {
+    const code = r.debit_code === OPENING_BALANCE_EQUITY_CODE ? r.credit_code : r.debit_code;
+    const side = r.debit_code === OPENING_BALANCE_EQUITY_CODE ? "credit" : "debit";
+    const acc = byCode.get(code) || {};
+    return { code, name: acc.name || code, type: acc.type || "", side, amount: accounting.roundMoney(r.amount), date: r.entry_date };
+  });
+  const openingEquity = accounting.roundMoney(
+    entries.reduce((s, r) => s + (r.side === "debit" ? r.amount : -r.amount), 0)
+  );
+  return { entries, count: entries.length, openingEquity };
 }
 
 function postInvoicePosted(db, orgId, invoice) {
@@ -168,4 +234,4 @@ function payablesReport(db, orgId, asOf) {
   return accounting.calculatePayables(buildPayablesModel(db, orgId), { asOf: asOf || new Date().toISOString().slice(0, 10) });
 }
 
-module.exports = { CHART, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, postBillPosted, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError };
+module.exports = { CHART, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, postBillPosted, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, postOpeningBalance, postOpeningBalances, openingBalances };
