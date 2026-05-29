@@ -287,7 +287,7 @@ export function FinanceOpeningBalancesForm({ onSubmit, actionState }) {
     <article className="panel finance-opening-balances-form-panel">
       <div className="panel-head"><div><span className="section-label">HayHashvapah Finance</span><h2>Set opening balances</h2></div></div>
       <div className="inline-form">
-        <input value={asOf} onChange={event => setAsOf(event.target.value)} placeholder="Ամսաթիվ (YYYY-MM-DD)" />
+        <input type="date" value={asOf} onChange={event => setAsOf(event.target.value)} placeholder="Ամսաթիվ (YYYY-MM-DD)" />
         <select value={code} onChange={event => setCode(event.target.value)}>
           {OPENING_BALANCE_ACCOUNTS.map(account => (
             <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
