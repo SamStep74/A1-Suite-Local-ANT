@@ -1913,6 +1913,11 @@ function registerApi(app, db) {
     return { quotes: getQuotes(db, user.org_id, customerId) };
   });
 
+  app.get("/api/crm/activities", async request => {
+    const user = await app.auth(request);
+    return { activities: getCrmActivities(db, user.org_id) };
+  });
+
   app.post("/api/crm/quotes", async request => {
     const user = await app.auth(request);
     requireCrmEditor(user);
