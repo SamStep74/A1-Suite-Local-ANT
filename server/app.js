@@ -2908,11 +2908,18 @@ function registerApi(app, db) {
     const periodKey = paidAt.slice(0, 7);
     const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
     if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
+    const reference = String(body.reference || "");
+    const existingPayment = db.prepare(
+      "SELECT * FROM bill_payments WHERE org_id = ? AND bill_id = ? AND amount = ? AND reference = ?"
+    ).get(user.org_id, bill.id, amount, reference);
+    if (existingPayment) {
+      return { idempotent: true, payment: { id: existingPayment.id, billId: bill.id, amount: existingPayment.amount, paidAt: existingPayment.paid_at, status: bill.status } };
+    }
     const id = randomId("billpay");
     const now = new Date().toISOString();
     db.prepare(`INSERT INTO bill_payments (id, org_id, bill_id, amount, currency, paid_at, method, reference, period_key, created_by_user_id, created_at)
       VALUES (?, ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?)`)
-      .run(id, user.org_id, bill.id, amount, paidAt, String(body.method || "bank-transfer"), String(body.reference || ""), periodKey, user.id, now);
+      .run(id, user.org_id, bill.id, amount, paidAt, String(body.method || "bank-transfer"), reference, periodKey, user.id, now);
     const paidTotal = db.prepare("SELECT COALESCE(SUM(amount),0) AS p FROM bill_payments WHERE org_id = ? AND bill_id = ?").get(user.org_id, bill.id).p;
     const status = paidTotal >= bill.total ? "paid" : "partial";
     db.prepare("UPDATE bills SET status = ? WHERE org_id = ? AND id = ?").run(status, user.org_id, bill.id);
