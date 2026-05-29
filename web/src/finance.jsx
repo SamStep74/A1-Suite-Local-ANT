@@ -1,4 +1,4 @@
-import React from "react";
+import React, { useState } from "react";
 
 const amd = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 
@@ -75,6 +75,86 @@ export function FinanceVatPanel({ data }) {
         <div className="metric"><span>net payable</span><strong>{amd(data.netVatPayable)}</strong></div>
       </div>
       {data.note && <p className="action-status">{data.note}</p>}
+    </article>
+  );
+}
+
+export function FinanceExpenseForm({ onCreate, actionState }) {
+  const [description, setDescription] = useState("");
+  const [subtotal, setSubtotal] = useState("");
+  const [vat, setVat] = useState("");
+  const busy = actionState === "expense:create";
+  function submit() {
+    const net = Math.round(Number(subtotal) || 0);
+    if (net <= 0) return;
+    onCreate({ description, subtotal: net, vat: Math.round(Number(vat) || 0) });
+    setDescription("");
+    setSubtotal("");
+    setVat("");
+  }
+  return (
+    <article className="panel finance-expense-form-panel">
+      <div className="panel-head">
+        <div>
+          <span className="section-label">HayHashvapah Finance</span>
+          <h2>Quick expense</h2>
+        </div>
+      </div>
+      <div className="inline-form">
+        <input value={description} onChange={event => setDescription(event.target.value)} placeholder="Նկարագրություն" />
+        <input value={subtotal} onChange={event => setSubtotal(event.target.value)} inputMode="numeric" placeholder="Զուտ (AMD)" />
+        <input value={vat} onChange={event => setVat(event.target.value)} inputMode="numeric" placeholder="ԱԱՀ (AMD)" />
+        <button className="mini-action" type="button" disabled={busy} onClick={submit}>{busy ? "Posting" : "Post expense"}</button>
+      </div>
+    </article>
+  );
+}
+
+export function LegalSearchPanel({ onSearch }) {
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState(null);
+  const [busy, setBusy] = useState(false);
+  async function run() {
+    if (!query.trim()) return;
+    setBusy(true);
+    try {
+      setResults(await onSearch(query.trim()));
+    } catch {
+      setResults({ ready: true, results: [] });
+    } finally {
+      setBusy(false);
+    }
+  }
+  const rows = (results && results.results) || [];
+  return (
+    <article className="panel legal-search-panel">
+      <div className="panel-head">
+        <div>
+          <span className="section-label">Armenian law · RAG</span>
+          <h2>Law search</h2>
+        </div>
+      </div>
+      <div className="inline-form">
+        <input
+          value={query}
+          onChange={event => setQuery(event.target.value)}
+          onKeyDown={event => { if (event.key === "Enter") run(); }}
+          placeholder="Հարցում (օր. ԱԱՀ դրույքաչափ)"
+        />
+        <button className="mini-action" type="button" disabled={busy} onClick={run}>{busy ? "Searching" : "Search"}</button>
+      </div>
+      {results && (
+        <div className="rows">
+          {rows.map((row, index) => (
+            <div className="row" key={index}>
+              <span>{row.lawTitle} · {row.article}</span>
+            </div>
+          ))}
+          {rows.length === 0 && (
+            <div className="row"><span>{results.ready === false ? "Legal KB not installed" : "No matches"}</span></div>
+          )}
+        </div>
+      )}
     </article>
   );
 }

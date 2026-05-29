@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
-import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel } from "./finance.jsx";
+import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel } from "./finance.jsx";
 
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 const sensitiveMoney = value => value === null || value === "restricted" ? "restricted" : money(value);
@@ -3169,6 +3169,20 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     }
   }
 
+  async function createExpense(body) {
+    setActionState("expense:create");
+    try {
+      await api("/api/finance/expenses", { method: "POST", body });
+      setActionState("expense:done");
+      onReload();
+    } catch {
+      setActionState("expense:error");
+    }
+  }
+  async function lawSearch(query) {
+    return api(`/api/legal/law-search?q=${encodeURIComponent(query)}`);
+  }
+
   async function capturePilotLead() {
     setActionState("lead:capture");
     try {
@@ -3478,6 +3492,8 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               <FinanceTrialBalancePanel data={finance.trialBalance} />
               <FinanceStatementsPanel data={finance.statements} />
               <FinanceVatPanel data={finance.vat} />
+              <FinanceExpenseForm onCreate={createExpense} actionState={actionState} />
+              <LegalSearchPanel onSearch={lawSearch} />
             </>
           )}
           {crmForecastData && (
