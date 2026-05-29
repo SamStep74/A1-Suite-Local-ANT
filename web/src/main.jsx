@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel } from "./finance.jsx";
-import { CrmQuotesPanel } from "./crm.jsx";
+import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm } from "./crm.jsx";
 
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 const sensitiveMoney = value => value === null || value === "restricted" ? "restricted" : money(value);
@@ -3197,6 +3197,16 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
       setActionState(`quote:approve:error:${quoteId}`);
     }
   }
+  async function createQuote(body) {
+    setActionState("quote:create");
+    try {
+      await api("/api/crm/quotes", { method: "POST", body });
+      setActionState("quote:create:done");
+      onReload();
+    } catch {
+      setActionState("quote:create:error");
+    }
+  }
   async function createBill(body) {
     setActionState("bill:create");
     try { await api("/api/finance/bills", { method: "POST", body }); setActionState("bill:done"); onReload(); }
@@ -3537,6 +3547,12 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           )}
           {crmQuotes && (
             <CrmQuotesPanel data={crmQuotes} actionState={actionState} onRequestApproval={requestQuoteApproval} />
+          )}
+          {crmForecastData && (
+            <>
+              <CrmQuoteForm deals={crmForecastData.deals} onCreate={createQuote} actionState={actionState} />
+              <CrmDealsBoard data={crmForecastData} />
+            </>
           )}
           <QuoteApprovalPanel
             quote={createdQuote}
