@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel } from "./finance.jsx";
-import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm } from "./crm.jsx";
+import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm, CrmActivityPanel } from "./crm.jsx";
 
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 const sensitiveMoney = value => value === null || value === "restricted" ? "restricted" : money(value);
@@ -87,6 +87,7 @@ function App() {
   const [crmLeadData, setCrmLeadData] = useState(null);
   const [crmForecastData, setCrmForecastData] = useState(null);
   const [crmQuotes, setCrmQuotes] = useState(null);
+  const [crmActivities, setCrmActivities] = useState(null);
   const [campaignPerformance, setCampaignPerformance] = useState(null);
   const [receivablesAging, setReceivablesAging] = useState(null);
   const [finance, setFinance] = useState(null);
@@ -213,10 +214,13 @@ function App() {
         setCrmForecastData(forecastData);
         const quotesData = await api("/api/crm/quotes");
         setCrmQuotes(quotesData);
+        const activitiesData = await api("/api/crm/activities");
+        setCrmActivities(activitiesData);
       } else {
         setCrmLeadData(null);
         setCrmForecastData(null);
         setCrmQuotes(null);
+        setCrmActivities(null);
       }
       if ((data.apps || []).some(app => app.id === "campaigns")) {
         const campaignData = await api("/api/campaigns/performance");
@@ -556,6 +560,7 @@ function App() {
         setCrmLeadData(null);
         setCrmForecastData(null);
         setCrmQuotes(null);
+        setCrmActivities(null);
         setCampaignPerformance(null);
         setReceivablesAging(null);
         setSemanticMetrics(null);
@@ -672,6 +677,7 @@ function App() {
       crmLeadData={crmLeadData}
       crmForecastData={crmForecastData}
       crmQuotes={crmQuotes}
+      crmActivities={crmActivities}
       campaignPerformance={campaignPerformance}
       receivablesAging={receivablesAging}
             finance={finance}
@@ -838,7 +844,7 @@ function Login({ onDone }) {
   );
 }
 
-function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, campaignPerformance, receivablesAging, finance, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilotTemplateData, pilotOwnerBriefs, pilotOperatorWorkbenches, pilotAccountantReviews, pilotLaunchReadinessPackets, pilotLaunchRemediationPlans, pilotRemediationResolutions, pilotLaunchClearancePackets, pilotPaidOffers, pilotQuoteHandoffs, pilotQuoteReleases, pilotQuoteAcceptanceHandoffs, pilotHayhashvapahDrafts, pilotOfficialInvoices, pilotPaymentCollections, pilotCloseouts, pilotRenewalQuoteHandoffs, pilotRenewalQuoteReleases, pilotRenewalAcceptanceHandoffs, pilotRenewalHayhashvapahDrafts, pilotRenewalOfficialInvoices, pilotRenewalPaymentCollections, pilotRenewalCloseouts, pilotNextRenewalQuoteHandoffs, pilotNextRenewalQuoteReleases, pilotNextRenewalAcceptanceHandoffs, pilotNextRenewalHayhashvapahDrafts, pilotNextRenewalOfficialInvoices, pilotNextRenewalPaymentCollections, pilotNextRenewalCloseouts, pilotFollowingRenewalQuoteHandoffs, pilotFollowingRenewalQuoteReleases, pilotFollowingRenewalAcceptanceHandoffs, pilotFollowingRenewalHayhashvapahDrafts, pilotFollowingRenewalOfficialInvoices, pilotFollowingRenewalPaymentCollections, pilotFollowingRenewalCloseouts, pilotSubsequentRenewalQuoteHandoffs, pilotSubsequentRenewalQuoteReleases, pilotSubsequentRenewalAcceptanceHandoffs, pilotSubsequentRenewalHayhashvapahDrafts, pilotSubsequentRenewalOfficialInvoices, pilotSubsequentRenewalPaymentCollections, pilotSubsequentRenewalCloseouts, pilotContinuationRenewalQuoteHandoffs, pilotContinuationRenewalQuoteReleases, pilotContinuationRenewalAcceptanceHandoffs, pilotContinuationRenewalHayhashvapahDrafts, pilotContinuationRenewalOfficialInvoices, pilotContinuationRenewalPaymentCollections, pilotContinuationRenewalCloseouts, pilotOngoingRenewalQuoteHandoffs, pilotOngoingRenewalQuoteReleases, pilotOngoingRenewalAcceptanceHandoffs, pilotOngoingRenewalHayhashvapahDrafts, pilotOngoingRenewalOfficialInvoices, pilotOngoingRenewalPaymentCollections, pilotOngoingRenewalCloseouts, pilotNextOngoingRenewalQuoteHandoffs, pilotNextOngoingRenewalQuoteReleases, pilotNextOngoingRenewalAcceptanceHandoffs, pilotNextOngoingRenewalHayhashvapahDrafts, pilotNextOngoingRenewalOfficialInvoices, pilotNextOngoingRenewalPaymentCollections, pilotNextOngoingRenewalCloseouts, pilotFollowingOngoingRenewalQuoteHandoffs, pilotFollowingOngoingRenewalQuoteReleases, pilotFollowingOngoingRenewalAcceptanceHandoffs, pilotFollowingOngoingRenewalHayhashvapahDrafts, pilotFollowingOngoingRenewalOfficialInvoices, pilotFollowingOngoingRenewalPaymentCollections, pilotFollowingOngoingRenewalCloseouts, pilotSubsequentOngoingRenewalQuoteHandoffs, pilotSubsequentOngoingRenewalQuoteReleases, pilotSubsequentOngoingRenewalAcceptanceHandoffs, pilotSubsequentOngoingRenewalHayhashvapahDrafts, pilotSubsequentOngoingRenewalOfficialInvoices, pilotSubsequentOngoingRenewalPaymentCollections, pilotSubsequentOngoingRenewalCloseouts, pilotNextRecurringOngoingRenewalQuoteHandoffs, pilotNextRecurringOngoingRenewalQuoteReleases, pilotNextRecurringOngoingRenewalAcceptanceHandoffs, pilotNextRecurringOngoingRenewalHayhashvapahDrafts, pilotNextRecurringOngoingRenewalOfficialInvoices, pilotNextRecurringOngoingRenewalPaymentCollections, pilotNextRecurringOngoingRenewalCloseouts, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, selectedApp, onSelectApp, onReload }) {
+function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilotTemplateData, pilotOwnerBriefs, pilotOperatorWorkbenches, pilotAccountantReviews, pilotLaunchReadinessPackets, pilotLaunchRemediationPlans, pilotRemediationResolutions, pilotLaunchClearancePackets, pilotPaidOffers, pilotQuoteHandoffs, pilotQuoteReleases, pilotQuoteAcceptanceHandoffs, pilotHayhashvapahDrafts, pilotOfficialInvoices, pilotPaymentCollections, pilotCloseouts, pilotRenewalQuoteHandoffs, pilotRenewalQuoteReleases, pilotRenewalAcceptanceHandoffs, pilotRenewalHayhashvapahDrafts, pilotRenewalOfficialInvoices, pilotRenewalPaymentCollections, pilotRenewalCloseouts, pilotNextRenewalQuoteHandoffs, pilotNextRenewalQuoteReleases, pilotNextRenewalAcceptanceHandoffs, pilotNextRenewalHayhashvapahDrafts, pilotNextRenewalOfficialInvoices, pilotNextRenewalPaymentCollections, pilotNextRenewalCloseouts, pilotFollowingRenewalQuoteHandoffs, pilotFollowingRenewalQuoteReleases, pilotFollowingRenewalAcceptanceHandoffs, pilotFollowingRenewalHayhashvapahDrafts, pilotFollowingRenewalOfficialInvoices, pilotFollowingRenewalPaymentCollections, pilotFollowingRenewalCloseouts, pilotSubsequentRenewalQuoteHandoffs, pilotSubsequentRenewalQuoteReleases, pilotSubsequentRenewalAcceptanceHandoffs, pilotSubsequentRenewalHayhashvapahDrafts, pilotSubsequentRenewalOfficialInvoices, pilotSubsequentRenewalPaymentCollections, pilotSubsequentRenewalCloseouts, pilotContinuationRenewalQuoteHandoffs, pilotContinuationRenewalQuoteReleases, pilotContinuationRenewalAcceptanceHandoffs, pilotContinuationRenewalHayhashvapahDrafts, pilotContinuationRenewalOfficialInvoices, pilotContinuationRenewalPaymentCollections, pilotContinuationRenewalCloseouts, pilotOngoingRenewalQuoteHandoffs, pilotOngoingRenewalQuoteReleases, pilotOngoingRenewalAcceptanceHandoffs, pilotOngoingRenewalHayhashvapahDrafts, pilotOngoingRenewalOfficialInvoices, pilotOngoingRenewalPaymentCollections, pilotOngoingRenewalCloseouts, pilotNextOngoingRenewalQuoteHandoffs, pilotNextOngoingRenewalQuoteReleases, pilotNextOngoingRenewalAcceptanceHandoffs, pilotNextOngoingRenewalHayhashvapahDrafts, pilotNextOngoingRenewalOfficialInvoices, pilotNextOngoingRenewalPaymentCollections, pilotNextOngoingRenewalCloseouts, pilotFollowingOngoingRenewalQuoteHandoffs, pilotFollowingOngoingRenewalQuoteReleases, pilotFollowingOngoingRenewalAcceptanceHandoffs, pilotFollowingOngoingRenewalHayhashvapahDrafts, pilotFollowingOngoingRenewalOfficialInvoices, pilotFollowingOngoingRenewalPaymentCollections, pilotFollowingOngoingRenewalCloseouts, pilotSubsequentOngoingRenewalQuoteHandoffs, pilotSubsequentOngoingRenewalQuoteReleases, pilotSubsequentOngoingRenewalAcceptanceHandoffs, pilotSubsequentOngoingRenewalHayhashvapahDrafts, pilotSubsequentOngoingRenewalOfficialInvoices, pilotSubsequentOngoingRenewalPaymentCollections, pilotSubsequentOngoingRenewalCloseouts, pilotNextRecurringOngoingRenewalQuoteHandoffs, pilotNextRecurringOngoingRenewalQuoteReleases, pilotNextRecurringOngoingRenewalAcceptanceHandoffs, pilotNextRecurringOngoingRenewalHayhashvapahDrafts, pilotNextRecurringOngoingRenewalOfficialInvoices, pilotNextRecurringOngoingRenewalPaymentCollections, pilotNextRecurringOngoingRenewalCloseouts, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, selectedApp, onSelectApp, onReload }) {
   const selected = suite.apps.find(app => app.id === selectedApp) || suite.apps[0];
   const [actionState, setActionState] = useState("");
   const [restoreProof, setRestoreProof] = useState(null);
@@ -3553,6 +3559,9 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               <CrmQuoteForm deals={crmForecastData.deals} onCreate={createQuote} actionState={actionState} />
               <CrmDealsBoard data={crmForecastData} />
             </>
+          )}
+          {crmActivities && (
+            <CrmActivityPanel data={crmActivities} />
           )}
           <QuoteApprovalPanel
             quote={createdQuote}

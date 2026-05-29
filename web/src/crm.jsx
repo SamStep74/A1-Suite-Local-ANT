@@ -103,3 +103,25 @@ export function CrmQuoteForm({ deals, onCreate, actionState }) {
     </article>
   );
 }
+
+export function CrmActivityPanel({ data }) {
+  const all = (data && data.activities) || [];
+  const activities = all.slice(0, 12);
+  return (
+    <article className="panel crm-activity-panel">
+      <div className="panel-head">
+        <div><span className="section-label">Armosphera CRM</span><h2>Activity timeline</h2></div>
+        <strong className="aging-badge">{all.length}</strong>
+      </div>
+      <div className="rows">
+        {activities.map(activity => (
+          <div className="row" key={activity.id}>
+            <span>{(activity.occurredAt || "").slice(0, 10)} · {activity.kind} · {activity.customerName || activity.dealTitle || ""}</span>
+            <strong>{activity.title}</strong>
+          </div>
+        ))}
+        {activities.length === 0 && <div className="row"><span>No activity yet</span></div>}
+      </div>
+    </article>
+  );
+}
