@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
-import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel } from "./finance.jsx";
+import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel } from "./finance.jsx";
 
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 const sensitiveMoney = value => value === null || value === "restricted" ? "restricted" : money(value);
@@ -242,7 +242,8 @@ function App() {
         const trialBalance = await api("/api/finance/trial-balance");
         const statements = await api("/api/finance/statements");
         const vat = await api("/api/finance/vat-report");
-        setFinance({ trialBalance, statements, vat });
+        const payables = await api("/api/finance/payables");
+        setFinance({ trialBalance, statements, vat, payables });
       } else {
         setFinance(null);
       }
@@ -3179,6 +3180,16 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
       setActionState("expense:error");
     }
   }
+  async function createBill(body) {
+    setActionState("bill:create");
+    try { await api("/api/finance/bills", { method: "POST", body }); setActionState("bill:done"); onReload(); }
+    catch { setActionState("bill:error"); }
+  }
+  async function runPayroll(body) {
+    setActionState("payroll:run");
+    try { await api("/api/payroll/run", { method: "POST", body }); setActionState("payroll:done"); onReload(); }
+    catch { setActionState("payroll:error"); }
+  }
   async function lawSearch(query) {
     return api(`/api/legal/law-search?q=${encodeURIComponent(query)}`);
   }
@@ -3493,6 +3504,9 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               <FinanceStatementsPanel data={finance.statements} />
               <FinanceVatPanel data={finance.vat} />
               <FinanceExpenseForm onCreate={createExpense} actionState={actionState} />
+              <FinanceBillForm onCreate={createBill} actionState={actionState} />
+              <FinancePayrollForm onRun={runPayroll} actionState={actionState} />
+              <FinancePayablesPanel data={finance.payables} />
               <LegalSearchPanel onSearch={lawSearch} />
             </>
           )}

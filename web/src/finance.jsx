@@ -158,3 +158,75 @@ export function LegalSearchPanel({ onSearch }) {
     </article>
   );
 }
+
+export function FinanceBillForm({ onCreate, actionState }) {
+  const [supplier, setSupplier] = useState("");
+  const [subtotal, setSubtotal] = useState("");
+  const [vat, setVat] = useState("");
+  const [dueDate, setDueDate] = useState("");
+  const busy = actionState === "bill:create";
+  function submit() {
+    const net = Math.round(Number(subtotal) || 0);
+    if (net <= 0) return;
+    onCreate({ supplier, subtotal: net, vat: Math.round(Number(vat) || 0), dueDate: dueDate || undefined });
+    setSupplier(""); setSubtotal(""); setVat(""); setDueDate("");
+  }
+  return (
+    <article className="panel finance-bill-form-panel">
+      <div className="panel-head"><div><span className="section-label">HayHashvapah Finance</span><h2>New supplier bill</h2></div></div>
+      <div className="inline-form">
+        <input value={supplier} onChange={event => setSupplier(event.target.value)} placeholder="Մատակարար" />
+        <input value={subtotal} onChange={event => setSubtotal(event.target.value)} inputMode="numeric" placeholder="Զուտ (AMD)" />
+        <input value={vat} onChange={event => setVat(event.target.value)} inputMode="numeric" placeholder="ԱԱՀ (AMD)" />
+        <input value={dueDate} onChange={event => setDueDate(event.target.value)} placeholder="Վճարման ժ. (YYYY-MM-DD)" />
+        <button className="mini-action" type="button" disabled={busy} onClick={submit}>{busy ? "Posting" : "Post bill"}</button>
+      </div>
+    </article>
+  );
+}
+
+export function FinancePayrollForm({ onRun, actionState }) {
+  const [employeeName, setEmployeeName] = useState("");
+  const [gross, setGross] = useState("");
+  const busy = actionState === "payroll:run";
+  function submit() {
+    const value = Math.round(Number(gross) || 0);
+    if (value <= 0) return;
+    onRun({ employeeName, gross: value });
+    setEmployeeName(""); setGross("");
+  }
+  return (
+    <article className="panel finance-payroll-form-panel">
+      <div className="panel-head"><div><span className="section-label">HayHashvapah Finance</span><h2>Run payroll</h2></div></div>
+      <div className="inline-form">
+        <input value={employeeName} onChange={event => setEmployeeName(event.target.value)} placeholder="Աշխատող" />
+        <input value={gross} onChange={event => setGross(event.target.value)} inputMode="numeric" placeholder="Համախառն (AMD)" />
+        <button className="mini-action" type="button" disabled={busy} onClick={submit}>{busy ? "Running" : "Run payroll"}</button>
+      </div>
+    </article>
+  );
+}
+
+export function FinancePayablesPanel({ data }) {
+  if (!data) return null;
+  const aging = data.aging || {};
+  const buckets = [["current", "Current"], ["days1To30", "1-30"], ["days31To60", "31-60"], ["days61To90", "61-90"], ["over90", "90+"]];
+  return (
+    <article className="panel finance-payables-panel">
+      <div className="panel-head">
+        <div><span className="section-label">HayHashvapah Finance</span><h2>Payables · AP aging</h2></div>
+        <strong className="aging-badge">{(data.openBills && data.openBills.length) || 0} open</strong>
+      </div>
+      <div className="aging-summary">
+        <div className="metric"><span>billed</span><strong>{amd(data.totalBilled)}</strong></div>
+        <div className="metric"><span>outstanding</span><strong>{amd(data.totalOutstanding)}</strong></div>
+        <div className="metric"><span>overdue</span><strong>{amd(data.overdueOutstanding)}</strong></div>
+      </div>
+      <div className="rows">
+        {buckets.map(([key, label]) => (
+          <div className="row" key={key}><span>{label}</span><strong>{amd(aging[key] || 0)}</strong></div>
+        ))}
+      </div>
+    </article>
+  );
+}
