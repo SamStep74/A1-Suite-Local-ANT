@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
-import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel } from "./finance.jsx";
+import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel, FinanceOpeningBalancesPanel, FinanceOpeningBalancesForm } from "./finance.jsx";
 import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm, CrmActivityPanel } from "./crm.jsx";
 
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
@@ -252,7 +252,8 @@ function App() {
         const statements = await api("/api/finance/statements");
         const vat = await api("/api/finance/vat-report");
         const payables = await api("/api/finance/payables");
-        setFinance({ trialBalance, statements, vat, payables });
+        const openingBalances = await api("/api/finance/opening-balances").catch(() => ({ entries: [], count: 0, openingEquity: 0 }));
+        setFinance({ trialBalance, statements, vat, payables, openingBalances });
       } else {
         setFinance(null);
       }
@@ -3223,6 +3224,11 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     try { await api("/api/payroll/run", { method: "POST", body }); setActionState("payroll:done"); onReload(); }
     catch { setActionState("payroll:error"); }
   }
+  async function setOpeningBalances(body) {
+    setActionState("opening-balances:set");
+    try { await api("/api/finance/opening-balances", { method: "POST", body }); setActionState("opening-balances:done"); onReload(); }
+    catch { setActionState("opening-balances:error"); }
+  }
   async function lawSearch(query) {
     return api(`/api/legal/law-search?q=${encodeURIComponent(query)}`);
   }
@@ -3540,6 +3546,10 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               <FinanceBillForm onCreate={createBill} actionState={actionState} />
               <FinancePayrollForm onRun={runPayroll} actionState={actionState} />
               <FinancePayablesPanel data={finance.payables} />
+              <FinanceOpeningBalancesPanel data={finance.openingBalances} />
+              {["Owner", "Admin", "Accountant"].includes(suite.user.role) && (
+                <FinanceOpeningBalancesForm onSubmit={setOpeningBalances} actionState={actionState} />
+              )}
               <LegalSearchPanel onSearch={lawSearch} />
             </>
           )}

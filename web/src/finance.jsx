@@ -230,3 +230,82 @@ export function FinancePayablesPanel({ data }) {
     </article>
   );
 }
+
+// Balance-sheet accounts eligible for opening balances (P&L accounts reset each
+// period and the 331 contra is posted automatically, so neither is offered here).
+const OPENING_BALANCE_ACCOUNTS = [
+  { code: "251", name: "Դրամարկղ" },
+  { code: "252", name: "Հաշվարկային հաշիվ" },
+  { code: "221", name: "Դեբիտորական պարտքեր" },
+  { code: "526", name: "ԱԱՀ դեբետ (մուտքային)" },
+  { code: "521", name: "Կրեդիտորական պարտքեր" },
+  { code: "524", name: "ԱԱՀ վճարվելիք" },
+  { code: "525", name: "Հաշվարկներ բյուջեի և հիմնադրամների հետ" }
+];
+
+export function FinanceOpeningBalancesPanel({ data }) {
+  if (!data) return null;
+  const entries = data.entries || [];
+  return (
+    <article className="panel finance-opening-balances-panel">
+      <div className="panel-head">
+        <div><span className="section-label">HayHashvapah Finance</span><h2>Opening balances · Բացման մնացորդներ</h2></div>
+        <strong className="aging-badge">{amd(data.openingEquity)} equity</strong>
+      </div>
+      <div className="rows">
+        {entries.map(entry => (
+          <div className="row" key={`${entry.code}-${entry.date}`}>
+            <span>{entry.code} · {entry.name}</span>
+            <strong>{entry.side === "credit" ? `(${amd(entry.amount)})` : amd(entry.amount)}</strong>
+          </div>
+        ))}
+        {entries.length === 0 && <div className="row"><span>No opening balances set</span></div>}
+      </div>
+    </article>
+  );
+}
+
+export function FinanceOpeningBalancesForm({ onSubmit, actionState }) {
+  const [asOf, setAsOf] = useState("");
+  const [code, setCode] = useState(OPENING_BALANCE_ACCOUNTS[0].code);
+  const [amount, setAmount] = useState("");
+  const [lines, setLines] = useState([]);
+  const busy = actionState === "opening-balances:set";
+  const nameByCode = Object.fromEntries(OPENING_BALANCE_ACCOUNTS.map(a => [a.code, a.name]));
+  function addLine() {
+    const value = Math.round(Number(amount) || 0);
+    if (value <= 0) return;
+    setLines([...lines.filter(line => line.code !== code), { code, amount: value }]);
+    setAmount("");
+  }
+  function submit() {
+    if (lines.length === 0) return;
+    onSubmit({ asOf: asOf || undefined, entries: lines });
+    setLines([]);
+  }
+  return (
+    <article className="panel finance-opening-balances-form-panel">
+      <div className="panel-head"><div><span className="section-label">HayHashvapah Finance</span><h2>Set opening balances</h2></div></div>
+      <div className="inline-form">
+        <input value={asOf} onChange={event => setAsOf(event.target.value)} placeholder="Ամսաթիվ (YYYY-MM-DD)" />
+        <select value={code} onChange={event => setCode(event.target.value)}>
+          {OPENING_BALANCE_ACCOUNTS.map(account => (
+            <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+          ))}
+        </select>
+        <input value={amount} onChange={event => setAmount(event.target.value)} inputMode="numeric" placeholder="Գումար (AMD)" />
+        <button className="mini-action" type="button" onClick={addLine}>Add line</button>
+      </div>
+      {lines.length > 0 && (
+        <div className="rows">
+          {lines.map(line => (
+            <div className="row" key={line.code}><span>{line.code} · {nameByCode[line.code]}</span><strong>{amd(line.amount)}</strong></div>
+          ))}
+        </div>
+      )}
+      <div className="inline-form">
+        <button className="mini-action" type="button" disabled={busy || lines.length === 0} onClick={submit}>{busy ? "Posting" : "Post opening balances"}</button>
+      </div>
+    </article>
+  );
+}
