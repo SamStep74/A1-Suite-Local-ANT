@@ -2858,6 +2858,64 @@ function registerApi(app, db) {
     return { expense: { id, subtotal, vat, total, incurredOn, periodKey } };
   });
 
+  app.get("/api/finance/bills", async request => {
+    const user = await app.auth(request);
+    const rows = db.prepare("SELECT id, supplier, description, subtotal, vat, total, bill_date AS billDate, due_date AS dueDate, status, period_key AS periodKey FROM bills WHERE org_id = ? ORDER BY bill_date DESC, created_at DESC").all(user.org_id);
+    return { bills: rows };
+  });
+
+  app.get("/api/finance/payables", async request => {
+    const user = await app.auth(request);
+    const asOf = String((request.query && request.query.asOf) || "").trim() || undefined;
+    return ledger.payablesReport(db, user.org_id, asOf);
+  });
+
+  app.post("/api/finance/bills", async request => {
+    const user = await app.auth(request);
+    const body = request.body || {};
+    const subtotal = Math.round(Number(body.subtotal) || 0);
+    const vat = Math.round(Number(body.vat) || 0);
+    if (subtotal <= 0) { const e = new Error("Bill subtotal is required"); e.statusCode = 400; throw e; }
+    const total = subtotal + vat;
+    const billDate = /^\d{4}-\d{2}-\d{2}$/.test(body.billDate || "") ? body.billDate : new Date().toISOString().slice(0, 10);
+    const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : billDate;
+    const periodKey = billDate.slice(0, 7);
+    const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
+    if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
+    const id = randomId("bill");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO bills (id, org_id, supplier, description, subtotal, vat, total, currency, bill_date, due_date, status, period_key, created_by_user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'AMD', ?, ?, 'open', ?, ?, ?)`)
+      .run(id, user.org_id, String(body.supplier || "").slice(0, 160), String(body.description || "").slice(0, 200), subtotal, vat, total, billDate, dueDate, periodKey, user.id, now);
+    ledger.postBillPosted(db, user.org_id, { id, supplier: body.supplier, subtotal, vat, total, date: billDate, period_key: periodKey });
+    audit(db, user.org_id, user.id, "finance.bill.created", { billId: id, total, vat });
+    return { bill: { id, supplier: body.supplier || "", subtotal, vat, total, billDate, dueDate, periodKey, status: "open" } };
+  });
+
+  app.post("/api/finance/bills/:id/pay", async request => {
+    const user = await app.auth(request);
+    const bill = db.prepare("SELECT * FROM bills WHERE org_id = ? AND id = ?").get(user.org_id, request.params.id);
+    if (!bill) { const e = new Error("Bill not found"); e.statusCode = 404; throw e; }
+    const body = request.body || {};
+    const amount = Math.round(Number(body.amount) || 0);
+    if (amount <= 0) { const e = new Error("Payment amount is required"); e.statusCode = 400; throw e; }
+    const paidAt = /^\d{4}-\d{2}-\d{2}$/.test(body.paidAt || "") ? body.paidAt : new Date().toISOString().slice(0, 10);
+    const periodKey = paidAt.slice(0, 7);
+    const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
+    if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
+    const id = randomId("billpay");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO bill_payments (id, org_id, bill_id, amount, currency, paid_at, method, reference, period_key, created_by_user_id, created_at)
+      VALUES (?, ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?)`)
+      .run(id, user.org_id, bill.id, amount, paidAt, String(body.method || "bank-transfer"), String(body.reference || ""), periodKey, user.id, now);
+    const paidTotal = db.prepare("SELECT COALESCE(SUM(amount),0) AS p FROM bill_payments WHERE org_id = ? AND bill_id = ?").get(user.org_id, bill.id).p;
+    const status = paidTotal >= bill.total ? "paid" : "partial";
+    db.prepare("UPDATE bills SET status = ? WHERE org_id = ? AND id = ?").run(status, user.org_id, bill.id);
+    ledger.postBillPayment(db, user.org_id, { id, amount, date: paidAt, period_key: periodKey });
+    audit(db, user.org_id, user.id, "finance.bill.paid", { billId: bill.id, paymentId: id, amount });
+    return { payment: { id, billId: bill.id, amount, paidAt, status } };
+  });
+
   app.get("/api/finance/trial-balance", async request => {
     const user = await app.auth(request);
     return ledger.trialBalance(db, user.org_id);
