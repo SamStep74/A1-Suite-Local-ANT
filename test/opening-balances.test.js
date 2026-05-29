@@ -61,3 +61,21 @@ test("the opening-balance contra account (331) cannot be set directly, unknown c
   ] });
   assert.strictEqual(res.count, 0);
 });
+
+test("re-submitting an opening balance corrects it (replace semantics, single row)", () => {
+  const { db, orgId } = freshDb();
+  ledger.postOpeningBalances(db, orgId, { asOf: "2026-01-01", entries: [{ code: "251", amount: 1000000 }] });
+  ledger.postOpeningBalances(db, orgId, { asOf: "2026-02-01", entries: [{ code: "251", amount: 1200000 }] });
+  const rows = db.prepare("SELECT COUNT(*) AS c FROM ledger_journal WHERE org_id = ? AND source_type = 'opening_balance' AND (debit_code = '251' OR credit_code = '251')").get(orgId).c;
+  assert.strictEqual(rows, 1); // corrected in place, not duplicated across dates
+  const byCode = Object.fromEntries(ledger.trialBalance(db, orgId).rows.map(r => [r.code, r]));
+  assert.strictEqual(byCode["251"].balance, 1200000);
+  assert.strictEqual(ledger.openingBalances(db, orgId).openingEquity, 1200000);
+});
+
+test("submitting amount 0 clears an account's opening balance", () => {
+  const { db, orgId } = freshDb();
+  ledger.postOpeningBalances(db, orgId, { asOf: "2026-01-01", entries: [{ code: "251", amount: 1000000 }] });
+  ledger.postOpeningBalances(db, orgId, { asOf: "2026-01-01", entries: [{ code: "251", amount: 0 }] });
+  assert.strictEqual(ledger.openingBalances(db, orgId).count, 0);
+});

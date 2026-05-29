@@ -64,11 +64,19 @@ function accountTypeByCode(code) {
 // (liability/equity/income): Dt 331 / Kt <code>. Idempotent per (account, asOf date).
 function postOpeningBalance(db, orgId, entry) {
   const code = String(entry.code || "");
-  const amount = Math.round(Number(entry.amount) || 0);
-  if (amount <= 0) return [];
   if (code === OPENING_BALANCE_EQUITY_CODE) return []; // never set the contra directly
   const type = accountTypeByCode(code);
   if (!type) return []; // unknown account code — skip
+  ensureChartOfAccounts(db, orgId);
+  // Replace semantics: an account's opening balance is set once and corrected by
+  // re-submitting. Remove any prior opening-balance entry for this account (on
+  // either leg) so the latest submission wins and the same account is never
+  // double-counted across different as-of dates.
+  db.prepare(
+    "DELETE FROM ledger_journal WHERE org_id = ? AND source_type = 'opening_balance' AND (debit_code = ? OR credit_code = ?)"
+  ).run(orgId, code, code);
+  const amount = Math.round(Number(entry.amount) || 0);
+  if (amount <= 0) return []; // amount <= 0 clears this account's opening balance
   const date = String(entry.date || entry.asOf || new Date().toISOString().slice(0, 10)).slice(0, 10);
   const periodKey = entry.period_key || entry.periodKey || "";
   const sourceId = `ob-${date}-${code}`;
@@ -88,13 +96,20 @@ function postOpeningBalances(db, orgId, payload) {
     ? payload.asOf : new Date().toISOString().slice(0, 10);
   const periodKey = payload.period_key || payload.periodKey || "";
   const entries = Array.isArray(payload.entries) ? payload.entries : [];
-  const posted = [];
-  for (const e of entries) {
-    for (const id of postOpeningBalance(db, orgId, { code: e.code, amount: e.amount, date: asOf, period_key: periodKey })) {
-      posted.push(id);
+  db.exec("BEGIN");
+  try {
+    const posted = [];
+    for (const e of entries) {
+      for (const id of postOpeningBalance(db, orgId, { code: e.code, amount: e.amount, date: asOf, period_key: periodKey })) {
+        posted.push(id);
+      }
     }
+    db.exec("COMMIT");
+    return { asOf, posted, count: posted.length };
+  } catch (err) {
+    try { db.exec("ROLLBACK"); } catch (_) {}
+    throw err;
   }
-  return { asOf, posted, count: posted.length };
 }
 
 // List current opening balances (one row per account whose opening balance was set),
