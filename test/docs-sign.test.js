@@ -117,6 +117,38 @@ test("docs-sign: write-gate (Auditor 403), void path, and signed-user binding", 
   } finally { await app.close(); }
 });
 
+test("docs-sign: duplicate signer name on one document is rejected (409) — unambiguous consent chain", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const created = await app.inject({ method: "POST", url: "/api/docs/documents", headers: { cookie: owner }, payload: { title: "Dual-signer agreement" } });
+    const docId = created.json().document.id;
+
+    const first = await app.inject({ method: "POST", url: `/api/docs/documents/${docId}/signers`, headers: { cookie: owner }, payload: { signerName: "Անահիտ Սարգսյան" } });
+    assert.strictEqual(first.statusCode, 200);
+
+    // Same name again -> 409: a sealed evidence chain must not contain two identically-named signers.
+    const dup = await app.inject({ method: "POST", url: `/api/docs/documents/${docId}/signers`, headers: { cookie: owner }, payload: { signerName: "Անահիտ Սարգսյան" } });
+    assert.strictEqual(dup.statusCode, 409);
+
+    // Case- and whitespace-insensitive: trimmed/cased variants are still duplicates.
+    const dupCase = await app.inject({ method: "POST", url: `/api/docs/documents/${docId}/signers`, headers: { cookie: owner }, payload: { signerName: "  անահիտ սարգսյան  " } });
+    assert.strictEqual(dupCase.statusCode, 409);
+
+    // A genuinely different signer is still accepted, and only one "Անահիտ" exists.
+    const other = await app.inject({ method: "POST", url: `/api/docs/documents/${docId}/signers`, headers: { cookie: owner }, payload: { signerName: "Դավիթ Պետրոսյան" } });
+    assert.strictEqual(other.statusCode, 200);
+    assert.strictEqual(other.json().document.signers.length, 2);
+
+    // The same name on a DIFFERENT document is fine (scope is per-document).
+    const created2 = await app.inject({ method: "POST", url: "/api/docs/documents", headers: { cookie: owner }, payload: { title: "Separate agreement" } });
+    const doc2Id = created2.json().document.id;
+    const reuse = await app.inject({ method: "POST", url: `/api/docs/documents/${doc2Id}/signers`, headers: { cookie: owner }, payload: { signerName: "Անահիտ Սարգսյան" } });
+    assert.strictEqual(reuse.statusCode, 200);
+  } finally { await app.close(); }
+});
+
 test("docs-sign: cross-org isolation — a foreign document is invisible (404)", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

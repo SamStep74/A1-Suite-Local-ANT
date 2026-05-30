@@ -2150,6 +2150,13 @@ function registerApi(app, db) {
     const body = request.body || {};
     const signerName = String(body.signerName || "").trim();
     if (signerName.length < 2) { const e = new Error("Signer name is required"); e.statusCode = 400; throw e; }
+    // A sealed consent chain must be unambiguous: reject a second signer with the same name
+    // (case- and whitespace-insensitive) on this document. Same name on other documents is fine.
+    const normalizedName = signerName.toLowerCase();
+    const existingSigners = db.prepare("SELECT signer_name AS signerName FROM document_signers WHERE org_id = ? AND document_id = ?").all(user.org_id, document.id);
+    if (existingSigners.some(row => String(row.signerName || "").trim().toLowerCase() === normalizedName)) {
+      const e = new Error("A signer with this name already exists on the document"); e.statusCode = 409; throw e;
+    }
     let signerUserId = null;
     if (body.signerUserId) {
       const u = db.prepare("SELECT id FROM users WHERE org_id = ? AND id = ?").get(user.org_id, String(body.signerUserId));
