@@ -140,7 +140,7 @@ function buildApp(options = {}) {
     return user;
   });
 
-  registerApi(app, db);
+  registerApi(app, db, options);
   registerStatic(app);
 
   app.addHook("onClose", () => {
@@ -150,12 +150,17 @@ function buildApp(options = {}) {
   return app;
 }
 
-function registerApi(app, db) {
+function registerApi(app, db, options = {}) {
   // In-memory per-IP sliding-window rate limiter for unauthenticated endpoints.
   // Scoped to this app instance (resets per buildApp). Keeps the last hit timestamps
   // per key and rejects once `limit` hits fall inside `windowMs`.
   const rateLimitHits = new Map();
-  function enforceRateLimit(key, limit, windowMs) {
+  const rateLimitDisabled = options.rateLimit === false;
+  // Loopback is the self-hosted operator's own machine (local-first product) — trusted, never throttled.
+  const LOOPBACK_IPS = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
+  function enforceRateLimit(key, limit, windowMs, ip) {
+    if (rateLimitDisabled) return;
+    if (ip && LOOPBACK_IPS.has(ip)) return;
     const now = Date.now();
     const cutoff = now - windowMs;
     const recent = (rateLimitHits.get(key) || []).filter(ts => ts > cutoff);
@@ -2553,7 +2558,7 @@ function registerApi(app, db) {
     const formId = String(request.params.id || "");
     // Unauthenticated write path: throttle per-IP (per form) to blunt spam/DoS that would
     // otherwise flood the org's CRM with junk leads. 10 submissions per minute per IP.
-    enforceRateLimit(`form-submit:${String(request.ip || "")}:${formId}`, 10, 60 * 1000);
+    enforceRateLimit(`form-submit:${String(request.ip || "")}:${formId}`, 10, 60 * 1000, request.ip);
     // Resolve the published form across orgs by id (public caller has no org context).
     const formRow = db.prepare("SELECT id, org_id AS orgId, fields, status FROM forms WHERE id = ?").get(formId);
     if (!formRow || formRow.status !== "published") { const e = new Error("Form not available"); e.statusCode = 404; throw e; }
@@ -2937,6 +2942,9 @@ function registerApi(app, db) {
   });
 
   app.get("/api/public/quotes/:token", async request => {
+    // Unauthenticated read keyed by an attacker-supplied token: throttle per-IP to blunt
+    // token enumeration. 30/min allows legitimate buyers to re-view their quote.
+    enforceRateLimit(`public-quote-get:${String(request.ip || "")}`, 30, 60 * 1000, request.ip);
     const quote = getPublicQuote(db, request.params.token);
     if (!quote || !["sent", "viewed", "accepted"].includes(quote.quote.status)) {
       const err = new Error("Quote not found");
@@ -2947,6 +2955,8 @@ function registerApi(app, db) {
   });
 
   app.post("/api/public/quotes/:token/accept", async request => {
+    // Unauthenticated write keyed by an attacker-supplied token: throttle per-IP. 10/min.
+    enforceRateLimit(`public-quote-accept:${String(request.ip || "")}`, 10, 60 * 1000, request.ip);
     const quote = getPublicQuote(db, request.params.token);
     if (!quote) {
       const err = new Error("Quote not found");
