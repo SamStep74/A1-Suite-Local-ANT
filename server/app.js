@@ -2279,6 +2279,10 @@ function registerApi(app, db) {
     const user = await app.auth(request);
     const serviceCase = getServiceCase(db, user.org_id, request.params.id);
     if (!serviceCase) { const err = new Error("Service case not found"); err.statusCode = 404; throw err; }
+    // Escalation is supervisor-governed: every exit from the escalated state
+    // (resolve already guards this) must also gate generic field changes, so a
+    // non-supervisor can't silently de-escalate via PATCH { status }.
+    if (serviceCase.status === "escalated") requireServiceSupervisor(user);
     const body = request.body || {};
     const sets = [];
     const values = [];

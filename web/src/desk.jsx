@@ -16,6 +16,7 @@ export function CreateTicketForm({ customers, onCreate, actionState }) {
     if (!customerId || subject.trim().length < 4) return;
     onCreate({ customerId, subject: subject.trim(), priority, channel });
     setSubject("");
+    setCustomerId("");
   }
   return (
     <article className="panel desk-create-ticket-panel">

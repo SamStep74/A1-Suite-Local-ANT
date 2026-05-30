@@ -45,3 +45,28 @@ test("service console exposes customers + agents pickers; create + PATCH a case"
     assert.strictEqual(missing.statusCode, 404);
   } finally { await app.close(); }
 });
+
+test("PATCH cannot de-escalate a supervisor-governed case without supervisor role", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app); // Owner is a service supervisor
+    const list = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const caseId = list.cases[0].id;
+
+    // Owner (supervisor) escalates -> status becomes "escalated" (governed state)
+    const escalated = await app.inject({ method: "POST", url: `/api/service/cases/${caseId}/escalate`, headers: { cookie: ownerCookie }, payload: { severity: "sla-risk", reason: "test escalation" } });
+    assert.strictEqual(escalated.statusCode, 200);
+
+    // A non-supervisor (Operator) must NOT be able to de-escalate via generic PATCH
+    const opLogin = await app.inject({ method: "POST", url: "/api/login", payload: { email: "operator@armosphera.local", password: DEFAULT_PASSWORD } });
+    const opCookie = opLogin.headers["set-cookie"];
+    const blocked = await app.inject({ method: "PATCH", url: `/api/service/cases/${caseId}`, headers: { cookie: opCookie }, payload: { status: "in-progress" } });
+    assert.strictEqual(blocked.statusCode, 403);
+
+    // A supervisor still can
+    const allowed = await app.inject({ method: "PATCH", url: `/api/service/cases/${caseId}`, headers: { cookie: ownerCookie }, payload: { status: "in-progress" } });
+    assert.strictEqual(allowed.statusCode, 200);
+    assert.strictEqual(allowed.json().case.status, "in-progress");
+  } finally { await app.close(); }
+});
