@@ -2148,7 +2148,9 @@ function registerApi(app, db) {
       testEvents: getWorkflowTestEvents(db, user.org_id),
       ticketSummaries: canAccessTicketSummary(user) ? getAiTicketSummaries(db, user.org_id) : [],
       workflowBuilderSuggestions: canAccessWorkflowBuilderSuggestion(user) ? getAiWorkflowBuilderSuggestions(db, user.org_id) : [],
-      knowledge: knowledgeArticles()
+      knowledge: knowledgeArticles(),
+      customers: db.prepare("SELECT id, name FROM customers WHERE org_id = ? ORDER BY name").all(user.org_id),
+      agents: db.prepare("SELECT id, name, role FROM users WHERE org_id = ? ORDER BY name").all(user.org_id)
     };
   });
 
@@ -2271,6 +2273,37 @@ function registerApi(app, db) {
     });
     audit(db, user.org_id, user.id, "service.reply.recorded", { caseId: serviceCase.id });
     return { ok: true, case: getServiceCase(db, user.org_id, serviceCase.id), messages: getCaseMessages(db, user.org_id, serviceCase.id) };
+  });
+
+  app.patch("/api/service/cases/:id", async request => {
+    const user = await app.auth(request);
+    const serviceCase = getServiceCase(db, user.org_id, request.params.id);
+    if (!serviceCase) { const err = new Error("Service case not found"); err.statusCode = 404; throw err; }
+    const body = request.body || {};
+    const sets = [];
+    const values = [];
+    if (body.status !== undefined) {
+      const status = normalizeChoice(body.status, ["open", "in-progress", "waiting-customer", "resolved", "closed"], "");
+      if (!status) { const err = new Error("Invalid status"); err.statusCode = 400; throw err; }
+      sets.push("status = ?"); values.push(status);
+    }
+    if (body.priority !== undefined) {
+      const priority = normalizeChoice(body.priority, ["low", "medium", "high"], "");
+      if (!priority) { const err = new Error("Invalid priority"); err.statusCode = 400; throw err; }
+      sets.push("priority = ?"); values.push(priority);
+    }
+    if (body.ownerUserId !== undefined) {
+      const ownerUserId = String(body.ownerUserId || "");
+      const owner = db.prepare("SELECT id FROM users WHERE org_id = ? AND id = ?").get(user.org_id, ownerUserId);
+      if (!owner) { const err = new Error("Owner must be a user in this organization"); err.statusCode = 400; throw err; }
+      sets.push("owner_user_id = ?"); values.push(ownerUserId);
+    }
+    if (sets.length === 0) { const err = new Error("No updatable fields provided"); err.statusCode = 400; throw err; }
+    const now = new Date().toISOString();
+    sets.push("updated_at = ?"); values.push(now);
+    db.prepare(`UPDATE service_cases SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`).run(...values, user.org_id, serviceCase.id);
+    audit(db, user.org_id, user.id, "service.case.updated", { caseId: serviceCase.id, status: body.status, priority: body.priority, ownerUserId: body.ownerUserId });
+    return { ok: true, case: getServiceCase(db, user.org_id, serviceCase.id) };
   });
 
   app.get("/api/workflow/approvals", async request => {
