@@ -6,6 +6,7 @@ import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm, CrmActivityPanel } from ".
 import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
 import { PeopleEmployeeForm, PeopleRegistryPanel } from "./people.jsx";
 import { DocsCreateForm, DocsRegistryPanel } from "./docs.jsx";
+import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
 import { loadOr } from "./load-section.js";
 
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
@@ -97,6 +98,7 @@ function App() {
   const [finance, setFinance] = useState(null);
   const [people, setPeople] = useState(null);
   const [docs, setDocs] = useState(null);
+  const [projects, setProjects] = useState(null);
   const [semanticMetrics, setSemanticMetrics] = useState(null);
   const [semanticSnapshots, setSemanticSnapshots] = useState(null);
   const [analyticsReports, setAnalyticsReports] = useState([]);
@@ -274,6 +276,12 @@ function App() {
         setDocs(docsData);
       } else {
         setDocs(null);
+      }
+      if ((data.apps || []).some(app => app.id === "projects")) {
+        const projectsData = await loadOr(null, () => api("/api/projects"));
+        setProjects(projectsData);
+      } else {
+        setProjects(null);
       }
       if (["Owner", "Auditor"].includes(data.user.role)) {
         const accessReviewData = await loadOr({}, () => api("/api/admin/access-reviews"));
@@ -792,6 +800,7 @@ function App() {
             finance={finance}
         people={people}
         docs={docs}
+        projects={projects}
       semanticMetrics={semanticMetrics}
       semanticSnapshots={semanticSnapshots}
       analyticsReports={analyticsReports}
@@ -870,7 +879,7 @@ function Login({ onDone }) {
   );
 }
 
-function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, selectedApp, onSelectApp, onReload }) {
+function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, projects, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, selectedApp, onSelectApp, onReload }) {
   const {
     pilotTemplateData,
     pilotOwnerBriefs,
@@ -3584,6 +3593,26 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     try { await api(`/api/docs/documents/${documentId}/void`, { method: "POST", body: {} }); setActionState(`doc:act:done:${documentId}`); onReload(); }
     catch { setActionState(`doc:act:error:${documentId}`); }
   }
+  async function createProject(body) {
+    setActionState("project:create");
+    try { await api("/api/projects", { method: "POST", body }); setActionState("project:create:done"); onReload(); }
+    catch { setActionState("project:create:error"); }
+  }
+  async function addProjectTask(projectId, title) {
+    setActionState(`project:act:${projectId}`);
+    try { await api(`/api/projects/${projectId}/tasks`, { method: "POST", body: { title } }); setActionState(`project:act:done:${projectId}`); onReload(); }
+    catch { setActionState(`project:act:error:${projectId}`); }
+  }
+  async function updateProjectStatus(projectId, status) {
+    setActionState(`project:act:${projectId}`);
+    try { await api(`/api/projects/${projectId}`, { method: "PATCH", body: { status } }); setActionState(`project:act:done:${projectId}`); onReload(); }
+    catch { setActionState(`project:act:error:${projectId}`); }
+  }
+  async function logProjectTime(projectId, minutes) {
+    setActionState(`project:act:${projectId}`);
+    try { await api(`/api/projects/${projectId}/time-entries`, { method: "POST", body: { minutes } }); setActionState(`project:act:done:${projectId}`); onReload(); }
+    catch { setActionState(`project:act:error:${projectId}`); }
+  }
   async function updateEmployee(employeeId, patch) {
     setActionState(`employee:update:${employeeId}`);
     try { await api(`/api/people/employees/${employeeId}`, { method: "PATCH", body: patch }); setActionState(`employee:update:done:${employeeId}`); onReload(); }
@@ -3738,6 +3767,21 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               />
               {["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role) && (
                 <DocsCreateForm customers={(serviceConsole && serviceConsole.customers) || []} onCreate={createDocument} actionState={actionState} />
+              )}
+            </>
+          )}
+          {projects && (
+            <>
+              <ProjectsBoardPanel
+                data={projects}
+                canWrite={["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role)}
+                onAddTask={addProjectTask}
+                onUpdateStatus={updateProjectStatus}
+                onLogTime={logProjectTime}
+                actionState={actionState}
+              />
+              {["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role) && (
+                <ProjectCreateForm customers={(serviceConsole && serviceConsole.customers) || []} onCreate={createProject} actionState={actionState} />
               )}
             </>
           )}
