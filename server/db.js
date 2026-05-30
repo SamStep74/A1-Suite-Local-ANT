@@ -664,6 +664,24 @@ function initSchema(db) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS people_employees (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      full_name TEXT NOT NULL,
+      tax_id TEXT NOT NULL DEFAULT '',
+      position TEXT NOT NULL DEFAULT '',
+      department TEXT NOT NULL DEFAULT '',
+      gross_salary INTEGER NOT NULL DEFAULT 0,
+      employment_status TEXT NOT NULL DEFAULT 'active',
+      hire_date TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_people_employees_org ON people_employees(org_id, employment_status, full_name);
+
     CREATE TABLE IF NOT EXISTS bills (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -6124,6 +6142,14 @@ function seedIfEmpty(db) {
   for (const appId of ["crm", "desk", "docs"]) {
     insertAssignment.run(orgId, "Support", appId, 1);
   }
+
+  const insertEmployee = db.prepare(`
+    INSERT INTO people_employees (id, org_id, full_name, tax_id, position, department, gross_salary, employment_status, hire_date, email, created_by_user_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  insertEmployee.run("emp-anahit", orgId, "Անահիտ Հակոբյան", "10293847", "Գլխավոր հաշվապահ", "Finance", 600000, "active", "2024-02-01", "anahit@armosphera.local", "user-owner", now, now);
+  insertEmployee.run("emp-davit", orgId, "Դավիթ Պետրոսյան", "55667788", "Վաճառքի մենեջեր", "Sales", 450000, "active", "2025-06-15", "davit@armosphera.local", "user-owner", now, now);
+  insertEmployee.run("emp-mariam", orgId, "Մարիամ Սարգսյան", "99887766", "Աջակցման մասնագետ", "Service", 350000, "on-leave", "2025-09-01", "mariam@armosphera.local", "user-owner", now, now);
 
   const insertCustomer = db.prepare(`
     INSERT INTO customers (id, org_id, name, tax_id, email, phone, segment, health_score, lifetime_value, open_receivables, last_touch)

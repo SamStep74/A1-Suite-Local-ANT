@@ -3024,6 +3024,79 @@ function registerApi(app, db) {
     return { run: { id, ...calc, runDate, periodKey } };
   });
 
+  app.get("/api/people/employees", async request => {
+    const user = await app.auth(request);
+    const employees = db.prepare("SELECT id, full_name AS fullName, tax_id AS taxId, position, department, gross_salary AS grossSalary, employment_status AS employmentStatus, hire_date AS hireDate, email, updated_at AS updatedAt FROM people_employees WHERE org_id = ? ORDER BY employment_status, full_name").all(user.org_id);
+    return { employees };
+  });
+
+  app.post("/api/people/employees", async request => {
+    const user = await app.auth(request);
+    requirePeopleWriter(user);
+    const body = request.body || {};
+    const fullName = String(body.fullName || "").trim();
+    if (fullName.length < 2) { const e = new Error("Employee name is required"); e.statusCode = 400; throw e; }
+    const taxId = String(body.taxId || "").trim();
+    if (taxId && !/^\d{8}$/.test(taxId)) { const e = new Error("ՀՎՀՀ (tax id) must be 8 digits"); e.statusCode = 400; throw e; }
+    const grossSalary = Math.max(0, Math.round(Number(body.grossSalary) || 0));
+    const employmentStatus = normalizeChoice(body.employmentStatus, ["active", "on-leave", "terminated"], "active");
+    const hireDate = /^\d{4}-\d{2}-\d{2}$/.test(body.hireDate || "") ? body.hireDate : "";
+    const id = randomId("emp");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO people_employees (id, org_id, full_name, tax_id, position, department, gross_salary, employment_status, hire_date, email, created_by_user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, user.org_id, fullName.slice(0, 160), taxId, String(body.position || "").slice(0, 120), String(body.department || "").slice(0, 120), grossSalary, employmentStatus, hireDate, String(body.email || "").slice(0, 160), user.id, now, now);
+    audit(db, user.org_id, user.id, "people.employee.created", { employeeId: id, fullName });
+    return { ok: true, employee: getEmployee(db, user.org_id, id) };
+  });
+
+  app.patch("/api/people/employees/:id", async request => {
+    const user = await app.auth(request);
+    requirePeopleWriter(user);
+    const employee = getEmployee(db, user.org_id, request.params.id);
+    if (!employee) { const e = new Error("Employee not found"); e.statusCode = 404; throw e; }
+    const body = request.body || {};
+    const sets = [];
+    const values = [];
+    if (body.position !== undefined) { sets.push("position = ?"); values.push(String(body.position || "").slice(0, 120)); }
+    if (body.department !== undefined) { sets.push("department = ?"); values.push(String(body.department || "").slice(0, 120)); }
+    if (body.email !== undefined) { sets.push("email = ?"); values.push(String(body.email || "").slice(0, 160)); }
+    if (body.grossSalary !== undefined) { sets.push("gross_salary = ?"); values.push(Math.max(0, Math.round(Number(body.grossSalary) || 0))); }
+    if (body.employmentStatus !== undefined) {
+      const status = normalizeChoice(body.employmentStatus, ["active", "on-leave", "terminated"], "");
+      if (!status) { const e = new Error("Invalid employment status"); e.statusCode = 400; throw e; }
+      sets.push("employment_status = ?"); values.push(status);
+    }
+    if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
+    const now = new Date().toISOString();
+    sets.push("updated_at = ?"); values.push(now);
+    db.prepare(`UPDATE people_employees SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`).run(...values, user.org_id, employee.id);
+    audit(db, user.org_id, user.id, "people.employee.updated", { employeeId: employee.id });
+    return { ok: true, employee: getEmployee(db, user.org_id, employee.id) };
+  });
+
+  app.post("/api/people/employees/:id/run-payroll", async request => {
+    const user = await app.auth(request);
+    requirePeopleWriter(user);
+    const employee = getEmployee(db, user.org_id, request.params.id);
+    if (!employee) { const e = new Error("Employee not found"); e.statusCode = 404; throw e; }
+    if (employee.employmentStatus === "terminated") { const e = new Error("Cannot run payroll for a terminated employee"); e.statusCode = 409; throw e; }
+    const body = request.body || {};
+    const calc = payroll.calculatePayroll(employee.grossSalary, { config: body.config });
+    const runDate = /^\d{4}-\d{2}-\d{2}$/.test(body.runDate || "") ? body.runDate : new Date().toISOString().slice(0, 10);
+    const periodKey = runDate.slice(0, 7);
+    const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
+    if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
+    const id = randomId("payroll");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO payroll_runs (id, org_id, employee_name, gross, income_tax, pension, stamp_duty, total_deductions, net, run_date, period_key, created_by_user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, user.org_id, employee.fullName.slice(0, 160), calc.gross, calc.incomeTax, calc.pension, calc.stampDuty, calc.totalDeductions, calc.net, runDate, periodKey, user.id, now);
+    ledger.postPayrollRun(db, user.org_id, { id, employeeName: employee.fullName, gross: calc.gross, net: calc.net, totalDeductions: calc.totalDeductions, date: runDate, period_key: periodKey });
+    audit(db, user.org_id, user.id, "people.payroll.run", { payrollRunId: id, employeeId: employee.id, gross: calc.gross, net: calc.net });
+    return { ok: true, run: { id, employeeId: employee.id, employeeName: employee.fullName, ...calc, runDate, periodKey } };
+  });
+
   app.get("/api/legal/law-search", async request => {
     await app.auth(request);
     const q = String((request.query && request.query.q) || "").trim();
@@ -3662,6 +3735,19 @@ function requireOwner(user) {
     err.statusCode = 403;
     throw err;
   }
+}
+
+function requirePeopleWriter(user) {
+  // Salary/employee master data is sensitive: only Owner/Admin/Accountant may write.
+  if (!["Owner", "Admin", "Accountant"].includes(user.role)) {
+    const err = new Error("People/HR writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function getEmployee(db, orgId, id) {
+  return db.prepare("SELECT id, full_name AS fullName, tax_id AS taxId, position, department, gross_salary AS grossSalary, employment_status AS employmentStatus, hire_date AS hireDate, email, updated_at AS updatedAt FROM people_employees WHERE org_id = ? AND id = ?").get(orgId, String(id || ""));
 }
 
 function requireMfaPrivilegedUser(user) {
