@@ -139,3 +139,28 @@ test("docs-sign: cross-org isolation — a foreign document is invisible (404)",
     assert.strictEqual(send.statusCode, 404);
   } finally { await app.close(); }
 });
+
+test("docs-sign: read-only Auditor cannot record consent (sign) — 403, no fraudulent evidence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+
+    // Owner sets up a document out for signature with one named (non-user-bound) signer.
+    const created = await app.inject({ method: "POST", url: "/api/docs/documents", headers: { cookie: owner }, payload: { title: "Auditor must not sign this" } });
+    const docId = created.json().document.id;
+    await app.inject({ method: "POST", url: `/api/docs/documents/${docId}/signers`, headers: { cookie: owner }, payload: { signerName: "Անանուն Ստորագրող" } });
+    await app.inject({ method: "POST", url: `/api/docs/documents/${docId}/send`, headers: { cookie: owner }, payload: {} });
+    const full = (await app.inject({ method: "GET", url: `/api/docs/documents/${docId}`, headers: { cookie: owner } })).json();
+    const signerId = full.document.signers[0].id;
+
+    // Auditor (read-only) attempts to sign the named slot -> 403, document stays out-for-signature.
+    const auditor = await login(app, "auditor@armosphera.local", DEFAULT_PASSWORD);
+    const attempt = await app.inject({ method: "POST", url: `/api/docs/documents/${docId}/sign`, headers: { cookie: auditor }, payload: { signerId } });
+    assert.strictEqual(attempt.statusCode, 403);
+    const after = (await app.inject({ method: "GET", url: `/api/docs/documents/${docId}`, headers: { cookie: owner } })).json();
+    assert.strictEqual(after.document.status, "out-for-signature");
+    assert.strictEqual(after.document.signers[0].status, "pending", "no consent was recorded");
+    assert.strictEqual(after.document.signers[0].checksum, "", "no evidence checksum was written");
+  } finally { await app.close(); }
+});

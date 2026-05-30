@@ -2182,6 +2182,7 @@ function registerApi(app, db) {
 
   app.post("/api/docs/documents/:id/sign", async request => {
     const user = await app.auth(request);
+    requireDocsSigner(user); // read-only Auditor must never forge consent evidence
     const document = getDocument(db, user.org_id, request.params.id);
     if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
     if (document.status !== "out-for-signature") { const e = new Error("Document is not out for signature"); e.statusCode = 409; throw e; }
@@ -2193,22 +2194,39 @@ function registerApi(app, db) {
     // If the signer is bound to a user account, only that user may sign (consent integrity).
     if (signer.signerUserId && signer.signerUserId !== user.id) { const e = new Error("Only the assigned signer may sign"); e.statusCode = 403; throw e; }
     const now = new Date().toISOString();
-    const ip = String(request.ip || (request.headers && request.headers["x-forwarded-for"]) || "").slice(0, 64);
+    // Local-only product: the authenticated socket peer is the trustworthy address.
+    // Do NOT fall back to x-forwarded-for (no trustProxy → attacker-controlled, would taint evidence).
+    const ip = String(request.ip || "").slice(0, 64);
     const ua = String((request.headers && request.headers["user-agent"]) || "").slice(0, 256);
-    // Per-signer consent evidence: SHA-256 over the immutable document body + signer identity + timestamp.
-    const evidence = { documentId: document.id, title: document.title, body: document.body, signerId: signer.id, signerName: signer.signerName, signedBy: user.id, signedAt: now, ip, userAgent: ua };
+    // Re-read the canonical body from the DB at signing time so the consent hash is over the
+    // exact stored bytes, independent of the in-memory snapshot fetched above.
+    const fresh = db.prepare("SELECT body FROM documents WHERE org_id = ? AND id = ?").get(user.org_id, document.id);
+    const signedBody = fresh ? fresh.body : document.body;
+    // Per-signer consent evidence: SHA-256 over the frozen document body + signer identity + timestamp.
+    const evidence = { documentId: document.id, title: document.title, body: signedBody, signerId: signer.id, signerName: signer.signerName, signedBy: user.id, signedAt: now, ip, userAgent: ua };
     const checksum = crypto.createHash("sha256").update(JSON.stringify(evidence)).digest("hex");
-    db.prepare("UPDATE document_signers SET status = 'signed', signed_at = ?, ip_address = ?, user_agent = ?, checksum = ? WHERE org_id = ? AND id = ?")
-      .run(now, ip, ua, checksum, user.org_id, signer.id);
-    audit(db, user.org_id, user.id, "docs.document.signed", { documentId: document.id, signerId: signer.id, checksum });
-    // When the last pending signer signs, seal the document.
-    const remaining = db.prepare("SELECT COUNT(*) AS n FROM document_signers WHERE org_id = ? AND document_id = ? AND status != 'signed'").get(user.org_id, document.id).n;
-    if (remaining === 0) {
-      const allSigners = getDocumentSigners(db, user.org_id, document.id);
-      const sealedChecksum = crypto.createHash("sha256").update(JSON.stringify({ documentId: document.id, body: document.body, signers: allSigners.map(s => ({ id: s.id, name: s.signerName, checksum: s.checksum, signedAt: s.signedAt })) })).digest("hex");
-      db.prepare("UPDATE documents SET status = 'signed', sealed_checksum = ?, sealed_at = ?, updated_at = ? WHERE org_id = ? AND id = ?").run(sealedChecksum, now, now, user.org_id, document.id);
-      emitSuiteEvent(db, { orgId: user.org_id, actorUserId: user.id, eventType: "docs.document.signed", subjectType: "document", subjectId: document.id, customerId: document.customerId || "", status: "signed", payload: { sealedChecksum } });
-      audit(db, user.org_id, user.id, "docs.document.sealed", { documentId: document.id, sealedChecksum });
+    // Wrap the sign + conditional seal in one transaction so a failure can never leave a signer
+    // marked signed while the document is left unsealed (partial-write integrity).
+    db.exec("BEGIN");
+    try {
+      db.prepare("UPDATE document_signers SET status = 'signed', signed_at = ?, ip_address = ?, user_agent = ?, checksum = ? WHERE org_id = ? AND id = ?")
+        .run(now, ip, ua, checksum, user.org_id, signer.id);
+      const remaining = db.prepare("SELECT COUNT(*) AS n FROM document_signers WHERE org_id = ? AND document_id = ? AND status != 'signed'").get(user.org_id, document.id).n;
+      if (remaining === 0) {
+        const allSigners = getDocumentSigners(db, user.org_id, document.id);
+        const sealedChecksum = crypto.createHash("sha256").update(JSON.stringify({ documentId: document.id, body: signedBody, signers: allSigners.map(s => ({ id: s.id, name: s.signerName, checksum: s.checksum, signedAt: s.signedAt })) })).digest("hex");
+        db.prepare("UPDATE documents SET status = 'signed', sealed_checksum = ?, sealed_at = ?, updated_at = ? WHERE org_id = ? AND id = ?").run(sealedChecksum, now, now, user.org_id, document.id);
+        db.exec("COMMIT");
+        emitSuiteEvent(db, { orgId: user.org_id, actorUserId: user.id, eventType: "docs.document.signed", subjectType: "document", subjectId: document.id, customerId: document.customerId || "", status: "signed", payload: { sealedChecksum } });
+        audit(db, user.org_id, user.id, "docs.document.signed", { documentId: document.id, signerId: signer.id, checksum });
+        audit(db, user.org_id, user.id, "docs.document.sealed", { documentId: document.id, sealedChecksum });
+      } else {
+        db.exec("COMMIT");
+        audit(db, user.org_id, user.id, "docs.document.signed", { documentId: document.id, signerId: signer.id, checksum });
+      }
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
     }
     return { ok: true, document: getDocument(db, user.org_id, document.id) };
   });
@@ -3901,6 +3919,15 @@ function requireDocsWriter(user) {
   // Document authoring / send / void: business roles, never read-only Auditor.
   if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(user.role)) {
     const err = new Error("Docs writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requireDocsSigner(user) {
+  // Recording consent (signing) is a write to the evidence chain — exclude the read-only Auditor.
+  if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(user.role)) {
+    const err = new Error("Docs signer role required");
     err.statusCode = 403;
     throw err;
   }
