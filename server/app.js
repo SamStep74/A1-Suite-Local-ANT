@@ -2463,6 +2463,126 @@ function registerApi(app, db) {
     return { ok: true, project: getProject(db, user.org_id, project.id) };
   });
 
+  // Forms — intake/lead-capture. Definition routes are auth-gated; the SUBMIT route is
+  // intentionally PUBLIC (an outside prospect fills it), scoped to a published form's org.
+  app.get("/api/forms", async request => {
+    const user = await app.auth(request);
+    const forms = db.prepare("SELECT id, title, status, submission_count AS submissionCount, updated_at AS updatedAt FROM forms WHERE org_id = ? ORDER BY updated_at DESC, created_at DESC").all(user.org_id);
+    return { forms };
+  });
+
+  app.get("/api/forms/:id", async request => {
+    const user = await app.auth(request);
+    const form = getForm(db, user.org_id, request.params.id);
+    if (!form) { const e = new Error("Form not found"); e.statusCode = 404; throw e; }
+    form.submissions = db.prepare("SELECT id, data, lead_id AS leadId, created_at AS createdAt FROM form_submissions WHERE org_id = ? AND form_id = ? ORDER BY created_at DESC LIMIT 100").all(user.org_id, form.id).map(s => ({ ...s, data: (() => { try { return JSON.parse(s.data); } catch { return {}; } })() }));
+    return { form };
+  });
+
+  app.post("/api/forms", async request => {
+    const user = await app.auth(request);
+    requireFormsWriter(user);
+    const body = request.body || {};
+    const title = String(body.title || "").trim();
+    if (title.length < 3) { const e = new Error("Form title is required"); e.statusCode = 400; throw e; }
+    const fields = Array.isArray(body.fields) ? body.fields.slice(0, 50).map(f => ({
+      key: String(f.key || "").trim().slice(0, 60),
+      label: String(f.label || "").trim().slice(0, 120),
+      type: normalizeChoice(f.type, ["text", "email", "tel", "textarea", "number"], "text"),
+      required: !!f.required
+    })).filter(f => f.key && f.label) : [];
+    const status = normalizeChoice(body.status, ["draft", "published"], "draft");
+    const id = randomId("form");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO forms (id, org_id, title, description, fields, status, submission_count, created_by_user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`)
+      .run(id, user.org_id, title.slice(0, 200), String(body.description || "").slice(0, 2000), JSON.stringify(fields), status, user.id, now, now);
+    audit(db, user.org_id, user.id, "forms.form.created", { formId: id, title, status });
+    return { ok: true, form: getForm(db, user.org_id, id) };
+  });
+
+  app.patch("/api/forms/:id", async request => {
+    const user = await app.auth(request);
+    requireFormsWriter(user);
+    const form = getForm(db, user.org_id, request.params.id);
+    if (!form) { const e = new Error("Form not found"); e.statusCode = 404; throw e; }
+    const body = request.body || {};
+    const sets = [];
+    const values = [];
+    if (body.title !== undefined) {
+      const title = String(body.title || "").trim();
+      if (title.length < 3) { const e = new Error("Form title is required"); e.statusCode = 400; throw e; }
+      sets.push("title = ?"); values.push(title.slice(0, 200));
+    }
+    if (body.description !== undefined) { sets.push("description = ?"); values.push(String(body.description || "").slice(0, 2000)); }
+    if (body.status !== undefined) {
+      const status = normalizeChoice(body.status, ["draft", "published"], "");
+      if (!status) { const e = new Error("Invalid form status"); e.statusCode = 400; throw e; }
+      sets.push("status = ?"); values.push(status);
+    }
+    if (body.fields !== undefined && Array.isArray(body.fields)) {
+      const fields = body.fields.slice(0, 50).map(f => ({ key: String(f.key || "").trim().slice(0, 60), label: String(f.label || "").trim().slice(0, 120), type: normalizeChoice(f.type, ["text", "email", "tel", "textarea", "number"], "text"), required: !!f.required })).filter(f => f.key && f.label);
+      sets.push("fields = ?"); values.push(JSON.stringify(fields));
+    }
+    if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
+    const now = new Date().toISOString();
+    sets.push("updated_at = ?"); values.push(now);
+    db.prepare(`UPDATE forms SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`).run(...values, user.org_id, form.id);
+    audit(db, user.org_id, user.id, "forms.form.updated", { formId: form.id });
+    return { ok: true, form: getForm(db, user.org_id, form.id) };
+  });
+
+  // PUBLIC submit — NO app.auth. An outside prospect submits a published form.
+  // Per-route bodyLimit (32 KiB) caps abuse; the form row carries the org scope.
+  app.post("/api/forms/:id/submit", { bodyLimit: 32 * 1024 }, async (request, reply) => {
+    const formId = String(request.params.id || "");
+    // Resolve the published form across orgs by id (public caller has no org context).
+    const formRow = db.prepare("SELECT id, org_id AS orgId, fields, status FROM forms WHERE id = ?").get(formId);
+    if (!formRow || formRow.status !== "published") { const e = new Error("Form not available"); e.statusCode = 404; throw e; }
+    const orgId = formRow.orgId;
+    const fields = parseFormFields(formRow.fields);
+    const submitted = (request.body && typeof request.body === "object") ? request.body : {};
+    // Keep only declared field keys (never trust arbitrary keys from a public caller).
+    const data = {};
+    for (const f of fields) {
+      if (f && f.key) data[f.key] = String(submitted[f.key] == null ? "" : submitted[f.key]).slice(0, 2000);
+      if (f && f.key && f.required && !String(data[f.key] || "").trim()) { const e = new Error(`Field "${f.label || f.key}" is required`); e.statusCode = 400; throw e; }
+    }
+    const now = new Date().toISOString();
+    const submissionIp = String(request.ip || "").slice(0, 64);
+    // Synthesize the org's system actor (Owner) so the lead is created the SAME way the
+    // authenticated CRM path does — the public caller never gets a session/identity.
+    const actor = db.prepare("SELECT id, name, email, role, org_id FROM users WHERE org_id = ? AND role = 'Owner' ORDER BY created_at ASC LIMIT 1").get(orgId);
+    let leadId = null;
+    if (actor) {
+      try {
+        const lead = createCrmLead(db, actor, {
+          companyName: data.companyName || data.company || data.contactName || "Form submission",
+          contactName: data.contactName || data.name || data.companyName || "Unknown",
+          email: data.email || "",
+          phone: data.phone || "",
+          interest: data.interest || data.message || "Submitted via intake form",
+          source: "Web form",
+          channel: "Form",
+          consentStatus: "consent-review-required"
+        });
+        leadId = lead ? lead.id : null;
+      } catch (err) {
+        // A malformed submission shouldn't 500 the public endpoint — record the submission
+        // without a lead (lead validation is stricter than raw capture).
+        leadId = null;
+      }
+    }
+    const submissionId = randomId("fsub");
+    db.prepare(`INSERT INTO form_submissions (id, org_id, form_id, data, lead_id, submitter_ip, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`)
+      .run(submissionId, orgId, formRow.id, JSON.stringify(data), leadId, submissionIp, now);
+    db.prepare("UPDATE forms SET submission_count = submission_count + 1, updated_at = ? WHERE id = ?").run(now, formRow.id);
+    audit(db, orgId, actor ? actor.id : null, "forms.submission.received", { formId: formRow.id, submissionId, leadId });
+    // Public response: minimal, never leak org/lead internals back to the anonymous caller.
+    return { ok: true, received: true };
+  });
+
   app.get("/api/privacy/requests", async request => {
     const user = await app.auth(request);
     const customerId = request.query.customerId || "";
@@ -4170,6 +4290,29 @@ function requireProjectsWriter(user) {
     err.statusCode = 403;
     throw err;
   }
+}
+
+function requireFormsWriter(user) {
+  // Form authoring / publish: marketing/sales/ops roles, never read-only Auditor.
+  if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(user.role)) {
+    const err = new Error("Forms writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function parseFormFields(raw) {
+  let fields = [];
+  try { fields = JSON.parse(raw || "[]"); } catch { fields = []; }
+  if (!Array.isArray(fields)) fields = [];
+  return fields;
+}
+
+function getForm(db, orgId, id) {
+  const form = db.prepare("SELECT id, title, description, fields, status, submission_count AS submissionCount, created_at AS createdAt, updated_at AS updatedAt FROM forms WHERE org_id = ? AND id = ?").get(orgId, String(id || ""));
+  if (!form) return null;
+  form.fields = parseFormFields(form.fields);
+  return form;
 }
 
 function getProject(db, orgId, id) {

@@ -775,6 +775,33 @@ function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_project_time_entries_project ON project_time_entries(org_id, project_id, entry_date);
 
+    CREATE TABLE IF NOT EXISTS forms (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      fields TEXT NOT NULL DEFAULT '[]',
+      status TEXT NOT NULL DEFAULT 'draft',
+      submission_count INTEGER NOT NULL DEFAULT 0,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_forms_org ON forms(org_id, status, created_at);
+
+    CREATE TABLE IF NOT EXISTS form_submissions (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      form_id TEXT NOT NULL REFERENCES forms(id) ON DELETE CASCADE,
+      data TEXT NOT NULL DEFAULT '{}',
+      lead_id TEXT REFERENCES crm_leads(id) ON DELETE SET NULL,
+      submitter_ip TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(org_id, form_id, created_at);
+
     CREATE TABLE IF NOT EXISTS bills (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -6291,6 +6318,21 @@ function seedIfEmpty(db) {
     INSERT INTO project_time_entries (id, org_id, project_id, task_id, minutes, entry_date, note, logged_by_user_id, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run("pte-nare-1", orgId, "proj-nare-retention", "ptask-nare-1", 180, "2026-05-12", "Ձևանմուշների սկզբնական կարգավորում", "user-owner", now);
+
+  db.prepare(`
+    INSERT INTO forms (id, org_id, title, description, fields, status, submission_count, created_by_user_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "form-lead-intake", orgId, "Հետաքրքրության հայտ (Lead intake)", "Թողեք ձեր տվյալները և մենք կկապվենք ձեզ հետ.",
+    JSON.stringify([
+      { key: "companyName", label: "Ընկերություն", type: "text", required: true },
+      { key: "contactName", label: "Կոնտակտային անձ", type: "text", required: true },
+      { key: "email", label: "Էլ. փոստ", type: "email", required: true },
+      { key: "phone", label: "Հեռախոս", type: "tel", required: true },
+      { key: "interest", label: "Հետաքրքրությունը", type: "textarea", required: true }
+    ]),
+    "published", 0, "user-owner", now, now
+  );
 
   const insertInvoice = db.prepare(`
     INSERT INTO invoices (id, org_id, customer_id, number, status, total, vat, due_date)
