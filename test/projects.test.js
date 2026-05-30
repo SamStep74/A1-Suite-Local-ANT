@@ -112,3 +112,36 @@ test("projects: write-gate (Auditor 403) and cross-org isolation (404)", async (
     assert.strictEqual(addTask.statusCode, 404);
   } finally { await app.close(); }
 });
+
+test("projects: a child cannot be addressed under the wrong parent project (404)", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+
+    // Two sibling projects in the SAME org.
+    const a = (await app.inject({ method: "POST", url: "/api/projects", headers: { cookie: owner }, payload: { name: "Project Alpha" } })).json().project.id;
+    const b = (await app.inject({ method: "POST", url: "/api/projects", headers: { cookie: owner }, payload: { name: "Project Beta" } })).json().project.id;
+
+    // A task + milestone that belong to A.
+    const taskA = (await app.inject({ method: "POST", url: `/api/projects/${a}/tasks`, headers: { cookie: owner }, payload: { title: "Alpha task" } })).json().project.tasks[0].id;
+    const msA = (await app.inject({ method: "POST", url: `/api/projects/${a}/milestones`, headers: { cookie: owner }, payload: { title: "Alpha milestone" } })).json().project.milestones[0].id;
+
+    // Addressing A's task under parent B must 404 — the child is scoped to its real parent,
+    // so a mismatched :id/:taskId pair cannot mutate across projects.
+    const wrongParentTask = await app.inject({ method: "PATCH", url: `/api/projects/${b}/tasks/${taskA}`, headers: { cookie: owner }, payload: { status: "done" } });
+    assert.strictEqual(wrongParentTask.statusCode, 404);
+
+    // Same for milestones.
+    const wrongParentMs = await app.inject({ method: "PATCH", url: `/api/projects/${b}/milestones/${msA}`, headers: { cookie: owner }, payload: { reached: true } });
+    assert.strictEqual(wrongParentMs.statusCode, 404);
+
+    // And a time entry referencing A's task while posting under B must be rejected (not silently mislinked).
+    const wrongParentTime = await app.inject({ method: "POST", url: `/api/projects/${b}/time-entries`, headers: { cookie: owner }, payload: { minutes: 30, taskId: taskA } });
+    assert.ok([400, 404].includes(wrongParentTime.statusCode), `expected 400/404 for cross-project task link, got ${wrongParentTime.statusCode}`);
+
+    // Control: the correct parent still works.
+    const ok = await app.inject({ method: "PATCH", url: `/api/projects/${a}/tasks/${taskA}`, headers: { cookie: owner }, payload: { status: "done" } });
+    assert.strictEqual(ok.statusCode, 200);
+  } finally { await app.close(); }
+});
