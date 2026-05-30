@@ -3550,6 +3550,11 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     try { await api(`/api/people/employees/${employeeId}/run-payroll`, { method: "POST", body: {} }); setActionState(`payroll:done:${employeeId}`); onReload(); }
     catch { setActionState(`payroll:error:${employeeId}`); }
   }
+  async function updateEmployee(employeeId, patch) {
+    setActionState(`employee:update:${employeeId}`);
+    try { await api(`/api/people/employees/${employeeId}`, { method: "PATCH", body: patch }); setActionState(`employee:update:done:${employeeId}`); onReload(); }
+    catch { setActionState(`employee:update:error:${employeeId}`); }
+  }
 
   const liveApprovals = quoteApproval && ["pending", "approved"].includes(quoteApproval.status)
     ? [
@@ -3680,7 +3685,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           )}
           {people && (
             <>
-              <PeopleRegistryPanel data={people} onRunPayroll={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? runEmployeePayroll : null} actionState={actionState} />
+              <PeopleRegistryPanel data={people} onRunPayroll={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? runEmployeePayroll : null} onUpdate={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? updateEmployee : null} actionState={actionState} />
               {["Owner", "Admin", "Accountant"].includes(suite.user.role) && (
                 <PeopleEmployeeForm onCreate={createEmployee} actionState={actionState} />
               )}

@@ -42,9 +42,37 @@ export function PeopleEmployeeForm({ onCreate, actionState }) {
   );
 }
 
-export function PeopleRegistryPanel({ data, onRunPayroll, actionState }) {
+const EMPLOYMENT_STATUSES = ["active", "on-leave", "terminated"];
+
+function EmployeeEditor({ employee, onUpdate, actionState }) {
+  const [status, setStatus] = useState(employee.employmentStatus);
+  const [grossSalary, setGrossSalary] = useState(String(employee.grossSalary || 0));
+  const [position, setPosition] = useState(employee.position || "");
+  const busy = actionState === `employee:update:${employee.id}`;
+  function save() {
+    const patch = {
+      employmentStatus: status,
+      grossSalary: Math.max(0, Math.round(Number(grossSalary) || 0)),
+      position: position.trim()
+    };
+    onUpdate(employee.id, patch);
+  }
+  return (
+    <div className="inline-form employee-editor">
+      <select value={status} onChange={event => setStatus(event.target.value)}>
+        {EMPLOYMENT_STATUSES.map(value => <option key={value} value={value}>{value}</option>)}
+      </select>
+      <input value={grossSalary} onChange={event => setGrossSalary(event.target.value)} inputMode="numeric" placeholder="Աշխատավարձ (AMD)" />
+      <input value={position} onChange={event => setPosition(event.target.value)} placeholder="Պաշտոն" />
+      <button className="mini-action" type="button" disabled={busy} onClick={save}>{busy ? "Saving" : "Save"}</button>
+    </div>
+  );
+}
+
+export function PeopleRegistryPanel({ data, onRunPayroll, onUpdate, actionState }) {
   const employees = (data && data.employees) || [];
   const activeCount = employees.filter(employee => employee.employmentStatus === "active").length;
+  const [editingId, setEditingId] = useState(null);
   return (
     <article className="panel people-registry-panel">
       <div className="panel-head">
@@ -55,15 +83,29 @@ export function PeopleRegistryPanel({ data, onRunPayroll, actionState }) {
         {employees.map(employee => (
           <div className="row" key={employee.id}>
             <span>{employee.fullName} · {employee.position || "—"} · {employee.department || "—"} · <strong>{employee.employmentStatus}</strong> · {amd(employee.grossSalary)}</span>
-            {employee.employmentStatus !== "terminated" && onRunPayroll && (
-              <button
-                className="mini-action"
-                type="button"
-                disabled={actionState === `payroll:${employee.id}`}
-                onClick={() => onRunPayroll(employee.id)}
-              >
-                {actionState === `payroll:${employee.id}` ? "Running" : "Run payroll"}
-              </button>
+            <span className="row-actions">
+              {onUpdate && (
+                <button
+                  className="mini-action"
+                  type="button"
+                  onClick={() => setEditingId(editingId === employee.id ? null : employee.id)}
+                >
+                  {editingId === employee.id ? "Close" : "Edit"}
+                </button>
+              )}
+              {employee.employmentStatus !== "terminated" && onRunPayroll && (
+                <button
+                  className="mini-action"
+                  type="button"
+                  disabled={actionState === `payroll:${employee.id}`}
+                  onClick={() => onRunPayroll(employee.id)}
+                >
+                  {actionState === `payroll:${employee.id}` ? "Running" : "Run payroll"}
+                </button>
+              )}
+            </span>
+            {onUpdate && editingId === employee.id && (
+              <EmployeeEditor employee={employee} onUpdate={onUpdate} actionState={actionState} />
             )}
           </div>
         ))}
