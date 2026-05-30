@@ -682,6 +682,41 @@ function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_people_employees_org ON people_employees(org_id, employment_status, full_name);
 
+    CREATE TABLE IF NOT EXISTS documents (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      body TEXT NOT NULL DEFAULT '',
+      doc_type TEXT NOT NULL DEFAULT 'agreement',
+      status TEXT NOT NULL DEFAULT 'draft',
+      customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
+      sealed_checksum TEXT NOT NULL DEFAULT '',
+      sealed_at TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_documents_org ON documents(org_id, status, created_at);
+
+    CREATE TABLE IF NOT EXISTS document_signers (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      document_id TEXT NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+      signer_name TEXT NOT NULL,
+      signer_email TEXT NOT NULL DEFAULT '',
+      signer_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      sign_order INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'pending',
+      signed_at TEXT NOT NULL DEFAULT '',
+      ip_address TEXT NOT NULL DEFAULT '',
+      user_agent TEXT NOT NULL DEFAULT '',
+      checksum TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_document_signers_doc ON document_signers(org_id, document_id, sign_order);
+
     CREATE TABLE IF NOT EXISTS bills (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -6158,6 +6193,17 @@ function seedIfEmpty(db) {
   insertCustomer.run("cust-nare", orgId, "Նարե Բժշկական Կենտրոն", "02576111", "finance@nareclinic.am", "+374 91 224455", "Clinic", 86, 14200000, 960000, "2026-05-25");
   insertCustomer.run("cust-ani", orgId, "Անի Գեղեցկության Սրահ", "01888999", "owner@anibeauty.am", "+374 77 808080", "Beauty", 74, 5400000, 180000, "2026-05-24");
   insertCustomer.run("cust-van", orgId, "Վանաձոր Տուր ՍՊԸ", "04444123", "ops@vanadzortour.am", "+374 55 441122", "Tourism", 61, 3900000, 0, "2026-05-22");
+
+  const insertDocument = db.prepare(`
+    INSERT INTO documents (id, org_id, title, body, doc_type, status, customer_id, sealed_checksum, sealed_at, created_by_user_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  insertDocument.run("doc-ani-service", orgId, "Սպասարկման պայմանագիր — Անի Գեղեցկության Սրահ", "Կողմերը պայմանավորվում են մատուցել ամսական սպասարկման ծառայություններ՝ համաձայն հավելվածի.", "agreement", "draft", "cust-ani", "", "", "user-owner", now, now);
+  insertDocument.run("doc-anahit-nda", orgId, "Գաղտնիության համաձայնագիր (NDA)", "Աշխատակիցը պարտավորվում է պահպանել գործատուի առևտրային գաղտնիքը.", "nda", "out-for-signature", null, "", "", "user-owner", now, now);
+  db.prepare(`
+    INSERT INTO document_signers (id, org_id, document_id, signer_name, signer_email, signer_user_id, sign_order, status, signed_at, ip_address, user_agent, checksum, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run("dsign-anahit", orgId, "doc-anahit-nda", "Անահիտ Հակոբյան", "anahit@armosphera.local", null, 0, "pending", "", "", "", "", now);
 
   const insertDeal = db.prepare(`
     INSERT INTO deals (id, org_id, customer_id, title, stage, value, currency, probability, next_step)

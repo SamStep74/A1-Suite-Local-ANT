@@ -2079,6 +2079,153 @@ function registerApi(app, db) {
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.packet.customerId) };
   });
 
+  // Docs & Sign — general document + multi-signer e-signature lifecycle (local-only, no egress).
+  // State machine: draft → out-for-signature → signed (terminal) | voided (terminal).
+  app.get("/api/docs/documents", async request => {
+    const user = await app.auth(request);
+    const documents = db.prepare("SELECT id, title, doc_type AS docType, status, customer_id AS customerId, sealed_at AS sealedAt, updated_at AS updatedAt FROM documents WHERE org_id = ? ORDER BY updated_at DESC, created_at DESC").all(user.org_id);
+    for (const doc of documents) doc.signers = getDocumentSigners(db, user.org_id, doc.id);
+    return { documents };
+  });
+
+  app.get("/api/docs/documents/:id", async request => {
+    const user = await app.auth(request);
+    const document = getDocument(db, user.org_id, request.params.id);
+    if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
+    return { document };
+  });
+
+  app.post("/api/docs/documents", async request => {
+    const user = await app.auth(request);
+    requireDocsWriter(user);
+    const body = request.body || {};
+    const title = String(body.title || "").trim();
+    if (title.length < 3) { const e = new Error("Document title is required"); e.statusCode = 400; throw e; }
+    const docType = normalizeChoice(body.docType, ["agreement", "nda", "contract", "offer", "policy", "other"], "agreement");
+    const customerId = String(body.customerId || "").trim();
+    if (customerId) assertCustomer(db, user.org_id, customerId);
+    const id = randomId("doc");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO documents (id, org_id, title, body, doc_type, status, customer_id, sealed_checksum, sealed_at, created_by_user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'draft', ?, '', '', ?, ?, ?)`)
+      .run(id, user.org_id, title.slice(0, 200), String(body.body || "").slice(0, 20000), docType, customerId || null, user.id, now, now);
+    audit(db, user.org_id, user.id, "docs.document.created", { documentId: id, title });
+    return { ok: true, document: getDocument(db, user.org_id, id) };
+  });
+
+  app.patch("/api/docs/documents/:id", async request => {
+    const user = await app.auth(request);
+    requireDocsWriter(user);
+    const document = getDocument(db, user.org_id, request.params.id);
+    if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
+    if (document.status !== "draft") { const e = new Error("Only draft documents can be edited"); e.statusCode = 409; throw e; }
+    const body = request.body || {};
+    const sets = [];
+    const values = [];
+    if (body.title !== undefined) {
+      const title = String(body.title || "").trim();
+      if (title.length < 3) { const e = new Error("Document title is required"); e.statusCode = 400; throw e; }
+      sets.push("title = ?"); values.push(title.slice(0, 200));
+    }
+    if (body.body !== undefined) { sets.push("body = ?"); values.push(String(body.body || "").slice(0, 20000)); }
+    if (body.docType !== undefined) {
+      const docType = normalizeChoice(body.docType, ["agreement", "nda", "contract", "offer", "policy", "other"], "");
+      if (!docType) { const e = new Error("Invalid document type"); e.statusCode = 400; throw e; }
+      sets.push("doc_type = ?"); values.push(docType);
+    }
+    if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
+    const now = new Date().toISOString();
+    sets.push("updated_at = ?"); values.push(now);
+    db.prepare(`UPDATE documents SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`).run(...values, user.org_id, document.id);
+    audit(db, user.org_id, user.id, "docs.document.updated", { documentId: document.id });
+    return { ok: true, document: getDocument(db, user.org_id, document.id) };
+  });
+
+  app.post("/api/docs/documents/:id/signers", async request => {
+    const user = await app.auth(request);
+    requireDocsWriter(user);
+    const document = getDocument(db, user.org_id, request.params.id);
+    if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
+    if (document.status !== "draft") { const e = new Error("Signers can only be added while the document is a draft"); e.statusCode = 409; throw e; }
+    const body = request.body || {};
+    const signerName = String(body.signerName || "").trim();
+    if (signerName.length < 2) { const e = new Error("Signer name is required"); e.statusCode = 400; throw e; }
+    let signerUserId = null;
+    if (body.signerUserId) {
+      const u = db.prepare("SELECT id FROM users WHERE org_id = ? AND id = ?").get(user.org_id, String(body.signerUserId));
+      if (!u) { const e = new Error("Signer must be a user in this organization"); e.statusCode = 400; throw e; }
+      signerUserId = u.id;
+    }
+    const nextOrder = db.prepare("SELECT COUNT(*) AS n FROM document_signers WHERE org_id = ? AND document_id = ?").get(user.org_id, document.id).n;
+    const id = randomId("dsign");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO document_signers (id, org_id, document_id, signer_name, signer_email, signer_user_id, sign_order, status, signed_at, ip_address, user_agent, checksum, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', '', '', '', '', ?)`)
+      .run(id, user.org_id, document.id, signerName.slice(0, 160), String(body.signerEmail || "").slice(0, 160), signerUserId, nextOrder, now);
+    audit(db, user.org_id, user.id, "docs.signer.added", { documentId: document.id, signerId: id });
+    return { ok: true, document: getDocument(db, user.org_id, document.id) };
+  });
+
+  app.post("/api/docs/documents/:id/send", async request => {
+    const user = await app.auth(request);
+    requireDocsWriter(user);
+    const document = getDocument(db, user.org_id, request.params.id);
+    if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
+    if (document.status !== "draft") { const e = new Error("Only draft documents can be sent for signature"); e.statusCode = 409; throw e; }
+    if (document.signers.length === 0) { const e = new Error("Add at least one signer before sending"); e.statusCode = 409; throw e; }
+    const now = new Date().toISOString();
+    db.prepare("UPDATE documents SET status = 'out-for-signature', updated_at = ? WHERE org_id = ? AND id = ?").run(now, user.org_id, document.id);
+    emitSuiteEvent(db, { orgId: user.org_id, actorUserId: user.id, eventType: "docs.document.sent", subjectType: "document", subjectId: document.id, customerId: document.customerId || "", status: "out-for-signature", payload: { signerCount: document.signers.length } });
+    audit(db, user.org_id, user.id, "docs.document.sent", { documentId: document.id, signerCount: document.signers.length });
+    return { ok: true, document: getDocument(db, user.org_id, document.id) };
+  });
+
+  app.post("/api/docs/documents/:id/sign", async request => {
+    const user = await app.auth(request);
+    const document = getDocument(db, user.org_id, request.params.id);
+    if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
+    if (document.status !== "out-for-signature") { const e = new Error("Document is not out for signature"); e.statusCode = 409; throw e; }
+    const body = request.body || {};
+    const signerId = String(body.signerId || "").trim();
+    const signer = document.signers.find(s => s.id === signerId);
+    if (!signer) { const e = new Error("Signer not found on this document"); e.statusCode = 404; throw e; }
+    if (signer.status === "signed") { const e = new Error("Signer has already signed"); e.statusCode = 409; throw e; }
+    // If the signer is bound to a user account, only that user may sign (consent integrity).
+    if (signer.signerUserId && signer.signerUserId !== user.id) { const e = new Error("Only the assigned signer may sign"); e.statusCode = 403; throw e; }
+    const now = new Date().toISOString();
+    const ip = String(request.ip || (request.headers && request.headers["x-forwarded-for"]) || "").slice(0, 64);
+    const ua = String((request.headers && request.headers["user-agent"]) || "").slice(0, 256);
+    // Per-signer consent evidence: SHA-256 over the immutable document body + signer identity + timestamp.
+    const evidence = { documentId: document.id, title: document.title, body: document.body, signerId: signer.id, signerName: signer.signerName, signedBy: user.id, signedAt: now, ip, userAgent: ua };
+    const checksum = crypto.createHash("sha256").update(JSON.stringify(evidence)).digest("hex");
+    db.prepare("UPDATE document_signers SET status = 'signed', signed_at = ?, ip_address = ?, user_agent = ?, checksum = ? WHERE org_id = ? AND id = ?")
+      .run(now, ip, ua, checksum, user.org_id, signer.id);
+    audit(db, user.org_id, user.id, "docs.document.signed", { documentId: document.id, signerId: signer.id, checksum });
+    // When the last pending signer signs, seal the document.
+    const remaining = db.prepare("SELECT COUNT(*) AS n FROM document_signers WHERE org_id = ? AND document_id = ? AND status != 'signed'").get(user.org_id, document.id).n;
+    if (remaining === 0) {
+      const allSigners = getDocumentSigners(db, user.org_id, document.id);
+      const sealedChecksum = crypto.createHash("sha256").update(JSON.stringify({ documentId: document.id, body: document.body, signers: allSigners.map(s => ({ id: s.id, name: s.signerName, checksum: s.checksum, signedAt: s.signedAt })) })).digest("hex");
+      db.prepare("UPDATE documents SET status = 'signed', sealed_checksum = ?, sealed_at = ?, updated_at = ? WHERE org_id = ? AND id = ?").run(sealedChecksum, now, now, user.org_id, document.id);
+      emitSuiteEvent(db, { orgId: user.org_id, actorUserId: user.id, eventType: "docs.document.signed", subjectType: "document", subjectId: document.id, customerId: document.customerId || "", status: "signed", payload: { sealedChecksum } });
+      audit(db, user.org_id, user.id, "docs.document.sealed", { documentId: document.id, sealedChecksum });
+    }
+    return { ok: true, document: getDocument(db, user.org_id, document.id) };
+  });
+
+  app.post("/api/docs/documents/:id/void", async request => {
+    const user = await app.auth(request);
+    requireDocsWriter(user);
+    const document = getDocument(db, user.org_id, request.params.id);
+    if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
+    if (document.status === "signed" || document.status === "voided") { const e = new Error("A signed or voided document cannot be voided"); e.statusCode = 409; throw e; }
+    const now = new Date().toISOString();
+    db.prepare("UPDATE documents SET status = 'voided', updated_at = ? WHERE org_id = ? AND id = ?").run(now, user.org_id, document.id);
+    emitSuiteEvent(db, { orgId: user.org_id, actorUserId: user.id, eventType: "docs.document.voided", subjectType: "document", subjectId: document.id, customerId: document.customerId || "", status: "voided", payload: { reason: String((request.body || {}).reason || "").slice(0, 500) } });
+    audit(db, user.org_id, user.id, "docs.document.voided", { documentId: document.id });
+    return { ok: true, document: getDocument(db, user.org_id, document.id) };
+  });
+
   app.get("/api/privacy/requests", async request => {
     const user = await app.auth(request);
     const customerId = request.query.customerId || "";
@@ -3748,6 +3895,26 @@ function requirePeopleWriter(user) {
 
 function getEmployee(db, orgId, id) {
   return db.prepare("SELECT id, full_name AS fullName, tax_id AS taxId, position, department, gross_salary AS grossSalary, employment_status AS employmentStatus, hire_date AS hireDate, email, updated_at AS updatedAt FROM people_employees WHERE org_id = ? AND id = ?").get(orgId, String(id || ""));
+}
+
+function requireDocsWriter(user) {
+  // Document authoring / send / void: business roles, never read-only Auditor.
+  if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(user.role)) {
+    const err = new Error("Docs writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function getDocumentSigners(db, orgId, documentId) {
+  return db.prepare("SELECT id, signer_name AS signerName, signer_email AS signerEmail, signer_user_id AS signerUserId, sign_order AS signOrder, status, signed_at AS signedAt, checksum FROM document_signers WHERE org_id = ? AND document_id = ? ORDER BY sign_order, created_at").all(orgId, String(documentId || ""));
+}
+
+function getDocument(db, orgId, id) {
+  const doc = db.prepare("SELECT id, title, body, doc_type AS docType, status, customer_id AS customerId, sealed_checksum AS sealedChecksum, sealed_at AS sealedAt, created_at AS createdAt, updated_at AS updatedAt FROM documents WHERE org_id = ? AND id = ?").get(orgId, String(id || ""));
+  if (!doc) return null;
+  doc.signers = getDocumentSigners(db, orgId, doc.id);
+  return doc;
 }
 
 function requireMfaPrivilegedUser(user) {
