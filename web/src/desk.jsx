@@ -62,7 +62,7 @@ export function DeskTicketList({ data, onUpdate, actionState }) {
               <option value="">Move to…</option>
               {MOVE_TO.filter(s => s !== item.status).map(s => <option key={s} value={s}>{s}</option>)}
             </select>
-            <select value="" onChange={event => { if (event.target.value) onUpdate(item.id, { ownerUserId: event.target.value }); }}>
+            <select value="" disabled={actionState === `ticket:update:${item.id}`} onChange={event => { if (event.target.value) onUpdate(item.id, { ownerUserId: event.target.value }); }}>
               <option value="">Assign…</option>
               {agents.map(agent => <option key={agent.id} value={agent.id}>{agent.name}</option>)}
             </select>
