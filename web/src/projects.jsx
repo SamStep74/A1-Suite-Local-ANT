@@ -39,10 +39,11 @@ export function ProjectCreateForm({ customers, onCreate, actionState }) {
   );
 }
 
-export function ProjectsBoardPanel({ data, canWrite, onAddTask, onToggleTask, onUpdateStatus, onLogTime, actionState }) {
+export function ProjectsBoardPanel({ data, canWrite, canBill, onAddTask, onToggleTask, onUpdateStatus, onLogTime, onBillTime, actionState }) {
   const projects = (data && data.projects) || [];
   const [taskTitle, setTaskTitle] = useState({});
   const [timeMin, setTimeMin] = useState({});
+  const [billRate, setBillRate] = useState({});
   return (
     <article className="panel projects-board-panel">
       <div className="panel-head">
@@ -80,6 +81,18 @@ export function ProjectsBoardPanel({ data, canWrite, onAddTask, onToggleTask, on
                     style={{ width: "90px" }}
                   />
                   <button className="mini-action" type="button" disabled={busy || !(Number(timeMin[project.id]) > 0)} onClick={() => { onLogTime(project.id, Math.round(Number(timeMin[project.id]))); setTimeMin({ ...timeMin, [project.id]: "" }); }}>Log time</button>
+                </div>
+              )}
+              {canBill && project.customerId && project.totalMinutes > 0 && (
+                <div className="inline-form" style={{ gap: "6px" }}>
+                  <input
+                    value={billRate[project.id] || ""}
+                    onChange={event => setBillRate({ ...billRate, [project.id]: event.target.value })}
+                    inputMode="numeric"
+                    placeholder="Ժամի դրույք (AMD)"
+                    style={{ width: "140px" }}
+                  />
+                  <button className="mini-action" type="button" disabled={busy || !(Number(billRate[project.id]) > 0)} onClick={() => { onBillTime(project.id, Math.round(Number(billRate[project.id]))); setBillRate({ ...billRate, [project.id]: "" }); }}>Bill time → invoice</button>
                 </div>
               )}
             </div>

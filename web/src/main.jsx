@@ -3629,6 +3629,11 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     try { await api(`/api/projects/${projectId}/time-entries`, { method: "POST", body: { minutes } }); setActionState(`project:act:done:${projectId}`); onReload(); }
     catch { setActionState(`project:act:error:${projectId}`); }
   }
+  async function billProjectTime(projectId, hourlyRate) {
+    setActionState(`project:act:${projectId}`);
+    try { await api(`/api/projects/${projectId}/bill-time`, { method: "POST", body: { hourlyRate } }); setActionState(`project:act:done:${projectId}`); onReload(); }
+    catch { setActionState(`project:act:error:${projectId}`); }
+  }
   async function updateEmployee(employeeId, patch) {
     setActionState(`employee:update:${employeeId}`);
     try { await api(`/api/people/employees/${employeeId}`, { method: "PATCH", body: patch }); setActionState(`employee:update:done:${employeeId}`); onReload(); }
@@ -3791,9 +3796,11 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               <ProjectsBoardPanel
                 data={projects}
                 canWrite={["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role)}
+                canBill={["Owner", "Admin", "Accountant"].includes(suite.user.role)}
                 onAddTask={addProjectTask}
                 onUpdateStatus={updateProjectStatus}
                 onLogTime={logProjectTime}
+                onBillTime={billProjectTime}
                 actionState={actionState}
               />
               {["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role) && (

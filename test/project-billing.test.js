@@ -67,6 +67,38 @@ test("project-billing: unbilled time → posted invoice → ledger; entries mark
   } finally { await app.close(); }
 });
 
+test("project-billing: cannot bill into a closed finance period (409 PERIOD_LOCKED)", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const proj = await createBillableProject(app, owner);
+
+    // A control project proves the open period bills fine; the target project is billed for
+    // the FIRST time only AFTER the period closes — so the idempotency short-circuit (which is
+    // checked before the period gate) cannot mask the lock.
+    const orgId = app.db.prepare("SELECT org_id FROM users WHERE email = ?").get(DEFAULT_EMAIL).org_id;
+    const openPeriod = app.db.prepare("SELECT period_key FROM finance_periods WHERE org_id = ? AND status='open' LIMIT 1").get(orgId).period_key;
+    const issueDate = `${openPeriod}-15`;
+    const control = await app.inject({ method: "POST", url: `/api/projects/${proj}/bill-time`, headers: { cookie: owner }, payload: { hourlyRate: 10000, issueDate } });
+    assert.strictEqual(control.statusCode, 200, "control bill into the open period succeeds");
+
+    // A SEPARATE billable project that has never been billed in this period.
+    const target = await createBillableProject(app, owner);
+
+    // Close the period, then the target's FIRST bill into it must be rejected with 409.
+    const close = await app.inject({ method: "POST", url: `/api/finance/periods/${openPeriod}/close`, headers: { cookie: owner }, payload: { reason: "month closed" } });
+    assert.strictEqual(close.statusCode, 200, "owner closes the period");
+
+    const lockedBill = await app.inject({ method: "POST", url: `/api/projects/${target}/bill-time`, headers: { cookie: owner }, payload: { hourlyRate: 10000, issueDate } });
+    assert.strictEqual(lockedBill.statusCode, 409, "billing into a closed period is rejected");
+
+    // The target's time remains UNBILLED — the rejected bill posted nothing.
+    const preview = (await app.inject({ method: "GET", url: `/api/projects/${target}/billing-preview?hourlyRate=10000`, headers: { cookie: owner } })).json();
+    assert.strictEqual(preview.preview.unbilledMinutes, 180, "closed-period bill left the time unbilled");
+  } finally { await app.close(); }
+});
+
 test("project-billing: guards — no customer (400), no unbilled time (400), finance gate (403)", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
