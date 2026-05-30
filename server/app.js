@@ -2262,6 +2262,207 @@ function registerApi(app, db) {
     return { ok: true, document: getDocument(db, user.org_id, document.id) };
   });
 
+  // Projects — client projects → tasks → milestones → time entries (delivery tracking).
+  const PROJECT_STATUSES = ["planning", "active", "on-hold", "completed", "cancelled"];
+  const TASK_STATUSES = ["todo", "in-progress", "done"];
+
+  app.get("/api/projects", async request => {
+    const user = await app.auth(request);
+    const projects = db.prepare("SELECT id, name, status, customer_id AS customerId, deal_id AS dealId, start_date AS startDate, due_date AS dueDate, updated_at AS updatedAt FROM projects WHERE org_id = ? ORDER BY updated_at DESC, created_at DESC").all(user.org_id);
+    for (const p of projects) {
+      const t = db.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(CASE WHEN status='done' THEN 1 ELSE 0 END), 0) AS done FROM project_tasks WHERE org_id = ? AND project_id = ?").get(user.org_id, p.id);
+      const ms = db.prepare("SELECT COUNT(*) AS total, COALESCE(SUM(reached), 0) AS reached FROM project_milestones WHERE org_id = ? AND project_id = ?").get(user.org_id, p.id);
+      const tm = db.prepare("SELECT COALESCE(SUM(minutes), 0) AS minutes FROM project_time_entries WHERE org_id = ? AND project_id = ?").get(user.org_id, p.id);
+      p.taskTotal = t.total; p.taskDone = t.done;
+      p.milestoneTotal = ms.total; p.milestoneReached = ms.reached;
+      p.totalMinutes = tm.minutes;
+    }
+    return { projects };
+  });
+
+  app.get("/api/projects/:id", async request => {
+    const user = await app.auth(request);
+    const project = getProject(db, user.org_id, request.params.id);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    return { project };
+  });
+
+  app.post("/api/projects", async request => {
+    const user = await app.auth(request);
+    requireProjectsWriter(user);
+    const body = request.body || {};
+    const name = String(body.name || "").trim();
+    if (name.length < 3) { const e = new Error("Project name is required"); e.statusCode = 400; throw e; }
+    const status = normalizeChoice(body.status, PROJECT_STATUSES, "planning");
+    const customerId = String(body.customerId || "").trim();
+    if (customerId) assertCustomer(db, user.org_id, customerId);
+    const dealId = String(body.dealId || "").trim();
+    if (dealId && !getDeal(db, user.org_id, dealId)) { const e = new Error("Linked deal not found"); e.statusCode = 400; throw e; }
+    const id = randomId("proj");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO projects (id, org_id, name, description, status, customer_id, deal_id, start_date, due_date, created_by_user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, user.org_id, name.slice(0, 200), String(body.description || "").slice(0, 4000), status, customerId || null, dealId || null, /^\d{4}-\d{2}-\d{2}$/.test(body.startDate || "") ? body.startDate : "", /^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : "", user.id, now, now);
+    audit(db, user.org_id, user.id, "projects.project.created", { projectId: id, name });
+    return { ok: true, project: getProject(db, user.org_id, id) };
+  });
+
+  app.patch("/api/projects/:id", async request => {
+    const user = await app.auth(request);
+    requireProjectsWriter(user);
+    const project = getProject(db, user.org_id, request.params.id);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    const body = request.body || {};
+    const sets = [];
+    const values = [];
+    if (body.name !== undefined) {
+      const name = String(body.name || "").trim();
+      if (name.length < 3) { const e = new Error("Project name is required"); e.statusCode = 400; throw e; }
+      sets.push("name = ?"); values.push(name.slice(0, 200));
+    }
+    if (body.description !== undefined) { sets.push("description = ?"); values.push(String(body.description || "").slice(0, 4000)); }
+    if (body.status !== undefined) {
+      const status = normalizeChoice(body.status, PROJECT_STATUSES, "");
+      if (!status) { const e = new Error("Invalid project status"); e.statusCode = 400; throw e; }
+      sets.push("status = ?"); values.push(status);
+    }
+    if (body.dueDate !== undefined) { sets.push("due_date = ?"); values.push(/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : ""); }
+    if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
+    const now = new Date().toISOString();
+    sets.push("updated_at = ?"); values.push(now);
+    db.prepare(`UPDATE projects SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`).run(...values, user.org_id, project.id);
+    audit(db, user.org_id, user.id, "projects.project.updated", { projectId: project.id });
+    return { ok: true, project: getProject(db, user.org_id, project.id) };
+  });
+
+  app.post("/api/projects/:id/tasks", async request => {
+    const user = await app.auth(request);
+    requireProjectsWriter(user);
+    const project = getProject(db, user.org_id, request.params.id);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    const body = request.body || {};
+    const title = String(body.title || "").trim();
+    if (title.length < 2) { const e = new Error("Task title is required"); e.statusCode = 400; throw e; }
+    let assigneeEmployeeId = null;
+    if (body.assigneeEmployeeId) {
+      const emp = getEmployee(db, user.org_id, body.assigneeEmployeeId);
+      if (!emp) { const e = new Error("Assignee must be an employee in this organization"); e.statusCode = 400; throw e; }
+      assigneeEmployeeId = emp.id;
+    }
+    const status = normalizeChoice(body.status, TASK_STATUSES, "todo");
+    const id = randomId("ptask");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO project_tasks (id, org_id, project_id, title, status, assignee_employee_id, due_date, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, user.org_id, project.id, title.slice(0, 200), status, assigneeEmployeeId, /^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : "", now, now);
+    audit(db, user.org_id, user.id, "projects.task.created", { projectId: project.id, taskId: id });
+    return { ok: true, project: getProject(db, user.org_id, project.id) };
+  });
+
+  app.patch("/api/projects/:id/tasks/:taskId", async request => {
+    const user = await app.auth(request);
+    requireProjectsWriter(user);
+    const project = getProject(db, user.org_id, request.params.id);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    const task = db.prepare("SELECT id FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(user.org_id, project.id, String(request.params.taskId || ""));
+    if (!task) { const e = new Error("Task not found"); e.statusCode = 404; throw e; }
+    const body = request.body || {};
+    const sets = [];
+    const values = [];
+    if (body.title !== undefined) {
+      const title = String(body.title || "").trim();
+      if (title.length < 2) { const e = new Error("Task title is required"); e.statusCode = 400; throw e; }
+      sets.push("title = ?"); values.push(title.slice(0, 200));
+    }
+    if (body.status !== undefined) {
+      const status = normalizeChoice(body.status, TASK_STATUSES, "");
+      if (!status) { const e = new Error("Invalid task status"); e.statusCode = 400; throw e; }
+      sets.push("status = ?"); values.push(status);
+    }
+    if (body.assigneeEmployeeId !== undefined) {
+      let assigneeEmployeeId = null;
+      if (body.assigneeEmployeeId) {
+        const emp = getEmployee(db, user.org_id, body.assigneeEmployeeId);
+        if (!emp) { const e = new Error("Assignee must be an employee in this organization"); e.statusCode = 400; throw e; }
+        assigneeEmployeeId = emp.id;
+      }
+      sets.push("assignee_employee_id = ?"); values.push(assigneeEmployeeId);
+    }
+    if (body.dueDate !== undefined) { sets.push("due_date = ?"); values.push(/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : ""); }
+    if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
+    const now = new Date().toISOString();
+    sets.push("updated_at = ?"); values.push(now);
+    db.prepare(`UPDATE project_tasks SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`).run(...values, user.org_id, task.id);
+    audit(db, user.org_id, user.id, "projects.task.updated", { projectId: project.id, taskId: task.id });
+    return { ok: true, project: getProject(db, user.org_id, project.id) };
+  });
+
+  app.post("/api/projects/:id/milestones", async request => {
+    const user = await app.auth(request);
+    requireProjectsWriter(user);
+    const project = getProject(db, user.org_id, request.params.id);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    const body = request.body || {};
+    const title = String(body.title || "").trim();
+    if (title.length < 2) { const e = new Error("Milestone title is required"); e.statusCode = 400; throw e; }
+    const id = randomId("pms");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO project_milestones (id, org_id, project_id, title, due_date, reached, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?, ?)`)
+      .run(id, user.org_id, project.id, title.slice(0, 200), /^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : "", now, now);
+    audit(db, user.org_id, user.id, "projects.milestone.created", { projectId: project.id, milestoneId: id });
+    return { ok: true, project: getProject(db, user.org_id, project.id) };
+  });
+
+  app.patch("/api/projects/:id/milestones/:milestoneId", async request => {
+    const user = await app.auth(request);
+    requireProjectsWriter(user);
+    const project = getProject(db, user.org_id, request.params.id);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    const milestone = db.prepare("SELECT id FROM project_milestones WHERE org_id = ? AND project_id = ? AND id = ?").get(user.org_id, project.id, String(request.params.milestoneId || ""));
+    if (!milestone) { const e = new Error("Milestone not found"); e.statusCode = 404; throw e; }
+    const body = request.body || {};
+    const sets = [];
+    const values = [];
+    if (body.title !== undefined) {
+      const title = String(body.title || "").trim();
+      if (title.length < 2) { const e = new Error("Milestone title is required"); e.statusCode = 400; throw e; }
+      sets.push("title = ?"); values.push(title.slice(0, 200));
+    }
+    if (body.reached !== undefined) { sets.push("reached = ?"); values.push(body.reached ? 1 : 0); }
+    if (body.dueDate !== undefined) { sets.push("due_date = ?"); values.push(/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : ""); }
+    if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
+    const now = new Date().toISOString();
+    sets.push("updated_at = ?"); values.push(now);
+    db.prepare(`UPDATE project_milestones SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`).run(...values, user.org_id, milestone.id);
+    audit(db, user.org_id, user.id, "projects.milestone.updated", { projectId: project.id, milestoneId: milestone.id });
+    return { ok: true, project: getProject(db, user.org_id, project.id) };
+  });
+
+  app.post("/api/projects/:id/time-entries", async request => {
+    const user = await app.auth(request);
+    requireProjectsWriter(user);
+    const project = getProject(db, user.org_id, request.params.id);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    const body = request.body || {};
+    const minutes = Math.round(Number(body.minutes) || 0);
+    if (!(minutes > 0)) { const e = new Error("Minutes must be a positive number"); e.statusCode = 400; throw e; }
+    let taskId = null;
+    if (body.taskId) {
+      const t = db.prepare("SELECT id FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(user.org_id, project.id, String(body.taskId));
+      if (!t) { const e = new Error("Time entry task must belong to this project"); e.statusCode = 400; throw e; }
+      taskId = t.id;
+    }
+    const id = randomId("pte");
+    const now = new Date().toISOString();
+    const entryDate = /^\d{4}-\d{2}-\d{2}$/.test(body.entryDate || "") ? body.entryDate : now.slice(0, 10);
+    db.prepare(`INSERT INTO project_time_entries (id, org_id, project_id, task_id, minutes, entry_date, note, logged_by_user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, user.org_id, project.id, taskId, minutes, entryDate, String(body.note || "").slice(0, 1000), user.id, now);
+    audit(db, user.org_id, user.id, "projects.time.logged", { projectId: project.id, timeEntryId: id, minutes });
+    return { ok: true, project: getProject(db, user.org_id, project.id) };
+  });
+
   app.get("/api/privacy/requests", async request => {
     const user = await app.auth(request);
     const customerId = request.query.customerId || "";
@@ -3960,6 +4161,26 @@ function getDocument(db, orgId, id) {
   if (!doc) return null;
   doc.signers = getDocumentSigners(db, orgId, doc.id);
   return doc;
+}
+
+function requireProjectsWriter(user) {
+  // Project/task/milestone/time writes: operational roles, never read-only Auditor.
+  if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(user.role)) {
+    const err = new Error("Projects writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function getProject(db, orgId, id) {
+  const project = db.prepare("SELECT id, name, description, status, customer_id AS customerId, deal_id AS dealId, start_date AS startDate, due_date AS dueDate, created_at AS createdAt, updated_at AS updatedAt FROM projects WHERE org_id = ? AND id = ?").get(orgId, String(id || ""));
+  if (!project) return null;
+  project.tasks = db.prepare("SELECT id, title, status, assignee_employee_id AS assigneeEmployeeId, due_date AS dueDate, updated_at AS updatedAt FROM project_tasks WHERE org_id = ? AND project_id = ? ORDER BY created_at").all(orgId, project.id);
+  project.milestones = db.prepare("SELECT id, title, due_date AS dueDate, reached, updated_at AS updatedAt FROM project_milestones WHERE org_id = ? AND project_id = ? ORDER BY due_date, created_at").all(orgId, project.id);
+  const totals = db.prepare("SELECT COALESCE(SUM(minutes), 0) AS totalMinutes, COUNT(*) AS entryCount FROM project_time_entries WHERE org_id = ? AND project_id = ?").get(orgId, project.id);
+  project.totalMinutes = totals.totalMinutes;
+  project.timeEntryCount = totals.entryCount;
+  return project;
 }
 
 function requireMfaPrivilegedUser(user) {

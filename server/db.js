@@ -717,6 +717,64 @@ function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_document_signers_doc ON document_signers(org_id, document_id, sign_order);
 
+    CREATE TABLE IF NOT EXISTS projects (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'planning',
+      customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
+      deal_id TEXT REFERENCES deals(id) ON DELETE SET NULL,
+      start_date TEXT NOT NULL DEFAULT '',
+      due_date TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_projects_org ON projects(org_id, status, created_at);
+
+    CREATE TABLE IF NOT EXISTS project_tasks (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'todo',
+      assignee_employee_id TEXT REFERENCES people_employees(id) ON DELETE SET NULL,
+      due_date TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_tasks_project ON project_tasks(org_id, project_id, status);
+
+    CREATE TABLE IF NOT EXISTS project_milestones (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      due_date TEXT NOT NULL DEFAULT '',
+      reached INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_milestones_project ON project_milestones(org_id, project_id, reached);
+
+    CREATE TABLE IF NOT EXISTS project_time_entries (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      task_id TEXT REFERENCES project_tasks(id) ON DELETE SET NULL,
+      minutes INTEGER NOT NULL DEFAULT 0,
+      entry_date TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      logged_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_time_entries_project ON project_time_entries(org_id, project_id, entry_date);
+
     CREATE TABLE IF NOT EXISTS bills (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -6212,6 +6270,27 @@ function seedIfEmpty(db) {
   insertDeal.run("deal-nare-retainer", orgId, "cust-nare", "Annual patient retention automation", "Proposal", 3200000, "AMD", 70, "Send Armenian quote and confirm VAT treatment");
   insertDeal.run("deal-ani-inbox", orgId, "cust-ani", "Instagram + WhatsApp inbox setup", "Negotiation", 950000, "AMD", 55, "Review package table with owner");
   insertDeal.run("deal-van-season", orgId, "cust-van", "Summer booking workflow", "Discovery", 720000, "AMD", 35, "Map booking form to CRM fields");
+
+  const insertProject = db.prepare(`
+    INSERT INTO projects (id, org_id, name, description, status, customer_id, deal_id, start_date, due_date, created_by_user_id, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  insertProject.run("proj-nare-retention", orgId, "Հիվանդների պահպանման ավտոմատացում", "Նարե կլինիկայի ամսական հիշեցումների ներդրում.", "active", "cust-nare", "deal-nare-retainer", "2026-05-01", "2026-07-15", "user-owner", now, now);
+  insertProject.run("proj-ani-inbox", orgId, "Inbox-ի կարգավորում (Instagram + WhatsApp)", "Անի սրահի հաղորդագրությունների միասնական մուտք.", "planning", "cust-ani", "deal-ani-inbox", "", "", "user-owner", now, now);
+  const insertProjectTask = db.prepare(`
+    INSERT INTO project_tasks (id, org_id, project_id, title, status, assignee_employee_id, due_date, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  insertProjectTask.run("ptask-nare-1", orgId, "proj-nare-retention", "Կարգավորել հիշեցումների ձևանմուշները", "in-progress", "emp-davit", "2026-05-20", now, now);
+  insertProjectTask.run("ptask-nare-2", orgId, "proj-nare-retention", "Միացնել WhatsApp ալիքը", "todo", "emp-mariam", "2026-06-01", now, now);
+  db.prepare(`
+    INSERT INTO project_milestones (id, org_id, project_id, title, due_date, reached, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run("pms-nare-1", orgId, "proj-nare-retention", "Փորձնական արձակում", "2026-06-15", 0, now, now);
+  db.prepare(`
+    INSERT INTO project_time_entries (id, org_id, project_id, task_id, minutes, entry_date, note, logged_by_user_id, created_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run("pte-nare-1", orgId, "proj-nare-retention", "ptask-nare-1", 180, "2026-05-12", "Ձևանմուշների սկզբնական կարգավորում", "user-owner", now);
 
   const insertInvoice = db.prepare(`
     INSERT INTO invoices (id, org_id, customer_id, number, status, total, vat, due_date)
