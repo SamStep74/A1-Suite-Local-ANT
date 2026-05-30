@@ -770,10 +770,12 @@ function initSchema(db) {
       entry_date TEXT NOT NULL DEFAULT '',
       note TEXT NOT NULL DEFAULT '',
       logged_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      billed_invoice_id TEXT REFERENCES invoices(id) ON DELETE SET NULL,
       created_at TEXT NOT NULL
     );
 
     CREATE INDEX IF NOT EXISTS idx_project_time_entries_project ON project_time_entries(org_id, project_id, entry_date);
+    CREATE INDEX IF NOT EXISTS idx_project_time_entries_unbilled ON project_time_entries(org_id, project_id, billed_invoice_id);
 
     CREATE TABLE IF NOT EXISTS forms (
       id TEXT PRIMARY KEY,
@@ -6509,6 +6511,14 @@ function ensureWorkflowRuleVersions(db) {
 }
 
 function ensureFinanceLayer(db) {
+  // Billing seam: mark which invoice (if any) a project time entry was billed on,
+  // so converting unbilled time to an invoice can never double-bill. Idempotent for
+  // databases created before this column existed.
+  const timeCols = new Set(db.prepare("PRAGMA table_info(project_time_entries)").all().map(c => c.name));
+  if (!timeCols.has("billed_invoice_id")) {
+    db.exec("ALTER TABLE project_time_entries ADD COLUMN billed_invoice_id TEXT REFERENCES invoices(id) ON DELETE SET NULL");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_project_time_entries_unbilled ON project_time_entries(org_id, project_id, billed_invoice_id)");
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {
     seedFinancePeriods(db, org.id);

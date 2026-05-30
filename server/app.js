@@ -2483,6 +2483,80 @@ function registerApi(app, db, options = {}) {
     return { ok: true, project: getProject(db, user.org_id, project.id) };
   });
 
+  // Billing seam: preview the unbilled time on a project (minutes → hours → amount at a rate).
+  app.get("/api/projects/:id/billing-preview", async request => {
+    const user = await app.auth(request);
+    const project = getProject(db, user.org_id, request.params.id);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    const hourlyRate = Math.max(0, Math.round(Number(request.query && request.query.hourlyRate) || 0));
+    const agg = db.prepare("SELECT COALESCE(SUM(minutes), 0) AS minutes, COUNT(*) AS entries FROM project_time_entries WHERE org_id = ? AND project_id = ? AND billed_invoice_id IS NULL").get(user.org_id, project.id);
+    const unbilledMinutes = agg.minutes;
+    const hours = Math.round((unbilledMinutes / 60) * 100) / 100;
+    const total = hourlyRate > 0 ? Math.round((unbilledMinutes / 60) * hourlyRate) : 0;
+    const subtotal = Math.round(total / 1.2);
+    const vat = total - subtotal;
+    return { preview: { projectId: project.id, customerId: project.customerId, unbilledMinutes, unbilledEntries: agg.entries, hours, hourlyRate, subtotal, vat, total, currency: "AMD" } };
+  });
+
+  // Billing seam: convert a project's UNBILLED logged time into a posted invoice (+ ledger),
+  // then mark those entries billed so they can never be billed twice. Reuses postDraftInvoice
+  // (Dt 221 / Kt 611 + Kt 524). VAT-inclusive 20%. Finance-gated (Owner/Admin/Accountant).
+  app.post("/api/projects/:id/bill-time", async request => {
+    const user = await app.auth(request);
+    requireFinanceOperator(user);
+    const project = getProject(db, user.org_id, request.params.id);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    if (!project.customerId) { const e = new Error("Project has no customer to invoice"); e.statusCode = 400; throw e; }
+    assertCustomer(db, user.org_id, project.customerId);
+    const body = request.body || {};
+    const hourlyRate = Math.round(Number(body.hourlyRate) || 0);
+    if (!(hourlyRate > 0)) { const e = new Error("A positive hourlyRate is required"); e.statusCode = 400; throw e; }
+    const now = new Date().toISOString();
+    const issueDate = /^\d{4}-\d{2}-\d{2}$/.test(body.issueDate || "") ? body.issueDate : now.slice(0, 10);
+    const periodKey = String(body.periodKey || issueDate.slice(0, 7)).trim();
+    // Idempotent per (project, period): a prior bill for this period returns the same
+    // invoice — checked BEFORE the unbilled-time guard, since after the first bill there is
+    // no unbilled time left (re-running must not 400).
+    const sourceKey = `project-time:${project.id}:${periodKey}`;
+    const existingDraft = db.prepare("SELECT id FROM finance_draft_invoices WHERE org_id = ? AND source_key = ?").get(user.org_id, sourceKey);
+    if (existingDraft) {
+      const link = getFinanceInvoiceLinkByDraft(db, user.org_id, existingDraft.id);
+      return { ok: true, idempotent: true, draftInvoice: getFinanceDraftInvoice(db, user.org_id, existingDraft.id), invoice: link ? getInvoice(db, user.org_id, link.invoiceId) : null };
+    }
+    const period = getFinancePeriod(db, user.org_id, periodKey);
+    if (!period || period.status !== "open") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
+    const unbilled = db.prepare("SELECT id, minutes FROM project_time_entries WHERE org_id = ? AND project_id = ? AND billed_invoice_id IS NULL").all(user.org_id, project.id);
+    const totalMinutes = unbilled.reduce((sum, e) => sum + (Number(e.minutes) || 0), 0);
+    if (totalMinutes <= 0) { const e = new Error("No unbilled time to invoice"); e.statusCode = 400; throw e; }
+    const total = Math.round((totalMinutes / 60) * hourlyRate);
+    if (!(total > 0)) { const e = new Error("Computed invoice total is zero"); e.statusCode = 400; throw e; }
+    const subtotal = Math.round(total / 1.2);
+    const vat = total - subtotal;
+    const draftId = randomId("draft-inv");
+    const number = `DRAFT-PRJ-${project.id.replace(/^proj-/, "").toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 18)}-${periodKey.replace("-", "")}`;
+    const dueDate = addDays(issueDate, Number(body.dueDays || 14));
+    let result;
+    db.exec("BEGIN");
+    try {
+      db.prepare(`INSERT INTO finance_draft_invoices (id, org_id, customer_id, deal_id, number, status, subtotal, vat, total, currency, issue_date, due_date, period_key, source_key, created_by_user_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?, ?)`)
+        .run(draftId, user.org_id, project.customerId, project.dealId || null, number, subtotal, vat, total, issueDate, dueDate, periodKey, sourceKey, user.id, now, now);
+      const draftInvoice = getFinanceDraftInvoice(db, user.org_id, draftId);
+      // Reuse the canonical draft→posted+ledger path (Dt 221 / Kt 611 + Kt 524).
+      result = postDraftInvoice(db, user, draftInvoice, {});
+      const invoiceId = result.invoice.id;
+      // Mark every unbilled entry as billed on this invoice — prevents double-billing.
+      const mark = db.prepare("UPDATE project_time_entries SET billed_invoice_id = ? WHERE org_id = ? AND id = ? AND billed_invoice_id IS NULL");
+      for (const entry of unbilled) mark.run(invoiceId, user.org_id, entry.id);
+      db.exec("COMMIT");
+    } catch (err) {
+      db.exec("ROLLBACK");
+      throw err;
+    }
+    audit(db, user.org_id, user.id, "projects.time.billed", { projectId: project.id, invoiceId: result.invoice.id, minutes: totalMinutes, total });
+    return { ok: true, idempotent: false, billedMinutes: totalMinutes, billedEntries: unbilled.length, invoice: result.invoice, draftInvoice: result.draftInvoice };
+  });
+
   // Forms — intake/lead-capture. Definition routes are auth-gated; the SUBMIT route is
   // intentionally PUBLIC (an outside prospect fills it), scoped to a published form's org.
   app.get("/api/forms", async request => {
