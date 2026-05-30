@@ -2084,7 +2084,18 @@ function registerApi(app, db) {
   app.get("/api/docs/documents", async request => {
     const user = await app.auth(request);
     const documents = db.prepare("SELECT id, title, doc_type AS docType, status, customer_id AS customerId, sealed_at AS sealedAt, updated_at AS updatedAt FROM documents WHERE org_id = ? ORDER BY updated_at DESC, created_at DESC").all(user.org_id);
-    for (const doc of documents) doc.signers = getDocumentSigners(db, user.org_id, doc.id);
+    // Batch-load all signers for this page in one query (avoids an N+1 of getDocumentSigners
+    // per document), then group in memory. Ordered to match getDocumentSigners exactly.
+    const byDocument = new Map(documents.map(doc => [doc.id, []]));
+    if (documents.length > 0) {
+      const placeholders = documents.map(() => "?").join(", ");
+      const signers = db.prepare(`SELECT document_id AS documentId, id, signer_name AS signerName, signer_email AS signerEmail, signer_user_id AS signerUserId, sign_order AS signOrder, status, signed_at AS signedAt, checksum FROM document_signers WHERE org_id = ? AND document_id IN (${placeholders}) ORDER BY sign_order, created_at`).all(user.org_id, ...documents.map(doc => doc.id));
+      for (const signer of signers) {
+        const bucket = byDocument.get(signer.documentId);
+        if (bucket) { delete signer.documentId; bucket.push(signer); }
+      }
+    }
+    for (const doc of documents) doc.signers = byDocument.get(doc.id) || [];
     return { documents };
   });
 

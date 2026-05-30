@@ -117,6 +117,30 @@ test("docs-sign: write-gate (Auditor 403), void path, and signed-user binding", 
   } finally { await app.close(); }
 });
 
+test("docs-sign: documents list attaches each document's own signers (correct grouping)", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+
+    // Two distinct documents with distinct signer sets.
+    const a = (await app.inject({ method: "POST", url: "/api/docs/documents", headers: { cookie: owner }, payload: { title: "Doc A" } })).json().document.id;
+    const b = (await app.inject({ method: "POST", url: "/api/docs/documents", headers: { cookie: owner }, payload: { title: "Doc B" } })).json().document.id;
+    await app.inject({ method: "POST", url: `/api/docs/documents/${a}/signers`, headers: { cookie: owner }, payload: { signerName: "Ա Մեկ" } });
+    await app.inject({ method: "POST", url: `/api/docs/documents/${a}/signers`, headers: { cookie: owner }, payload: { signerName: "Ա Երկու" } });
+    await app.inject({ method: "POST", url: `/api/docs/documents/${b}/signers`, headers: { cookie: owner }, payload: { signerName: "Բ Մեկ" } });
+
+    const list = (await app.inject({ method: "GET", url: "/api/docs/documents", headers: { cookie: owner } })).json();
+    const docA = list.documents.find(d => d.id === a);
+    const docB = list.documents.find(d => d.id === b);
+    // Each document carries exactly its own signers — no cross-contamination from batching.
+    assert.deepStrictEqual(docA.signers.map(s => s.signerName).sort(), ["Ա Երկու", "Ա Մեկ"]);
+    assert.deepStrictEqual(docB.signers.map(s => s.signerName), ["Բ Մեկ"]);
+    // Every listed document exposes a signers array (even if empty).
+    assert.ok(list.documents.every(d => Array.isArray(d.signers)), "every document has a signers array");
+  } finally { await app.close(); }
+});
+
 test("docs-sign: duplicate signer name on one document is rejected (409) — unambiguous consent chain", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
