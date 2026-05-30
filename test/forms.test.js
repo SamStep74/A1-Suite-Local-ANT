@@ -100,3 +100,30 @@ test("forms: submitting an unknown form id -> 404", async () => {
     assert.strictEqual(res.statusCode, 404);
   } finally { await app.close(); }
 });
+
+test("forms: public submit is per-IP rate limited (429 after the burst), and other IPs are unaffected", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const url = "/api/forms/form-lead-intake/submit";
+    const payload = { companyName: "Spam Co", contactName: "Flood", email: "flood@example.com", phone: "+374 99 000000", interest: "flooding" };
+    const attacker = "203.0.113.7";
+
+    // Hammer from one IP. The limiter allows a bounded burst then must reject with 429.
+    let okCount = 0;
+    let limited = 0;
+    for (let i = 0; i < 25; i++) {
+      const res = await app.inject({ method: "POST", url, payload, remoteAddress: attacker });
+      if (res.statusCode === 200) okCount += 1;
+      else if (res.statusCode === 429) limited += 1;
+      else assert.fail(`unexpected status ${res.statusCode} on attempt ${i}`);
+    }
+    assert.ok(okCount > 0, "some submissions should succeed before the limit");
+    assert.ok(okCount <= 15, `burst should be bounded, got ${okCount} successes`);
+    assert.ok(limited > 0, "excess submissions from one IP must be rejected with 429");
+
+    // A DIFFERENT IP is not penalized by the attacker's flood (per-IP, not global).
+    const other = await app.inject({ method: "POST", url, payload, remoteAddress: "198.51.100.42" });
+    assert.strictEqual(other.statusCode, 200, "a fresh IP can still submit");
+  } finally { await app.close(); }
+});

@@ -151,6 +151,21 @@ function buildApp(options = {}) {
 }
 
 function registerApi(app, db) {
+  // In-memory per-IP sliding-window rate limiter for unauthenticated endpoints.
+  // Scoped to this app instance (resets per buildApp). Keeps the last hit timestamps
+  // per key and rejects once `limit` hits fall inside `windowMs`.
+  const rateLimitHits = new Map();
+  function enforceRateLimit(key, limit, windowMs) {
+    const now = Date.now();
+    const cutoff = now - windowMs;
+    const recent = (rateLimitHits.get(key) || []).filter(ts => ts > cutoff);
+    if (recent.length >= limit) {
+      const e = new Error("Too many requests — please try again shortly"); e.statusCode = 429; throw e;
+    }
+    recent.push(now);
+    rateLimitHits.set(key, recent);
+  }
+
   app.get("/api/health", async () => ({
     ok: true,
     product: "Armosphera One",
@@ -2536,6 +2551,9 @@ function registerApi(app, db) {
   // Per-route bodyLimit (32 KiB) caps abuse; the form row carries the org scope.
   app.post("/api/forms/:id/submit", { bodyLimit: 32 * 1024 }, async (request, reply) => {
     const formId = String(request.params.id || "");
+    // Unauthenticated write path: throttle per-IP (per form) to blunt spam/DoS that would
+    // otherwise flood the org's CRM with junk leads. 10 submissions per minute per IP.
+    enforceRateLimit(`form-submit:${String(request.ip || "")}:${formId}`, 10, 60 * 1000);
     // Resolve the published form across orgs by id (public caller has no org context).
     const formRow = db.prepare("SELECT id, org_id AS orgId, fields, status FROM forms WHERE id = ?").get(formId);
     if (!formRow || formRow.status !== "published") { const e = new Error("Form not available"); e.statusCode = 404; throw e; }
