@@ -4,6 +4,8 @@ import "./styles.css";
 import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel, FinanceOpeningBalancesPanel, FinanceOpeningBalancesForm } from "./finance.jsx";
 import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm, CrmActivityPanel } from "./crm.jsx";
 import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
+import { PeopleEmployeeForm, PeopleRegistryPanel } from "./people.jsx";
+import { loadOr } from "./load-section.js";
 
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 const sensitiveMoney = value => value === null || value === "restricted" ? "restricted" : money(value);
@@ -92,6 +94,7 @@ function App() {
   const [campaignPerformance, setCampaignPerformance] = useState(null);
   const [receivablesAging, setReceivablesAging] = useState(null);
   const [finance, setFinance] = useState(null);
+  const [people, setPeople] = useState(null);
   const [semanticMetrics, setSemanticMetrics] = useState(null);
   const [semanticSnapshots, setSemanticSnapshots] = useState(null);
   const [analyticsReports, setAnalyticsReports] = useState([]);
@@ -196,26 +199,26 @@ function App() {
       const data = await api("/api/suite");
       setSession(data.user);
       setSuite(data);
-      const firstCustomer = await api("/api/customer-360/cust-nare");
+      const firstCustomer = await loadOr(null, () => api("/api/customer-360/cust-nare"));
       setCustomer360(firstCustomer);
-      const roleDashboardData = await api("/api/analytics/role-dashboard");
+      const roleDashboardData = await loadOr(null, () => api("/api/analytics/role-dashboard"));
       setRoleDashboard(roleDashboardData);
       if (["Owner", "Admin"].includes(data.user.role)) {
-        const mfaData = await api("/api/security/mfa");
+        const mfaData = await loadOr(null, () => api("/api/security/mfa"));
         setSecurityMfa(mfaData);
       } else {
         setSecurityMfa(null);
       }
-      const serviceData = await api("/api/service/console");
+      const serviceData = await loadOr(null, () => api("/api/service/console"));
       setServiceConsole(serviceData);
       if ((data.apps || []).some(app => app.id === "crm")) {
-        const leadData = await api("/api/crm/leads");
+        const leadData = await loadOr(null, () => api("/api/crm/leads"));
         setCrmLeadData(leadData);
-        const forecastData = await api("/api/crm/forecast");
+        const forecastData = await loadOr(null, () => api("/api/crm/forecast"));
         setCrmForecastData(forecastData);
-        const quotesData = await api("/api/crm/quotes");
+        const quotesData = await loadOr(null, () => api("/api/crm/quotes"));
         setCrmQuotes(quotesData);
-        const activitiesData = await api("/api/crm/activities");
+        const activitiesData = await loadOr(null, () => api("/api/crm/activities"));
         setCrmActivities(activitiesData);
       } else {
         setCrmLeadData(null);
@@ -224,20 +227,20 @@ function App() {
         setCrmActivities(null);
       }
       if ((data.apps || []).some(app => app.id === "campaigns")) {
-        const campaignData = await api("/api/campaigns/performance");
+        const campaignData = await loadOr(null, () => api("/api/campaigns/performance"));
         setCampaignPerformance(campaignData);
       } else {
         setCampaignPerformance(null);
       }
       if ((data.apps || []).some(app => app.id === "analytics")) {
-        const receivablesData = await api("/api/analytics/receivables-aging");
+        const receivablesData = await loadOr(null, () => api("/api/analytics/receivables-aging"));
         setReceivablesAging(receivablesData);
-        const semanticData = await api("/api/analytics/semantic-metrics");
+        const semanticData = await loadOr(null, () => api("/api/analytics/semantic-metrics"));
         setSemanticMetrics(semanticData);
-        const snapshotData = await api("/api/analytics/semantic-snapshots");
+        const snapshotData = await loadOr(null, () => api("/api/analytics/semantic-snapshots"));
         setSemanticSnapshots(snapshotData);
         if (["Owner", "Admin", "Accountant", "Auditor"].includes(data.user.role)) {
-          const reportData = await api("/api/analytics/reports");
+          const reportData = await loadOr({}, () => api("/api/analytics/reports"));
           setAnalyticsReports(reportData.reports || []);
         } else {
           setAnalyticsReports([]);
@@ -259,17 +262,17 @@ function App() {
         setFinance(null);
       }
       if (["Owner", "Auditor"].includes(data.user.role)) {
-        const accessReviewData = await api("/api/admin/access-reviews");
+        const accessReviewData = await loadOr({}, () => api("/api/admin/access-reviews"));
         setAdminAccessReviews(accessReviewData.reviews || []);
       } else {
         setAdminAccessReviews([]);
       }
       if (["Owner", "Admin", "Auditor"].includes(data.user.role)) {
-        const sessionData = await api("/api/admin/sessions");
+        const sessionData = await loadOr(null, () => api("/api/admin/sessions"));
         setAdminSessions(sessionData);
-        const auditExportData = await api("/api/admin/audit-exports");
+        const auditExportData = await loadOr({}, () => api("/api/admin/audit-exports"));
         setAdminAuditExports(auditExportData.exports || []);
-        const connectorData = await api("/api/integrations/connectors");
+        const connectorData = await loadOr({}, () => api("/api/integrations/connectors"));
         setIntegrationConnectors(connectorData.connectors || []);
       } else {
         setAdminSessions(null);
@@ -277,178 +280,178 @@ function App() {
         setIntegrationConnectors([]);
       }
       if (["Owner", "Admin", "Salesperson", "Operator", "Accountant", "Auditor"].includes(data.user.role)) {
-        const pilotData = await api("/api/pilots/templates/clinic-wellness");
+        const pilotData = await loadOr(null, () => api("/api/pilots/templates/clinic-wellness"));
         setPilotTemplateData(pilotData);
-        const pilotBriefData = await api("/api/pilots/clinic-wellness/owner-briefs");
+        const pilotBriefData = await loadOr({}, () => api("/api/pilots/clinic-wellness/owner-briefs"));
         setPilotOwnerBriefs(pilotBriefData.briefs || []);
-        const workbenchData = await api("/api/pilots/clinic-wellness/operator-workbenches");
+        const workbenchData = await loadOr({}, () => api("/api/pilots/clinic-wellness/operator-workbenches"));
         setPilotOperatorWorkbenches(workbenchData.workbenches || []);
-        const launchReadinessData = await api("/api/pilots/clinic-wellness/launch-readiness");
+        const launchReadinessData = await loadOr({}, () => api("/api/pilots/clinic-wellness/launch-readiness"));
         setPilotLaunchReadinessPackets(launchReadinessData.packets || []);
-        const remediationData = await api("/api/pilots/clinic-wellness/launch-remediation-plans");
+        const remediationData = await loadOr({}, () => api("/api/pilots/clinic-wellness/launch-remediation-plans"));
         setPilotLaunchRemediationPlans(remediationData.plans || []);
-        const remediationResolutionData = await api("/api/pilots/clinic-wellness/remediation-resolutions");
+        const remediationResolutionData = await loadOr({}, () => api("/api/pilots/clinic-wellness/remediation-resolutions"));
         setPilotRemediationResolutions(remediationResolutionData.resolutions || []);
-        const launchClearanceData = await api("/api/pilots/clinic-wellness/launch-clearance");
+        const launchClearanceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/launch-clearance"));
         setPilotLaunchClearancePackets(launchClearanceData.packets || []);
-        const paidOfferData = await api("/api/pilots/clinic-wellness/paid-offers");
+        const paidOfferData = await loadOr({}, () => api("/api/pilots/clinic-wellness/paid-offers"));
         setPilotPaidOffers(paidOfferData.offers || []);
-        const quoteHandoffData = await api("/api/pilots/clinic-wellness/quote-handoffs");
+        const quoteHandoffData = await loadOr({}, () => api("/api/pilots/clinic-wellness/quote-handoffs"));
         setPilotQuoteHandoffs(quoteHandoffData.handoffs || []);
-        const quoteReleaseData = await api("/api/pilots/clinic-wellness/quote-releases");
+        const quoteReleaseData = await loadOr({}, () => api("/api/pilots/clinic-wellness/quote-releases"));
         setPilotQuoteReleases(quoteReleaseData.packets || []);
-        const acceptanceHandoffData = await api("/api/pilots/clinic-wellness/quote-acceptance-handoffs");
+        const acceptanceHandoffData = await loadOr({}, () => api("/api/pilots/clinic-wellness/quote-acceptance-handoffs"));
         setPilotQuoteAcceptanceHandoffs(acceptanceHandoffData.packets || []);
-        const hayhashvapahDraftData = await api("/api/pilots/clinic-wellness/hayhashvapah-drafts");
+        const hayhashvapahDraftData = await loadOr({}, () => api("/api/pilots/clinic-wellness/hayhashvapah-drafts"));
         setPilotHayhashvapahDrafts(hayhashvapahDraftData.packets || []);
-        const officialInvoiceData = await api("/api/pilots/clinic-wellness/official-invoices");
+        const officialInvoiceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/official-invoices"));
         setPilotOfficialInvoices(officialInvoiceData.packets || []);
-        const paymentCollectionData = await api("/api/pilots/clinic-wellness/payment-collections");
+        const paymentCollectionData = await loadOr({}, () => api("/api/pilots/clinic-wellness/payment-collections"));
         setPilotPaymentCollections(paymentCollectionData.packets || []);
-        const closeoutData = await api("/api/pilots/clinic-wellness/closeouts");
+        const closeoutData = await loadOr({}, () => api("/api/pilots/clinic-wellness/closeouts"));
         setPilotCloseouts(closeoutData.packets || []);
-        const renewalQuoteData = await api("/api/pilots/clinic-wellness/renewal-quotes");
+        const renewalQuoteData = await loadOr({}, () => api("/api/pilots/clinic-wellness/renewal-quotes"));
         setPilotRenewalQuoteHandoffs(renewalQuoteData.handoffs || []);
-        const renewalQuoteReleaseData = await api("/api/pilots/clinic-wellness/renewal-quote-releases");
+        const renewalQuoteReleaseData = await loadOr({}, () => api("/api/pilots/clinic-wellness/renewal-quote-releases"));
         setPilotRenewalQuoteReleases(renewalQuoteReleaseData.packets || []);
-        const renewalAcceptanceData = await api("/api/pilots/clinic-wellness/renewal-acceptance-handoffs");
+        const renewalAcceptanceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/renewal-acceptance-handoffs"));
         setPilotRenewalAcceptanceHandoffs(renewalAcceptanceData.packets || []);
-        const renewalHayhashvapahDraftData = await api("/api/pilots/clinic-wellness/renewal-hayhashvapah-drafts");
+        const renewalHayhashvapahDraftData = await loadOr({}, () => api("/api/pilots/clinic-wellness/renewal-hayhashvapah-drafts"));
         setPilotRenewalHayhashvapahDrafts(renewalHayhashvapahDraftData.packets || []);
-        const renewalOfficialInvoiceData = await api("/api/pilots/clinic-wellness/renewal-official-invoices");
+        const renewalOfficialInvoiceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/renewal-official-invoices"));
         setPilotRenewalOfficialInvoices(renewalOfficialInvoiceData.packets || []);
-        const renewalPaymentCollectionData = await api("/api/pilots/clinic-wellness/renewal-payment-collections");
+        const renewalPaymentCollectionData = await loadOr({}, () => api("/api/pilots/clinic-wellness/renewal-payment-collections"));
         setPilotRenewalPaymentCollections(renewalPaymentCollectionData.packets || []);
-        const renewalCloseoutData = await api("/api/pilots/clinic-wellness/renewal-closeouts");
+        const renewalCloseoutData = await loadOr({}, () => api("/api/pilots/clinic-wellness/renewal-closeouts"));
         setPilotRenewalCloseouts(renewalCloseoutData.packets || []);
-        const nextRenewalQuoteData = await api("/api/pilots/clinic-wellness/next-renewal-quotes");
+        const nextRenewalQuoteData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-renewal-quotes"));
         setPilotNextRenewalQuoteHandoffs(nextRenewalQuoteData.handoffs || []);
-        const nextRenewalReleaseData = await api("/api/pilots/clinic-wellness/next-renewal-quote-releases");
+        const nextRenewalReleaseData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-renewal-quote-releases"));
         setPilotNextRenewalQuoteReleases(nextRenewalReleaseData.packets || []);
-        const nextRenewalAcceptanceData = await api("/api/pilots/clinic-wellness/next-renewal-acceptance-handoffs");
+        const nextRenewalAcceptanceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-renewal-acceptance-handoffs"));
         setPilotNextRenewalAcceptanceHandoffs(nextRenewalAcceptanceData.packets || []);
-        const nextRenewalHayhashvapahDraftData = await api("/api/pilots/clinic-wellness/next-renewal-hayhashvapah-drafts");
+        const nextRenewalHayhashvapahDraftData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-renewal-hayhashvapah-drafts"));
         setPilotNextRenewalHayhashvapahDrafts(nextRenewalHayhashvapahDraftData.packets || []);
-        const nextRenewalOfficialInvoiceData = await api("/api/pilots/clinic-wellness/next-renewal-official-invoices");
+        const nextRenewalOfficialInvoiceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-renewal-official-invoices"));
         setPilotNextRenewalOfficialInvoices(nextRenewalOfficialInvoiceData.packets || []);
-        const nextRenewalPaymentCollectionData = await api("/api/pilots/clinic-wellness/next-renewal-payment-collections");
+        const nextRenewalPaymentCollectionData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-renewal-payment-collections"));
         setPilotNextRenewalPaymentCollections(nextRenewalPaymentCollectionData.packets || []);
-        const nextRenewalCloseoutData = await api("/api/pilots/clinic-wellness/next-renewal-closeouts");
+        const nextRenewalCloseoutData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-renewal-closeouts"));
         setPilotNextRenewalCloseouts(nextRenewalCloseoutData.packets || []);
-        const followingRenewalQuoteData = await api("/api/pilots/clinic-wellness/following-renewal-quotes");
+        const followingRenewalQuoteData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-renewal-quotes"));
         setPilotFollowingRenewalQuoteHandoffs(followingRenewalQuoteData.handoffs || []);
-        const followingRenewalReleaseData = await api("/api/pilots/clinic-wellness/following-renewal-quote-releases");
+        const followingRenewalReleaseData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-renewal-quote-releases"));
         setPilotFollowingRenewalQuoteReleases(followingRenewalReleaseData.packets || []);
-        const followingRenewalAcceptanceData = await api("/api/pilots/clinic-wellness/following-renewal-acceptance-handoffs");
+        const followingRenewalAcceptanceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-renewal-acceptance-handoffs"));
         setPilotFollowingRenewalAcceptanceHandoffs(followingRenewalAcceptanceData.packets || []);
-        const followingRenewalHayhashvapahDraftData = await api("/api/pilots/clinic-wellness/following-renewal-hayhashvapah-drafts");
+        const followingRenewalHayhashvapahDraftData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-renewal-hayhashvapah-drafts"));
         setPilotFollowingRenewalHayhashvapahDrafts(followingRenewalHayhashvapahDraftData.packets || []);
-        const followingRenewalOfficialInvoiceData = await api("/api/pilots/clinic-wellness/following-renewal-official-invoices");
+        const followingRenewalOfficialInvoiceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-renewal-official-invoices"));
         setPilotFollowingRenewalOfficialInvoices(followingRenewalOfficialInvoiceData.packets || []);
-        const followingRenewalPaymentCollectionData = await api("/api/pilots/clinic-wellness/following-renewal-payment-collections");
+        const followingRenewalPaymentCollectionData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-renewal-payment-collections"));
         setPilotFollowingRenewalPaymentCollections(followingRenewalPaymentCollectionData.packets || []);
-        const followingRenewalCloseoutData = await api("/api/pilots/clinic-wellness/following-renewal-closeouts");
+        const followingRenewalCloseoutData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-renewal-closeouts"));
         setPilotFollowingRenewalCloseouts(followingRenewalCloseoutData.packets || []);
-        const subsequentRenewalQuoteData = await api("/api/pilots/clinic-wellness/subsequent-renewal-quotes");
+        const subsequentRenewalQuoteData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-renewal-quotes"));
         setPilotSubsequentRenewalQuoteHandoffs(subsequentRenewalQuoteData.handoffs || []);
-        const subsequentRenewalReleaseData = await api("/api/pilots/clinic-wellness/subsequent-renewal-quote-releases");
+        const subsequentRenewalReleaseData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-renewal-quote-releases"));
         setPilotSubsequentRenewalQuoteReleases(subsequentRenewalReleaseData.packets || []);
-        const subsequentRenewalAcceptanceData = await api("/api/pilots/clinic-wellness/subsequent-renewal-acceptance-handoffs");
+        const subsequentRenewalAcceptanceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-renewal-acceptance-handoffs"));
         setPilotSubsequentRenewalAcceptanceHandoffs(subsequentRenewalAcceptanceData.packets || []);
-        const subsequentRenewalHayhashvapahDraftData = await api("/api/pilots/clinic-wellness/subsequent-renewal-hayhashvapah-drafts");
+        const subsequentRenewalHayhashvapahDraftData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-renewal-hayhashvapah-drafts"));
         setPilotSubsequentRenewalHayhashvapahDrafts(subsequentRenewalHayhashvapahDraftData.packets || []);
-        const subsequentRenewalOfficialInvoiceData = await api("/api/pilots/clinic-wellness/subsequent-renewal-official-invoices");
+        const subsequentRenewalOfficialInvoiceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-renewal-official-invoices"));
         setPilotSubsequentRenewalOfficialInvoices(subsequentRenewalOfficialInvoiceData.packets || []);
-        const subsequentRenewalPaymentCollectionData = await api("/api/pilots/clinic-wellness/subsequent-renewal-payment-collections");
+        const subsequentRenewalPaymentCollectionData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-renewal-payment-collections"));
         setPilotSubsequentRenewalPaymentCollections(subsequentRenewalPaymentCollectionData.packets || []);
-        const subsequentRenewalCloseoutData = await api("/api/pilots/clinic-wellness/subsequent-renewal-closeouts");
+        const subsequentRenewalCloseoutData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-renewal-closeouts"));
         setPilotSubsequentRenewalCloseouts(subsequentRenewalCloseoutData.packets || []);
-        const continuationRenewalQuoteData = await api("/api/pilots/clinic-wellness/continuation-renewal-quotes");
+        const continuationRenewalQuoteData = await loadOr({}, () => api("/api/pilots/clinic-wellness/continuation-renewal-quotes"));
         setPilotContinuationRenewalQuoteHandoffs(continuationRenewalQuoteData.handoffs || []);
-        const continuationRenewalReleaseData = await api("/api/pilots/clinic-wellness/continuation-renewal-quote-releases");
+        const continuationRenewalReleaseData = await loadOr({}, () => api("/api/pilots/clinic-wellness/continuation-renewal-quote-releases"));
         setPilotContinuationRenewalQuoteReleases(continuationRenewalReleaseData.packets || []);
-        const continuationRenewalAcceptanceData = await api("/api/pilots/clinic-wellness/continuation-renewal-acceptance-handoffs");
+        const continuationRenewalAcceptanceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/continuation-renewal-acceptance-handoffs"));
         setPilotContinuationRenewalAcceptanceHandoffs(continuationRenewalAcceptanceData.packets || []);
-        const continuationRenewalHayhashvapahDraftData = await api("/api/pilots/clinic-wellness/continuation-renewal-hayhashvapah-drafts");
+        const continuationRenewalHayhashvapahDraftData = await loadOr({}, () => api("/api/pilots/clinic-wellness/continuation-renewal-hayhashvapah-drafts"));
         setPilotContinuationRenewalHayhashvapahDrafts(continuationRenewalHayhashvapahDraftData.packets || []);
-        const continuationRenewalOfficialInvoiceData = await api("/api/pilots/clinic-wellness/continuation-renewal-official-invoices");
+        const continuationRenewalOfficialInvoiceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/continuation-renewal-official-invoices"));
         setPilotContinuationRenewalOfficialInvoices(continuationRenewalOfficialInvoiceData.packets || []);
-        const continuationRenewalPaymentCollectionData = await api("/api/pilots/clinic-wellness/continuation-renewal-payment-collections");
+        const continuationRenewalPaymentCollectionData = await loadOr({}, () => api("/api/pilots/clinic-wellness/continuation-renewal-payment-collections"));
         setPilotContinuationRenewalPaymentCollections(continuationRenewalPaymentCollectionData.packets || []);
-        const continuationRenewalCloseoutData = await api("/api/pilots/clinic-wellness/continuation-renewal-closeouts");
+        const continuationRenewalCloseoutData = await loadOr({}, () => api("/api/pilots/clinic-wellness/continuation-renewal-closeouts"));
         setPilotContinuationRenewalCloseouts(continuationRenewalCloseoutData.packets || []);
-        const ongoingRenewalQuoteData = await api("/api/pilots/clinic-wellness/ongoing-renewal-quotes");
+        const ongoingRenewalQuoteData = await loadOr({}, () => api("/api/pilots/clinic-wellness/ongoing-renewal-quotes"));
         setPilotOngoingRenewalQuoteHandoffs(ongoingRenewalQuoteData.handoffs || []);
-        const ongoingRenewalReleaseData = await api("/api/pilots/clinic-wellness/ongoing-renewal-quote-releases");
+        const ongoingRenewalReleaseData = await loadOr({}, () => api("/api/pilots/clinic-wellness/ongoing-renewal-quote-releases"));
         setPilotOngoingRenewalQuoteReleases(ongoingRenewalReleaseData.packets || []);
-        const ongoingRenewalAcceptanceData = await api("/api/pilots/clinic-wellness/ongoing-renewal-acceptance-handoffs");
+        const ongoingRenewalAcceptanceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/ongoing-renewal-acceptance-handoffs"));
         setPilotOngoingRenewalAcceptanceHandoffs(ongoingRenewalAcceptanceData.packets || []);
-        const ongoingRenewalHayhashvapahDraftData = await api("/api/pilots/clinic-wellness/ongoing-renewal-hayhashvapah-drafts");
+        const ongoingRenewalHayhashvapahDraftData = await loadOr({}, () => api("/api/pilots/clinic-wellness/ongoing-renewal-hayhashvapah-drafts"));
         setPilotOngoingRenewalHayhashvapahDrafts(ongoingRenewalHayhashvapahDraftData.packets || []);
-        const ongoingRenewalOfficialInvoiceData = await api("/api/pilots/clinic-wellness/ongoing-renewal-official-invoices");
+        const ongoingRenewalOfficialInvoiceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/ongoing-renewal-official-invoices"));
         setPilotOngoingRenewalOfficialInvoices(ongoingRenewalOfficialInvoiceData.packets || []);
-        const ongoingRenewalPaymentCollectionData = await api("/api/pilots/clinic-wellness/ongoing-renewal-payment-collections");
+        const ongoingRenewalPaymentCollectionData = await loadOr({}, () => api("/api/pilots/clinic-wellness/ongoing-renewal-payment-collections"));
         setPilotOngoingRenewalPaymentCollections(ongoingRenewalPaymentCollectionData.packets || []);
-        const ongoingRenewalCloseoutData = await api("/api/pilots/clinic-wellness/ongoing-renewal-closeouts");
+        const ongoingRenewalCloseoutData = await loadOr({}, () => api("/api/pilots/clinic-wellness/ongoing-renewal-closeouts"));
         setPilotOngoingRenewalCloseouts(ongoingRenewalCloseoutData.packets || []);
-        const nextOngoingRenewalQuoteData = await api("/api/pilots/clinic-wellness/next-ongoing-renewal-quotes");
+        const nextOngoingRenewalQuoteData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-ongoing-renewal-quotes"));
         setPilotNextOngoingRenewalQuoteHandoffs(nextOngoingRenewalQuoteData.handoffs || []);
-        const nextOngoingRenewalReleaseData = await api("/api/pilots/clinic-wellness/next-ongoing-renewal-quote-releases");
+        const nextOngoingRenewalReleaseData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-ongoing-renewal-quote-releases"));
         setPilotNextOngoingRenewalQuoteReleases(nextOngoingRenewalReleaseData.packets || []);
-        const nextOngoingRenewalAcceptanceData = await api("/api/pilots/clinic-wellness/next-ongoing-renewal-acceptance-handoffs");
+        const nextOngoingRenewalAcceptanceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-ongoing-renewal-acceptance-handoffs"));
         setPilotNextOngoingRenewalAcceptanceHandoffs(nextOngoingRenewalAcceptanceData.packets || []);
-        const nextOngoingRenewalHayhashvapahDraftData = await api("/api/pilots/clinic-wellness/next-ongoing-renewal-hayhashvapah-drafts");
+        const nextOngoingRenewalHayhashvapahDraftData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-ongoing-renewal-hayhashvapah-drafts"));
         setPilotNextOngoingRenewalHayhashvapahDrafts(nextOngoingRenewalHayhashvapahDraftData.packets || []);
-        const nextOngoingRenewalOfficialInvoiceData = await api("/api/pilots/clinic-wellness/next-ongoing-renewal-official-invoices");
+        const nextOngoingRenewalOfficialInvoiceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-ongoing-renewal-official-invoices"));
         setPilotNextOngoingRenewalOfficialInvoices(nextOngoingRenewalOfficialInvoiceData.packets || []);
-        const nextOngoingRenewalPaymentCollectionData = await api("/api/pilots/clinic-wellness/next-ongoing-renewal-payment-collections");
+        const nextOngoingRenewalPaymentCollectionData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-ongoing-renewal-payment-collections"));
         setPilotNextOngoingRenewalPaymentCollections(nextOngoingRenewalPaymentCollectionData.packets || []);
-        const nextOngoingRenewalCloseoutData = await api("/api/pilots/clinic-wellness/next-ongoing-renewal-closeouts");
+        const nextOngoingRenewalCloseoutData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-ongoing-renewal-closeouts"));
         setPilotNextOngoingRenewalCloseouts(nextOngoingRenewalCloseoutData.packets || []);
-        const followingOngoingRenewalQuoteData = await api("/api/pilots/clinic-wellness/following-ongoing-renewal-quotes");
+        const followingOngoingRenewalQuoteData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-ongoing-renewal-quotes"));
         setPilotFollowingOngoingRenewalQuoteHandoffs(followingOngoingRenewalQuoteData.handoffs || []);
-        const followingOngoingRenewalReleaseData = await api("/api/pilots/clinic-wellness/following-ongoing-renewal-quote-releases");
+        const followingOngoingRenewalReleaseData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-ongoing-renewal-quote-releases"));
         setPilotFollowingOngoingRenewalQuoteReleases(followingOngoingRenewalReleaseData.packets || []);
-        const followingOngoingRenewalAcceptanceData = await api("/api/pilots/clinic-wellness/following-ongoing-renewal-acceptance-handoffs");
+        const followingOngoingRenewalAcceptanceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-ongoing-renewal-acceptance-handoffs"));
         setPilotFollowingOngoingRenewalAcceptanceHandoffs(followingOngoingRenewalAcceptanceData.packets || []);
-        const followingOngoingRenewalHayhashvapahDraftData = await api("/api/pilots/clinic-wellness/following-ongoing-renewal-hayhashvapah-drafts");
+        const followingOngoingRenewalHayhashvapahDraftData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-ongoing-renewal-hayhashvapah-drafts"));
         setPilotFollowingOngoingRenewalHayhashvapahDrafts(followingOngoingRenewalHayhashvapahDraftData.packets || []);
-        const followingOngoingRenewalOfficialInvoiceData = await api("/api/pilots/clinic-wellness/following-ongoing-renewal-official-invoices");
+        const followingOngoingRenewalOfficialInvoiceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-ongoing-renewal-official-invoices"));
         setPilotFollowingOngoingRenewalOfficialInvoices(followingOngoingRenewalOfficialInvoiceData.packets || []);
-        const followingOngoingRenewalPaymentCollectionData = await api("/api/pilots/clinic-wellness/following-ongoing-renewal-payment-collections");
+        const followingOngoingRenewalPaymentCollectionData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-ongoing-renewal-payment-collections"));
         setPilotFollowingOngoingRenewalPaymentCollections(followingOngoingRenewalPaymentCollectionData.packets || []);
-        const followingOngoingRenewalCloseoutData = await api("/api/pilots/clinic-wellness/following-ongoing-renewal-closeouts");
+        const followingOngoingRenewalCloseoutData = await loadOr({}, () => api("/api/pilots/clinic-wellness/following-ongoing-renewal-closeouts"));
         setPilotFollowingOngoingRenewalCloseouts(followingOngoingRenewalCloseoutData.packets || []);
-        const subsequentOngoingRenewalQuoteData = await api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-quotes");
+        const subsequentOngoingRenewalQuoteData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-quotes"));
         setPilotSubsequentOngoingRenewalQuoteHandoffs(subsequentOngoingRenewalQuoteData.handoffs || []);
-        const subsequentOngoingRenewalReleaseData = await api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-quote-releases");
+        const subsequentOngoingRenewalReleaseData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-quote-releases"));
         setPilotSubsequentOngoingRenewalQuoteReleases(subsequentOngoingRenewalReleaseData.packets || []);
-        const subsequentOngoingRenewalAcceptanceData = await api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-acceptance-handoffs");
+        const subsequentOngoingRenewalAcceptanceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-acceptance-handoffs"));
         setPilotSubsequentOngoingRenewalAcceptanceHandoffs(subsequentOngoingRenewalAcceptanceData.packets || []);
-        const subsequentOngoingRenewalHayhashvapahDraftData = await api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-hayhashvapah-drafts");
+        const subsequentOngoingRenewalHayhashvapahDraftData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-hayhashvapah-drafts"));
         setPilotSubsequentOngoingRenewalHayhashvapahDrafts(subsequentOngoingRenewalHayhashvapahDraftData.packets || []);
-        const subsequentOngoingRenewalOfficialInvoiceData = await api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-official-invoices");
+        const subsequentOngoingRenewalOfficialInvoiceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-official-invoices"));
         setPilotSubsequentOngoingRenewalOfficialInvoices(subsequentOngoingRenewalOfficialInvoiceData.packets || []);
-        const subsequentOngoingRenewalPaymentCollectionData = await api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-payment-collections");
+        const subsequentOngoingRenewalPaymentCollectionData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-payment-collections"));
         setPilotSubsequentOngoingRenewalPaymentCollections(subsequentOngoingRenewalPaymentCollectionData.packets || []);
-        const subsequentOngoingRenewalCloseoutData = await api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-closeouts");
+        const subsequentOngoingRenewalCloseoutData = await loadOr({}, () => api("/api/pilots/clinic-wellness/subsequent-ongoing-renewal-closeouts"));
         setPilotSubsequentOngoingRenewalCloseouts(subsequentOngoingRenewalCloseoutData.packets || []);
-        const nextRecurringOngoingRenewalQuoteData = await api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-quotes");
+        const nextRecurringOngoingRenewalQuoteData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-quotes"));
         setPilotNextRecurringOngoingRenewalQuoteHandoffs(nextRecurringOngoingRenewalQuoteData.handoffs || []);
-        const nextRecurringOngoingRenewalReleaseData = await api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-quote-releases");
+        const nextRecurringOngoingRenewalReleaseData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-quote-releases"));
         setPilotNextRecurringOngoingRenewalQuoteReleases(nextRecurringOngoingRenewalReleaseData.packets || []);
-        const nextRecurringOngoingRenewalAcceptanceData = await api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-acceptance-handoffs");
+        const nextRecurringOngoingRenewalAcceptanceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-acceptance-handoffs"));
         setPilotNextRecurringOngoingRenewalAcceptanceHandoffs(nextRecurringOngoingRenewalAcceptanceData.packets || []);
-        const nextRecurringOngoingRenewalHayhashvapahDraftData = await api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-hayhashvapah-drafts");
+        const nextRecurringOngoingRenewalHayhashvapahDraftData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-hayhashvapah-drafts"));
         setPilotNextRecurringOngoingRenewalHayhashvapahDrafts(nextRecurringOngoingRenewalHayhashvapahDraftData.packets || []);
-        const nextRecurringOngoingRenewalOfficialInvoiceData = await api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-official-invoices");
+        const nextRecurringOngoingRenewalOfficialInvoiceData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-official-invoices"));
         setPilotNextRecurringOngoingRenewalOfficialInvoices(nextRecurringOngoingRenewalOfficialInvoiceData.packets || []);
-        const nextRecurringOngoingRenewalPaymentCollectionData = await api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-payment-collections");
+        const nextRecurringOngoingRenewalPaymentCollectionData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-payment-collections"));
         setPilotNextRecurringOngoingRenewalPaymentCollections(nextRecurringOngoingRenewalPaymentCollectionData.packets || []);
-        const nextRecurringOngoingRenewalCloseoutData = await api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-closeouts");
+        const nextRecurringOngoingRenewalCloseoutData = await loadOr({}, () => api("/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-closeouts"));
         setPilotNextRecurringOngoingRenewalCloseouts(nextRecurringOngoingRenewalCloseoutData.packets || []);
         if (["Owner", "Admin", "Accountant", "Auditor"].includes(data.user.role)) {
-          const accountantReviewData = await api("/api/pilots/clinic-wellness/accountant-reviews");
+          const accountantReviewData = await loadOr({}, () => api("/api/pilots/clinic-wellness/accountant-reviews"));
           setPilotAccountantReviews(accountantReviewData.reviews || []);
         } else {
           setPilotAccountantReviews([]);
@@ -542,15 +545,15 @@ function App() {
         setPilotNextRecurringOngoingRenewalCloseouts([]);
       }
       if (data.user.role === "Owner") {
-        const webhookData = await api("/api/integrations/webhook-deliveries");
+        const webhookData = await loadOr({}, () => api("/api/integrations/webhook-deliveries"));
         setWebhookDeliveries(webhookData.deliveries || []);
-        const backupData = await api("/api/admin/backups");
+        const backupData = await loadOr({}, () => api("/api/admin/backups"));
         setAdminBackups(backupData.backups || []);
       } else {
         setWebhookDeliveries([]);
         setAdminBackups([]);
       }
-      const auditData = await api("/api/audit");
+      const auditData = await loadOr({}, () => api("/api/audit"));
       setAudit(auditData.events || []);
     } catch (error) {
       if (error.status === 401) {
@@ -773,6 +776,7 @@ function App() {
       campaignPerformance={campaignPerformance}
       receivablesAging={receivablesAging}
             finance={finance}
+        people={people}
       semanticMetrics={semanticMetrics}
       semanticSnapshots={semanticSnapshots}
       analyticsReports={analyticsReports}
