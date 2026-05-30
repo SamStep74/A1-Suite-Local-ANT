@@ -3,6 +3,7 @@ import { createRoot } from "react-dom/client";
 import "./styles.css";
 import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel, FinanceOpeningBalancesPanel, FinanceOpeningBalancesForm } from "./finance.jsx";
 import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm, CrmActivityPanel } from "./crm.jsx";
+import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
 
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 const sensitiveMoney = value => value === null || value === "restricted" ? "restricted" : money(value);
@@ -3519,6 +3520,17 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     }
   }
 
+  async function createTicket(body) {
+    setActionState("ticket:create");
+    try { await api("/api/service/cases", { method: "POST", body }); setActionState("ticket:create:done"); onReload(); }
+    catch { setActionState("ticket:create:error"); }
+  }
+  async function updateTicket(caseId, patch) {
+    setActionState(`ticket:update:${caseId}`);
+    try { await api(`/api/service/cases/${caseId}`, { method: "PATCH", body: patch }); setActionState("ticket:update:done"); onReload(); }
+    catch { setActionState("ticket:update:error"); }
+  }
+
   const liveApprovals = quoteApproval && ["pending", "approved"].includes(quoteApproval.status)
     ? [
         quoteApproval,
@@ -3680,6 +3692,12 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
             onResolve={resolveServiceCase}
             onGenerateTicketSummary={["Owner", "Admin", "Operator", "Support", "Service Manager"].includes(suite.user.role) ? generateTicketSummary : null}
           />
+          {serviceConsole && (
+            <>
+              <CreateTicketForm customers={serviceConsole.customers} onCreate={createTicket} actionState={actionState} />
+              <DeskTicketList data={serviceConsole} onUpdate={updateTicket} actionState={actionState} />
+            </>
+          )}
           <ApprovalQueue
             approvals={liveApprovals}
             runs={serviceConsole?.runs || []}
