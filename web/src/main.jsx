@@ -261,6 +261,12 @@ function App() {
       } else {
         setFinance(null);
       }
+      if ((data.apps || []).some(app => app.id === "people")) {
+        const peopleData = await loadOr(null, () => api("/api/people/employees"));
+        setPeople(peopleData);
+      } else {
+        setPeople(null);
+      }
       if (["Owner", "Auditor"].includes(data.user.role)) {
         const accessReviewData = await loadOr({}, () => api("/api/admin/access-reviews"));
         setAdminAccessReviews(accessReviewData.reviews || []);
@@ -855,7 +861,7 @@ function Login({ onDone }) {
   );
 }
 
-function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, selectedApp, onSelectApp, onReload }) {
+function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, selectedApp, onSelectApp, onReload }) {
   const {
     pilotTemplateData,
     pilotOwnerBriefs,
@@ -3534,6 +3540,16 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     try { await api(`/api/service/cases/${caseId}`, { method: "PATCH", body: patch }); setActionState("ticket:update:done"); onReload(); }
     catch { setActionState("ticket:update:error"); }
   }
+  async function createEmployee(body) {
+    setActionState("employee:create");
+    try { await api("/api/people/employees", { method: "POST", body }); setActionState("employee:create:done"); onReload(); }
+    catch { setActionState("employee:create:error"); }
+  }
+  async function runEmployeePayroll(employeeId) {
+    setActionState(`payroll:${employeeId}`);
+    try { await api(`/api/people/employees/${employeeId}/run-payroll`, { method: "POST", body: {} }); setActionState(`payroll:done:${employeeId}`); onReload(); }
+    catch { setActionState(`payroll:error:${employeeId}`); }
+  }
 
   const liveApprovals = quoteApproval && ["pending", "approved"].includes(quoteApproval.status)
     ? [
@@ -3660,6 +3676,14 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
                 <FinanceOpeningBalancesForm onSubmit={setOpeningBalances} actionState={actionState} />
               )}
               <LegalSearchPanel onSearch={lawSearch} />
+            </>
+          )}
+          {people && (
+            <>
+              <PeopleRegistryPanel data={people} onRunPayroll={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? runEmployeePayroll : null} actionState={actionState} />
+              {["Owner", "Admin", "Accountant"].includes(suite.user.role) && (
+                <PeopleEmployeeForm onCreate={createEmployee} actionState={actionState} />
+              )}
             </>
           )}
           {crmForecastData && (
