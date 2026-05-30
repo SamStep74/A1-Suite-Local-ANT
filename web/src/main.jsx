@@ -5,6 +5,7 @@ import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, Fina
 import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm, CrmActivityPanel } from "./crm.jsx";
 import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
 import { PeopleEmployeeForm, PeopleRegistryPanel } from "./people.jsx";
+import { DocsCreateForm, DocsRegistryPanel } from "./docs.jsx";
 import { loadOr } from "./load-section.js";
 
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
@@ -95,6 +96,7 @@ function App() {
   const [receivablesAging, setReceivablesAging] = useState(null);
   const [finance, setFinance] = useState(null);
   const [people, setPeople] = useState(null);
+  const [docs, setDocs] = useState(null);
   const [semanticMetrics, setSemanticMetrics] = useState(null);
   const [semanticSnapshots, setSemanticSnapshots] = useState(null);
   const [analyticsReports, setAnalyticsReports] = useState([]);
@@ -266,6 +268,12 @@ function App() {
         setPeople(peopleData);
       } else {
         setPeople(null);
+      }
+      if ((data.apps || []).some(app => app.id === "docs")) {
+        const docsData = await loadOr(null, () => api("/api/docs/documents"));
+        setDocs(docsData);
+      } else {
+        setDocs(null);
       }
       if (["Owner", "Auditor"].includes(data.user.role)) {
         const accessReviewData = await loadOr({}, () => api("/api/admin/access-reviews"));
@@ -783,6 +791,7 @@ function App() {
       receivablesAging={receivablesAging}
             finance={finance}
         people={people}
+        docs={docs}
       semanticMetrics={semanticMetrics}
       semanticSnapshots={semanticSnapshots}
       analyticsReports={analyticsReports}
@@ -861,7 +870,7 @@ function Login({ onDone }) {
   );
 }
 
-function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, selectedApp, onSelectApp, onReload }) {
+function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, selectedApp, onSelectApp, onReload }) {
   const {
     pilotTemplateData,
     pilotOwnerBriefs,
@@ -3550,6 +3559,31 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     try { await api(`/api/people/employees/${employeeId}/run-payroll`, { method: "POST", body: {} }); setActionState(`payroll:done:${employeeId}`); onReload(); }
     catch { setActionState(`payroll:error:${employeeId}`); }
   }
+  async function createDocument(body) {
+    setActionState("doc:create");
+    try { await api("/api/docs/documents", { method: "POST", body }); setActionState("doc:create:done"); onReload(); }
+    catch { setActionState("doc:create:error"); }
+  }
+  async function addDocSigner(documentId, signerName) {
+    setActionState(`doc:act:${documentId}`);
+    try { await api(`/api/docs/documents/${documentId}/signers`, { method: "POST", body: { signerName } }); setActionState(`doc:act:done:${documentId}`); onReload(); }
+    catch { setActionState(`doc:act:error:${documentId}`); }
+  }
+  async function sendDocument(documentId) {
+    setActionState(`doc:act:${documentId}`);
+    try { await api(`/api/docs/documents/${documentId}/send`, { method: "POST", body: {} }); setActionState(`doc:act:done:${documentId}`); onReload(); }
+    catch { setActionState(`doc:act:error:${documentId}`); }
+  }
+  async function signDocument(documentId, signerId) {
+    setActionState(`doc:act:${documentId}`);
+    try { await api(`/api/docs/documents/${documentId}/sign`, { method: "POST", body: { signerId } }); setActionState(`doc:act:done:${documentId}`); onReload(); }
+    catch { setActionState(`doc:act:error:${documentId}`); }
+  }
+  async function voidDocument(documentId) {
+    setActionState(`doc:act:${documentId}`);
+    try { await api(`/api/docs/documents/${documentId}/void`, { method: "POST", body: {} }); setActionState(`doc:act:done:${documentId}`); onReload(); }
+    catch { setActionState(`doc:act:error:${documentId}`); }
+  }
   async function updateEmployee(employeeId, patch) {
     setActionState(`employee:update:${employeeId}`);
     try { await api(`/api/people/employees/${employeeId}`, { method: "PATCH", body: patch }); setActionState(`employee:update:done:${employeeId}`); onReload(); }
@@ -3688,6 +3722,22 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               <PeopleRegistryPanel data={people} onRunPayroll={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? runEmployeePayroll : null} onUpdate={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? updateEmployee : null} actionState={actionState} />
               {["Owner", "Admin", "Accountant"].includes(suite.user.role) && (
                 <PeopleEmployeeForm onCreate={createEmployee} actionState={actionState} />
+              )}
+            </>
+          )}
+          {docs && (
+            <>
+              <DocsRegistryPanel
+                data={docs}
+                canWrite={["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role)}
+                onAddSigner={addDocSigner}
+                onSend={sendDocument}
+                onSign={signDocument}
+                onVoid={voidDocument}
+                actionState={actionState}
+              />
+              {["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role) && (
+                <DocsCreateForm customers={(serviceConsole && serviceConsole.customers) || []} onCreate={createDocument} actionState={actionState} />
               )}
             </>
           )}
