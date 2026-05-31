@@ -1,5 +1,5 @@
 <p align="center">
-  <img src="brand/a1-mark.svg" alt="A1" width="72" height="72" />
+  <img src="brand/a1-suite.svg" alt="A1 Suite" height="64" />
 </p>
 
 # A1 Suite
