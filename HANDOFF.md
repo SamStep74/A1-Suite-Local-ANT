@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-05-31 · HEAD `f4dd587` · 74 commits · 30 tags · 152 tests (0 fail)_
+_Last updated: 2026-05-31 · HEAD `cc65386` · 78 commits · 30 tags · 170 tests (0 fail, 1 env-timeout "cancelled")_
 
 A **sovereign, self-hostable Armenian business operating system** with phased one-to-one *functional* parity to Zoho One. Runs entirely on the customer's own server: a single Node/Fastify + SQLite process serving a React SPA, with **no external data dependency** except opt-in AI. Built for Armenian organizations that cannot use foreign clouds (government, banks, healthcare, legal).
 
@@ -72,7 +72,7 @@ npm test             # node --test  (see caveat below)
 `node --test` (especially the full suite) **stalls / reports `cancelled`** when run directly in this OneDrive-synced folder — filesystem contention reading the 49k-line `app.js`, made worse by parallel agents. **This is NOT a code failure** (`cancelled` ≠ `failed`). Reliable verification:
 - **Per-file**: `node --test test/<one>.test.js` (one short invocation).
 - **Clean worktree**: `git worktree add --detach /tmp/run HEAD && ln -s "$PWD/node_modules" /tmp/run/ && cd /tmp/run && node --test test/*.test.js`.
-- Last clean full-suite run: **152 tests / 151 pass / 1 cancelled (timeout) / 0 fail**. Heaviest file `api.test.js` in isolation: 125/126 (the 1 again a timeout, not an assertion).
+- Last clean full-suite run: **170 tests / 169 pass / 1 cancelled (env timeout) / 0 fail** (grew from 152 as parallel agents added systematic tenant-isolation + RBAC coverage: foreign-org → 404 on every `:id` route across service/forms, all-role access pinned on intentionally-open endpoints). Heaviest file `api.test.js` in isolation: 125/126 (the 1 again a timeout, not an assertion).
 
 ---
 
