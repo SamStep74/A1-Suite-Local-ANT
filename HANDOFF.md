@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-05-31 · HEAD `2ad6e95` · 81 commits · 31 tags · **259 tests (259 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-05-31 · HEAD `ed7d2f9` · 85 commits · 33 tags · **267 tests (267 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
