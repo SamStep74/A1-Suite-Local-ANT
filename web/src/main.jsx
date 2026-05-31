@@ -3823,6 +3823,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
                 onUpdateStatus={updateProjectStatus}
                 onLogTime={logProjectTime}
                 onBillTime={billProjectTime}
+                onLoadDetail={async projectId => (await api(`/api/projects/${projectId}`)).project}
                 actionState={actionState}
               />
               {["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role) && (

@@ -39,11 +39,28 @@ export function ProjectCreateForm({ customers, onCreate, actionState }) {
   );
 }
 
-export function ProjectsBoardPanel({ data, canWrite, canBill, onAddTask, onToggleTask, onUpdateStatus, onLogTime, onBillTime, actionState }) {
+export function ProjectsBoardPanel({ data, canWrite, canBill, onAddTask, onToggleTask, onUpdateStatus, onLogTime, onBillTime, onLoadDetail, actionState }) {
   const projects = (data && data.projects) || [];
   const [taskTitle, setTaskTitle] = useState({});
   const [timeMin, setTimeMin] = useState({});
   const [billRate, setBillRate] = useState({});
+  // Lazy per-project detail tree (tasks + milestones), fetched on first expand and cached.
+  const [detail, setDetail] = useState({}); // { [projectId]: { loading, project, error } }
+  async function toggleDetail(projectId) {
+    const current = detail[projectId];
+    if (current && !current.error) { // collapse if already open
+      setDetail(prev => { const next = { ...prev }; delete next[projectId]; return next; });
+      return;
+    }
+    if (!onLoadDetail) return;
+    setDetail(prev => ({ ...prev, [projectId]: { loading: true } }));
+    try {
+      const project = await onLoadDetail(projectId);
+      setDetail(prev => ({ ...prev, [projectId]: { project } }));
+    } catch {
+      setDetail(prev => ({ ...prev, [projectId]: { error: true } }));
+    }
+  }
   return (
     <article className="panel projects-board-panel">
       <div className="panel-head">
@@ -94,6 +111,31 @@ export function ProjectsBoardPanel({ data, canWrite, canBill, onAddTask, onToggl
                   />
                   <button className="mini-action" type="button" disabled={busy || !(Number(billRate[project.id]) > 0)} onClick={() => { onBillTime(project.id, Math.round(Number(billRate[project.id]))); setBillRate({ ...billRate, [project.id]: "" }); }}>Bill time → invoice</button>
                 </div>
+              )}
+              {onLoadDetail && (
+                <div className="inline-form" style={{ gap: "6px" }}>
+                  <button className="mini-action" type="button" onClick={() => toggleDetail(project.id)}>
+                    {detail[project.id] ? (detail[project.id].loading ? "Loading…" : "Hide detail") : "View detail"}
+                  </button>
+                </div>
+              )}
+              {detail[project.id] && detail[project.id].project && (
+                <div className="project-detail" style={{ fontSize: "0.85em", opacity: 0.9, paddingLeft: "8px", borderLeft: "2px solid var(--line)" }}>
+                  <div style={{ fontWeight: 600, margin: "4px 0 2px" }}>Tasks · Առաջադրանքներ</div>
+                  {(detail[project.id].project.tasks || []).map(t => (
+                    <div key={t.id}>· {t.title} — <strong>{t.status}</strong>{t.dueDate ? ` (due ${t.dueDate.slice(0, 10)})` : ""}</div>
+                  ))}
+                  {(detail[project.id].project.tasks || []).length === 0 && <div>· No tasks</div>}
+                  <div style={{ fontWeight: 600, margin: "6px 0 2px" }}>Milestones · Հանգրվաններ</div>
+                  {(detail[project.id].project.milestones || []).map(m => (
+                    <div key={m.id}>· {m.title} — {m.reached ? "✓ reached" : "pending"}{m.dueDate ? ` (${m.dueDate.slice(0, 10)})` : ""}</div>
+                  ))}
+                  {(detail[project.id].project.milestones || []).length === 0 && <div>· No milestones</div>}
+                  <div style={{ margin: "6px 0 2px", opacity: 0.8 }}>Logged time: {hours(detail[project.id].project.totalMinutes)} · {detail[project.id].project.timeEntryCount} entries</div>
+                </div>
+              )}
+              {detail[project.id] && detail[project.id].error && (
+                <div style={{ fontSize: "0.85em", color: "var(--ruby)" }}>Could not load detail</div>
               )}
             </div>
           );
