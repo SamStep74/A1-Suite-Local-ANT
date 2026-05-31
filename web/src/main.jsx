@@ -3567,19 +3567,19 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
   }
 
   async function createTicket(body) {
-    setActionState("ticket:create");
+    setActionState("ticket:create"); setActionError("");
     try { await api("/api/service/cases", { method: "POST", body }); setActionState("ticket:create:done"); onReload(); }
-    catch { setActionState("ticket:create:error"); }
+    catch (e) { setActionState("ticket:create:error"); reportActionError(e); }
   }
   async function updateTicket(caseId, patch) {
-    setActionState(`ticket:update:${caseId}`);
+    setActionState(`ticket:update:${caseId}`); setActionError("");
     try { await api(`/api/service/cases/${caseId}`, { method: "PATCH", body: patch }); setActionState("ticket:update:done"); onReload(); }
-    catch { setActionState("ticket:update:error"); }
+    catch (e) { setActionState("ticket:update:error"); reportActionError(e); }
   }
   async function createEmployee(body) {
-    setActionState("employee:create");
+    setActionState("employee:create"); setActionError("");
     try { await api("/api/people/employees", { method: "POST", body }); setActionState("employee:create:done"); onReload(); }
-    catch { setActionState("employee:create:error"); }
+    catch (e) { setActionState("employee:create:error"); reportActionError(e); }
   }
   async function runEmployeePayroll(employeeId) {
     setActionState(`payroll:${employeeId}`); setActionError("");
@@ -3587,14 +3587,14 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     catch (e) { setActionState(`payroll:error:${employeeId}`); reportActionError(e); }
   }
   async function createDocument(body) {
-    setActionState("doc:create");
+    setActionState("doc:create"); setActionError("");
     try { await api("/api/docs/documents", { method: "POST", body }); setActionState("doc:create:done"); onReload(); }
-    catch { setActionState("doc:create:error"); }
+    catch (e) { setActionState("doc:create:error"); reportActionError(e); }
   }
   async function addDocSigner(documentId, signerName) {
-    setActionState(`doc:act:${documentId}`);
+    setActionState(`doc:act:${documentId}`); setActionError("");
     try { await api(`/api/docs/documents/${documentId}/signers`, { method: "POST", body: { signerName } }); setActionState(`doc:act:done:${documentId}`); onReload(); }
-    catch { setActionState(`doc:act:error:${documentId}`); }
+    catch (e) { setActionState(`doc:act:error:${documentId}`); reportActionError(e); }
   }
   async function sendDocument(documentId) {
     setActionState(`doc:act:${documentId}`); setActionError("");
@@ -3612,34 +3612,34 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     catch (e) { setActionState(`doc:act:error:${documentId}`); reportActionError(e); }
   }
   async function createProject(body) {
-    setActionState("project:create");
+    setActionState("project:create"); setActionError("");
     try { await api("/api/projects", { method: "POST", body }); setActionState("project:create:done"); onReload(); }
-    catch { setActionState("project:create:error"); }
+    catch (e) { setActionState("project:create:error"); reportActionError(e); }
   }
   async function createForm(body) {
-    setActionState("form:create");
+    setActionState("form:create"); setActionError("");
     try { await api("/api/forms", { method: "POST", body }); setActionState("form:create:done"); onReload(); }
-    catch { setActionState("form:create:error"); }
+    catch (e) { setActionState("form:create:error"); reportActionError(e); }
   }
   async function toggleFormPublish(formId, status) {
-    setActionState(`form:act:${formId}`);
+    setActionState(`form:act:${formId}`); setActionError("");
     try { await api(`/api/forms/${formId}`, { method: "PATCH", body: { status } }); setActionState(`form:act:done:${formId}`); onReload(); }
-    catch { setActionState(`form:act:error:${formId}`); }
+    catch (e) { setActionState(`form:act:error:${formId}`); reportActionError(e); }
   }
   async function addProjectTask(projectId, title) {
-    setActionState(`project:act:${projectId}`);
+    setActionState(`project:act:${projectId}`); setActionError("");
     try { await api(`/api/projects/${projectId}/tasks`, { method: "POST", body: { title } }); setActionState(`project:act:done:${projectId}`); onReload(); }
-    catch { setActionState(`project:act:error:${projectId}`); }
+    catch (e) { setActionState(`project:act:error:${projectId}`); reportActionError(e); }
   }
   async function updateProjectStatus(projectId, status) {
-    setActionState(`project:act:${projectId}`);
+    setActionState(`project:act:${projectId}`); setActionError("");
     try { await api(`/api/projects/${projectId}`, { method: "PATCH", body: { status } }); setActionState(`project:act:done:${projectId}`); onReload(); }
-    catch { setActionState(`project:act:error:${projectId}`); }
+    catch (e) { setActionState(`project:act:error:${projectId}`); reportActionError(e); }
   }
   async function logProjectTime(projectId, minutes) {
-    setActionState(`project:act:${projectId}`);
+    setActionState(`project:act:${projectId}`); setActionError("");
     try { await api(`/api/projects/${projectId}/time-entries`, { method: "POST", body: { minutes } }); setActionState(`project:act:done:${projectId}`); onReload(); }
-    catch { setActionState(`project:act:error:${projectId}`); }
+    catch (e) { setActionState(`project:act:error:${projectId}`); reportActionError(e); }
   }
   async function billProjectTime(projectId, hourlyRate) {
     setActionState(`project:act:${projectId}`); setActionError("");
@@ -3647,9 +3647,9 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     catch (e) { setActionState(`project:act:error:${projectId}`); reportActionError(e); }
   }
   async function updateEmployee(employeeId, patch) {
-    setActionState(`employee:update:${employeeId}`);
+    setActionState(`employee:update:${employeeId}`); setActionError("");
     try { await api(`/api/people/employees/${employeeId}`, { method: "PATCH", body: patch }); setActionState(`employee:update:done:${employeeId}`); onReload(); }
-    catch { setActionState(`employee:update:error:${employeeId}`); }
+    catch (e) { setActionState(`employee:update:error:${employeeId}`); reportActionError(e); }
   }
 
   const liveApprovals = quoteApproval && ["pending", "approved"].includes(quoteApproval.status)
