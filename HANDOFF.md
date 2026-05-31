@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-05-31 · HEAD `80af123` · 79 commits · 30 tags · **256 tests (256 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-05-31 · HEAD `2ad6e95` · 81 commits · 31 tags · **259 tests (259 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -84,7 +84,7 @@ npm test             # node --test  (see caveat below)
 ---
 
 ## 5. Backlog (deliberately deferred — all marginal or out-of-scope)
-- **Employee payroll-history detail** — needs an `employee_id` FK on `payroll_runs` (currently `employee_name` free-text only); the all-runs Finance list already covers most of the value.
+- ~~Employee payroll-history detail~~ — **DONE** (`employee-payroll-fk`): `employee_id` FK on `payroll_runs` (ON DELETE SET NULL), `GET /api/people/employees/:id/payroll-runs`, lazy per-employee history expander in the People-HR panel. Generic `/payroll/run` accepts an optional validated `employeeId`.
 - ~~Docs signature-status detail expander~~ — **DONE** (`docs-signature-evidence`): per-signer SHA-256 + sealed doc hash, toggle in the Docs panel.
 - **Docs templates + signed-PDF export**, **Forms public rendered page** (submit is API-only today), **VAT-rate versioning UI** (the `resolveVatRate` seam exists; the 7 inline `/1.2` sites weren't rewritten — low rate-change risk).
 - **Retire the in-repo `suite/`** — lives in the *separate* HayHashvapah hub repo, not this one.
