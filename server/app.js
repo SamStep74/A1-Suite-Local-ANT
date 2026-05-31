@@ -3028,6 +3028,105 @@ function registerApi(app, db, options = {}) {
     return { periods: getFinancePeriods(db, user.org_id) };
   });
 
+  // --- Public, server-rendered form page (no auth, no SPA bundle) ---
+  // A published form is reachable at /f/:id so anonymous visitors can submit leads.
+  // Writer-authored strings are HTML-escaped (stored-XSS guard); the page posts to the
+  // existing rate-limited /api/forms/:id/submit endpoint (single submission path).
+  function escapeFormHtml(value) {
+    return String(value == null ? "" : value).replace(/[&<>"']/g, ch => (
+      { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
+    ));
+  }
+  function renderPublicFormPage(form, fields) {
+    const title = escapeFormHtml(form.title);
+    const controls = fields.map(f => {
+      const label = escapeFormHtml(f.label || f.key);
+      const key = escapeFormHtml(f.key);
+      const req = f.required ? " required" : "";
+      const mark = f.required ? ' <span class="req" aria-hidden="true">*</span>' : "";
+      const control = f.type === "textarea"
+        ? `<textarea id="${key}" name="${key}"${req} rows="4"></textarea>`
+        : `<input id="${key}" name="${key}" type="${escapeFormHtml(f.type || "text")}"${req} />`;
+      return `<label class="field"><span class="lbl">${label}${mark}</span>${control}</label>`;
+    }).join("\n");
+    // Field keys for the inline submit script; <-escaped to prevent a </script> breakout.
+    const fieldKeysJson = JSON.stringify(fields.map(f => f.key)).replace(/</g, "\\u003c");
+    const submitUrl = `/api/forms/${encodeURIComponent(form.id)}/submit`;
+    return `<!doctype html>
+<html lang="hy"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>${title}</title>
+<style>
+  :root { --teal:#1E3A3A; --line:#d9e0e0; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif; background:#f4f6f6; color:#1a2424; }
+  .wrap { max-width: 540px; margin: 6vh auto; padding: 0 16px; }
+  .card { background:#fff; border:1px solid var(--line); border-radius:14px; padding:28px; }
+  .brand { font-size:13px; letter-spacing:.08em; text-transform:uppercase; color:var(--teal); font-weight:700; }
+  h1 { font-size:22px; margin:6px 0 18px; }
+  .field { display:block; margin-bottom:14px; }
+  .lbl { display:block; font-size:14px; font-weight:600; margin-bottom:6px; }
+  .req { color:#b00; }
+  input, textarea { width:100%; padding:10px 12px; border:1px solid var(--line); border-radius:9px; font-size:15px; font-family:inherit; }
+  button { background:var(--teal); color:#fff; border:0; border-radius:9px; padding:12px 18px; font-size:15px; font-weight:600; cursor:pointer; }
+  button:disabled { opacity:.6; cursor:default; }
+  .msg { margin-top:14px; font-size:14px; }
+  .err { color:#b00; }
+  .done h1 { margin-bottom:6px; }
+</style></head>
+<body><div class="wrap"><div class="card" id="card">
+  <div class="brand">A1 Suite</div>
+  <h1>${title}</h1>
+  <form id="f" method="POST" action="${submitUrl}">
+${controls}
+    <button type="submit" id="sb">Ուղարկել</button>
+    <div class="msg" id="msg" role="status"></div>
+  </form>
+</div></div>
+<script>
+(function(){
+  var keys = ${fieldKeysJson};
+  var form = document.getElementById('f');
+  var msg = document.getElementById('msg');
+  var btn = document.getElementById('sb');
+  form.addEventListener('submit', function(e){
+    e.preventDefault();
+    msg.className = 'msg'; msg.textContent = '';
+    var body = {};
+    keys.forEach(function(k){ var el = form.elements[k]; if (el) body[k] = el.value; });
+    btn.disabled = true;
+    fetch(${JSON.stringify(submitUrl)}, {
+      method:'POST', headers:{'content-type':'application/json'}, body: JSON.stringify(body)
+    }).then(function(r){ return r.json().then(function(j){ return { status:r.status, j:j }; }); })
+      .then(function(res){
+        if (res.status === 200 && res.j && res.j.ok) {
+          document.getElementById('card').innerHTML =
+            '<div class="brand">A1 Suite</div><div class="done"><h1>Շնորհակալություն</h1><p>Ձեր հայտը ստացված է։</p></div>';
+        } else {
+          btn.disabled = false;
+          msg.className = 'msg err';
+          msg.textContent = (res.j && res.j.error) ? res.j.error : 'Չհաջողվեց ուղարկել։ Փորձեք կրկին։';
+        }
+      }).catch(function(){ btn.disabled = false; msg.className='msg err'; msg.textContent='Ցանցային սխալ։'; });
+  });
+})();
+</script>
+</body></html>`;
+  }
+  app.get("/f/:id", async (request, reply) => {
+    const fid = String(request.params.id || "");
+    const form = db.prepare("SELECT id, title, fields AS fieldsJson FROM forms WHERE id = ? AND status = 'published'").get(fid);
+    if (!form) {
+      reply.code(404).type("text/html");
+      return `<!doctype html><meta charset="utf-8"><title>Not found</title><body style="font-family:system-ui;margin:6vh auto;max-width:480px;padding:0 16px;color:#1a2424"><p>Form not available.</p>`;
+    }
+    let fields = [];
+    try { fields = JSON.parse(form.fieldsJson || "[]"); } catch { fields = []; }
+    reply.type("text/html");
+    return renderPublicFormPage(form, fields);
+  });
+
   app.get("/api/public/quotes/:token", async request => {
     // Unauthenticated read keyed by an attacker-supplied token: throttle per-IP to blunt
     // token enumeration. 30/min allows legitimate buyers to re-view their quote.
