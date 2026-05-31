@@ -12299,3 +12299,20 @@ button:focus-visible {
     text-align: left;
   }
 }
+
+/* Shared action-error banner: surfaces a failed mutation at the top of the workspace. */
+.action-error-banner {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin: 0 0 16px;
+  padding: 12px 16px;
+  border: 1px solid var(--ruby);
+  border-left: 4px solid var(--ruby);
+  border-radius: var(--radius);
+  background: #fdeef0;
+  color: var(--ruby);
+  font-size: 0.92rem;
+}
+.action-error-banner button { color: var(--ruby); border: 1px solid var(--ruby); background: transparent; border-radius: 6px; padding: 4px 10px; }

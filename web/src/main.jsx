@@ -976,6 +976,14 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
   } = pilot;
   const selected = suite.apps.find(app => app.id === selectedApp) || suite.apps[0];
   const [actionState, setActionState] = useState("");
+  // Shared sink for failed mutations: any handler's catch can push the server's error message
+  // here, and the workspace renders ONE dismissable banner — so a failed create/bill/sign/run
+  // is never silently swallowed. (Read-only loadOr fetches still degrade to empty panels.)
+  const [actionError, setActionError] = useState("");
+  function reportActionError(err) {
+    const message = (err && err.message) ? String(err.message) : "Գործողությունը չհաջողվեց";
+    setActionError(message);
+  }
   const [restoreProof, setRestoreProof] = useState(null);
   const [createdBackup, setCreatedBackup] = useState(null);
   const [createdAccessReview, setCreatedAccessReview] = useState(null);
@@ -3313,13 +3321,14 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
   }
 
   async function createExpense(body) {
-    setActionState("expense:create");
+    setActionState("expense:create"); setActionError("");
     try {
       await api("/api/finance/expenses", { method: "POST", body });
       setActionState("expense:done");
       onReload();
-    } catch {
+    } catch (e) {
       setActionState("expense:error");
+      reportActionError(e);
     }
   }
   async function requestQuoteApproval(quoteId) {
@@ -3343,19 +3352,19 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     }
   }
   async function createBill(body) {
-    setActionState("bill:create");
+    setActionState("bill:create"); setActionError("");
     try { await api("/api/finance/bills", { method: "POST", body }); setActionState("bill:done"); onReload(); }
-    catch { setActionState("bill:error"); }
+    catch (e) { setActionState("bill:error"); reportActionError(e); }
   }
   async function runPayroll(body) {
-    setActionState("payroll:run");
+    setActionState("payroll:run"); setActionError("");
     try { await api("/api/payroll/run", { method: "POST", body }); setActionState("payroll:done"); onReload(); }
-    catch { setActionState("payroll:error"); }
+    catch (e) { setActionState("payroll:error"); reportActionError(e); }
   }
   async function setOpeningBalances(body) {
-    setActionState("opening-balances:set");
+    setActionState("opening-balances:set"); setActionError("");
     try { await api("/api/finance/opening-balances", { method: "POST", body }); setActionState("opening-balances:done"); onReload(); }
-    catch { setActionState("opening-balances:error"); }
+    catch (e) { setActionState("opening-balances:error"); reportActionError(e); }
   }
   async function lawSearch(query) {
     return api(`/api/legal/law-search?q=${encodeURIComponent(query)}`);
@@ -3570,9 +3579,9 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     catch { setActionState("employee:create:error"); }
   }
   async function runEmployeePayroll(employeeId) {
-    setActionState(`payroll:${employeeId}`);
+    setActionState(`payroll:${employeeId}`); setActionError("");
     try { await api(`/api/people/employees/${employeeId}/run-payroll`, { method: "POST", body: {} }); setActionState(`payroll:done:${employeeId}`); onReload(); }
-    catch { setActionState(`payroll:error:${employeeId}`); }
+    catch (e) { setActionState(`payroll:error:${employeeId}`); reportActionError(e); }
   }
   async function createDocument(body) {
     setActionState("doc:create");
@@ -3585,19 +3594,19 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     catch { setActionState(`doc:act:error:${documentId}`); }
   }
   async function sendDocument(documentId) {
-    setActionState(`doc:act:${documentId}`);
+    setActionState(`doc:act:${documentId}`); setActionError("");
     try { await api(`/api/docs/documents/${documentId}/send`, { method: "POST", body: {} }); setActionState(`doc:act:done:${documentId}`); onReload(); }
-    catch { setActionState(`doc:act:error:${documentId}`); }
+    catch (e) { setActionState(`doc:act:error:${documentId}`); reportActionError(e); }
   }
   async function signDocument(documentId, signerId) {
-    setActionState(`doc:act:${documentId}`);
+    setActionState(`doc:act:${documentId}`); setActionError("");
     try { await api(`/api/docs/documents/${documentId}/sign`, { method: "POST", body: { signerId } }); setActionState(`doc:act:done:${documentId}`); onReload(); }
-    catch { setActionState(`doc:act:error:${documentId}`); }
+    catch (e) { setActionState(`doc:act:error:${documentId}`); reportActionError(e); }
   }
   async function voidDocument(documentId) {
-    setActionState(`doc:act:${documentId}`);
+    setActionState(`doc:act:${documentId}`); setActionError("");
     try { await api(`/api/docs/documents/${documentId}/void`, { method: "POST", body: {} }); setActionState(`doc:act:done:${documentId}`); onReload(); }
-    catch { setActionState(`doc:act:error:${documentId}`); }
+    catch (e) { setActionState(`doc:act:error:${documentId}`); reportActionError(e); }
   }
   async function createProject(body) {
     setActionState("project:create");
@@ -3630,9 +3639,9 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     catch { setActionState(`project:act:error:${projectId}`); }
   }
   async function billProjectTime(projectId, hourlyRate) {
-    setActionState(`project:act:${projectId}`);
+    setActionState(`project:act:${projectId}`); setActionError("");
     try { await api(`/api/projects/${projectId}/bill-time`, { method: "POST", body: { hourlyRate } }); setActionState(`project:act:done:${projectId}`); onReload(); }
-    catch { setActionState(`project:act:error:${projectId}`); }
+    catch (e) { setActionState(`project:act:error:${projectId}`); reportActionError(e); }
   }
   async function updateEmployee(employeeId, patch) {
     setActionState(`employee:update:${employeeId}`);
@@ -3683,6 +3692,13 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
             <UserPill user={suite.user} />
           </div>
         </header>
+
+        {actionError && (
+          <div className="action-error-banner" role="alert">
+            <span>⚠ {actionError}</span>
+            <button className="ghost" type="button" onClick={() => setActionError("")}>Փակել</button>
+          </div>
+        )}
 
         <section className="kpi-grid">
           {suite.kpis.map(item => <Kpi key={item.label} item={item} />)}
