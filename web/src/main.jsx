@@ -698,7 +698,7 @@ function App() {
 
   useEffect(() => { load(); }, []);
 
-  if (loading) return <div className="boot">Armosphera One Claude</div>;
+  if (loading) return <div className="boot">A1 Suite</div>;
   if (!session || !suite) return <Login onDone={load} />;
 
   // Pilot pipeline datasets, bundled into one prop to avoid ~86-way prop drilling.
@@ -861,7 +861,7 @@ function Login({ onDone }) {
         <div className="brand-lockup">
           <div className="mark">A1</div>
           <div>
-            <strong>Armosphera One Claude</strong>
+            <strong>A1 Suite</strong>
             <span>Հայաստանի բիզնես օպերացիոն համակարգ</span>
           </div>
         </div>
@@ -1087,7 +1087,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
       if (approval.status === "pending") {
         await api(`/api/workflow/approvals/${approval.id}/decision`, {
           method: "POST",
-          body: { decision: "approved", note: "Approved from Armosphera One workspace" }
+          body: { decision: "approved", note: "Approved from A1 Suite workspace" }
         });
       }
       await api(`/api/workflow/approvals/${approval.id}/execute`, { method: "POST" });
@@ -3278,7 +3278,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     try {
       await api(`/api/admin/sessions/${sessionId}/revoke`, {
         method: "POST",
-        body: { reason: "Revoked from Armosphera One identity console." }
+        body: { reason: "Revoked from A1 Suite identity console." }
       });
       setActionState(`session-revoke:done:${sessionId}`);
       onReload();
@@ -3665,7 +3665,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
         <div className="brand-lockup compact">
           <div className="mark">A1</div>
           <div>
-            <strong>Armosphera One Claude</strong>
+            <strong>A1 Suite</strong>
             <span>{suite.organization.market}</span>
           </div>
         </div>
@@ -5374,7 +5374,7 @@ function LeadPipeline({ data, actionState, onCaptureLead, onConvertLead }) {
     <article className="panel lead-panel">
       <div className="panel-head">
         <div>
-          <span className="section-label">Armosphera CRM</span>
+          <span className="section-label">A1 CRM</span>
           <h2>Lead pipeline</h2>
         </div>
         <button

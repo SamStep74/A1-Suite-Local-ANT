@@ -23,7 +23,7 @@ export function FormCreateForm({ onCreate, actionState }) {
   }
   return (
     <article className="panel form-create-panel">
-      <div className="panel-head"><div><span className="section-label">Armosphera Forms</span><h2>New lead form</h2></div></div>
+      <div className="panel-head"><div><span className="section-label">A1 Forms</span><h2>New lead form</h2></div></div>
       <div className="inline-form">
         <input value={title} onChange={event => setTitle(event.target.value)} placeholder="Ձևի վերնագիր" />
         <input value={description} onChange={event => setDescription(event.target.value)} placeholder="Նկարագրություն" />
@@ -39,7 +39,7 @@ export function FormsRegistryPanel({ data, canWrite, onPublishToggle, actionStat
   return (
     <article className="panel forms-registry-panel">
       <div className="panel-head">
-        <div><span className="section-label">Armosphera Forms</span><h2>Lead forms</h2></div>
+        <div><span className="section-label">A1 Forms</span><h2>Lead forms</h2></div>
         <strong className="aging-badge">{publishedCount} published</strong>
       </div>
       <div className="rows">

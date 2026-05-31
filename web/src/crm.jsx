@@ -8,7 +8,7 @@ export function CrmQuotesPanel({ data, actionState, onRequestApproval }) {
     <article className="panel crm-quotes-panel">
       <div className="panel-head">
         <div>
-          <span className="section-label">Armosphera CRM</span>
+          <span className="section-label">A1 CRM</span>
           <h2>Quotes pipeline</h2>
         </div>
         <strong className="aging-badge">{quotes.length} quotes</strong>
@@ -44,7 +44,7 @@ export function CrmDealsBoard({ data }) {
   return (
     <article className="panel crm-deals-board-panel">
       <div className="panel-head">
-        <div><span className="section-label">Armosphera CRM</span><h2>Deals · pipeline</h2></div>
+        <div><span className="section-label">A1 CRM</span><h2>Deals · pipeline</h2></div>
         <strong className="aging-badge">{deals.length} deals</strong>
       </div>
       {Object.entries(byStage).map(([stage, list]) => (
@@ -87,7 +87,7 @@ export function CrmQuoteForm({ deals, onCreate, actionState }) {
   }
   return (
     <article className="panel crm-quote-form-panel">
-      <div className="panel-head"><div><span className="section-label">Armosphera CRM</span><h2>New quote</h2></div></div>
+      <div className="panel-head"><div><span className="section-label">A1 CRM</span><h2>New quote</h2></div></div>
       <div className="inline-form">
         <select value={dealId} onChange={event => { const id = event.target.value; setDealId(id); const deal = list.find(item => item.id === id); if (deal && !title) setTitle(deal.title || ""); }}>
           <option value="">— Ընտրել գործարք —</option>
@@ -110,7 +110,7 @@ export function CrmActivityPanel({ data }) {
   return (
     <article className="panel crm-activity-panel">
       <div className="panel-head">
-        <div><span className="section-label">Armosphera CRM</span><h2>Activity timeline</h2></div>
+        <div><span className="section-label">A1 CRM</span><h2>Activity timeline</h2></div>
         <strong className="aging-badge">{all.length}</strong>
       </div>
       <div className="rows">

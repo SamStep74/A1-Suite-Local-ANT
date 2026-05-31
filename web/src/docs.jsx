@@ -16,7 +16,7 @@ export function DocsCreateForm({ customers, onCreate, actionState }) {
   }
   return (
     <article className="panel docs-create-panel">
-      <div className="panel-head"><div><span className="section-label">Armosphera Docs &amp; Sign</span><h2>New document</h2></div></div>
+      <div className="panel-head"><div><span className="section-label">A1 Docs &amp; Sign</span><h2>New document</h2></div></div>
       <div className="inline-form">
         <input value={title} onChange={event => setTitle(event.target.value)} placeholder="Վերնագիր (title)" />
         <select value={docType} onChange={event => setDocType(event.target.value)}>
@@ -48,7 +48,7 @@ export function DocsRegistryPanel({ data, canWrite, onAddSigner, onSend, onSign,
   return (
     <article className="panel docs-registry-panel">
       <div className="panel-head">
-        <div><span className="section-label">Armosphera Docs &amp; Sign</span><h2>Documents</h2></div>
+        <div><span className="section-label">A1 Docs &amp; Sign</span><h2>Documents</h2></div>
         <strong className="aging-badge">{openCount} out for signature</strong>
       </div>
       <div className="rows">

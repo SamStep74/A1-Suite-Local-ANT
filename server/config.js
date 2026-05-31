@@ -3,7 +3,7 @@ const os = require("node:os");
 const path = require("node:path");
 
 const PRODUCT = Object.freeze({
-  name: "Armosphera One Claude",
+  name: "A1 Suite",
   slug: "armosphera-one-claude",
   appSupportDir: "ArmospheraOneClaude"
 });

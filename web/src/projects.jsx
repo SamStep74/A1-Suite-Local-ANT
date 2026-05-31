@@ -22,7 +22,7 @@ export function ProjectCreateForm({ customers, onCreate, actionState }) {
   }
   return (
     <article className="panel project-create-panel">
-      <div className="panel-head"><div><span className="section-label">Armosphera Projects</span><h2>New project</h2></div></div>
+      <div className="panel-head"><div><span className="section-label">A1 Projects</span><h2>New project</h2></div></div>
       <div className="inline-form">
         <input value={name} onChange={event => setName(event.target.value)} placeholder="Անվանում (name)" />
         <select value={status} onChange={event => setStatus(event.target.value)}>
@@ -64,7 +64,7 @@ export function ProjectsBoardPanel({ data, canWrite, canBill, onAddTask, onToggl
   return (
     <article className="panel projects-board-panel">
       <div className="panel-head">
-        <div><span className="section-label">Armosphera Projects</span><h2>Projects</h2></div>
+        <div><span className="section-label">A1 Projects</span><h2>Projects</h2></div>
         <strong className="aging-badge">{projects.filter(p => p.status === "active").length} active</strong>
       </div>
       <div className="rows">

@@ -5,8 +5,8 @@ const os = require("node:os");
 const fs = require("node:fs");
 const config = require("../server/config");
 
-test("PRODUCT identity is Armosphera One Claude", () => {
-  assert.strictEqual(config.PRODUCT.name, "Armosphera One Claude");
+test("PRODUCT identity is A1 Suite", () => {
+  assert.strictEqual(config.PRODUCT.name, "A1 Suite");
   assert.strictEqual(config.PRODUCT.slug, "armosphera-one-claude");
 });
 

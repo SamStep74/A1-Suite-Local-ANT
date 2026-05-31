@@ -20,7 +20,7 @@ export function CreateTicketForm({ customers, onCreate, actionState }) {
   }
   return (
     <article className="panel desk-create-ticket-panel">
-      <div className="panel-head"><div><span className="section-label">Armosphera Desk</span><h2>New ticket</h2></div></div>
+      <div className="panel-head"><div><span className="section-label">A1 Desk</span><h2>New ticket</h2></div></div>
       <div className="inline-form">
         <select value={customerId} onChange={event => setCustomerId(event.target.value)}>
           <option value="">— Ընտրել հաճախորդ —</option>
@@ -47,7 +47,7 @@ export function DeskTicketList({ data, onUpdate, actionState }) {
   return (
     <article className="panel desk-ticket-list-panel">
       <div className="panel-head">
-        <div><span className="section-label">Armosphera Desk</span><h2>Tickets</h2></div>
+        <div><span className="section-label">A1 Desk</span><h2>Tickets</h2></div>
         <strong className="aging-badge">{cases.length}</strong>
       </div>
       <div className="inline-form">

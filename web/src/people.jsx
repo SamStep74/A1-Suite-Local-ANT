@@ -27,7 +27,7 @@ export function PeopleEmployeeForm({ onCreate, actionState }) {
   }
   return (
     <article className="panel people-employee-form-panel">
-      <div className="panel-head"><div><span className="section-label">Armosphera People</span><h2>New employee</h2></div></div>
+      <div className="panel-head"><div><span className="section-label">A1 People</span><h2>New employee</h2></div></div>
       <div className="inline-form">
         <input value={fullName} onChange={event => setFullName(event.target.value)} placeholder="Անուն Ազգանուն" />
         <input value={taxId} onChange={event => setTaxId(event.target.value)} inputMode="numeric" placeholder="ՀՎՀՀ (8 նիշ)" />
@@ -99,7 +99,7 @@ export function PeopleRegistryPanel({ data, onRunPayroll, onUpdate, onLoadHistor
   return (
     <article className="panel people-registry-panel">
       <div className="panel-head">
-        <div><span className="section-label">Armosphera People</span><h2>Employees</h2></div>
+        <div><span className="section-label">A1 People</span><h2>Employees</h2></div>
         <strong className="aging-badge">{activeCount} active</strong>
       </div>
       <div className="rows">
