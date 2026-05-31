@@ -3500,6 +3500,7 @@ function registerApi(app, db, options = {}) {
 
   app.post("/api/finance/expenses", async request => {
     const user = await app.auth(request);
+    requireFinanceOperator(user);
     const body = request.body || {};
     const subtotal = Math.round(Number(body.subtotal) || 0);
     const vat = Math.round(Number(body.vat) || 0);
@@ -3533,6 +3534,7 @@ function registerApi(app, db, options = {}) {
 
   app.post("/api/finance/bills", async request => {
     const user = await app.auth(request);
+    requireFinanceOperator(user);
     const body = request.body || {};
     const subtotal = Math.round(Number(body.subtotal) || 0);
     const vat = Math.round(Number(body.vat) || 0);
@@ -3555,6 +3557,7 @@ function registerApi(app, db, options = {}) {
 
   app.post("/api/finance/bills/:id/pay", async request => {
     const user = await app.auth(request);
+    requireFinanceOperator(user);
     const bill = db.prepare("SELECT * FROM bills WHERE org_id = ? AND id = ?").get(user.org_id, request.params.id);
     if (!bill) { const e = new Error("Bill not found"); e.statusCode = 404; throw e; }
     const body = request.body || {};
@@ -3629,6 +3632,7 @@ function registerApi(app, db, options = {}) {
 
   app.post("/api/payroll/run", async request => {
     const user = await app.auth(request);
+    requireFinanceOperator(user);
     const body = request.body || {};
     const runDate = /^\d{4}-\d{2}-\d{2}$/.test(body.runDate || "") ? body.runDate : new Date().toISOString().slice(0, 10);
     // Use the rates in force on the run date (an explicit body.config still overrides), so
