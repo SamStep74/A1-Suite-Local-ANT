@@ -36,7 +36,9 @@ export function DocsCreateForm({ customers, onCreate, actionState }) {
 export function DocsRegistryPanel({ data, canWrite, onAddSigner, onSend, onSign, onVoid, actionState }) {
   const documents = (data && data.documents) || [];
   const [signerName, setSignerName] = useState({});
+  const [showEvidence, setShowEvidence] = useState({}); // { [docId]: true } — toggle signature audit trail
   const openCount = documents.filter(doc => doc.status === "out-for-signature").length;
+  const shortHash = h => (h && h.length > 16 ? `${h.slice(0, 8)}…${h.slice(-8)}` : (h || "—"));
   function statusClass(status) {
     if (status === "signed") return "aging-badge ok";
     if (status === "voided") return "aging-badge muted";
@@ -70,6 +72,23 @@ export function DocsRegistryPanel({ data, canWrite, onAddSigner, onSend, onSign,
                       )}
                     </span>
                   ))}
+                </div>
+              )}
+              {signers.some(s => s.status === "signed") && (
+                <div className="inline-form" style={{ gap: "6px" }}>
+                  <button className="mini-action" type="button" onClick={() => setShowEvidence(prev => ({ ...prev, [doc.id]: !prev[doc.id] }))}>
+                    {showEvidence[doc.id] ? "Hide signature evidence" : "Signature evidence"}
+                  </button>
+                </div>
+              )}
+              {showEvidence[doc.id] && (
+                <div className="docs-signature-evidence" style={{ fontSize: "0.8em", opacity: 0.9, paddingLeft: "8px", borderLeft: "2px solid var(--line)" }}>
+                  {signers.filter(s => s.status === "signed").map(s => (
+                    <div key={s.id}>· {s.signerName} — signed {(s.signedAt || "").replace("T", " ").slice(0, 16)} · SHA-256 {shortHash(s.checksum)}</div>
+                  ))}
+                  {doc.sealedAt
+                    ? <div style={{ marginTop: "4px", fontWeight: 600 }}>Sealed ✓ {doc.sealedAt.replace("T", " ").slice(0, 16)}{doc.sealedChecksum ? ` · doc SHA-256 ${shortHash(doc.sealedChecksum)}` : ""}</div>
+                    : <div style={{ marginTop: "4px", opacity: 0.7 }}>Not yet sealed — awaiting all signatures</div>}
                 </div>
               )}
               {canWrite && doc.status === "draft" && (
