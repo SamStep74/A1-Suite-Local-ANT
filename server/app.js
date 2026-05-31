@@ -10,7 +10,9 @@ const {
   emitSuiteEvent,
   getUserBySession,
   openDatabase,
-  verifyPassword
+  verifyPassword,
+  resolvePayrollConfig,
+  resolveVatRate
 } = require("./db");
 
 const DEFAULT_REPORT_DATE = "2026-05-26";
@@ -182,6 +184,12 @@ function registerApi(app, db, options = {}) {
 
   app.post("/api/login", async (request, reply) => {
     const { email, password } = request.body || {};
+    // Brute-force throttle BEFORE the credential check: per-IP blunts single-source
+    // password spraying; per-email blunts a distributed attack on one account across
+    // many IPs. Loopback is exempt (local-first product). Both throw 429.
+    enforceRateLimit(`login-ip:${String(request.ip || "")}`, 10, 60 * 1000, request.ip);
+    const normalizedEmail = String(email || "").trim().toLowerCase();
+    if (normalizedEmail) enforceRateLimit(`login-email:${normalizedEmail}`, 5, 60 * 1000, request.ip);
     const user = db.prepare("SELECT * FROM users WHERE lower(email) = lower(?)").get(email || "");
     if (!user || !verifyPassword(password || "", user.password_hash)) {
       reply.code(401);
@@ -215,6 +223,11 @@ function registerApi(app, db, options = {}) {
   });
 
   app.post("/api/login/mfa", async (request, reply) => {
+    // A 6-digit TOTP has only 1e6 combinations, so the challenge itself must be
+    // attempt-capped: 5 tries per challenge (keyed on challengeId, so rotating IPs
+    // cannot parallelize the search). After that the challenge is locked (429).
+    const challengeId = String((request.body || {}).challengeId || "").trim();
+    if (challengeId) enforceRateLimit(`login-mfa:${challengeId}`, 5, 10 * 60 * 1000, request.ip);
     const result = verifyMfaLoginChallenge(db, request.body || {}, {
       userAgent: request.headers["user-agent"],
       ipAddress: request.ip
@@ -3601,9 +3614,11 @@ function registerApi(app, db, options = {}) {
   });
 
   app.post("/api/payroll/calculate", async request => {
-    await app.auth(request);
+    const user = await app.auth(request);
     const body = request.body || {};
-    return { payroll: payroll.calculatePayroll(body.gross, { config: body.config }) };
+    // Preview at the rates in force on body.asOf (default today); explicit body.config overrides.
+    const config = body.config || resolvePayrollConfig(db, user.org_id, body.asOf);
+    return { payroll: payroll.calculatePayroll(body.gross, { config }) };
   });
 
   app.get("/api/payroll/runs", async request => {
@@ -3615,8 +3630,10 @@ function registerApi(app, db, options = {}) {
   app.post("/api/payroll/run", async request => {
     const user = await app.auth(request);
     const body = request.body || {};
-    const calc = payroll.calculatePayroll(body.gross, { config: body.config });
     const runDate = /^\d{4}-\d{2}-\d{2}$/.test(body.runDate || "") ? body.runDate : new Date().toISOString().slice(0, 10);
+    // Use the rates in force on the run date (an explicit body.config still overrides), so
+    // recomputing a historical payroll applies the law that applied then, not today's.
+    const calc = payroll.calculatePayroll(body.gross, { config: body.config || resolvePayrollConfig(db, user.org_id, runDate) });
     const periodKey = runDate.slice(0, 7);
     const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
     if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
@@ -3688,8 +3705,8 @@ function registerApi(app, db, options = {}) {
     if (!employee) { const e = new Error("Employee not found"); e.statusCode = 404; throw e; }
     if (employee.employmentStatus === "terminated") { const e = new Error("Cannot run payroll for a terminated employee"); e.statusCode = 409; throw e; }
     const body = request.body || {};
-    const calc = payroll.calculatePayroll(employee.grossSalary, { config: body.config });
     const runDate = /^\d{4}-\d{2}-\d{2}$/.test(body.runDate || "") ? body.runDate : new Date().toISOString().slice(0, 10);
+    const calc = payroll.calculatePayroll(employee.grossSalary, { config: body.config || resolvePayrollConfig(db, user.org_id, runDate) });
     const periodKey = runDate.slice(0, 7);
     const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
     if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }

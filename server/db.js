@@ -2,6 +2,7 @@ const { DatabaseSync } = require("node:sqlite");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const payroll = require("./payroll");
 
 const DEFAULT_EMAIL = "owner@armosphera.local";
 const DEFAULT_PASSWORD = "change-me-now";
@@ -803,6 +804,18 @@ function initSchema(db) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_form_submissions_form ON form_submissions(org_id, form_id, created_at);
+
+    CREATE TABLE IF NOT EXISTS tax_rates (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      effective_date TEXT NOT NULL,
+      config TEXT NOT NULL DEFAULT '{}',
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_tax_rates_kind_date ON tax_rates(org_id, kind, effective_date);
 
     CREATE TABLE IF NOT EXISTS bills (
       id TEXT PRIMARY KEY,
@@ -6523,7 +6536,23 @@ function ensureFinanceLayer(db) {
   for (const org of orgs) {
     seedFinancePeriods(db, org.id);
     seedDealInvoiceApproval(db, org.id);
+    seedTaxRates(db, org.id);
   }
+}
+
+function seedTaxRates(db, orgId) {
+  // Effective-dated tax rates so recomputing a historical period uses the rate that applied
+  // THEN, not today's. The CURRENT rates are seeded effective 2024-01-01 (before every test
+  // fixture + demo date), so an "as-of" lookup for any present date resolves to today's values
+  // and nothing changes until a future-dated row is added. Income-tax/pension/stamp pull from
+  // payroll.DEFAULT_CONFIG (single source of truth); VAT is the inclusive 20% standard rate.
+  const existing = db.prepare("SELECT COUNT(*) AS count FROM tax_rates WHERE org_id = ?").get(orgId).count;
+  if (existing > 0) return;
+  const now = new Date().toISOString();
+  const effective = "2024-01-01";
+  const insert = db.prepare("INSERT OR IGNORE INTO tax_rates (id, org_id, kind, effective_date, config, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+  insert.run(`taxrate-${orgId}-payroll-2024`, orgId, "payroll", effective, JSON.stringify(payroll.DEFAULT_CONFIG), "RA payroll rates in force 2023+ (income tax 20%, tiered funded pension, stamp brackets)", now);
+  insert.run(`taxrate-${orgId}-vat-2024`, orgId, "vat", effective, JSON.stringify({ rate: 0.2 }), "RA standard VAT 20% (Tax Code Article 63)", now);
 }
 
 function ensureQuoteLayer(db) {
@@ -7221,6 +7250,31 @@ function emitSuiteEvent(db, event) {
   }
 }
 
+// Effective-dated rate lookup: "the rate of `kind` in force on `date`" — the row with the
+// greatest effective_date that is <= date (mirrors the legal_sources effective-date pattern).
+// Returns the parsed config object, or null if no rate is effective yet on that date.
+function resolveTaxRate(db, orgId, kind, date) {
+  const asOf = /^\d{4}-\d{2}-\d{2}/.test(String(date || "")) ? String(date).slice(0, 10) : new Date().toISOString().slice(0, 10);
+  const row = db.prepare(
+    "SELECT config FROM tax_rates WHERE org_id = ? AND kind = ? AND effective_date <= ? ORDER BY effective_date DESC LIMIT 1"
+  ).get(orgId, kind, asOf);
+  if (!row) return null;
+  try { return JSON.parse(row.config); } catch { return null; }
+}
+
+// Payroll config in force on `date`; falls back to the hardcoded current defaults if no row
+// (e.g. a DB that predates the tax_rates table and hasn't been re-seeded).
+function resolvePayrollConfig(db, orgId, date) {
+  return resolveTaxRate(db, orgId, "payroll", date) || payroll.DEFAULT_CONFIG;
+}
+
+// VAT rate fraction (e.g. 0.2) in force on `date`; defaults to 0.2 if no row.
+function resolveVatRate(db, orgId, date) {
+  const cfg = resolveTaxRate(db, orgId, "vat", date);
+  const rate = cfg && Number(cfg.rate);
+  return rate > 0 ? rate : 0.2;
+}
+
 module.exports = {
   DEFAULT_EMAIL,
   DEFAULT_PASSWORD,
@@ -7229,5 +7283,8 @@ module.exports = {
   emitSuiteEvent,
   getUserBySession,
   openDatabase,
-  verifyPassword
+  verifyPassword,
+  resolveTaxRate,
+  resolvePayrollConfig,
+  resolveVatRate
 };
