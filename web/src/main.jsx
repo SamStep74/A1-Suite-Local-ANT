@@ -859,7 +859,7 @@ function Login({ onDone }) {
     <main className="login">
       <section className="login-panel">
         <div className="brand-lockup">
-          <div className="mark">A1</div>
+          <img className="brand-logo" src="/a1-suite.svg" alt="A1 Suite" style={{ height: "40px", width: "auto", display: "block" }} />
           <div>
             <strong>A1 Suite</strong>
             <span>Հայաստանի բիզնես օպերացիոն համակարգ</span>
@@ -3663,7 +3663,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     <div className="app-shell">
       <aside className="sidebar">
         <div className="brand-lockup compact">
-          <div className="mark">A1</div>
+          <img className="brand-logo" src="/a1-suite.svg" alt="A1 Suite" style={{ height: "32px", width: "auto", display: "block" }} />
           <div>
             <strong>A1 Suite</strong>
             <span>{suite.organization.market}</span>
