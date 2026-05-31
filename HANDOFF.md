@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-05-31 · HEAD `c58e7db` · 72 commits · 28 tags · 152 tests (0 fail)_
+_Last updated: 2026-05-31 · HEAD `f4dd587` · 74 commits · 30 tags · 152 tests (0 fail)_
 
 A **sovereign, self-hostable Armenian business operating system** with phased one-to-one *functional* parity to Zoho One. Runs entirely on the customer's own server: a single Node/Fastify + SQLite process serving a React SPA, with **no external data dependency** except opt-in AI. Built for Armenian organizations that cannot use foreign clouds (government, banks, healthcare, legal).
 
@@ -77,13 +77,13 @@ npm test             # node --test  (see caveat below)
 ---
 
 ## 4. Tag history (28)
-`m1-foundation` → `m2-legal-rag` → `m3-accounting-{engine,ledger,complete}` → `m3-{finance-reports,payroll,payables}` → `ui-finance-{reports,interactive,complete}` → `ui-crm-{quotes,quote-create,activity}` → `deploy-packaging` → `harden-billpay` → `finance-opening-balances` → **`desk-helpdesk`** → **`people-hr`** → **`docs-sign`** → **`projects`** → **`forms`** → **`billing-seam`** → `harden-rates-auth` → `harden-ui-errors` → `finance-list-views` → `harden-ui-errors-complete` → `project-detail-view`.
+`m1-foundation` → `m2-legal-rag` → `m3-accounting-{engine,ledger,complete}` → `m3-{finance-reports,payroll,payables}` → `ui-finance-{reports,interactive,complete}` → `ui-crm-{quotes,quote-create,activity}` → `deploy-packaging` → `harden-billpay` → `finance-opening-balances` → **`desk-helpdesk`** → **`people-hr`** → **`docs-sign`** → **`projects`** → **`forms`** → **`billing-seam`** → `harden-rates-auth` → `harden-ui-errors` → `finance-list-views` → `harden-ui-errors-complete` → `project-detail-view` → `checkpoint-handoff` → `docs-signature-evidence`.
 
 ---
 
 ## 5. Backlog (deliberately deferred — all marginal or out-of-scope)
 - **Employee payroll-history detail** — needs an `employee_id` FK on `payroll_runs` (currently `employee_name` free-text only); the all-runs Finance list already covers most of the value.
-- **Docs signature-status detail expander** — pure UI over `GET /api/docs/documents/:id` (same lazy-detail pattern as Projects).
+- ~~Docs signature-status detail expander~~ — **DONE** (`docs-signature-evidence`): per-signer SHA-256 + sealed doc hash, toggle in the Docs panel.
 - **Docs templates + signed-PDF export**, **Forms public rendered page** (submit is API-only today), **VAT-rate versioning UI** (the `resolveVatRate` seam exists; the 7 inline `/1.2` sites weren't rewritten — low rate-change risk).
 - **Retire the in-repo `suite/`** — lives in the *separate* HayHashvapah hub repo, not this one.
 - **Accountant/lawyer review** of payroll/VAT rates + legal RAG content **required before production** tax/legal use.
