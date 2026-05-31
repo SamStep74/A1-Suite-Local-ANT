@@ -309,3 +309,74 @@ export function FinanceOpeningBalancesForm({ onSubmit, actionState }) {
     </article>
   );
 }
+
+// Read-only history lists over the existing GET endpoints — give each posted record a visible
+// row (previously only rollups/forms existed; a posted expense/bill/payroll run had no listing).
+export function FinanceExpenseListPanel({ data }) {
+  const expenses = (data && data.expenses) || [];
+  const total = expenses.reduce((sum, e) => sum + (Number(e.total) || 0), 0);
+  return (
+    <article className="panel finance-expense-list-panel">
+      <div className="panel-head">
+        <div><span className="section-label">HayHashvapah Finance</span><h2>Expenses · Ծախսեր</h2></div>
+        <strong className="aging-badge">{expenses.length}</strong>
+      </div>
+      <div className="rows">
+        {expenses.map(item => (
+          <div className="row" key={item.id}>
+            <span>{(item.incurredOn || "").slice(0, 10)} · {item.description || "—"}{item.vendor ? ` · ${item.vendor}` : ""}</span>
+            <strong>{amd(item.total)}</strong>
+          </div>
+        ))}
+        {expenses.length === 0 && <div className="row"><span>No expenses recorded</span></div>}
+      </div>
+      {expenses.length > 0 && <div className="meta-row"><span>Total</span><span>{amd(total)}</span></div>}
+    </article>
+  );
+}
+
+export function FinanceBillListPanel({ data }) {
+  const bills = (data && data.bills) || [];
+  const total = bills.reduce((sum, b) => sum + (Number(b.total) || 0), 0);
+  return (
+    <article className="panel finance-bill-list-panel">
+      <div className="panel-head">
+        <div><span className="section-label">HayHashvapah Finance</span><h2>Supplier bills · Մատակարարների հաշիվներ</h2></div>
+        <strong className="aging-badge">{bills.length}</strong>
+      </div>
+      <div className="rows">
+        {bills.map(item => (
+          <div className="row" key={item.id}>
+            <span>{(item.billDate || "").slice(0, 10)} · {item.supplier || "—"} · <strong>{item.status || "open"}</strong>{item.dueDate ? ` · due ${item.dueDate.slice(0, 10)}` : ""}</span>
+            <strong>{amd(item.total)}</strong>
+          </div>
+        ))}
+        {bills.length === 0 && <div className="row"><span>No supplier bills</span></div>}
+      </div>
+      {bills.length > 0 && <div className="meta-row"><span>Total</span><span>{amd(total)}</span></div>}
+    </article>
+  );
+}
+
+export function FinancePayrollRunsPanel({ data }) {
+  const runs = (data && data.payrollRuns) || [];
+  const totalNet = runs.reduce((sum, r) => sum + (Number(r.net) || 0), 0);
+  return (
+    <article className="panel finance-payroll-runs-panel">
+      <div className="panel-head">
+        <div><span className="section-label">HayHashvapah Finance</span><h2>Payroll runs · Աշխատավարձի հաշվարկներ</h2></div>
+        <strong className="aging-badge">{runs.length}</strong>
+      </div>
+      <div className="rows">
+        {runs.map(item => (
+          <div className="row" key={item.id}>
+            <span>{(item.runDate || "").slice(0, 10)} · {item.employeeName || "—"} · gross {amd(item.gross)} − tax/pension/stamp {amd(item.totalDeductions)}</span>
+            <strong>{amd(item.net)}</strong>
+          </div>
+        ))}
+        {runs.length === 0 && <div className="row"><span>No payroll runs</span></div>}
+      </div>
+      {runs.length > 0 && <div className="meta-row"><span>Total net paid</span><span>{amd(totalNet)}</span></div>}
+    </article>
+  );
+}

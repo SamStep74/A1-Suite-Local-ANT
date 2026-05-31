@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
-import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel, FinanceOpeningBalancesPanel, FinanceOpeningBalancesForm } from "./finance.jsx";
+import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel, FinanceOpeningBalancesPanel, FinanceOpeningBalancesForm, FinanceExpenseListPanel, FinanceBillListPanel, FinancePayrollRunsPanel } from "./finance.jsx";
 import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm, CrmActivityPanel } from "./crm.jsx";
 import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
 import { PeopleEmployeeForm, PeopleRegistryPanel } from "./people.jsx";
@@ -266,7 +266,10 @@ function App() {
         const vat = await api("/api/finance/vat-report");
         const payables = await api("/api/finance/payables");
         const openingBalances = await api("/api/finance/opening-balances").catch(() => ({ entries: [], count: 0, openingEquity: 0 }));
-        setFinance({ trialBalance, statements, vat, payables, openingBalances });
+        const expenses = await api("/api/finance/expenses").catch(() => ({ expenses: [] }));
+        const bills = await api("/api/finance/bills").catch(() => ({ bills: [] }));
+        const payrollRuns = await api("/api/payroll/runs").catch(() => ({ runs: [] }));
+        setFinance({ trialBalance, statements, vat, payables, openingBalances, expenses, bills, payrollRuns: { payrollRuns: payrollRuns.runs || [] } });
       } else {
         setFinance(null);
       }
@@ -3776,6 +3779,9 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               <FinanceBillForm onCreate={createBill} actionState={actionState} />
               <FinancePayrollForm onRun={runPayroll} actionState={actionState} />
               <FinancePayablesPanel data={finance.payables} />
+              <FinanceExpenseListPanel data={finance.expenses} />
+              <FinanceBillListPanel data={finance.bills} />
+              <FinancePayrollRunsPanel data={finance.payrollRuns} />
               <FinanceOpeningBalancesPanel data={finance.openingBalances} />
               {["Owner", "Admin", "Accountant"].includes(suite.user.role) && (
                 <FinanceOpeningBalancesForm onSubmit={setOpeningBalances} actionState={actionState} />
