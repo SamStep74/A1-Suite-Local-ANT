@@ -69,10 +69,33 @@ function EmployeeEditor({ employee, onUpdate, actionState }) {
   );
 }
 
-export function PeopleRegistryPanel({ data, onRunPayroll, onUpdate, actionState }) {
+function PayrollHistory({ employeeId, onLoadHistory }) {
+  const [runs, setRuns] = useState(null); // null = not loaded, [] = loaded-empty
+  const [error, setError] = useState("");
+  React.useEffect(() => {
+    let alive = true;
+    onLoadHistory(employeeId)
+      .then(list => { if (alive) setRuns(list || []); })
+      .catch(e => { if (alive) setError(e.message || "Failed to load history"); });
+    return () => { alive = false; };
+  }, [employeeId]);
+  if (error) return <div className="payroll-history" style={{ fontSize: "0.8em", color: "var(--danger, #b00)" }}>{error}</div>;
+  if (runs === null) return <div className="payroll-history" style={{ fontSize: "0.8em", opacity: 0.7 }}>Loading payroll history…</div>;
+  if (runs.length === 0) return <div className="payroll-history" style={{ fontSize: "0.8em", opacity: 0.7 }}>No payroll runs yet</div>;
+  return (
+    <div className="payroll-history" style={{ fontSize: "0.8em", opacity: 0.9, paddingLeft: "8px", borderLeft: "2px solid var(--line)" }}>
+      {runs.map(run => (
+        <div key={run.id}>· {run.periodKey || run.runDate} — gross {amd(run.gross)} · deductions {amd(run.totalDeductions)} · <strong>net {amd(run.net)}</strong></div>
+      ))}
+    </div>
+  );
+}
+
+export function PeopleRegistryPanel({ data, onRunPayroll, onUpdate, onLoadHistory, actionState }) {
   const employees = (data && data.employees) || [];
   const activeCount = employees.filter(employee => employee.employmentStatus === "active").length;
   const [editingId, setEditingId] = useState(null);
+  const [historyId, setHistoryId] = useState(null);
   return (
     <article className="panel people-registry-panel">
       <div className="panel-head">
@@ -103,9 +126,21 @@ export function PeopleRegistryPanel({ data, onRunPayroll, onUpdate, actionState 
                   {actionState === `payroll:${employee.id}` ? "Running" : "Run payroll"}
                 </button>
               )}
+              {onLoadHistory && (
+                <button
+                  className="mini-action"
+                  type="button"
+                  onClick={() => setHistoryId(historyId === employee.id ? null : employee.id)}
+                >
+                  {historyId === employee.id ? "Hide history" : "Payroll history"}
+                </button>
+              )}
             </span>
             {onUpdate && editingId === employee.id && (
               <EmployeeEditor employee={employee} onUpdate={onUpdate} actionState={actionState} />
+            )}
+            {onLoadHistory && historyId === employee.id && (
+              <PayrollHistory key={`${employee.id}:${actionState}`} employeeId={employee.id} onLoadHistory={onLoadHistory} />
             )}
           </div>
         ))}

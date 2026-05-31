@@ -3791,7 +3791,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           )}
           {people && (
             <>
-              <PeopleRegistryPanel data={people} onRunPayroll={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? runEmployeePayroll : null} onUpdate={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? updateEmployee : null} actionState={actionState} />
+              <PeopleRegistryPanel data={people} onRunPayroll={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? runEmployeePayroll : null} onUpdate={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? updateEmployee : null} onLoadHistory={async employeeId => (await api(`/api/people/employees/${employeeId}/payroll-runs`)).runs} actionState={actionState} />
               {["Owner", "Admin", "Accountant"].includes(suite.user.role) && (
                 <PeopleEmployeeForm onCreate={createEmployee} actionState={actionState} />
               )}

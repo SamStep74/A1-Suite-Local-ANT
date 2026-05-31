@@ -3626,7 +3626,7 @@ function registerApi(app, db, options = {}) {
 
   app.get("/api/payroll/runs", async request => {
     const user = await app.auth(request);
-    const runs = db.prepare("SELECT id, employee_name AS employeeName, gross, income_tax AS incomeTax, pension, stamp_duty AS stampDuty, total_deductions AS totalDeductions, net, run_date AS runDate, period_key AS periodKey FROM payroll_runs WHERE org_id = ? ORDER BY run_date DESC, created_at DESC").all(user.org_id);
+    const runs = db.prepare("SELECT id, employee_id AS employeeId, employee_name AS employeeName, gross, income_tax AS incomeTax, pension, stamp_duty AS stampDuty, total_deductions AS totalDeductions, net, run_date AS runDate, period_key AS periodKey FROM payroll_runs WHERE org_id = ? ORDER BY run_date DESC, created_at DESC").all(user.org_id);
     return { runs };
   });
 
@@ -3641,14 +3641,24 @@ function registerApi(app, db, options = {}) {
     const periodKey = runDate.slice(0, 7);
     const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
     if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
+    // Optionally link to a known employee. An explicit-but-unknown id is rejected (rather than
+    // silently storing an unlinked run); omitting it keeps the free-text employeeName path.
+    let employeeId = null;
+    let employeeName = String(body.employeeName || "").slice(0, 160);
+    if (body.employeeId) {
+      const employee = getEmployee(db, user.org_id, body.employeeId);
+      if (!employee) { const e = new Error("Unknown employeeId"); e.statusCode = 400; throw e; }
+      employeeId = employee.id;
+      if (!employeeName) employeeName = employee.fullName.slice(0, 160);
+    }
     const id = randomId("payroll");
     const now = new Date().toISOString();
-    db.prepare(`INSERT INTO payroll_runs (id, org_id, employee_name, gross, income_tax, pension, stamp_duty, total_deductions, net, run_date, period_key, created_by_user_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, user.org_id, String(body.employeeName || "").slice(0, 160), calc.gross, calc.incomeTax, calc.pension, calc.stampDuty, calc.totalDeductions, calc.net, runDate, periodKey, user.id, now);
-    ledger.postPayrollRun(db, user.org_id, { id, employeeName: body.employeeName, gross: calc.gross, net: calc.net, totalDeductions: calc.totalDeductions, date: runDate, period_key: periodKey });
-    audit(db, user.org_id, user.id, "finance.payroll.run", { payrollRunId: id, gross: calc.gross, net: calc.net });
-    return { run: { id, ...calc, runDate, periodKey } };
+    db.prepare(`INSERT INTO payroll_runs (id, org_id, employee_id, employee_name, gross, income_tax, pension, stamp_duty, total_deductions, net, run_date, period_key, created_by_user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, user.org_id, employeeId, employeeName, calc.gross, calc.incomeTax, calc.pension, calc.stampDuty, calc.totalDeductions, calc.net, runDate, periodKey, user.id, now);
+    ledger.postPayrollRun(db, user.org_id, { id, employeeName, gross: calc.gross, net: calc.net, totalDeductions: calc.totalDeductions, date: runDate, period_key: periodKey });
+    audit(db, user.org_id, user.id, "finance.payroll.run", { payrollRunId: id, employeeId, gross: calc.gross, net: calc.net });
+    return { run: { id, employeeId, employeeName, ...calc, runDate, periodKey } };
   });
 
   app.get("/api/people/employees", async request => {
@@ -3716,12 +3726,21 @@ function registerApi(app, db, options = {}) {
     if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
     const id = randomId("payroll");
     const now = new Date().toISOString();
-    db.prepare(`INSERT INTO payroll_runs (id, org_id, employee_name, gross, income_tax, pension, stamp_duty, total_deductions, net, run_date, period_key, created_by_user_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, user.org_id, employee.fullName.slice(0, 160), calc.gross, calc.incomeTax, calc.pension, calc.stampDuty, calc.totalDeductions, calc.net, runDate, periodKey, user.id, now);
+    db.prepare(`INSERT INTO payroll_runs (id, org_id, employee_id, employee_name, gross, income_tax, pension, stamp_duty, total_deductions, net, run_date, period_key, created_by_user_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, user.org_id, employee.id, employee.fullName.slice(0, 160), calc.gross, calc.incomeTax, calc.pension, calc.stampDuty, calc.totalDeductions, calc.net, runDate, periodKey, user.id, now);
     ledger.postPayrollRun(db, user.org_id, { id, employeeName: employee.fullName, gross: calc.gross, net: calc.net, totalDeductions: calc.totalDeductions, date: runDate, period_key: periodKey });
     audit(db, user.org_id, user.id, "people.payroll.run", { payrollRunId: id, employeeId: employee.id, gross: calc.gross, net: calc.net });
     return { ok: true, run: { id, employeeId: employee.id, employeeName: employee.fullName, ...calc, runDate, periodKey } };
+  });
+
+  app.get("/api/people/employees/:id/payroll-runs", async request => {
+    const user = await app.auth(request);
+    const employee = getEmployee(db, user.org_id, request.params.id);
+    if (!employee) { const e = new Error("Employee not found"); e.statusCode = 404; throw e; }
+    // History resolves by FK (employee_id), not by name — so a renamed employee keeps their runs.
+    const runs = db.prepare("SELECT id, employee_id AS employeeId, employee_name AS employeeName, gross, income_tax AS incomeTax, pension, stamp_duty AS stampDuty, total_deductions AS totalDeductions, net, run_date AS runDate, period_key AS periodKey FROM payroll_runs WHERE org_id = ? AND employee_id = ? ORDER BY run_date DESC, created_at DESC").all(user.org_id, employee.id);
+    return { runs };
   });
 
   app.get("/api/legal/law-search", async request => {

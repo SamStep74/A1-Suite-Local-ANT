@@ -652,6 +652,7 @@ function initSchema(db) {
     CREATE TABLE IF NOT EXISTS payroll_runs (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      employee_id TEXT REFERENCES people_employees(id) ON DELETE SET NULL,
       employee_name TEXT NOT NULL DEFAULT '',
       gross INTEGER NOT NULL,
       income_tax INTEGER NOT NULL,
@@ -6532,6 +6533,14 @@ function ensureFinanceLayer(db) {
     db.exec("ALTER TABLE project_time_entries ADD COLUMN billed_invoice_id TEXT REFERENCES invoices(id) ON DELETE SET NULL");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_project_time_entries_unbilled ON project_time_entries(org_id, project_id, billed_invoice_id)");
+  // Per-employee payroll history: link each run to the employee it paid (ON DELETE SET NULL —
+  // deleting an employee must NOT erase their payroll ledger history, only unlink it). Idempotent
+  // for databases created before this column existed (employee_name free-text remains the fallback).
+  const payrollCols = new Set(db.prepare("PRAGMA table_info(payroll_runs)").all().map(c => c.name));
+  if (!payrollCols.has("employee_id")) {
+    db.exec("ALTER TABLE payroll_runs ADD COLUMN employee_id TEXT REFERENCES people_employees(id) ON DELETE SET NULL");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_payroll_runs_employee ON payroll_runs(org_id, employee_id)");
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {
     seedFinancePeriods(db, org.id);
