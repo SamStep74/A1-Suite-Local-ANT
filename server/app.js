@@ -3101,8 +3101,14 @@ ${controls}
     }).then(function(r){ return r.json().then(function(j){ return { status:r.status, j:j }; }); })
       .then(function(res){
         if (res.status === 200 && res.j && res.j.ok) {
-          document.getElementById('card').innerHTML =
-            '<div class="brand">A1 Suite</div><div class="done"><h1>Շնորհակալություն</h1><p>Ձեր հայտը ստացված է։</p></div>';
+          var card = document.getElementById('card');
+          card.textContent = '';
+          var brand = document.createElement('div'); brand.className = 'brand'; brand.textContent = 'A1 Suite';
+          var done = document.createElement('div'); done.className = 'done';
+          var h = document.createElement('h1'); h.textContent = 'Շնորհակալություն';
+          var p = document.createElement('p'); p.textContent = 'Ձեր հայտը ստացված է։';
+          done.appendChild(h); done.appendChild(p);
+          card.appendChild(brand); card.appendChild(done);
         } else {
           btn.disabled = false;
           msg.className = 'msg err';

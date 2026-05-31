@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-05-31 · HEAD `ed7d2f9` · 85 commits · 33 tags · **267 tests (267 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-05-31 · HEAD `c736853` · 89 commits · 32 tags · **263 tests (263 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -86,7 +86,8 @@ npm test             # node --test  (see caveat below)
 ## 5. Backlog (deliberately deferred — all marginal or out-of-scope)
 - ~~Employee payroll-history detail~~ — **DONE** (`employee-payroll-fk`): `employee_id` FK on `payroll_runs` (ON DELETE SET NULL), `GET /api/people/employees/:id/payroll-runs`, lazy per-employee history expander in the People-HR panel. Generic `/payroll/run` accepts an optional validated `employeeId`.
 - ~~Docs signature-status detail expander~~ — **DONE** (`docs-signature-evidence`): per-signer SHA-256 + sealed doc hash, toggle in the Docs panel.
-- **Docs templates + signed-PDF export**, **Forms public rendered page** (submit is API-only today), **VAT-rate versioning UI** (the `resolveVatRate` seam exists; the 7 inline `/1.2` sites weren't rewritten — low rate-change risk).
+- ~~Forms public rendered page~~ — **DONE** (`forms-public-page`): `GET /f/:id` server-renders a published form as a standalone HTML page (no auth/SPA bundle), HTML-escaped (stored-XSS guard), posts to the rate-limited submit endpoint; draft/unknown → 404.
+- **Docs templates + signed-PDF export**, **VAT-rate versioning UI** (the `resolveVatRate` seam exists; the 7 inline `/1.2` sites weren't rewritten — low rate-change risk).
 - **Retire the in-repo `suite/`** — lives in the *separate* HayHashvapah hub repo, not this one.
 - **Accountant/lawyer review** of payroll/VAT rates + legal RAG content **required before production** tax/legal use.
 
