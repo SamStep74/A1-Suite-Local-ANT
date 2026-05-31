@@ -1,6 +1,8 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-05-31 · HEAD `cc65386` · 78 commits · 30 tags · 170 tests (0 fail, 1 env-timeout "cancelled")_
+_Last updated: 2026-05-31 · HEAD `80af123` · 79 commits · 30 tags · **256 tests (256 pass, 0 fail, 0 cancelled)**_
+
+> **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
 A **sovereign, self-hostable Armenian business operating system** with phased one-to-one *functional* parity to Zoho One. Runs entirely on the customer's own server: a single Node/Fastify + SQLite process serving a React SPA, with **no external data dependency** except opt-in AI. Built for Armenian organizations that cannot use foreign clouds (government, banks, healthcare, legal).
 
