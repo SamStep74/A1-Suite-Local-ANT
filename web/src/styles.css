@@ -20,7 +20,7 @@
 * { box-sizing: border-box; }
 html, body, #root { min-height: 100%; }
 body { margin: 0; background: var(--canvas); color: var(--ink); }
-button, input { font: inherit; }
+button, input, select, textarea { font: inherit; }
 button { cursor: pointer; }
 a { color: inherit; text-decoration: none; }
 
@@ -101,7 +101,12 @@ label {
   font-weight: 700;
 }
 
-input {
+input,
+select,
+textarea {
+  width: 100%;
+  min-width: 0;
+  max-width: 100%;
   min-height: 44px;
   border: 1px solid var(--line);
   border-radius: var(--radius);
@@ -111,9 +116,15 @@ input {
 }
 
 input:focus,
+select:focus,
+textarea:focus,
 button:focus-visible {
   outline: 3px solid rgba(0, 137, 123, 0.18);
   outline-offset: 2px;
+}
+
+textarea {
+  resize: vertical;
 }
 
 .primary,
@@ -12139,6 +12150,22 @@ button:focus-visible {
   .topbar-actions {
     align-items: stretch;
     flex-direction: column;
+  }
+
+  .row {
+    align-items: flex-start;
+    flex-wrap: wrap;
+  }
+
+  .row span {
+    white-space: normal;
+    overflow-wrap: anywhere;
+  }
+
+  .row strong {
+    min-width: 0;
+    max-width: 100%;
+    overflow-wrap: anywhere;
   }
 
   .forecast-actions {
