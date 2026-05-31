@@ -1,4 +1,10 @@
-# Armosphera One Claude
+<p align="center">
+  <img src="brand/a1-mark.svg" alt="A1" width="72" height="72" />
+</p>
+
+# A1 Suite
+
+> Part of the **A1** product family. Brand mark: deep-teal `#1E3A3A` rounded square with white **A1**, product name beside it.
 
 Sovereign, self-hostable Armenian business operating system with phased one-to-one
 Zoho One functional parity. Runs entirely on your own server: data and database stay
