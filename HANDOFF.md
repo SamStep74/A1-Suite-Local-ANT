@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-01 · main after Copilot citation source links · 37 tags · **294 tests (294 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-01 · main after legal source host stability · 37 tags · **295 tests (295 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 12 slices)
+### Hardening (production-readiness pass — 13 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -47,6 +47,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 10. **Copilot advisory audit trail** records every legal/accounting Copilot answer as metadata-only `copilot.advisory.generated` suite and audit events, using a SHA-256 question hash instead of storing raw prompt/answer text in durable logs.
 11. **Copilot citation review evidence** renders each cited Armenian legal/accounting source with professional-review status, reviewer role/name, and latest review timestamp directly in the Copilot source list.
 12. **Copilot citation source links** renders safe HTTP(S) links to the maintained Armenian source URL with a visible host label, fixes reviewed-date display to use `latestReview.createdAt`, and unit-tests malformed/non-HTTP link rejection.
+13. **Legal source host stability** prevents legal-source review records from moving seeded Armenian sources to arbitrary hosts while still allowing same-host path/query/version updates.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -94,6 +95,7 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
+- Latest legal source host-stability commit: `de44edf` (`feat(compliance): keep legal source reviews on host`), pushed with this handoff.
 - Latest Copilot citation source-link commit: `f6532c6` (`feat(copilot): expose citation source links`), pushed with this handoff.
 - Latest Copilot citation evidence commit: `784f06e` (`feat(copilot): show source review evidence`), pushed with this handoff.
 - Previous Copilot audit trail commit: `3705542` (`feat(copilot): audit advisory answers`).
@@ -101,16 +103,16 @@ Current checkpoint:
 - Previous professional source signoff commit: `357e874` (`feat(compliance): require professional source signoff`).
 - Previous production readiness commit: `3fe4f93` (`feat(compliance): add production readiness review gate`).
 - Previous copilot audit commit: `255ed4b` (`test(copilot): cover month-close preview guardrail`).
-- Verification from `~/dev/A1-Suite-Local`: `node --test test/copilot-source-link.test.mjs test/copilot.test.js` = 13 pass; `npm run build:ui` = pass; `git diff --check` = pass; `npm test` = 294 pass, 0 fail, 0 cancelled; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-copilot-source-links-smoke-2.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass.
-- Browser proof: in-app Browser refreshed `http://127.0.0.1:4178/` against the rebuilt assets, logged in, asked Copilot, and verified the citation link as `https://www.arlis.am/hy/acts/224990?reviewed=2026-06-01` with `target="_blank"`, `rel="noopener noreferrer"`, visible `arlis.am` host, and no console warnings/errors. Playwright proof covered desktop `1280x900` and mobile `390x844`: owner-only source maintenance rendered the citation as professionally blocked with the link visible, Accountant review rendered `Մասնագիտական վերանայում՝ Հաշվապահ · HayHashvapah Accountant`, both viewports had no horizontal overflow, and post-login console was clean. Screenshots: `/tmp/a1-suite-copilot-source-links-owner-desktop.png`, `/tmp/a1-suite-copilot-source-links-accountant-desktop.png`, `/tmp/a1-suite-copilot-source-links-accountant-mobile.png`.
-- Live preview for OPPO while the Mac is awake: server bound to `0.0.0.0:4178`; current LAN URL is `http://172.16.100.165:4178/`; current throwaway DB is `/tmp/a1-suite-copilot-source-links-ui.sqlite`.
+- Verification from `~/dev/A1-Suite-Local`: `node --test test/api.test.js test/copilot.test.js test/copilot-source-link.test.mjs` = 173 pass; `npm run build:ui` = pass; `git diff --check` = pass; `npm test` = 295 pass, 0 fail, 0 cancelled; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-legal-source-host-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass. Read-only code-review subagent returned no findings and independently ran the legal-source focused test pattern.
+- Browser/API proof: this slice is server/API-only, so no rendered UI changed. The previous Copilot source-link browser proof remains valid for the UI surface; the new proof is API-level: same-host ARLIS review updates are accepted, cross-host `example.com` review updates are rejected before changing `legal_sources`, and legal answer citations carry the reviewed source URL downstream.
+- Live preview for OPPO while the Mac is awake: server bound to `0.0.0.0:4178`; current LAN URL is `http://172.16.100.165:4178/`; current throwaway DB is `/tmp/a1-suite-legal-source-host-ui.sqlite`.
 - Next unchecked task from `2026-06-01-armenian-legal-accounting-copilot.md`: none; checklist is complete. The old "retire in-repo suite" note is moot in this repo because there is no `suite/` directory here.
 
 ### ⚠ ENV CAVEAT — old OneDrive copy was flaky
 `node --test` previously stalled / reported `cancelled` in the OneDrive-synced folder because of filesystem contention around the large `app.js`. The local `~/dev/A1-Suite-Local` checkout is the reliable working tree. If a future run regresses only in a synced/cloud folder, verify from this local checkout before treating it as a code failure. Reliable fallback patterns:
 - **Per-file**: `node --test test/<one>.test.js` (one short invocation).
 - **Clean worktree**: `git worktree add --detach /tmp/run HEAD && ln -s "$PWD/node_modules" /tmp/run/ && cd /tmp/run && node --test test/*.test.js`.
-- Last clean full-suite run from `~/dev/A1-Suite-Local`: **294 tests / 294 pass / 0 fail / 0 cancelled**.
+- Last clean full-suite run from `~/dev/A1-Suite-Local`: **295 tests / 295 pass / 0 fail / 0 cancelled**.
 
 ---
 
@@ -133,6 +135,7 @@ Current checkpoint:
 - ~~Copilot advisory audit trail~~ — **DONE**: `POST /api/copilot/questions` now emits metadata-only `copilot.advisory.generated` suite/audit events, returns the fresh timeline events, and refreshes the rendered Event bus/Audit panels after an ask without persisting raw question or answer text in audit metadata.
 - ~~Copilot citation review evidence~~ — **DONE**: Copilot source rows now show professional-review status, reviewer role/name, and latest review date in Armenian UI; owner-only source maintenance is visibly blocked, while Accountant/Lawyer review is visibly ready.
 - ~~Copilot citation source links~~ — **DONE**: Copilot source rows now include an explicit `Բացել աղբյուրը` link with visible host, HTTP(S)-only client guard, `noopener noreferrer`, reviewed-date display from `latestReview.createdAt`, API contract tests, and pure UI-helper tests for malformed/non-HTTP URL rejection.
+- ~~Legal source host stability~~ — **DONE**: legal-source review updates now normalize source hosts, allow same-host version/path/query changes such as `www.arlis.am` to `arlis.am`, reject arbitrary cross-host moves before persisting review history, and prove reviewed source URLs continue into legal-answer citations.
 
 ---
 
