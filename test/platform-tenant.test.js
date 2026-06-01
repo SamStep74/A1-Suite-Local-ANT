@@ -204,6 +204,30 @@ test("platform tenant lookup fails open by default for non-blocking platform err
   }
 });
 
+test("platform tenant null lookup still fails open for authenticated routes outside strict mode", async () => {
+  const env = { ...PLATFORM_ENV };
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ tenant: null })
+  });
+
+  const app = buildApp({ dbPath: ":memory:", env, fetch: fetchImpl });
+  await app.ready();
+  try {
+    const cookie = await login(app, "missing-client.a1suite.am");
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/me",
+      headers: { host: "missing-client.a1suite.am", cookie }
+    });
+    assert.equal(response.statusCode, 200, response.body);
+    assert.deepEqual(response.json().organization.id, "org-armosphera-demo");
+  } finally {
+    await app.close();
+  }
+});
+
 test("platform tenant strict mode fails closed on lookup errors", async () => {
   const env = {
     ...PLATFORM_ENV,
@@ -329,6 +353,47 @@ test("platform tenant successful module-disabled payloads block Studio requests"
     const response = await app.inject({ method: "GET", url: "/api/health", headers: { host: "demo-client.a1suite.am" } });
     assert.equal(response.statusCode, 403, response.body);
     assert.equal(response.json().error, "MODULE_DISABLED");
+  } finally {
+    await app.close();
+  }
+});
+
+test("platform tenant resolved without org mapping rejects authenticated routes outside strict mode", async () => {
+  const env = { ...PLATFORM_ENV };
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({
+      tenant: {
+        id: "tenant-unmapped-auth",
+        slug: "unmapped-auth",
+        status: "active",
+        modules: [{ code: "studio", enabled: true }]
+      }
+    })
+  });
+
+  const app = buildApp({ dbPath: ":memory:", env, fetch: fetchImpl });
+  await app.ready();
+  try {
+    const health = await app.inject({
+      method: "GET",
+      url: "/api/health",
+      headers: { host: "unmapped-auth.a1suite.am" }
+    });
+    assert.equal(health.statusCode, 200, health.body);
+    assert.deepEqual(health.json().platformTenant, { enabled: true, resolved: true, strict: false });
+
+    const cookie = await login(app, "unmapped-auth.a1suite.am");
+    for (const url of ["/api/me", "/api/suite", "/api/platform/tenant"]) {
+      const response = await app.inject({
+        method: "GET",
+        url,
+        headers: { host: "unmapped-auth.a1suite.am", cookie }
+      });
+      assert.equal(response.statusCode, 403, `${url}: ${response.body}`);
+      assert.ok(response.body.includes("A1 platform tenant is not mapped to this organization"));
+    }
   } finally {
     await app.close();
   }

@@ -146,7 +146,7 @@ function platformTenantResourceOrgId(request, env = process.env) {
 function assertPlatformTenantUser(request, user, env = process.env) {
   if (!platformResolutionEnabled(env) || !request.a1Tenant) return;
   const tenantOrgId = platformTenantOrgId(request.a1Tenant);
-  if (!tenantOrgId && strictModeEnabled(env)) {
+  if (!tenantOrgId) {
     throw platformError("A1 platform tenant is not mapped to this organization", 403, "A1_PLATFORM_TENANT_ORG_UNMAPPED");
   }
   if (tenantOrgId && tenantOrgId !== user.org_id) {
