@@ -141,10 +141,12 @@ function platformTenantCacheScope(env = process.env) {
 
 async function attachPlatformTenant(request, env = process.env, fetchImpl = globalThis.fetch, cache = null) {
   try {
+    request.a1PlatformTenantLookupFailed = false;
     request.a1Tenant = await resolvePlatformTenant(request, env, fetchImpl, cache);
   } catch (error) {
     if (strictModeEnabled(env) || BLOCKING_TENANT_CODES.has(error.code)) throw error;
     request.a1Tenant = null;
+    request.a1PlatformTenantLookupFailed = true;
   }
   return request.a1Tenant;
 }
@@ -168,7 +170,9 @@ function platformTenantOrgId(tenant) {
 }
 
 function platformTenantResourceOrgId(request, env = process.env) {
-  if (!platformResolutionEnabled(env) || !request.a1Tenant) return "";
+  if (!platformResolutionEnabled(env)) return "";
+  if (request.a1PlatformTenantLookupFailed) return UNMAPPED_PUBLIC_RESOURCE_ORG_ID;
+  if (!request.a1Tenant) return "";
   const tenantOrgId = platformTenantOrgId(request.a1Tenant);
   return tenantOrgId || UNMAPPED_PUBLIC_RESOURCE_ORG_ID;
 }
