@@ -24,6 +24,7 @@ function openDatabase(dbPath) {
   ensureWorkflowExecutionLayer(db);
   ensureWorkflowRuleVersions(db);
   ensureFinanceLayer(db);
+  ensureDocsTemplateLayer(db);
   ensureQuoteLayer(db);
   ensureCrmSalesLayer(db);
   ensureMarketingLayer(db);
@@ -718,6 +719,21 @@ function initSchema(db) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_document_signers_doc ON document_signers(org_id, document_id, sign_order);
+
+    CREATE TABLE IF NOT EXISTS document_templates (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      template_key TEXT NOT NULL,
+      name TEXT NOT NULL,
+      doc_type TEXT NOT NULL DEFAULT 'agreement',
+      title_template TEXT NOT NULL DEFAULT '',
+      body_template TEXT NOT NULL DEFAULT '',
+      variables TEXT NOT NULL DEFAULT '[]',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_document_templates_key ON document_templates(org_id, template_key);
 
     CREATE TABLE IF NOT EXISTS projects (
       id TEXT PRIMARY KEY,
@@ -6547,6 +6563,49 @@ function ensureFinanceLayer(db) {
     seedDealInvoiceApproval(db, org.id);
     seedTaxRates(db, org.id);
   }
+}
+
+function ensureDocsTemplateLayer(db) {
+  // Reusable document templates: a body with {{placeholder}} tokens + a declared variable list.
+  // A template is a FACTORY for a normal draft document (no new lifecycle) — generation
+  // substitutes known vars and leaves a visible FILL marker for the rest. Idempotent seed.
+  const orgs = db.prepare("SELECT id FROM organizations").all();
+  for (const org of orgs) seedDocumentTemplates(db, org.id);
+}
+
+function seedDocumentTemplates(db, orgId) {
+  const existing = db.prepare("SELECT COUNT(*) AS count FROM document_templates WHERE org_id = ?").get(orgId).count;
+  if (existing > 0) return;
+  const now = new Date().toISOString();
+  const insert = db.prepare(`INSERT OR IGNORE INTO document_templates (id, org_id, template_key, name, doc_type, title_template, body_template, variables, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+  // Variables {{orgName}}, {{customerName}}, {{date}} are auto-filled at generation time;
+  // the rest are writer-supplied (or surface as a visible FILL marker).
+  insert.run(`doctpl-${orgId}-nda`, orgId, "nda", "Գաղտնիության համաձայնագիր (NDA)", "nda",
+    "Գաղտնիության համաձայնագիր — {{counterparty}}",
+    "Սույն գաղտնիության համաձայնագիրը ({{date}}) կնքվում է {{orgName}}-ի և {{counterparty}}-ի միջև։\n\n" +
+    "1. Կողմերը պարտավորվում են պահպանել միմյանց առևտրային գաղտնիքը՝ {{termMonths}} ամիս ժամկետով։\n" +
+    "2. Գաղտնի տեղեկատվությունը չի կարող փոխանցվել երրորդ անձանց առանց գրավոր համաձայնության։\n" +
+    "3. Սույն համաձայնագիրը կարգավորվում է ՀՀ օրենսդրությամբ։\n\n" +
+    "Ստորագրված՝ {{orgName}} և {{counterparty}}։",
+    JSON.stringify(["orgName", "counterparty", "date", "termMonths"]), now, now);
+  insert.run(`doctpl-${orgId}-service`, orgId, "service", "Սպասարկման պայմանագիր", "agreement",
+    "Սպասարկման պայմանագիր — {{customerName}}",
+    "Սպասարկման պայմանագիր ({{date}}) {{orgName}}-ի (Կատարող) և {{customerName}}-ի (Պատվիրատու) միջև։\n\n" +
+    "1. Կատարողը մատուցում է հետևյալ ծառայությունները՝ {{services}}։\n" +
+    "2. Ամսական վճարը կազմում է {{monthlyFee}} ՀՀ դրամ՝ ներառյալ ԱԱՀ։\n" +
+    "3. Պայմանագիրը գործում է {{startDate}}-ից՝ {{termMonths}} ամիս ժամկետով։\n" +
+    "4. Սույն պայմանագիրը կարգավորվում է ՀՀ օրենսդրությամբ։\n\n" +
+    "Կատարող՝ {{orgName}}    Պատվիրատու՝ {{customerName}}",
+    JSON.stringify(["orgName", "customerName", "date", "services", "monthlyFee", "startDate", "termMonths"]), now, now);
+  insert.run(`doctpl-${orgId}-offer`, orgId, "offer", "Աշխատանքի առաջարկ", "offer",
+    "Աշխատանքի առաջարկ — {{candidateName}}",
+    "Հարգելի՛ {{candidateName}},\n\n{{orgName}}-ն ուրախ է առաջարկել Ձեզ {{position}} պաշտոնը։\n\n" +
+    "• Ամսական աշխատավարձ՝ {{grossSalary}} ՀՀ դրամ (համախառն)։\n" +
+    "• Աշխատանքի սկիզբ՝ {{startDate}}։\n" +
+    "• Փորձաշրջան՝ {{probationMonths}} ամիս։\n\n" +
+    "Առաջարկը ուժի մեջ է մինչև {{date}}+14 օր։\n\n{{orgName}}",
+    JSON.stringify(["orgName", "candidateName", "position", "grossSalary", "startDate", "probationMonths", "date"]), now, now);
 }
 
 function seedTaxRates(db, orgId) {

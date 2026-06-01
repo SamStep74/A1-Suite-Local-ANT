@@ -281,7 +281,8 @@ function App() {
       }
       if ((data.apps || []).some(app => app.id === "docs")) {
         const docsData = await loadOr(null, () => api("/api/docs/documents"));
-        setDocs(docsData);
+        const templatesData = await loadOr(null, () => api("/api/docs/templates"));
+        setDocs(docsData ? { ...docsData, templates: (templatesData && templatesData.templates) || [] } : docsData);
       } else {
         setDocs(null);
       }
@@ -3591,6 +3592,11 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     try { await api("/api/docs/documents", { method: "POST", body }); setActionState("doc:create:done"); onReload(); }
     catch (e) { setActionState("doc:create:error"); reportActionError(e); }
   }
+  async function generateFromTemplate(templateId, body) {
+    setActionState("doc:create"); setActionError("");
+    try { await api(`/api/docs/templates/${templateId}/generate`, { method: "POST", body }); setActionState("doc:create:done"); onReload(); }
+    catch (e) { setActionState("doc:create:error"); reportActionError(e); }
+  }
   async function addDocSigner(documentId, signerName) {
     setActionState(`doc:act:${documentId}`); setActionError("");
     try { await api(`/api/docs/documents/${documentId}/signers`, { method: "POST", body: { signerName } }); setActionState(`doc:act:done:${documentId}`); onReload(); }
@@ -3809,7 +3815,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
                 actionState={actionState}
               />
               {["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role) && (
-                <DocsCreateForm customers={(serviceConsole && serviceConsole.customers) || []} onCreate={createDocument} actionState={actionState} />
+                <DocsCreateForm customers={(serviceConsole && serviceConsole.customers) || []} templates={docs.templates || []} onCreate={createDocument} onGenerate={generateFromTemplate} actionState={actionState} />
               )}
             </>
           )}

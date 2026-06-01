@@ -2,7 +2,56 @@ import React, { useState } from "react";
 
 const DOC_TYPES = ["agreement", "nda", "contract", "offer", "policy", "other"];
 
-export function DocsCreateForm({ customers, onCreate, actionState }) {
+// Variables the server auto-fills at generation time — never shown as manual inputs.
+const AUTO_FILLED_VARS = ["orgName", "customerName", "date"];
+
+function TemplateGenerator({ templates, customers, onGenerate, actionState }) {
+  const list = templates || [];
+  const [templateId, setTemplateId] = useState("");
+  const [customerId, setCustomerId] = useState("");
+  const [vars, setVars] = useState({});
+  const busy = actionState === "doc:create";
+  const selected = list.find(t => t.id === templateId) || null;
+  const manualVars = selected ? (selected.variables || []).filter(v => !AUTO_FILLED_VARS.includes(v)) : [];
+  function pick(id) { setTemplateId(id); setVars({}); }
+  function generate() {
+    if (!selected) return;
+    const variables = {};
+    for (const v of manualVars) if ((vars[v] || "").trim()) variables[v] = vars[v].trim();
+    onGenerate(selected.id, { customerId: customerId || undefined, variables });
+    setTemplateId(""); setCustomerId(""); setVars({});
+  }
+  if (list.length === 0) return null;
+  return (
+    <div className="docs-template-generator" style={{ marginBottom: "10px", paddingBottom: "10px", borderBottom: "1px solid var(--line)" }}>
+      <div className="inline-form">
+        <select value={templateId} onChange={event => pick(event.target.value)}>
+          <option value="">— Ձևանմուշից (from template) —</option>
+          {list.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
+        </select>
+        {selected && (
+          <select value={customerId} onChange={event => setCustomerId(event.target.value)}>
+            <option value="">— Հաճախորդ (ըստ ցանկության) —</option>
+            {(customers || []).map(c => <option key={c.id} value={c.id}>{c.name}</option>)}
+          </select>
+        )}
+        {selected && manualVars.map(v => (
+          <input key={v} value={vars[v] || ""} onChange={event => setVars({ ...vars, [v]: event.target.value })} placeholder={v} />
+        ))}
+        {selected && (
+          <button className="mini-action" type="button" disabled={busy} onClick={generate}>{busy ? "Generating" : "Generate draft"}</button>
+        )}
+      </div>
+      {selected && manualVars.length > 0 && (
+        <div className="muted" style={{ fontSize: "0.78em", opacity: 0.7, marginTop: "4px" }}>
+          Unfilled fields become [FILL: …] markers in the draft; org, customer &amp; date auto-fill.
+        </div>
+      )}
+    </div>
+  );
+}
+
+export function DocsCreateForm({ customers, templates, onCreate, onGenerate, actionState }) {
   const list = customers || [];
   const [title, setTitle] = useState("");
   const [docType, setDocType] = useState("agreement");
@@ -17,6 +66,7 @@ export function DocsCreateForm({ customers, onCreate, actionState }) {
   return (
     <article className="panel docs-create-panel">
       <div className="panel-head"><div><span className="section-label">A1 Docs &amp; Sign</span><h2>New document</h2></div></div>
+      {onGenerate && <TemplateGenerator templates={templates} customers={list} onGenerate={onGenerate} actionState={actionState} />}
       <div className="inline-form">
         <input value={title} onChange={event => setTitle(event.target.value)} placeholder="Վերնագիր (title)" />
         <select value={docType} onChange={event => setDocType(event.target.value)}>

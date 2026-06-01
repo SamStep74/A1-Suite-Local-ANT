@@ -2313,6 +2313,47 @@ function registerApi(app, db, options = {}) {
     return renderDocumentCertificate({ document, org, customerName: customer ? customer.name : "", escape: escapeFormHtml });
   });
 
+  // Document templates — reusable boilerplate that generates a normal draft document.
+  app.get("/api/docs/templates", async request => {
+    const user = await app.auth(request);
+    const rows = db.prepare("SELECT id, template_key AS key, name, doc_type AS docType, title_template AS titleTemplate, body_template AS bodyTemplate, variables FROM document_templates WHERE org_id = ? ORDER BY name").all(user.org_id);
+    const templates = rows.map(t => ({ ...t, variables: parseTemplateVariables(t.variables) }));
+    return { templates };
+  });
+
+  app.post("/api/docs/templates/:id/generate", async request => {
+    const user = await app.auth(request);
+    requireDocsWriter(user); // read-only Auditor must not author documents
+    const template = db.prepare("SELECT id, template_key AS key, name, doc_type AS docType, title_template AS titleTemplate, body_template AS bodyTemplate, variables FROM document_templates WHERE org_id = ? AND id = ?").get(user.org_id, String(request.params.id || ""));
+    if (!template) { const e = new Error("Template not found"); e.statusCode = 404; throw e; }
+    const body = request.body || {};
+    const customerId = String(body.customerId || "").trim();
+    let customerName = "";
+    if (customerId) {
+      assertCustomer(db, user.org_id, customerId);
+      const c = db.prepare("SELECT name FROM customers WHERE org_id = ? AND id = ?").get(user.org_id, customerId);
+      customerName = c ? c.name : "";
+    }
+    const org = getOrganization(db, user.org_id);
+    // Auto-filled context the system already knows; explicit user vars override these.
+    const autoVars = {
+      orgName: (org && (org.legal_name || org.name)) || "",
+      customerName,
+      date: new Date().toISOString().slice(0, 10)
+    };
+    const userVars = (body.variables && typeof body.variables === "object") ? body.variables : {};
+    const resolved = { ...autoVars, ...userVars };
+    const title = fillTemplate(template.titleTemplate, resolved).slice(0, 200);
+    const docBody = fillTemplate(template.bodyTemplate, resolved).slice(0, 20000);
+    const id = randomId("doc");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO documents (id, org_id, title, body, doc_type, status, customer_id, sealed_checksum, sealed_at, created_by_user_id, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, 'draft', ?, '', '', ?, ?, ?)`)
+      .run(id, user.org_id, title, docBody, template.docType, customerId || null, user.id, now, now);
+    audit(db, user.org_id, user.id, "docs.document.created", { documentId: id, title, fromTemplate: template.key });
+    return { ok: true, document: getDocument(db, user.org_id, id) };
+  });
+
   // Projects — client projects → tasks → milestones → time entries (delivery tracking).
   const PROJECT_STATUSES = ["planning", "active", "on-hold", "completed", "cancelled"];
   const TASK_STATUSES = ["todo", "in-progress", "done"];
@@ -4536,6 +4577,24 @@ function requireDocsSigner(user) {
     err.statusCode = 403;
     throw err;
   }
+}
+
+function parseTemplateVariables(raw) {
+  try {
+    const v = JSON.parse(raw || "[]");
+    return Array.isArray(v) ? v.filter(x => typeof x === "string") : [];
+  } catch { return []; }
+}
+
+// Single-pass {{token}} substitution. A token with a supplied value is replaced by that value
+// VERBATIM (no recursion → a value containing "{{x}}" is inserted literally, never re-expanded);
+// an unsupplied token becomes a conspicuous FILL marker so a draft never ships with a silent blank.
+function fillTemplate(template, values) {
+  return String(template || "").replace(/\{\{\s*([a-zA-Z0-9_]+)\s*\}\}/g, (_match, key) => {
+    const val = values ? values[key] : undefined;
+    if (val !== undefined && val !== null && String(val).trim() !== "") return String(val);
+    return `[ԼՐԱՑՐԵՔ · FILL: ${key}]`;
+  });
 }
 
 function documentCertificateState(status) {
