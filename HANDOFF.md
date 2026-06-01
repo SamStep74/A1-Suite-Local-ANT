@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-01 · main after platform tenant-null public-resource hardening · 37 tags · **349 tests (349 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-01 · main after evidence-payload and webhook URL hardening · 37 tags · **351 tests (351 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 29 slices)
+### Hardening (production-readiness pass — 31 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -64,6 +64,8 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 27. **Trusted proxy public client hardening** adds explicit opt-in public client IP resolution for trusted tunnels/reverse proxies, ignores forwarded headers by default, rejects malformed or multi-value `x-forwarded-for` into a non-exempt trusted-proxy fallback bucket, and uses the resolved client identity for auth/public rate limits plus public form/quote evidence.
 28. **Public loopback throttle hardening** applies non-loopback-exempt throttles to anonymous public form submits and public quote read/accept APIs, preserves local login/setup loopback behavior, gives test workflow buyers distinct public IPs, and extends document signature consent evidence to the same explicit trusted-proxy client identity policy.
 29. **Platform tenant-null public-resource hardening** keeps authenticated `tenant:null` continuity fail-open outside strict mode, but treats successful Platform `tenant:null` responses as unmapped for anonymous public forms and public quote read/accept routes so misrouted hosts receive generic `404` without reading or mutating local tenant resources.
+30. **Webhook credentialed URL hardening** rejects outbound webhook endpoint URLs containing username/password userinfo before persistence, keeps the raw credentialed URL out of error bodies, and proves the endpoint table/list never stores the rejected target.
+31. **Evidence payload reader hardening** makes SRC exports, signature evidence packets, privacy export packets, and privacy retention assessments expose full payload/checksum/source-key data only to the matching review roles, while general authenticated suite/list reads receive stable redacted summaries.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -111,6 +113,7 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
+- Latest evidence-payload and webhook URL hardening commit: `3401b33` (`Harden evidence payload and webhook URL exposure`), pushed with this handoff.
 - Latest Platform tenant-null public-resource hardening commit: `d7e5bbe` (`Hide public resources for unmapped platform tenants`), pushed with this handoff.
 - Latest public loopback throttle hardening commit: `c6e75ab` (`Harden public loopback throttles`), pushed with this handoff.
 - Latest trusted proxy public client hardening commit: `402c763` (`Harden trusted proxy public client identity`), pushed with this handoff.
@@ -138,16 +141,16 @@ Current checkpoint:
 - Previous professional source signoff commit: `357e874` (`feat(compliance): require professional source signoff`).
 - Previous production readiness commit: `3fe4f93` (`feat(compliance): add production readiness review gate`).
 - Previous copilot audit commit: `255ed4b` (`test(copilot): cover month-close preview guardrail`).
-- Verification from `~/dev/A1-Suite-Local`: focused Platform tenant suite `node --test test/platform-tenant.test.js` = 26 pass; adjacent public route suite `node --test test/platform-tenant.test.js test/forms-public-page.test.js test/forms.test.js test/public-quote-ratelimit.test.js` = 51 pass; `npm test` = 349 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-null-tenant-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass; `node --check server/platformTenant.js && git diff --check` = pass. Read-only explorer found successful Platform `tenant:null` responses still allowed anonymous public form/quote fallback to local resources; read-only code review returned no blocking findings after public resource lookup switched to the unmapped generic-404 path while authenticated `tenant:null` continuity stayed fail-open.
+- Verification from `~/dev/A1-Suite-Local`: focused evidence/webhook suite `node --test --test-name-pattern "evidence packet list endpoints hide payloads|webhook endpoint rejects credentialed URLs|owner can create idempotent signature evidence packet|owner can create idempotent SRC export packet|approved privacy request creates idempotent customer data export packet|approved privacy delete request creates retention assessment" test/api.test.js` = 6 pass; `npm test` = 351 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-evidence-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass. Read-only explorer found full evidence/compliance packet payloads were visible through broad authenticated list/suite endpoints; implementation moved those packet payload/checksum/source-key fields behind role-aware formatter options and added direct regression coverage for Support versus Lawyer/Accountant reads. Read-only code-review subagent was unavailable because the session hit the subagent usage limit, so this checkpoint relies on local self-review plus full-suite verification.
 - Browser/API proof: restarted preview on the current checkout; `/api/health` remains public with `platformTenant.enabled=false` in local mode and 10 modules, and the in-app browser loads `http://127.0.0.1:4178/` with the Armenian A1 Suite login and no console errors. Platform lookup is opt-in, sends the original tenant host in `x-a1-request-host`, respects `ARMOSPHERA_ONE_ALLOW_EGRESS`/allowlist, caches per-host lookups only within the same strict-mode and Platform-token scope, sanitizes Platform error messages, treats bare Platform `401`/`403` statuses as auth failures, keeps non-blocking lookup failures and non-strict `tenant:null` authenticated continuity fail-open, blocks Platform auth failures, strict null tenants, disabled tenants/modules, maintenance responses, rejects cross-host session replay when Platform returns an org mapping, hides public forms/quotes for wrong-host, unmapped-host, non-blocking Platform lookup-failure, or successful Platform `tenant:null` public access, records anonymous public form lead/audit/timeline evidence without human Owner attribution, records public quote acceptance and document signature client IP evidence only from explicit trusted proxy configuration, rejects password login/MFA verification before issuing sessions/cookies for unmapped resolved tenants, revokes bearer-authenticated sessions on logout, rejects stale password-only privileged sessions after MFA activation, throttles public form-page enumeration before DB/render work even when tunnel traffic reaches Fastify as loopback, throttles public form submits and public quote read/accept APIs even when tunnel traffic reaches Fastify as loopback, ignores forwarded headers by default, and uses configured trusted proxy client identity for auth/public rate limits plus public evidence.
-- Live preview for OPPO while the Mac is awake: server bound to `0.0.0.0:4178`; current LAN URL is `http://172.16.100.165:4178/`; current throwaway DB is `/tmp/a1-suite-null-tenant-ui.sqlite`.
+- Live preview for OPPO while the Mac is awake: server bound to `0.0.0.0:4178`; current LAN URL is `http://172.16.100.165:4178/`; current throwaway DB is `/tmp/a1-suite-evidence-ui.sqlite`.
 - Next unchecked task from `2026-06-01-armenian-legal-accounting-copilot.md`: none; checklist is complete. The old "retire in-repo suite" note is moot in this repo because there is no `suite/` directory here.
 
 ### ⚠ ENV CAVEAT — old OneDrive copy was flaky
 `node --test` previously stalled / reported `cancelled` in the OneDrive-synced folder because of filesystem contention around the large `app.js`. The local `~/dev/A1-Suite-Local` checkout is the reliable working tree. If a future run regresses only in a synced/cloud folder, verify from this local checkout before treating it as a code failure. Reliable fallback patterns:
 - **Per-file**: `node --test test/<one>.test.js` (one short invocation).
 - **Clean worktree**: `git worktree add --detach /tmp/run HEAD && ln -s "$PWD/node_modules" /tmp/run/ && cd /tmp/run && node --test test/*.test.js`.
-- Last clean full-suite run from `~/dev/A1-Suite-Local` at `d7e5bbe`: **349 tests / 349 pass / 0 fail / 0 cancelled**.
+- Last clean full-suite run from `~/dev/A1-Suite-Local` at `3401b33`: **351 tests / 351 pass / 0 fail / 0 cancelled**.
 
 ---
 

@@ -1795,3 +1795,16 @@ Status: shipped in the local prototype on 2026-05-28.
 - Blocked public form submissions do not create CRM leads, and blocked public quote acceptance leaves the quote in `sent` state.
 - Existing local/single-tenant behavior remains unchanged when Platform tenant resolution is disabled, and authenticated `/api/me` still works for non-strict `tenant:null` continuity.
 - Added Platform-enabled tests proving health continuity plus generic public-resource `404`s and no mutation under successful `tenant:null` lookup.
+
+### Slice 156 - Webhook Credentialed URL Guard
+
+- Outbound webhook endpoint URLs containing username/password userinfo are now rejected before mutation, preventing credentialed targets from being persisted, listed, delivered to, or included in backup/restore context.
+- Rejection uses the existing invalid-URL path and keeps the full credentialed URL and password out of the response body.
+- Added a regression test proving the rejected URL is absent from the webhook endpoint list and database table after the failed create attempt.
+
+### Slice 157 - Evidence Packet Reader Guard
+
+- Signature evidence packets, privacy export packets, privacy retention assessments, and finance SRC exports now support formatter-level `includePayload` controls for broad list/suite reads.
+- Full signature/privacy evidence payloads, checksums, and source keys are visible only to Owner/Admin/Lawyer/Auditor roles; full finance SRC evidence is visible only to Owner/Admin/Accountant/Auditor roles.
+- Unsupported authenticated roles still receive stable packet summaries, but `payload`, `checksum`, and `sourceKey` are nulled so broad `/api/suite`, `/api/docs/signature-packets`, `/api/privacy/requests`, and `/api/finance/src-exports` reads do not leak customer tax IDs, signer evidence, source keys, or packet internals.
+- Added route-level regression coverage with seeded sentinel evidence proving Support receives redacted summaries while Lawyer/Accountant users retain their permitted packet payload access.
