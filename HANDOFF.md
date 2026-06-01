@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-01 · main after vat-rate-versioning slice · 35 tags · **282 tests (282 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-01 · main after Armenian legal/accounting copilot slice · 35 tags · **283 tests (283 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -70,6 +70,23 @@ npm run build:ui     # vite build → public/
 npm test             # node --test  (see caveat below)
 ```
 
+### OPPO remote-control / live preview
+
+Run from `~/dev/A1-Suite-Local`:
+
+```bash
+PORT=4178 HOST=0.0.0.0 ARMOSPHERA_ONE_DB=/tmp/a1-suite-copilot.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 node server/index.js
+```
+
+Open from OPPO on the same LAN using the exact URL printed by:
+
+```bash
+MAC_IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1)
+printf 'http://%s:4178/\n' "$MAC_IP"
+```
+
+The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
+
 ### ⚠ ENV CAVEAT — old OneDrive copy was flaky
 `node --test` previously stalled / reported `cancelled` in the OneDrive-synced folder because of filesystem contention around the large `app.js`. The local `~/dev/A1-Suite-Local` checkout is the reliable working tree. If a future run regresses only in a synced/cloud folder, verify from this local checkout before treating it as a code failure. Reliable fallback patterns:
 - **Per-file**: `node --test test/<one>.test.js` (one short invocation).
@@ -90,6 +107,7 @@ npm test             # node --test  (see caveat below)
 - ~~Docs signed-PDF export~~ — **DONE** (`docs-export`): authenticated `/api/docs/documents/:id/export` renders a self-contained printable certificate with `@media print`, pending/draft/voided watermarks, signer SHA-256 evidence, sealed document hash, cross-org 404, and HTML escaping.
 - ~~Docs templates~~ — **DONE** (`docs-templates`): `document_templates` table + 3 seeded RA templates (NDA, service agreement, job offer); `GET /api/docs/templates` + `POST /api/docs/templates/:id/generate` create a normal draft; single-pass `{{placeholder}}` fill auto-fills org/customer/date and leaves a visible `[ԼՐԱՑՐԵՔ · FILL: x]` marker for the rest; Docs UI template picker derives its inputs from the template's declared variables.
 - ~~VAT-rate versioning~~ — **DONE** (`vat-rate-versioning`): the 2 project-billing `/1.2` sites now use `resolveVatRate(db, orgId, issueDate)` via a central `splitVatInclusive(total, rate)` helper, so an invoice freezes the VAT rate in force on its issue date (history stays correct when a future rate is scheduled). `GET /api/finance/tax-rates` + a read-only Finance "Tax rates" panel surface the effective-dated rate history. Writing a new rate stays DB-level only (mis-entered tax rate is high-impact; pro review required).
+- ~~Armenian legal/accounting copilot~~ — **DONE** (`armenian-copilot-mvp`): local advisory `POST /api/copilot/questions`, Gemini 3.5 Flash model policy metadata, Armenian-first UI/API/tests, citation-required VAT/privacy/e-sign guidance, deterministic payroll/VAT/month-close previews, proposed actions only, no external egress during validation.
 - **Retire the in-repo `suite/`** — lives in the *separate* HayHashvapah hub repo, not this one.
 - **Accountant/lawyer review** of payroll/VAT rates + legal RAG content **required before production** tax/legal use.
 
