@@ -81,6 +81,35 @@ test("owner login loads organization, app launcher, localization, and audit", as
   });
 });
 
+test("global audit feed is limited to audit reader roles", async () => {
+  await withApp(async app => {
+    const unauthenticated = await app.inject({ method: "GET", url: "/api/audit" });
+    assert.equal(unauthenticated.statusCode, 401);
+
+    const supportCookie = await login(app, "support@armosphera.local");
+    const supportAudit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: supportCookie } });
+    assert.equal(supportAudit.statusCode, 403);
+
+    const accountantCookie = await login(app, "accountant@armosphera.local");
+    const accountantAudit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: accountantCookie } });
+    assert.equal(accountantAudit.statusCode, 403);
+
+    const serviceManagerCookie = await login(app, "service.manager@armosphera.local");
+    const serviceManagerAudit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: serviceManagerCookie } });
+    assert.equal(serviceManagerAudit.statusCode, 403);
+
+    const ownerCookie = await login(app);
+    const ownerAudit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: ownerCookie } });
+    assert.equal(ownerAudit.statusCode, 200, ownerAudit.body);
+    assert.ok(ownerAudit.json().events.some(event => event.type === "auth.login"));
+
+    const auditorCookie = await login(app, "auditor@armosphera.local");
+    const auditorAudit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: auditorCookie } });
+    assert.equal(auditorAudit.statusCode, 200, auditorAudit.body);
+    assert.ok(auditorAudit.json().events.some(event => event.type === "auth.login"));
+  });
+});
+
 test("role-based app entitlements hide finance from support users", async () => {
   await withApp(async app => {
     const cookie = await login(app, "support@armosphera.local");
@@ -14455,6 +14484,7 @@ test("owner can create sanitized tenant backup and restore proof", async () => {
 
 test("salesperson can capture, score, route, and convert an Armenian SMB lead", async () => {
   await withApp(async app => {
+    const ownerCookie = await login(app);
     const cookie = await login(app, "sales@armosphera.local");
     const created = await app.inject({
       method: "POST",
@@ -14528,7 +14558,7 @@ test("salesperson can capture, score, route, and convert an Armenian SMB lead", 
     assert.equal(reconverted.json().customer.id, conversion.customer.id);
     assert.equal(reconverted.json().deal.id, conversion.deal.id);
 
-    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
+    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: ownerCookie } });
     assert.ok(audit.json().events.some(event => event.type === "crm.lead.created" && event.details.leadId === lead.id));
     assert.ok(audit.json().events.some(event => event.type === "crm.lead.converted" && event.details.leadId === lead.id));
   });
@@ -14556,6 +14586,7 @@ test("auditor cannot create CRM leads", async () => {
 
 test("salesperson can update forecast category and deal health evidence", async () => {
   await withApp(async app => {
+    const ownerCookie = await login(app);
     const cookie = await login(app, "sales@armosphera.local");
     const updated = await app.inject({
       method: "POST",
@@ -14591,7 +14622,7 @@ test("salesperson can update forecast category and deal health evidence", async 
     assert.equal(deal.healthStatus, "healthy");
     assert.ok(customer360.json().timeline.some(event => event.eventType === "crm.deal.forecast_updated"));
 
-    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
+    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: ownerCookie } });
     assert.ok(audit.json().events.some(event => event.type === "crm.deal.forecast.updated" && event.details.dealId === "deal-nare-retainer"));
   });
 });
@@ -15362,6 +15393,7 @@ test("approved legal answer workflow publishes cited guidance once", async () =>
 test("owner can review and version Armenian legal source registry entries", async () => {
   await withApp(async app => {
     const cookie = await login(app);
+    const reviewNote = "Accountant confirmed this source is the current VAT anchor for operator guidance. Private marker: do not copy this note into timeline metadata.";
     const reviewed = await app.inject({
       method: "POST",
       url: "/api/legal/sources/law-tax-code/reviews",
@@ -15371,7 +15403,7 @@ test("owner can review and version Armenian legal source registry entries", asyn
         sourceUrl: "https://www.arlis.am/hy/acts/224990?reviewed=2026-05-26",
         effectiveDate: "2026-05-26",
         status: "active",
-        reviewNote: "Accountant confirmed this source is the current VAT anchor for operator guidance."
+        reviewNote
       }
     });
     assert.equal(reviewed.statusCode, 200, reviewed.body);
@@ -15381,9 +15413,18 @@ test("owner can review and version Armenian legal source registry entries", asyn
     assert.equal(body.source.effectiveDate, "2026-05-26");
     assert.match(body.source.title, /accountant reviewed/);
     assert.equal(body.source.latestReview.id, body.review.id);
-    assert.equal(body.review.reviewNote, "Accountant confirmed this source is the current VAT anchor for operator guidance.");
+    assert.equal(body.review.reviewNote, reviewNote);
     assert.equal(body.review.reviewedByName, "Samvel Owner");
     assert.ok(body.events.some(event => event.eventType === "legal.source.reviewed"));
+    const reviewedEvent = body.events.find(event => event.eventType === "legal.source.reviewed");
+    assert.equal(reviewedEvent.payload.sourceId, "law-tax-code");
+    assert.equal(reviewedEvent.payload.reviewId, body.review.id);
+    assert.equal(reviewedEvent.payload.effectiveDate, "2026-05-26");
+    assert.equal(reviewedEvent.payload.reviewNote, undefined);
+    assert.equal(reviewedEvent.payload.reviewNoteHash, sha256(reviewNote));
+    assert.equal(reviewedEvent.payload.reviewNoteLength, reviewNote.length);
+    assert.ok(!JSON.stringify(reviewedEvent.payload).includes(reviewNote));
+    assert.ok(!JSON.stringify(reviewedEvent.payload).includes("Private marker"));
 
     const listed = await app.inject({ method: "GET", url: "/api/legal/sources", headers: { cookie } });
     assert.equal(listed.statusCode, 200, listed.body);
@@ -15409,7 +15450,14 @@ test("owner can review and version Armenian legal source registry entries", asyn
     assert.equal(answerSource.sourceUrl, "https://www.arlis.am/hy/acts/224990?reviewed=2026-05-26");
 
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
-    assert.ok(audit.json().events.some(event => event.type === "legal.source.reviewed" && event.details.sourceId === "law-tax-code"));
+    const reviewedAudit = audit.json().events.find(event => event.type === "legal.source.reviewed" && event.details.sourceId === "law-tax-code");
+    assert.ok(reviewedAudit);
+    assert.equal(reviewedAudit.details.reviewId, body.review.id);
+    assert.equal(reviewedAudit.details.reviewNote, undefined);
+    assert.equal(reviewedAudit.details.reviewNoteHash, sha256(reviewNote));
+    assert.equal(reviewedAudit.details.reviewNoteLength, reviewNote.length);
+    assert.ok(!JSON.stringify(reviewedAudit.details).includes(reviewNote));
+    assert.ok(!JSON.stringify(reviewedAudit.details).includes("Private marker"));
   });
 });
 
@@ -16828,6 +16876,7 @@ test("support can generate grounded advisory ticket summary with knowledge recom
 
 test("service manager escalates an at-risk case into supervisor queue once", async () => {
   await withApp(async app => {
+    const ownerCookie = await login(app);
     const managerCookie = await login(app, "service.manager@armosphera.local");
     const supportCookie = await login(app, "support@armosphera.local");
 
@@ -16892,13 +16941,14 @@ test("service manager escalates an at-risk case into supervisor queue once", asy
     assert.ok(customer.service.escalations.some(item => item.id === body.escalation.id && item.status === "open"));
     assert.ok(customer.timeline.some(event => event.eventType === "service.case.escalated"));
 
-    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: managerCookie } });
+    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: ownerCookie } });
     assert.ok(audit.json().events.some(event => event.type === "service.case.escalated" && event.details.escalationId === body.escalation.id));
   });
 });
 
 test("service manager resolves escalated case with satisfaction evidence once", async () => {
   await withApp(async app => {
+    const ownerCookie = await login(app);
     const managerCookie = await login(app, "service.manager@armosphera.local");
     const supportCookie = await login(app, "support@armosphera.local");
 
@@ -16981,7 +17031,7 @@ test("service manager resolves escalated case with satisfaction evidence once", 
     assert.ok(customer.service.resolutions.some(item => item.id === body.resolution.id && item.satisfactionScore === 5));
     assert.ok(customer.timeline.some(event => event.eventType === "service.case.resolved"));
 
-    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: managerCookie } });
+    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: ownerCookie } });
     assert.ok(audit.json().events.some(event => event.type === "service.case.resolved" && event.details.resolutionId === body.resolution.id));
   });
 });

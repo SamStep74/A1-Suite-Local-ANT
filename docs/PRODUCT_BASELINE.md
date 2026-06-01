@@ -1696,3 +1696,10 @@ Status: shipped in the local prototype on 2026-05-28.
 - Credentialed URL audit payloads deliberately omit the raw rejected URL, username/password, title, review note, requested status/date, and reviewer role, keeping secrets and rejected review content out of durable evidence.
 - Copilot source links refuse credentialed legacy source URLs, so citations with embedded credentials are never rendered as clickable external links.
 - Added API and source-link helper tests proving credentialed review attempts return `400`, leave source state unchanged, avoid secret leakage in suite/audit payloads, and hide credentialed citation links.
+
+### Slice 143 - Audit Reader Gate and Legal Review Note Metadata
+
+- The global `/api/audit` feed is now an explicit audit-reader surface limited to Owner/Admin/Auditor roles; unauthenticated users still receive `401`, while Support, Accountant, and Service Manager users receive `403`.
+- The React workspace skips the global audit fetch for non-audit-reader roles, preserving their app workflow access without leaking organization-wide audit details.
+- Accepted legal source reviews still preserve the full reviewer note in the canonical `legal_source_reviews` record, but `legal.source.reviewed` suite/audit metadata now stores only `reviewNoteHash` and `reviewNoteLength`.
+- Added API tests proving audit feed role gating, accepted legal-source review note non-leakage, Salesperson and Service Manager workflow compatibility, and Owner/Auditor audit-reader access.

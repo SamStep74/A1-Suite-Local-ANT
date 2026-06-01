@@ -84,6 +84,10 @@ async function api(path, options = {}) {
   return data;
 }
 
+function canReadAudit(role) {
+  return ["Owner", "Admin", "Auditor"].includes(role);
+}
+
 function App() {
   const [session, setSession] = useState(null);
   const [suite, setSuite] = useState(null);
@@ -594,8 +598,12 @@ function App() {
         setWebhookDeliveries([]);
         setAdminBackups([]);
       }
-      const auditData = await loadOr({}, () => api("/api/audit"));
-      setAudit(auditData.events || []);
+      if (canReadAudit(data.user.role)) {
+        const auditData = await loadOr({}, () => api("/api/audit"));
+        setAudit(auditData.events || []);
+      } else {
+        setAudit([]);
+      }
     } catch (error) {
       if (error.status === 401) {
         setSession(null);
@@ -1138,8 +1146,10 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
       if (data.events) {
         onSuiteEvents?.(data.events);
       }
-      const auditData = await loadOr({}, () => api("/api/audit"));
-      onAuditEvents?.(auditData.events || []);
+      if (canReadAudit(suite.user.role)) {
+        const auditData = await loadOr({}, () => api("/api/audit"));
+        onAuditEvents?.(auditData.events || []);
+      }
       return data.copilot;
     } catch (err) {
       reportActionError(err);

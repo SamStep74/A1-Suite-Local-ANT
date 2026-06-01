@@ -4041,6 +4041,7 @@ ${controls}
 
   app.get("/api/audit", async request => {
     const user = await app.auth(request);
+    requireAuditReader(user);
     const events = db.prepare("SELECT * FROM audit_events WHERE org_id = ? ORDER BY id DESC LIMIT 50").all(user.org_id);
     return { events: events.map(event => ({ ...event, details: safeJson(event.details) })) };
   });
@@ -4849,6 +4850,14 @@ function requireSessionAdmin(user) {
 function requireAuditExportReader(user) {
   if (!["Owner", "Admin", "Auditor"].includes(user.role)) {
     const err = new Error("Audit export reader role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requireAuditReader(user) {
+  if (!["Owner", "Admin", "Auditor"].includes(user.role)) {
+    const err = new Error("Audit reader role required");
     err.statusCode = 403;
     throw err;
   }
@@ -44456,6 +44465,7 @@ function createLegalSourceReview(db, user, sourceId, body) {
     WHERE org_id = ? AND id = ?
   `).run(title, sourceUrl, status, effectiveDate, user.org_id, current.id);
 
+  const reviewNoteMetadata = legalSourceReviewNoteMetadata(reviewNote);
   emitSuiteEvent(db, {
     orgId: user.org_id,
     actorUserId: user.id,
@@ -44463,13 +44473,27 @@ function createLegalSourceReview(db, user, sourceId, body) {
     subjectType: "legal_source",
     subjectId: current.id,
     status,
-    payload: { sourceId: current.id, reviewId, effectiveDate, reviewNote }
+    payload: { sourceId: current.id, reviewId, effectiveDate, ...reviewNoteMetadata }
   });
-  audit(db, user.org_id, user.id, "legal.source.reviewed", { sourceId: current.id, reviewId, status, effectiveDate });
+  audit(db, user.org_id, user.id, "legal.source.reviewed", {
+    sourceId: current.id,
+    reviewId,
+    status,
+    effectiveDate,
+    ...reviewNoteMetadata
+  });
 
   return {
     source: getLegalSource(db, user.org_id, current.id),
     review: getLegalSourceReview(db, user.org_id, reviewId)
+  };
+}
+
+function legalSourceReviewNoteMetadata(reviewNote) {
+  const value = String(reviewNote || "");
+  return {
+    reviewNoteHash: crypto.createHash("sha256").update(value).digest("hex"),
+    reviewNoteLength: value.length
   };
 }
 
