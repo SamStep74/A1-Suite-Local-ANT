@@ -3660,7 +3660,11 @@ ${controls}
   app.post("/api/copilot/questions", async request => {
     const user = await app.auth(request);
     const result = createCopilotQuestion(db, user, request.body || {});
-    return { ok: true, copilot: result };
+    return {
+      ok: true,
+      copilot: result,
+      events: getRecentSuiteEvents(db, user.org_id, 8, result.context?.customer?.id || "")
+    };
   });
 
   app.get("/api/finance/vat-report", async request => {
@@ -44005,7 +44009,7 @@ function createCopilotQuestion(db, user, body) {
   const context = buildCopilotContext(db, user, intent, body, customer);
   const citations = getCopilotCitations(db, user.org_id, intent, question);
   const calculations = getCopilotCalculations(db, user.org_id, intent, body, context);
-  return copilot.buildCopilotPacket({
+  const packet = copilot.buildCopilotPacket({
     id: randomId("copilot"),
     intent,
     question,
@@ -44015,6 +44019,8 @@ function createCopilotQuestion(db, user, body) {
     modelPolicy: getCopilotModelPolicy(),
     now: new Date().toISOString()
   });
+  recordCopilotAdvisory(db, user, packet, question);
+  return packet;
 }
 
 function getCopilotModelPolicy() {
@@ -44027,6 +44033,42 @@ function getCopilotModelPolicy() {
     executionMode: externalReady ? "external-opt-in" : "offline-deterministic",
     egress: externalReady ? "allowlisted" : "blocked-by-default"
   };
+}
+
+function recordCopilotAdvisory(db, user, packet, question) {
+  const customerId = packet.context?.customer?.id || "";
+  const legalSources = (packet.citations || []).filter(source => /^law-/.test(source.id || ""));
+  const sourceIds = legalSources.map(source => source.id);
+  const sourceReviewReady = legalSources.length === 0
+    ? true
+    : legalSources.every(source => source.professionalReviewReady === true);
+  const details = {
+    copilotId: packet.id,
+    intent: packet.intent,
+    customerId,
+    riskLevel: packet.riskLevel,
+    reviewRequired: Boolean(packet.reviewRequired),
+    advisoryOnly: packet.advisoryOnly !== false,
+    status: packet.status,
+    modelPolicy: packet.modelPolicy,
+    sourceIds,
+    sourceReviewReady,
+    calculationKinds: (packet.calculations || []).map(calc => calc.kind),
+    proposedActionKeys: (packet.proposedActions || []).map(action => action.key),
+    questionHash: crypto.createHash("sha256").update(String(question || "")).digest("hex"),
+    questionLength: String(question || "").length
+  };
+  emitSuiteEvent(db, {
+    orgId: user.org_id,
+    actorUserId: user.id,
+    eventType: "copilot.advisory.generated",
+    subjectType: "copilot_advisory",
+    subjectId: packet.id,
+    customerId,
+    status: packet.reviewRequired ? "needs-review" : "recorded",
+    payload: details
+  });
+  audit(db, user.org_id, user.id, "copilot.advisory.generated", details);
 }
 
 function getCopilotCustomer(db, orgId, customerId) {

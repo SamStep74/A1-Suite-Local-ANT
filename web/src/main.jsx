@@ -834,6 +834,8 @@ function App() {
       productionReadiness={productionReadiness}
       selectedApp={selectedApp}
       onSelectApp={setSelectedApp}
+      onSuiteEvents={events => setSuite(current => current ? { ...current, events } : current)}
+      onAuditEvents={setAudit}
       onReload={load}
     />
   );
@@ -900,7 +902,7 @@ function Login({ onDone }) {
   );
 }
 
-function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, projects, forms, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, productionReadiness, selectedApp, onSelectApp, onReload }) {
+function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, projects, forms, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, productionReadiness, selectedApp, onSelectApp, onSuiteEvents, onAuditEvents, onReload }) {
   const {
     pilotTemplateData,
     pilotOwnerBriefs,
@@ -1133,6 +1135,11 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     setActionError("");
     try {
       const data = await api("/api/copilot/questions", { method: "POST", body: payload });
+      if (data.events) {
+        onSuiteEvents?.(data.events);
+      }
+      const auditData = await loadOr({}, () => api("/api/audit"));
+      onAuditEvents?.(auditData.events || []);
       return data.copilot;
     } catch (err) {
       reportActionError(err);

@@ -91,6 +91,58 @@ test("VAT copilot returns cited legal/accounting guidance without creating SRC e
   }
 });
 
+test("copilot advisory generation records metadata-only timeline and audit events", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const question = "Կարո՞ղ ենք պատրաստել հայկական ԱԱՀ եւ SRC ուղեցույց 2026-05 ժամանակաշրջանի համար:";
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/copilot/questions",
+      headers: { cookie },
+      payload: {
+        intent: "vat",
+        customerId: "cust-nare",
+        periodKey: "2026-05",
+        question
+      }
+    });
+
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const body = res.json();
+    assert.ok(body.events.some(event => (
+      event.eventType === "copilot.advisory.generated"
+      && event.subjectId === body.copilot.id
+      && event.customerId === "cust-nare"
+      && event.status === "needs-review"
+    )));
+    const timeline = app.db.prepare("SELECT * FROM suite_events WHERE event_type = ? ORDER BY id DESC LIMIT 1").get("copilot.advisory.generated");
+    assert.ok(timeline);
+    const timelinePayload = JSON.parse(timeline.payload);
+    assert.strictEqual(timelinePayload.copilotId, body.copilot.id);
+    assert.strictEqual(timelinePayload.intent, "vat");
+    assert.deepStrictEqual(timelinePayload.sourceIds, ["law-tax-code"]);
+    assert.deepStrictEqual(timelinePayload.proposedActionKeys, ["finance.src.prepare"]);
+    assert.strictEqual(timelinePayload.questionLength, question.length);
+    assert.ok(/^[a-f0-9]{64}$/.test(timelinePayload.questionHash));
+    assert.ok(!JSON.stringify(timelinePayload).includes(question), "timeline payload should not store raw question text");
+    assert.ok(!JSON.stringify(timelinePayload).includes(body.copilot.answer), "timeline payload should not store answer text");
+
+    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
+    assert.strictEqual(audit.statusCode, 200, audit.body);
+    const auditEvent = audit.json().events.find(event => event.type === "copilot.advisory.generated");
+    assert.ok(auditEvent);
+    assert.strictEqual(auditEvent.details.copilotId, body.copilot.id);
+    assert.strictEqual(auditEvent.details.modelPolicy.model, "gemini-3.5-flash");
+    assert.ok(!JSON.stringify(auditEvent.details).includes(question), "audit details should not store raw question text");
+    assert.ok(!JSON.stringify(auditEvent.details).includes(body.copilot.answer), "audit details should not store answer text");
+  } finally {
+    await app.close();
+  }
+});
+
 test("VAT copilot enables SRC proposal only after professional VAT source review", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

@@ -1648,3 +1648,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Docs e-sign evidence packets, personal-data requests, export packets, and retention assessments require Lawyer-reviewed source signoff before creation/execution, and their payloads preserve the professional reviewer evidence.
 - Copilot citations expose `professionalReviewReady`; proposed SRC/privacy actions remain disabled after owner-only source maintenance and unlock only after matching professional review.
 - Added tests proving owner-only active source maintenance still blocks SRC, e-sign, and privacy workflows while Accountant/Lawyer review unlocks them.
+
+### Slice 136 - Copilot Advisory Audit Trail
+
+- Each legal/accounting Copilot answer now emits a `copilot.advisory.generated` suite timeline event and audit event.
+- Audit/timeline payloads intentionally store metadata only: Copilot id, intent, customer id, risk/review flags, model policy, source ids, calculation/action keys, source-review readiness, question length, and a SHA-256 question hash.
+- Raw user question text and generated answer text are not stored in the audit metadata, keeping sensitive advisory prompts out of durable logs while preserving traceability.
+- The Copilot API returns the fresh event list, and the React workspace refreshes the Event bus and Audit panels after a Copilot ask without discarding the visible answer.
+- Added tests proving Copilot remains non-mutating while advisory use is traceable through customer timeline and audit records.
