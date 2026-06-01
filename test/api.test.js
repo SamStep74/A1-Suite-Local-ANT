@@ -267,6 +267,13 @@ test("privileged users can enable MFA and must satisfy challenge before session 
     assert.equal(verified.json().factor.status, "active");
     assert.equal(verified.json().mfa.enabled, true);
 
+    const oldPasswordSession = await app.inject({
+      method: "GET",
+      url: "/api/admin/sessions",
+      headers: { cookie: ownerCookie }
+    });
+    assert.equal(oldPasswordSession.statusCode, 401);
+
     const passwordOnly = await app.inject({
       method: "POST",
       url: "/api/login",
@@ -325,6 +332,35 @@ test("privileged users can enable MFA and must satisfy challenge before session 
     assert.ok(auditTypes.includes("security.mfa.enabled"));
     assert.ok(auditTypes.includes("auth.mfa.challenge.created"));
     assert.ok(auditTypes.includes("auth.mfa.verified"));
+  });
+});
+
+test("bearer logout revokes the bearer-authenticated session", async () => {
+  await withApp(async app => {
+    const ownerCookie = await login(app);
+    const token = /sid=([^;]+)/.exec(String(ownerCookie))?.[1];
+    assert.ok(token, "login returns a sid token");
+
+    const before = await app.inject({
+      method: "GET",
+      url: "/api/me",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(before.statusCode, 200, before.body);
+
+    const logout = await app.inject({
+      method: "POST",
+      url: "/api/logout",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(logout.statusCode, 200, logout.body);
+
+    const after = await app.inject({
+      method: "GET",
+      url: "/api/me",
+      headers: { authorization: `Bearer ${token}` }
+    });
+    assert.equal(after.statusCode, 401);
   });
 });
 

@@ -7271,7 +7271,8 @@ function createSession(db, userId, options = {}) {
 function getUserBySession(db, token) {
   if (!token) return null;
   const row = db.prepare(`
-    SELECT users.id, users.org_id, users.email, users.name, users.role, sessions.expires_at, sessions.revoked_at
+    SELECT users.id, users.org_id, users.email, users.name, users.role,
+      sessions.expires_at, sessions.revoked_at, sessions.mfa_verified
     FROM sessions
     JOIN users ON users.id = sessions.user_id
     WHERE sessions.token = ?

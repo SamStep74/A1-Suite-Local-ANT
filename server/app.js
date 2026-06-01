@@ -151,6 +151,11 @@ function buildApp(options = {}) {
       err.statusCode = 401;
       throw err;
     }
+    if (mfaRequiredForRole(user.role) && !user.mfa_verified && getActiveMfaFactor(db, user.org_id, user.id)) {
+      const err = new Error("MFA verification required");
+      err.statusCode = 401;
+      throw err;
+    }
     assertPlatformTenantUser(request, user, env);
     return user;
   });
@@ -273,8 +278,13 @@ function registerApi(app, db, options = {}) {
   });
 
   app.post("/api/logout", async (request, reply) => {
-    const token = request.cookies.sid;
-    if (token) db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+    const tokens = [
+      request.cookies.sid,
+      bearerToken(request.headers.authorization)
+    ].filter(Boolean);
+    for (const token of new Set(tokens)) {
+      db.prepare("DELETE FROM sessions WHERE token = ?").run(token);
+    }
     reply.clearCookie("sid", { path: "/" });
     return { ok: true };
   });
@@ -3220,6 +3230,9 @@ ${controls}
   }
   app.get("/f/:id", async (request, reply) => {
     const fid = String(request.params.id || "");
+    // Public form pages are unauthenticated and id-addressable; throttle per-IP before
+    // lookup so form-id enumeration cannot hammer the DB/render path.
+    enforceRateLimit(`public-form-page:${String(request.ip || "")}`, 60, 60 * 1000, request.ip);
     const tenantOrgId = platformTenantResourceOrgId(request, env);
     const formParams = [fid];
     let formWhere = "id = ? AND status = 'published'";
@@ -4188,12 +4201,31 @@ function verifyMfaEnrollment(db, user, body) {
     SET status = 'active', enabled_at = ?, last_verified_at = ?, updated_at = ?
     WHERE org_id = ? AND user_id = ? AND id = ?
   `).run(now, now, now, user.org_id, user.id, factor.id);
+  revokePasswordOnlySessionsAfterMfaEnrollment(db, user);
   audit(db, user.org_id, user.id, "security.mfa.enabled", { factorId: factor.id, factorType: factor.factorType });
   return {
     ok: true,
     factor: getMfaFactor(db, user.org_id, user.id, factor.id),
     mfa: getMfaStatus(db, user).mfa
   };
+}
+
+function revokePasswordOnlySessionsAfterMfaEnrollment(db, user) {
+  const revokedAt = new Date().toISOString();
+  const result = db.prepare(`
+    UPDATE sessions
+    SET revoked_at = ?, revoked_by_user_id = ?, revoked_reason = ?
+    WHERE user_id = ? AND revoked_at IS NULL AND mfa_verified = 0
+  `).run(
+    revokedAt,
+    user.id,
+    "MFA enabled; password-only session retired",
+    user.id
+  );
+  if (result.changes) {
+    audit(db, user.org_id, user.id, "security.mfa.password_sessions_revoked", { count: result.changes });
+  }
+  return result.changes || 0;
 }
 
 function createMfaLoginChallenge(db, user, factor) {
