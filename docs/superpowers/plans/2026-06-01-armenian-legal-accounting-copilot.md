@@ -1,6 +1,6 @@
 # Armenian Legal And Accounting Copilot Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
+> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox syntax for tracking.
 
 **Goal:** Build the first shippable A1 Suite copilot slice: an Armenian-first, citation-required legal and accounting assistant that answers VAT, payroll, personal-data, e-signature, and month-close questions from existing A1 Suite data without mutating business records. The configured target model policy is `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, `COPILOT_LANGUAGE=hy-AM`; tests and local preview keep execution deterministic and outbound network disabled.
 
@@ -192,7 +192,7 @@ Response:
 - Read: `test/legal-grounding.test.js`
 - Read: `test/docs-export.test.js`
 
-- [ ] **Step 1: Create the focused test file**
+- [x] **Step 1: Create the focused test file**
 
 Create `test/copilot.test.js` with this structure:
 
@@ -409,7 +409,7 @@ test("payroll copilot previews calculation without posting payroll run", async (
 });
 ```
 
-- [ ] **Step 2: Run the RED tests**
+- [x] **Step 2: Run the RED tests**
 
 Run:
 
@@ -419,7 +419,7 @@ node --test test/copilot.test.js
 
 Expected: FAIL with `404` for `/api/copilot/questions` or `Cannot find module '../server/copilot'` after the test file exists.
 
-- [ ] **Step 3: Commit RED tests**
+- [x] **Step 3: Commit RED tests**
 
 ```bash
 git add test/copilot.test.js
@@ -433,7 +433,7 @@ git push origin main
 - Create: `server/copilot.js`
 - Test: `test/copilot.test.js`
 
-- [ ] **Step 1: Create `server/copilot.js`**
+- [x] **Step 1: Create `server/copilot.js`**
 
 Implement these exports:
 
@@ -626,7 +626,7 @@ module.exports = {
 };
 ```
 
-- [ ] **Step 2: Run module-level smoke through API tests**
+- [x] **Step 2: Run module-level smoke through API tests**
 
 Run:
 
@@ -636,7 +636,7 @@ node --test test/copilot.test.js
 
 Expected: still FAIL because the route is not registered yet.
 
-- [ ] **Step 3: Commit the module**
+- [x] **Step 3: Commit the module**
 
 ```bash
 git add server/copilot.js
@@ -650,7 +650,7 @@ git push origin main
 - Modify: `server/app.js`
 - Test: `test/copilot.test.js`
 
-- [ ] **Step 1: Import the module**
+- [x] **Step 1: Import the module**
 
 Near the existing imports in `server/app.js`, add:
 
@@ -658,7 +658,7 @@ Near the existing imports in `server/app.js`, add:
 const copilot = require("./copilot");
 ```
 
-- [ ] **Step 2: Register the route**
+- [x] **Step 2: Register the route**
 
 Add this route near the legal/finance routes, after `POST /api/legal/questions` and before `GET /api/finance/vat-report`:
 
@@ -670,7 +670,7 @@ app.post("/api/copilot/questions", async request => {
 });
 ```
 
-- [ ] **Step 3: Add context helpers**
+- [x] **Step 3: Add context helpers**
 
 Add these helpers near existing legal helper functions in `server/app.js`:
 
@@ -769,7 +769,7 @@ function summarizeCopilotDocument(document) {
 }
 ```
 
-- [ ] **Step 4: Add citation/calculation helpers**
+- [x] **Step 4: Add citation/calculation helpers**
 
 Continue in `server/app.js`:
 
@@ -865,7 +865,7 @@ function getCopilotCalculations(db, orgId, intent, body, context) {
 }
 ```
 
-- [ ] **Step 5: Run focused tests**
+- [x] **Step 5: Run focused tests**
 
 ```bash
 node --test test/copilot.test.js
@@ -873,7 +873,7 @@ node --test test/copilot.test.js
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit the backend route**
+- [x] **Step 6: Commit the backend route**
 
 ```bash
 git add server/app.js test/copilot.test.js
@@ -887,7 +887,7 @@ git push origin main
 - Modify: `test/copilot.test.js`
 - Modify as needed: `server/app.js`
 
-- [ ] **Step 1: Add access-control tests**
+- [x] **Step 1: Add access-control tests**
 
 Append tests proving:
 
@@ -935,7 +935,7 @@ test("copilot returns 404 for unknown customer or document", async () => {
 });
 ```
 
-- [ ] **Step 2: Run focused and adjacent tests**
+- [x] **Step 2: Run focused and adjacent tests**
 
 ```bash
 node --test test/copilot.test.js test/legal-grounding.test.js test/legal-search.test.js test/payroll-endpoints.test.js test/docs-export.test.js
@@ -943,7 +943,7 @@ node --test test/copilot.test.js test/legal-grounding.test.js test/legal-search.
 
 Expected: PASS.
 
-- [ ] **Step 3: Commit expanded coverage**
+- [x] **Step 3: Commit expanded coverage**
 
 ```bash
 git add test/copilot.test.js server/app.js
@@ -958,7 +958,7 @@ git push origin main
 - Modify later: `web/src/main.jsx`
 - Modify later: `web/src/styles.css`
 
-- [ ] **Step 1: Create the component**
+- [x] **Step 1: Create the component**
 
 Create `web/src/copilot.jsx`:
 
@@ -1112,7 +1112,7 @@ function formatCalculation(calc) {
 }
 ```
 
-- [ ] **Step 2: Build UI to verify compile failure before integration is expected**
+- [x] **Step 2: Build UI to verify compile failure before integration is expected**
 
 Run:
 
@@ -1122,7 +1122,7 @@ npm run build:ui
 
 Expected: PASS because the new component is not imported yet.
 
-- [ ] **Step 3: Commit the standalone UI component**
+- [x] **Step 3: Commit the standalone UI component**
 
 ```bash
 git add web/src/copilot.jsx
@@ -1137,7 +1137,7 @@ git push origin main
 - Modify: `web/src/styles.css`
 - Test: `web build`, Browser/Playwright local UI
 
-- [ ] **Step 1: Import the panel**
+- [x] **Step 1: Import the panel**
 
 At the top of `web/src/main.jsx`, add:
 
@@ -1145,7 +1145,7 @@ At the top of `web/src/main.jsx`, add:
 import { CopilotPanel } from "./copilot.jsx";
 ```
 
-- [ ] **Step 2: Add the action handler in `Workspace`**
+- [x] **Step 2: Add the action handler in `Workspace`**
 
 Inside `Workspace`, near other mutation handlers:
 
@@ -1165,7 +1165,7 @@ async function askCopilot(payload) {
 }
 ```
 
-- [ ] **Step 3: Render the panel**
+- [x] **Step 3: Render the panel**
 
 In the main `<section className="content-grid">`, render this near the top, after `Customer360` and before domain-specific panels:
 
@@ -1179,7 +1179,7 @@ In the main `<section className="content-grid">`, render this near the top, afte
 />
 ```
 
-- [ ] **Step 4: Add CSS**
+- [x] **Step 4: Add CSS**
 
 Append compact styles to `web/src/styles.css`:
 
@@ -1234,7 +1234,7 @@ Append compact styles to `web/src/styles.css`:
 }
 ```
 
-- [ ] **Step 5: Run build**
+- [x] **Step 5: Run build**
 
 ```bash
 npm run build:ui
@@ -1242,7 +1242,7 @@ npm run build:ui
 
 Expected: PASS.
 
-- [ ] **Step 6: Commit UI integration**
+- [x] **Step 6: Commit UI integration**
 
 ```bash
 git add web/src/main.jsx web/src/styles.css
@@ -1255,7 +1255,7 @@ git push origin main
 **Files:**
 - No planned code changes unless verification finds defects.
 
-- [ ] **Step 1: Run focused tests**
+- [x] **Step 1: Run focused tests**
 
 ```bash
 node --test test/copilot.test.js test/legal-grounding.test.js test/legal-search.test.js test/payroll-endpoints.test.js test/docs-export.test.js
@@ -1263,7 +1263,7 @@ node --test test/copilot.test.js test/legal-grounding.test.js test/legal-search.
 
 Expected: PASS.
 
-- [ ] **Step 2: Run full suite**
+- [x] **Step 2: Run full suite**
 
 ```bash
 npm test
@@ -1271,7 +1271,7 @@ npm test
 
 Expected: all tests PASS. At planning time the suite was 268 tests before copilot; expect the count to increase by the new copilot tests.
 
-- [ ] **Step 3: Run UI build**
+- [x] **Step 3: Run UI build**
 
 ```bash
 npm run build:ui
@@ -1279,7 +1279,7 @@ npm run build:ui
 
 Expected: PASS and Vite output under `public/`.
 
-- [ ] **Step 4: Run smoke**
+- [x] **Step 4: Run smoke**
 
 ```bash
 ARMOSPHERA_ONE_DB=/tmp/a1-suite-copilot-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke
@@ -1287,7 +1287,7 @@ ARMOSPHERA_ONE_DB=/tmp/a1-suite-copilot-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS
 
 Expected: PASS. If the smoke script already sets its own DB path, do not override it; use the repo's existing smoke convention.
 
-- [ ] **Step 5: Start local LAN server**
+- [x] **Step 5: Start local LAN server**
 
 ```bash
 PORT=4178 HOST=0.0.0.0 ARMOSPHERA_ONE_DB=/tmp/a1-suite-copilot-ui.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 node server/index.js
@@ -1299,7 +1299,7 @@ Expected terminal output:
 A1 Suite listening on http://0.0.0.0:4178 (data: /tmp/a1-suite-copilot-ui.sqlite)
 ```
 
-- [ ] **Step 6: Browser verify desktop**
+- [x] **Step 6: Browser verify desktop**
 
 Use Browser plugin or Playwright:
 
@@ -1311,7 +1311,7 @@ Ask VAT guidance for cust-nare and 2026-05.
 Verify answer, citations, VAT calculation, guardrails, and proposed SRC action render without overflow.
 ```
 
-- [ ] **Step 7: Browser verify mobile width**
+- [x] **Step 7: Browser verify mobile width**
 
 Use a 390px-wide viewport:
 
@@ -1321,7 +1321,7 @@ Verify long Armenian/legal text does not overlap buttons or rows.
 Verify the proposed action path fits or wraps within the panel.
 ```
 
-- [ ] **Step 8: OPPO reachability check**
+- [x] **Step 8: OPPO reachability check**
 
 Get Mac LAN IP:
 
@@ -1343,7 +1343,7 @@ Expected: login page appears. If not reachable, check macOS firewall and that th
 **Files:**
 - Modify: `HANDOFF.md`
 
-- [ ] **Step 1: Update handoff**
+- [x] **Step 1: Update handoff**
 
 Before editing, collect exact verification numbers:
 
@@ -1383,7 +1383,7 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 ```
 ````
 
-- [ ] **Step 2: Commit handoff**
+- [x] **Step 2: Commit handoff**
 
 ```bash
 git add HANDOFF.md
@@ -1391,7 +1391,7 @@ git commit -m "docs: record copilot verification and OPPO preview runbook"
 git push origin main
 ```
 
-- [ ] **Step 3: Tag after full green verification**
+- [x] **Step 3: Tag after full green verification**
 
 ```bash
 git tag armenian-copilot-mvp
@@ -1400,16 +1400,16 @@ git push origin armenian-copilot-mvp
 
 ## Final Self-Review Checklist
 
-- [ ] `test/copilot.test.js` fails before implementation and passes after.
-- [ ] `POST /api/copilot/questions` is authenticated.
-- [ ] Intent-specific app access is enforced.
-- [ ] VAT answers cite `law-tax-code`.
-- [ ] Personal-data answers cite `law-personal-data` and do not delete data.
-- [ ] E-sign answers cite `law-esign` and expose document evidence only.
-- [ ] Payroll answers calculate but do not post `payroll_runs`.
-- [ ] Month-close answers do not close periods.
-- [ ] Proposed actions are previews; they are not executed by the copilot endpoint.
-- [ ] No external network calls are introduced.
-- [ ] UI renders in desktop and mobile widths with no overlap.
-- [ ] Every task commit is pushed to GitHub.
-- [ ] `HANDOFF.md` contains the latest commit, test results, live URL command, and OPPO access note.
+- [x] `test/copilot.test.js` fails before implementation and passes after.
+- [x] `POST /api/copilot/questions` is authenticated.
+- [x] Intent-specific app access is enforced.
+- [x] VAT answers cite `law-tax-code`.
+- [x] Personal-data answers cite `law-personal-data` and do not delete data.
+- [x] E-sign answers cite `law-esign` and expose document evidence only.
+- [x] Payroll answers calculate but do not post `payroll_runs`.
+- [x] Month-close answers do not close periods.
+- [x] Proposed actions are previews; they are not executed by the copilot endpoint.
+- [x] No external network calls are introduced.
+- [x] UI renders in desktop and mobile widths with no overlap.
+- [x] Every task commit is pushed to GitHub.
+- [x] `HANDOFF.md` contains the latest commit, test results, live URL command, and OPPO access note.

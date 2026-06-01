@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-01 · main after auditor-readonly RBAC guard · 36 tags · **284 tests (284 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-01 · main after Armenian legal/accounting copilot completion audit · 37 tags · **286 tests (286 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -87,16 +87,23 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
+Current checkpoint:
+- Latest copilot audit commit: `255ed4b` (`test(copilot): cover month-close preview guardrail`), pushed with this handoff.
+- Verification from `~/dev/A1-Suite-Local`: `node --test test/copilot.test.js test/legal-grounding.test.js test/legal-search.test.js test/payroll-endpoints.test.js test/docs-export.test.js` = 17 pass; `npm test` = 286 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass.
+- Browser proof: Playwright desktop `1280x900` and mobile `390x844` render the Armenian Copilot answer, `gemini-3.5-flash`, citations, and proposed action with no horizontal overflow.
+- Live preview for OPPO while the Mac is awake: server bound to `0.0.0.0:4178`; use the `MAC_IP` command above for the current LAN URL.
+- Next unchecked task from `2026-06-01-armenian-legal-accounting-copilot.md`: none; checklist is complete.
+
 ### ⚠ ENV CAVEAT — old OneDrive copy was flaky
 `node --test` previously stalled / reported `cancelled` in the OneDrive-synced folder because of filesystem contention around the large `app.js`. The local `~/dev/A1-Suite-Local` checkout is the reliable working tree. If a future run regresses only in a synced/cloud folder, verify from this local checkout before treating it as a code failure. Reliable fallback patterns:
 - **Per-file**: `node --test test/<one>.test.js` (one short invocation).
 - **Clean worktree**: `git worktree add --detach /tmp/run HEAD && ln -s "$PWD/node_modules" /tmp/run/ && cd /tmp/run && node --test test/*.test.js`.
-- Last clean full-suite run from `~/dev/A1-Suite-Local`: **268 tests / 268 pass / 0 fail / 0 cancelled**.
+- Last clean full-suite run from `~/dev/A1-Suite-Local`: **286 tests / 286 pass / 0 fail / 0 cancelled**.
 
 ---
 
-## 4. Tag history (28)
-`m1-foundation` → `m2-legal-rag` → `m3-accounting-{engine,ledger,complete}` → `m3-{finance-reports,payroll,payables}` → `ui-finance-{reports,interactive,complete}` → `ui-crm-{quotes,quote-create,activity}` → `deploy-packaging` → `harden-billpay` → `finance-opening-balances` → **`desk-helpdesk`** → **`people-hr`** → **`docs-sign`** → **`projects`** → **`forms`** → **`billing-seam`** → `harden-rates-auth` → `harden-ui-errors` → `finance-list-views` → `harden-ui-errors-complete` → `project-detail-view` → `checkpoint-handoff` → `docs-signature-evidence`.
+## 4. Tag history (37)
+`armenian-copilot-mvp` → `auditor-rbac-coverage` → `billing-seam` → `checkpoint-handoff` → `deploy-packaging` → `desk-helpdesk` → `docs-export` → `docs-sign` → `docs-signature-evidence` → `docs-templates` → `employee-payroll-fk` → `finance-list-views` → `finance-opening-balances` → `forms` → `forms-public-page` → `harden-billpay` → `harden-rates-auth` → `harden-ui-errors` → `harden-ui-errors-complete` → `m1-foundation` → `m2-legal-rag` → `m3-accounting-complete` → `m3-accounting-engine` → `m3-accounting-ledger` → `m3-finance-reports` → `m3-payables` → `m3-payroll` → `people-hr` → `project-detail-view` → `projects` → `ui-crm-activity` → `ui-crm-quote-create` → `ui-crm-quotes` → `ui-finance-complete` → `ui-finance-interactive` → `ui-finance-reports` → `vat-rate-versioning`.
 
 ---
 
@@ -107,7 +114,7 @@ The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPI
 - ~~Docs signed-PDF export~~ — **DONE** (`docs-export`): authenticated `/api/docs/documents/:id/export` renders a self-contained printable certificate with `@media print`, pending/draft/voided watermarks, signer SHA-256 evidence, sealed document hash, cross-org 404, and HTML escaping.
 - ~~Docs templates~~ — **DONE** (`docs-templates`): `document_templates` table + 3 seeded RA templates (NDA, service agreement, job offer); `GET /api/docs/templates` + `POST /api/docs/templates/:id/generate` create a normal draft; single-pass `{{placeholder}}` fill auto-fills org/customer/date and leaves a visible `[ԼՐԱՑՐԵՔ · FILL: x]` marker for the rest; Docs UI template picker derives its inputs from the template's declared variables.
 - ~~VAT-rate versioning~~ — **DONE** (`vat-rate-versioning`): the 2 project-billing `/1.2` sites now use `resolveVatRate(db, orgId, issueDate)` via a central `splitVatInclusive(total, rate)` helper, so an invoice freezes the VAT rate in force on its issue date (history stays correct when a future rate is scheduled). `GET /api/finance/tax-rates` + a read-only Finance "Tax rates" panel surface the effective-dated rate history. Writing a new rate stays DB-level only (mis-entered tax rate is high-impact; pro review required).
-- ~~Armenian legal/accounting copilot~~ — **DONE** (`armenian-copilot-mvp`): local advisory `POST /api/copilot/questions`, Gemini 3.5 Flash model policy metadata, Armenian-first UI/API/tests, citation-required VAT/privacy/e-sign guidance, deterministic payroll/VAT/month-close previews, proposed actions only, no external egress during validation.
+- ~~Armenian legal/accounting copilot~~ — **DONE** (`armenian-copilot-mvp`): local advisory `POST /api/copilot/questions`, Gemini 3.5 Flash model policy metadata, Armenian-first UI/API/tests, citation-required VAT/privacy/e-sign guidance, deterministic payroll/VAT/month-close previews, month-close no-close guardrail coverage, proposed actions only, no external egress during validation.
 - **Retire the in-repo `suite/`** — lives in the *separate* HayHashvapah hub repo, not this one.
 - **Accountant/lawyer review** of payroll/VAT rates + legal RAG content **required before production** tax/legal use.
 
