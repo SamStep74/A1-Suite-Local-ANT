@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-01 · main after Copilot advisory audit trail · 37 tags · **291 tests (291 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-01 · main after Copilot citation review evidence · 37 tags · **291 tests (291 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 10 slices)
+### Hardening (production-readiness pass — 11 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -45,6 +45,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 8. **Professional source signoff** adds a Lawyer demo role, preserves reviewer-role metadata, and requires Accountant review for tax/VAT sources plus Lawyer review for personal-data/e-sign sources before the readiness gate can pass.
 9. **Downstream professional source enforcement** applies the same Accountant/Lawyer source-signoff rule to Copilot proposed actions and downstream SRC/e-sign/privacy packet creation instead of trusting `legal_sources.status = active` alone.
 10. **Copilot advisory audit trail** records every legal/accounting Copilot answer as metadata-only `copilot.advisory.generated` suite and audit events, using a SHA-256 question hash instead of storing raw prompt/answer text in durable logs.
+11. **Copilot citation review evidence** renders each cited Armenian legal/accounting source with professional-review status, reviewer role/name, and latest review timestamp directly in the Copilot source list.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -92,13 +93,14 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest Copilot audit trail commit: `3705542` (`feat(copilot): audit advisory answers`), pushed with this handoff.
+- Latest Copilot citation evidence commit: `784f06e` (`feat(copilot): show source review evidence`), pushed with this handoff.
+- Previous Copilot audit trail commit: `3705542` (`feat(copilot): audit advisory answers`).
 - Previous downstream source enforcement commit: `c0a4225` (`feat(compliance): enforce professional source gates downstream`).
 - Previous professional source signoff commit: `357e874` (`feat(compliance): require professional source signoff`).
 - Previous production readiness commit: `3fe4f93` (`feat(compliance): add production readiness review gate`).
 - Previous copilot audit commit: `255ed4b` (`test(copilot): cover month-close preview guardrail`).
-- Verification from `~/dev/A1-Suite-Local`: `node --test test/copilot.test.js` = 10 pass; `npm run build:ui` = pass; `npm test` = 291 pass, 0 fail, 0 cancelled; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-copilot-audit-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass.
-- Browser proof: in-app Browser at `http://127.0.0.1:4178/` confirmed the real UI title `A1 Suite`, meaningful Armenian app content, no framework overlay, clean console, and no horizontal overflow in a narrow/mobile viewport. A Copilot VAT ask kept the answer visible while the Event bus immediately showed `copilot.advisory.generated`; the Audit panel state also contained `copilot.advisory.generated`. Screenshots: `/tmp/a1-suite-copilot-audit-answer.png` and `/tmp/a1-suite-copilot-audit-events.png`.
+- Verification from `~/dev/A1-Suite-Local`: `node --test test/copilot.test.js` = 10 pass; `npm run build:ui` = pass; `npm test` = 291 pass, 0 fail, 0 cancelled; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-copilot-source-evidence-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass.
+- Browser proof: in-app Browser loaded `http://127.0.0.1:4178/` and confirmed title/content/no overlay, but its CDP click/screenshot path timed out during interaction. Fallback Playwright proof covered mobile `390x844` and desktop `1280x900`: owner-only source maintenance rendered the citation as not professionally ready with `Սեփականատեր`, Accountant review rendered `Մասնագիտական վերանայում՝ Հաշվապահ · HayHashvapah Accountant`, console was clean after login, and both viewports had no horizontal overflow. Screenshots: `/tmp/a1-suite-copilot-source-evidence-missing.png`, `/tmp/a1-suite-copilot-source-evidence-owner.png`, `/tmp/a1-suite-copilot-source-evidence-accountant-mobile.png`, `/tmp/a1-suite-copilot-source-evidence-accountant-desktop.png`, plus final clean-console captures `/tmp/a1-suite-copilot-source-evidence-final-mobile.png` and `/tmp/a1-suite-copilot-source-evidence-final-desktop.png`.
 - Live preview for OPPO while the Mac is awake: server bound to `0.0.0.0:4178`; current LAN URL is `http://172.16.100.165:4178/`.
 - Next unchecked task from `2026-06-01-armenian-legal-accounting-copilot.md`: none; checklist is complete. The old "retire in-repo suite" note is moot in this repo because there is no `suite/` directory here.
 
@@ -127,6 +129,7 @@ Current checkpoint:
 - ~~Production readiness gate for accountant/lawyer review~~ — **DONE**: `GET /api/compliance/production-readiness` is a read-only compliance gate for Owner/Admin/Accountant/Lawyer/Auditor. Legal-source gates now require the latest active review to come from the matching professional role: Accountant for tax/VAT, Lawyer for personal-data and e-sign. Owner/Admin can still maintain source records, but their review alone does not clear production signoff.
 - ~~Downstream professional source enforcement~~ — **DONE**: Copilot citations include professional-review readiness, proposed actions stay disabled after owner-only source maintenance, and SRC/e-sign/privacy packet creation requires matching Accountant/Lawyer source review before generating governed evidence packets.
 - ~~Copilot advisory audit trail~~ — **DONE**: `POST /api/copilot/questions` now emits metadata-only `copilot.advisory.generated` suite/audit events, returns the fresh timeline events, and refreshes the rendered Event bus/Audit panels after an ask without persisting raw question or answer text in audit metadata.
+- ~~Copilot citation review evidence~~ — **DONE**: Copilot source rows now show professional-review status, reviewer role/name, and latest review date in Armenian UI; owner-only source maintenance is visibly blocked, while Accountant/Lawyer review is visibly ready.
 
 ---
 
