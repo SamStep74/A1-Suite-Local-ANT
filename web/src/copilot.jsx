@@ -1,18 +1,18 @@
 import React, { useMemo, useState } from "react";
 
 const INTENTS = [
-  ["vat", "VAT / SRC"],
-  ["payroll", "Payroll"],
-  ["personal-data", "Personal data"],
-  ["esign", "E-sign"],
-  ["month-close", "Month close"]
+  ["vat", "ԱԱՀ / SRC"],
+  ["payroll", "Աշխատավարձ"],
+  ["personal-data", "Անձնական տվյալներ"],
+  ["esign", "Է-ստորագրություն"],
+  ["month-close", "Ամսվա փակում"]
 ];
 
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 
 export function CopilotPanel({ customers, docs, people, onAsk, actionState }) {
   const [intent, setIntent] = useState("vat");
-  const [question, setQuestion] = useState("Can we prepare May VAT/SRC guidance for this customer?");
+  const [question, setQuestion] = useState("Կարո՞ղ ենք պատրաստել 2026-05 ԱԱՀ/SRC ներքին ուղեցույց այս հաճախորդի համար:");
   const [customerId, setCustomerId] = useState("cust-nare");
   const [periodKey, setPeriodKey] = useState("2026-05");
   const [employeeId, setEmployeeId] = useState("");
@@ -40,7 +40,7 @@ export function CopilotPanel({ customers, docs, people, onAsk, actionState }) {
     try {
       setResult(await onAsk(payload));
     } catch (err) {
-      setLocalError((err && err.message) || "Copilot request failed");
+      setLocalError((err && err.message) || "Copilot հարցումը ձախողվեց");
     }
   }
 
@@ -49,9 +49,9 @@ export function CopilotPanel({ customers, docs, people, onAsk, actionState }) {
       <div className="panel-head">
         <div>
           <span className="section-label">A1 Copilot</span>
-          <h2>Legal &amp; accounting copilot</h2>
+          <h2>Իրավական եւ հաշվապահական Copilot</h2>
         </div>
-        <strong className="aging-badge">local draft</strong>
+        <strong className="aging-badge">Gemini 3.5 Flash · hy</strong>
       </div>
 
       <div className="copilot-controls">
@@ -63,7 +63,7 @@ export function CopilotPanel({ customers, docs, people, onAsk, actionState }) {
         <textarea value={question} onChange={event => setQuestion(event.target.value)} rows={3} />
         <div className="inline-form">
           <select value={customerId} onChange={event => setCustomerId(event.target.value)}>
-            <option value="">No customer</option>
+            <option value="">Առանց հաճախորդի</option>
             {customerOptions.map(customer => <option key={customer.id} value={customer.id}>{customer.name}</option>)}
           </select>
           {(intent === "vat" || intent === "month-close") && (
@@ -72,19 +72,19 @@ export function CopilotPanel({ customers, docs, people, onAsk, actionState }) {
           {intent === "payroll" && (
             <>
               <select value={employeeId} onChange={event => setEmployeeId(event.target.value)}>
-                <option value="">Manual gross</option>
+                <option value="">Ձեռքով համախառն</option>
                 {employees.map(employee => <option key={employee.id} value={employee.id}>{employee.fullName}</option>)}
               </select>
-              <input value={gross} onChange={event => setGross(event.target.value)} inputMode="numeric" placeholder="Gross AMD" />
+              <input value={gross} onChange={event => setGross(event.target.value)} inputMode="numeric" placeholder="Համախառն AMD" />
             </>
           )}
           {intent === "esign" && (
             <select value={documentId} onChange={event => setDocumentId(event.target.value)}>
-              <option value="">Select document</option>
+              <option value="">Ընտրել փաստաթուղթ</option>
               {documents.map(doc => <option key={doc.id} value={doc.id}>{doc.title}</option>)}
             </select>
           )}
-          <button className="mini-action" type="button" disabled={busy} onClick={ask}>{busy ? "Asking" : "Ask"}</button>
+          <button className="mini-action" type="button" disabled={busy} onClick={ask}>{busy ? "Հարցնում է" : "Հարցնել"}</button>
         </div>
       </div>
 
@@ -98,18 +98,20 @@ function CopilotResult({ result }) {
   const citations = result.citations || [];
   const calculations = result.calculations || [];
   const actions = result.proposedActions || [];
+  const modelPolicy = result.modelPolicy || {};
   return (
     <div className="copilot-result">
       <p>{result.answer}</p>
       <div className="meta-row">
         <span>{result.intent}</span>
         <span>{result.riskLevel}</span>
-        <span>{result.confidence}% confidence</span>
-        <span>{result.reviewRequired ? "review required" : "review optional"}</span>
+        <span>{modelPolicy.model || "gemini-3.5-flash"} · {modelPolicy.language || "hy-AM"}</span>
+        <span>{result.confidence}% վստահություն</span>
+        <span>{result.reviewRequired ? "վերանայում պարտադիր է" : "վերանայումը ընտրովի է"}</span>
       </div>
       {calculations.length > 0 && (
         <div className="copilot-block">
-          <h3>Calculations</h3>
+          <h3>Հաշվարկներ</h3>
           {calculations.map(calc => (
             <div className="row" key={calc.kind}>
               <span>{calc.label}</span>
@@ -120,22 +122,22 @@ function CopilotResult({ result }) {
       )}
       {citations.length > 0 && (
         <div className="copilot-block">
-          <h3>Citations</h3>
+          <h3>Աղբյուրներ</h3>
           {citations.map(source => (
             <div className="row" key={source.id}>
               <span>{source.title} · {source.status}</span>
-              <strong>{source.effectiveDate || "no date"}</strong>
+              <strong>{source.effectiveDate || "առանց ամսաթվի"}</strong>
             </div>
           ))}
         </div>
       )}
       {actions.length > 0 && (
         <div className="copilot-block">
-          <h3>Proposed actions</h3>
+          <h3>Առաջարկվող քայլեր</h3>
           {actions.map(action => (
             <div className="row" key={action.key}>
               <span>{action.label}{action.disabledReason ? ` · ${action.disabledReason}` : ""}</span>
-              <strong>{action.method} {action.path || "blocked"}</strong>
+              <strong>{action.method} {action.path || "արգելափակված"}</strong>
             </div>
           ))}
         </div>
@@ -149,6 +151,6 @@ function formatCalculation(calc) {
   const outputs = calc.outputs || {};
   if (calc.kind === "vat-report") return money(outputs.netVatPayable);
   if (calc.kind === "payroll-preview") return money(outputs.net);
-  if (calc.kind === "trial-balance") return outputs.balanced ? "balanced" : "check";
+  if (calc.kind === "trial-balance") return outputs.balanced ? "հավասարակշռված" : "ստուգել";
   return Object.keys(outputs).length ? JSON.stringify(outputs) : "-";
 }

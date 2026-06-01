@@ -2,9 +2,9 @@
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
-**Goal:** Build the first shippable A1 Suite copilot slice: an offline, citation-required Armenian legal and accounting assistant that answers VAT, payroll, personal-data, e-signature, and month-close questions from existing A1 Suite data without mutating business records.
+**Goal:** Build the first shippable A1 Suite copilot slice: an Armenian-first, citation-required legal and accounting assistant that answers VAT, payroll, personal-data, e-signature, and month-close questions from existing A1 Suite data without mutating business records. The configured target model policy is `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, `COPILOT_LANGUAGE=hy-AM`; tests and local preview keep execution deterministic and outbound network disabled.
 
-**Architecture:** Add a read-only `POST /api/copilot/questions` endpoint that gathers existing domain context from Fastify/SQLite, then delegates answer shaping to a small pure `server/copilot.js` module. The React app gets one focused Copilot panel mounted in the existing workspace data-presence model. The copilot returns structured answers, citations, calculations, guardrails, and proposed actions; it does not execute SRC exports, privacy packets, document signing, payroll, or period close actions.
+**Architecture:** Add a read-only `POST /api/copilot/questions` endpoint that gathers existing domain context from Fastify/SQLite, then delegates answer shaping to a small pure `server/copilot.js` module. The React app gets one focused Copilot panel mounted in the existing workspace data-presence model. The copilot returns Armenian-first structured answers, Gemini 3.5 Flash model policy metadata, citations, calculations, guardrails, and proposed actions; it does not execute SRC exports, privacy packets, document signing, payroll, or period close actions.
 
 **Tech Stack:** Node 22, Fastify 5, `node:sqlite` `DatabaseSync`, existing `server/rag.js` BM25/hybrid legal retrieval, existing `server/ledger.js` / `server/payroll.js` / `server/accounting.js`, React + Vite, `node:test`, Browser plugin or Playwright for local UI proof.
 
@@ -20,6 +20,7 @@
 - Push every completed task commit to GitHub: `git push origin main`.
 - Do not enable outbound network for the product. Keep `ARMOSPHERA_ONE_ALLOW_EGRESS=0` in dev validation unless a test explicitly verifies egress blocking.
 - Legal/tax answers are internal draft guidance. Every VAT, privacy, e-signature, or legal-source answer must include `reviewRequired: true` and at least one cited legal source.
+- User-facing copilot docs, API assertions, and UI copy are Armenian-first (`hy-AM`). English remains only as stable product/API terms where useful, such as `SRC`, `Copilot`, and model identifiers.
 - The copilot may write audit events only if the implementation chooses to log advisory use. It must not create finance SRC exports, privacy requests, retention assessments, documents, signers, payroll runs, workflow approvals, or workflow runs.
 
 ## Research Inputs To Preserve In The Product Direction

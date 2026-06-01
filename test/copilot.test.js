@@ -38,7 +38,7 @@ test("copilot endpoint is auth-gated", async () => {
     const res = await app.inject({
       method: "POST",
       url: "/api/copilot/questions",
-      payload: { intent: "vat", customerId: "cust-nare", periodKey: "2026-05", question: "Explain VAT readiness." }
+      payload: { intent: "vat", customerId: "cust-nare", periodKey: "2026-05", question: "Բացատրեք ԱԱՀ պատրաստությունը:" }
     });
     assert.strictEqual(res.statusCode, 401);
   } finally {
@@ -61,7 +61,7 @@ test("VAT copilot returns cited legal/accounting guidance without creating SRC e
         intent: "vat",
         customerId: "cust-nare",
         periodKey: "2026-05",
-        question: "Can we prepare Armenian VAT and SRC guidance for the May 2026 period?"
+        question: "Կարո՞ղ ենք պատրաստել հայկական ԱԱՀ եւ SRC ուղեցույց 2026-05 ժամանակաշրջանի համար:"
       }
     });
 
@@ -72,7 +72,14 @@ test("VAT copilot returns cited legal/accounting guidance without creating SRC e
     assert.strictEqual(body.copilot.advisoryOnly, true);
     assert.strictEqual(body.copilot.reviewRequired, true);
     assert.strictEqual(body.copilot.riskLevel, "legal");
-    assert.ok(body.copilot.answer.includes("VAT") || body.copilot.answer.includes("ԱԱՀ"));
+    assert.deepStrictEqual(body.copilot.modelPolicy, {
+      provider: "gemini",
+      model: "gemini-3.5-flash",
+      language: "hy-AM",
+      executionMode: "offline-deterministic",
+      egress: "blocked-by-default"
+    });
+    assert.ok(body.copilot.answer.includes("Ներքին ԱԱՀ խորհրդատվության նախագիծ"));
     assert.ok(body.copilot.citations.some(source => source.id === "law-tax-code"));
     assert.ok(body.copilot.calculations.some(calc => calc.kind === "vat-report"));
     assert.ok(body.copilot.proposedActions.some(action => action.key === "finance.src.prepare" && action.mutates === true));
@@ -93,8 +100,8 @@ test("VAT copilot enables SRC proposal only after VAT source review", async () =
       app,
       cookie,
       "law-tax-code",
-      "RA Tax Code Article 63 VAT rate - accountant reviewed",
-      "Accountant confirmed this source is active for copilot VAT guidance."
+      "ՀՀ Հարկային օրենսգիրք հոդված 63 ԱԱՀ դրույքաչափ - հաշվապահի կողմից վերանայված",
+      "Հաշվապահը հաստատեց, որ աղբյուրը ակտիվ է Copilot-ի ԱԱՀ ուղեցույցի համար:"
     );
 
     const res = await app.inject({
@@ -105,7 +112,7 @@ test("VAT copilot enables SRC proposal only after VAT source review", async () =
         intent: "vat",
         customerId: "cust-nare",
         periodKey: "2026-05",
-        question: "Prepare internal VAT guidance and show the next SRC packet action."
+        question: "Պատրաստեք ներքին ԱԱՀ ուղեցույց եւ ցույց տվեք հաջորդ SRC փաթեթի քայլը:"
       }
     });
 
@@ -134,7 +141,7 @@ test("personal-data delete copilot proposes retention assessment, not deletion",
       payload: {
         intent: "personal-data",
         customerId: "cust-ani",
-        question: "Customer asks us to delete personal data. What is the safe Armenian-law workflow?"
+        question: "Հաճախորդը խնդրում է ջնջել անձնական տվյալները: Ո՞րն է անվտանգ հայկական իրավական հոսքը:"
       }
     });
 
@@ -142,8 +149,8 @@ test("personal-data delete copilot proposes retention assessment, not deletion",
     const copilot = res.json().copilot;
     assert.strictEqual(copilot.intent, "personal-data");
     assert.ok(copilot.citations.some(source => source.id === "law-personal-data"));
-    assert.ok(/retention|պահպան/i.test(copilot.answer));
-    assert.ok(copilot.guardrails.some(text => /not.*automatic|not executed automatically|չի կատարվում/i.test(text)));
+    assert.ok(/պահպան/i.test(copilot.answer));
+    assert.ok(copilot.guardrails.some(text => /չի կատարվում/i.test(text)));
     assert.ok(copilot.proposedActions.some(action => action.key === "privacy.request.prepare" && action.payload.requestType === "delete"));
     assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM privacy_requests").get().count, beforeRequests);
     assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM privacy_retention_assessments").get().count, beforeAssessments);
@@ -164,7 +171,7 @@ test("e-sign copilot cites signature source and includes document evidence", asy
       payload: {
         intent: "esign",
         documentId: "doc-anahit-nda",
-        question: "Can we rely on this NDA signature evidence internally?"
+        question: "Կարո՞ղ ենք ներքին օգտագործման համար հիմնվել այս NDA ստորագրության ապացույցի վրա:"
       }
     });
 
@@ -194,7 +201,7 @@ test("payroll copilot previews calculation without posting payroll run", async (
         intent: "payroll",
         gross: 600000,
         asOf: "2026-05-28",
-        question: "Preview Armenian payroll deductions for 600000 AMD gross salary."
+        question: "Նախադիտեք հայկական աշխատավարձի պահումները 600000 AMD համախառն աշխատավարձի համար:"
       }
     });
 
@@ -218,7 +225,7 @@ test("copilot enforces app access for finance intents", async () => {
       method: "POST",
       url: "/api/copilot/questions",
       headers: { cookie: supportCookie },
-      payload: { intent: "vat", customerId: "cust-nare", periodKey: "2026-05", question: "Explain VAT readiness." }
+      payload: { intent: "vat", customerId: "cust-nare", periodKey: "2026-05", question: "Բացատրեք ԱԱՀ պատրաստությունը:" }
     });
     assert.strictEqual(res.statusCode, 403);
   } finally {
@@ -235,7 +242,7 @@ test("copilot returns 404 for unknown customer or document", async () => {
       method: "POST",
       url: "/api/copilot/questions",
       headers: { cookie },
-      payload: { intent: "vat", customerId: "cust-nope", question: "Explain VAT." }
+      payload: { intent: "vat", customerId: "cust-nope", question: "Բացատրեք ԱԱՀ:" }
     });
     assert.strictEqual(badCustomer.statusCode, 404);
 
@@ -243,7 +250,7 @@ test("copilot returns 404 for unknown customer or document", async () => {
       method: "POST",
       url: "/api/copilot/questions",
       headers: { cookie },
-      payload: { intent: "esign", documentId: "doc-nope", question: "Review signature evidence." }
+      payload: { intent: "esign", documentId: "doc-nope", question: "Վերանայեք ստորագրության ապացույցը:" }
     });
     assert.strictEqual(badDoc.statusCode, 404);
   } finally {

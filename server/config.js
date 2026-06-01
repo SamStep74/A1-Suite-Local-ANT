@@ -85,7 +85,10 @@ async function safeFetch(url, options) {
 const ai = Object.freeze({
   provider: process.env.AI_PROVIDER || "local",
   localBaseUrl: process.env.LOCAL_AI_BASE_URL || "http://127.0.0.1:11434/v1",
-  localModel: process.env.LOCAL_AI_MODEL || "gemma3:4b"
+  localModel: process.env.LOCAL_AI_MODEL || "gemma3:4b",
+  copilotProvider: process.env.COPILOT_PROVIDER || "gemini",
+  copilotModel: process.env.COPILOT_MODEL || "gemini-3.5-flash",
+  copilotLanguage: process.env.COPILOT_LANGUAGE || "hy-AM"
 });
 
 const lawEmbed = Object.freeze({

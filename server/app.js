@@ -43983,8 +43983,21 @@ function createCopilotQuestion(db, user, body) {
     citations,
     calculations,
     context,
+    modelPolicy: getCopilotModelPolicy(),
     now: new Date().toISOString()
   });
+}
+
+function getCopilotModelPolicy() {
+  const geminiHostAllowed = config.egressAllowlist().some(host => /(^|\.)googleapis\.com$|^generativelanguage\.googleapis\.com$/.test(host));
+  const externalReady = config.allowEgress() && geminiHostAllowed;
+  return {
+    provider: config.ai.copilotProvider,
+    model: config.ai.copilotModel,
+    language: config.ai.copilotLanguage,
+    executionMode: externalReady ? "external-opt-in" : "offline-deterministic",
+    egress: externalReady ? "allowlisted" : "blocked-by-default"
+  };
 }
 
 function getCopilotCustomer(db, orgId, customerId) {
@@ -44090,10 +44103,10 @@ function getCopilotCitations(db, orgId, intent, question) {
 }
 
 function copilotLegalExcerpt(sourceId, question) {
-  if (sourceId === "law-tax-code") return `VAT source anchor for: ${String(question || "").slice(0, 160)}`;
-  if (sourceId === "law-personal-data") return `Personal-data consent/export/delete source anchor for: ${String(question || "").slice(0, 160)}`;
-  if (sourceId === "law-esign") return `Electronic document/signature source anchor for: ${String(question || "").slice(0, 160)}`;
-  return "Configured Armenian legal source registry.";
+  if (sourceId === "law-tax-code") return `ԱԱՀ աղբյուրի հիմք. ${String(question || "").slice(0, 160)}`;
+  if (sourceId === "law-personal-data") return `Անձնական տվյալների համաձայնության, արտահանման կամ ջնջման աղբյուրի հիմք. ${String(question || "").slice(0, 160)}`;
+  if (sourceId === "law-esign") return `Էլեկտրոնային փաստաթղթի կամ ստորագրության աղբյուրի հիմք. ${String(question || "").slice(0, 160)}`;
+  return "Կազմաձեւված հայկական իրավական աղբյուրների ռեեստր:";
 }
 
 function getCopilotCalculations(db, orgId, intent, body, context) {
@@ -44101,7 +44114,7 @@ function getCopilotCalculations(db, orgId, intent, body, context) {
     const report = ledger.vatReport(db, orgId, context.periodKey);
     return [{
       kind: "vat-report",
-      label: `VAT report for ${context.periodKey}`,
+      label: `ԱԱՀ հաշվետվություն ${context.periodKey}`,
       inputs: { periodKey: context.periodKey },
       outputs: {
         outputVat: report.outputVat,
@@ -44120,7 +44133,7 @@ function getCopilotCalculations(db, orgId, intent, body, context) {
     const calc = payroll.calculatePayroll(gross, { config: resolvePayrollConfig(db, orgId, context.asOf) });
     return [{
       kind: "payroll-preview",
-      label: `Payroll preview for ${context.asOf}`,
+      label: `Աշխատավարձի նախադիտում ${context.asOf}`,
       inputs: { gross, asOf: context.asOf, employeeId: context.employee?.id || "" },
       outputs: calc
     }];
@@ -44131,13 +44144,13 @@ function getCopilotCalculations(db, orgId, intent, body, context) {
     return [
       {
         kind: "trial-balance",
-        label: "Trial balance",
+        label: "Փորձնական հաշվեկշիռ",
         inputs: { periodKey: context.periodKey },
         outputs: { balanced: tb.balanced, totalDebit: tb.totalDebit, totalCredit: tb.totalCredit }
       },
       {
         kind: "vat-report",
-        label: `VAT report for ${context.periodKey}`,
+        label: `ԱԱՀ հաշվետվություն ${context.periodKey}`,
         inputs: { periodKey: context.periodKey },
         outputs: { outputVat: vat.outputVat, inputVat: vat.inputVat, netVatPayable: vat.netVatPayable }
       }
