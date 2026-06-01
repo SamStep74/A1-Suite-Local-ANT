@@ -11,6 +11,7 @@ import { ProductionReadinessPanel } from "./compliance.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
 import { FormCreateForm, FormsRegistryPanel } from "./forms.jsx";
 import { loadOr } from "./load-section.js";
+import { loadAuditForRole } from "./audit-access.js";
 
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 const sensitiveMoney = value => value === null || value === "restricted" ? "restricted" : money(value);
@@ -82,10 +83,6 @@ async function api(path, options = {}) {
     throw error;
   }
   return data;
-}
-
-function canReadAudit(role) {
-  return ["Owner", "Admin", "Auditor"].includes(role);
 }
 
 function App() {
@@ -598,12 +595,8 @@ function App() {
         setWebhookDeliveries([]);
         setAdminBackups([]);
       }
-      if (canReadAudit(data.user.role)) {
-        const auditData = await loadOr({}, () => api("/api/audit"));
-        setAudit(auditData.events || []);
-      } else {
-        setAudit([]);
-      }
+      const auditData = await loadOr({}, () => loadAuditForRole(data.user.role, () => api("/api/audit")));
+      setAudit(auditData.events || []);
     } catch (error) {
       if (error.status === 401) {
         setSession(null);
@@ -1146,10 +1139,8 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
       if (data.events) {
         onSuiteEvents?.(data.events);
       }
-      if (canReadAudit(suite.user.role)) {
-        const auditData = await loadOr({}, () => api("/api/audit"));
-        onAuditEvents?.(auditData.events || []);
-      }
+      const auditData = await loadOr({}, () => loadAuditForRole(suite.user.role, () => api("/api/audit")));
+      onAuditEvents?.(auditData.events || []);
       return data.copilot;
     } catch (err) {
       reportActionError(err);

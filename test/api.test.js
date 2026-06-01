@@ -98,6 +98,15 @@ test("global audit feed is limited to audit reader roles", async () => {
     const serviceManagerAudit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: serviceManagerCookie } });
     assert.equal(serviceManagerAudit.statusCode, 403);
 
+    const orgId = app.db.prepare("SELECT org_id AS orgId FROM users WHERE email = ?").get(DEFAULT_EMAIL).orgId;
+    const ownerPasswordHash = app.db.prepare("SELECT password_hash AS hash FROM users WHERE email = ?").get(DEFAULT_EMAIL).hash;
+    app.db.prepare("INSERT INTO users (id, org_id, email, name, role, password_hash, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)")
+      .run("user-admin-audit-reader", orgId, "admin-audit@armosphera.local", "Admin Audit Reader", "Admin", ownerPasswordHash, new Date().toISOString());
+    const adminCookie = await login(app, "admin-audit@armosphera.local");
+    const adminAudit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: adminCookie } });
+    assert.equal(adminAudit.statusCode, 200, adminAudit.body);
+    assert.ok(adminAudit.json().events.some(event => event.type === "auth.login"));
+
     const ownerCookie = await login(app);
     const ownerAudit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: ownerCookie } });
     assert.equal(ownerAudit.statusCode, 200, ownerAudit.body);

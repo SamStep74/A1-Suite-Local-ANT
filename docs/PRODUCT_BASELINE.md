@@ -1702,4 +1702,4 @@ Status: shipped in the local prototype on 2026-05-28.
 - The global `/api/audit` feed is now an explicit audit-reader surface limited to Owner/Admin/Auditor roles; unauthenticated users still receive `401`, while Support, Accountant, and Service Manager users receive `403`.
 - The React workspace skips the global audit fetch for non-audit-reader roles, preserving their app workflow access without leaking organization-wide audit details.
 - Accepted legal source reviews still preserve the full reviewer note in the canonical `legal_source_reviews` record, but `legal.source.reviewed` suite/audit metadata now stores only `reviewNoteHash` and `reviewNoteLength`.
-- Added API tests proving audit feed role gating, accepted legal-source review note non-leakage, Salesperson and Service Manager workflow compatibility, and Owner/Auditor audit-reader access.
+- Added API and frontend helper tests proving audit feed role gating, accepted legal-source review note non-leakage, Salesperson and Service Manager workflow compatibility, Owner/Admin/Auditor audit-reader access, and non-audit-reader UI audit-fetch suppression.
