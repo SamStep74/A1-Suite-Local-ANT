@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-05-31 · HEAD `c736853` · 89 commits · 32 tags · **263 tests (263 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-01 · main after docs-export slice · 33 tags · **267 tests (267 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -25,7 +25,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 | **Finance** | complete (BE+UI) | double-entry ledger on RA chart of accounts; AR/AP/expenses/payroll/VAT/statements/opening-balances; history lists |
 | **Desk** | complete (BE+UI) | helpdesk: create/list/transition/reassign, escalation governance |
 | **People-HR** | complete (BE+UI) | employee registry (ՀՎՀՀ/salary) → payroll → ledger |
-| **Docs & Sign** | complete (BE+UI) | document + multi-signer e-signature lifecycle, SHA-256 consent, local-only signers |
+| **Docs & Sign** | complete (BE+UI) | document + multi-signer e-signature lifecycle, SHA-256 consent, local-only signers, printable Save-as-PDF evidence certificate |
 | **Projects** | complete (BE+UI) | projects→tasks→milestones→time entries; lazy detail expander |
 | **Forms** | complete (BE+UI) | intake forms; PUBLIC submit → creates a CRM lead (rate-limited, key-whitelisted) |
 
@@ -70,11 +70,11 @@ npm run build:ui     # vite build → public/
 npm test             # node --test  (see caveat below)
 ```
 
-### ⚠ CRITICAL ENV CAVEAT — test runner flakiness on the OneDrive-synced working dir
-`node --test` (especially the full suite) **stalls / reports `cancelled`** when run directly in this OneDrive-synced folder — filesystem contention reading the 49k-line `app.js`, made worse by parallel agents. **This is NOT a code failure** (`cancelled` ≠ `failed`). Reliable verification:
+### ⚠ ENV CAVEAT — old OneDrive copy was flaky
+`node --test` previously stalled / reported `cancelled` in the OneDrive-synced folder because of filesystem contention around the large `app.js`. The local `~/dev/A1-Suite-Local` checkout is the reliable working tree. If a future run regresses only in a synced/cloud folder, verify from this local checkout before treating it as a code failure. Reliable fallback patterns:
 - **Per-file**: `node --test test/<one>.test.js` (one short invocation).
 - **Clean worktree**: `git worktree add --detach /tmp/run HEAD && ln -s "$PWD/node_modules" /tmp/run/ && cd /tmp/run && node --test test/*.test.js`.
-- Last clean full-suite run: **170 tests / 169 pass / 1 cancelled (env timeout) / 0 fail** (grew from 152 as parallel agents added systematic tenant-isolation + RBAC coverage: foreign-org → 404 on every `:id` route across service/forms, all-role access pinned on intentionally-open endpoints). Heaviest file `api.test.js` in isolation: 125/126 (the 1 again a timeout, not an assertion).
+- Last clean full-suite run from `~/dev/A1-Suite-Local`: **268 tests / 268 pass / 0 fail / 0 cancelled**.
 
 ---
 
@@ -87,7 +87,8 @@ npm test             # node --test  (see caveat below)
 - ~~Employee payroll-history detail~~ — **DONE** (`employee-payroll-fk`): `employee_id` FK on `payroll_runs` (ON DELETE SET NULL), `GET /api/people/employees/:id/payroll-runs`, lazy per-employee history expander in the People-HR panel. Generic `/payroll/run` accepts an optional validated `employeeId`.
 - ~~Docs signature-status detail expander~~ — **DONE** (`docs-signature-evidence`): per-signer SHA-256 + sealed doc hash, toggle in the Docs panel.
 - ~~Forms public rendered page~~ — **DONE** (`forms-public-page`): `GET /f/:id` server-renders a published form as a standalone HTML page (no auth/SPA bundle), HTML-escaped (stored-XSS guard), posts to the rate-limited submit endpoint; draft/unknown → 404.
-- **Docs templates + signed-PDF export**, **VAT-rate versioning UI** (the `resolveVatRate` seam exists; the 7 inline `/1.2` sites weren't rewritten — low rate-change risk).
+- ~~Docs signed-PDF export~~ — **DONE** (`docs-export`): authenticated `/api/docs/documents/:id/export` renders a self-contained printable certificate with `@media print`, pending/draft/voided watermarks, signer SHA-256 evidence, sealed document hash, cross-org 404, and HTML escaping.
+- **Docs templates**, **VAT-rate versioning UI** (the `resolveVatRate` seam exists; the 7 inline `/1.2` sites weren't rewritten — low rate-change risk).
 - **Retire the in-repo `suite/`** — lives in the *separate* HayHashvapah hub repo, not this one.
 - **Accountant/lawyer review** of payroll/VAT rates + legal RAG content **required before production** tax/legal use.
 

@@ -2295,6 +2295,24 @@ function registerApi(app, db, options = {}) {
     return { ok: true, document: getDocument(db, user.org_id, document.id) };
   });
 
+  // Printable signed-document certificate. Sovereign/offline product carries no PDF library —
+  // instead we server-render a self-contained HTML page with @media print styles, so the
+  // browser's native "Save as PDF" produces the archival copy (and renders Armenian via system
+  // fonts, which a hand-rolled PDF writer could not without an embedded CID font). The page
+  // presents the immutable consent chain (per-signer SHA-256 + sealed document hash) that the
+  // sign/seal flow already computed — it derives no new evidence.
+  app.get("/api/docs/documents/:id/export", async (request, reply) => {
+    const user = await app.auth(request);
+    const document = getDocument(db, user.org_id, request.params.id);
+    if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
+    const org = getOrganization(db, user.org_id);
+    const customer = document.customerId
+      ? db.prepare("SELECT name FROM customers WHERE org_id = ? AND id = ?").get(user.org_id, document.customerId)
+      : null;
+    reply.type("text/html");
+    return renderDocumentCertificate({ document, org, customerName: customer ? customer.name : "", escape: escapeFormHtml });
+  });
+
   // Projects — client projects → tasks → milestones → time entries (delivery tracking).
   const PROJECT_STATUSES = ["planning", "active", "on-hold", "completed", "cancelled"];
   const TASK_STATUSES = ["todo", "in-progress", "done"];
@@ -3037,6 +3055,7 @@ function registerApi(app, db, options = {}) {
       { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[ch]
     ));
   }
+
   function renderPublicFormPage(form, fields) {
     const title = escapeFormHtml(form.title);
     const controls = fields.map(f => {
@@ -4517,6 +4536,122 @@ function requireDocsSigner(user) {
     err.statusCode = 403;
     throw err;
   }
+}
+
+function documentCertificateState(status) {
+  switch (status) {
+    case "signed":
+      return { sealed: true, watermark: "", bannerClass: "ok", bannerText: "ԿՆՔՎԱԾ · SEALED" };
+    case "out-for-signature":
+      return { sealed: false, watermark: "ՍՊԱՍՈՒՄ · PENDING", bannerClass: "warn", bannerText: "ՍՊԱՍՈՒՄ Է ՍՏՈՐԱԳՐՈՒԹՅԱՆ · PENDING SIGNATURE — not yet sealed" };
+    case "voided":
+      return { sealed: false, watermark: "ՉԵՂԱՐԿՎԱԾ · VOIDED", bannerClass: "void", bannerText: "ՉԵՂԱՐԿՎԱԾ · VOIDED — this document has no legal effect" };
+    default:
+      return { sealed: false, watermark: "ՆԱԽԱԳԻԾ · DRAFT", bannerClass: "warn", bannerText: "ՆԱԽԱԳԻԾ · DRAFT — not yet sent for signature, not sealed" };
+  }
+}
+
+function renderDocumentCertificate({ document, org, customerName, escape }) {
+  const esc = escape;
+  const state = documentCertificateState(document.status);
+  const orgName = esc((org && (org.legal_name || org.name)) || "A1 Suite");
+  const orgTaxId = esc((org && org.tax_id) || "");
+  const fmtTs = ts => esc(String(ts || "").replace("T", " ").slice(0, 16));
+  const bodyHtml = esc(document.body || "").replace(/\n/g, "<br />");
+  const signers = document.signers || [];
+  const signerRows = signers.map(s => {
+    const signed = s.status === "signed";
+    return `<tr>
+      <td>${esc(s.signerName)}${s.signerEmail ? `<div class="muted">${esc(s.signerEmail)}</div>` : ""}</td>
+      <td>${signed ? "ստորագրված · signed" : esc(s.status)}</td>
+      <td>${signed ? fmtTs(s.signedAt) : "—"}</td>
+      <td class="hash">${signed && s.checksum ? esc(s.checksum) : "—"}</td>
+    </tr>`;
+  }).join("\n");
+  const sealedBlock = state.sealed && document.sealedChecksum
+    ? `<div class="seal">
+         <div class="seal-title">Կնքված ամբողջական ստորագրությամբ · Fully executed &amp; sealed</div>
+         <div class="muted">Կնքման ամսաթիվ · Sealed at: ${fmtTs(document.sealedAt)}</div>
+         <div class="hash seal-hash">Փաստաթղթի SHA-256 · Document hash:<br />${esc(document.sealedChecksum)}</div>
+       </div>`
+    : `<div class="seal not-sealed">
+         <div class="seal-title">Չի կնքվել · Not yet sealed</div>
+         <div class="muted">This copy has no legal effect until all parties have signed.</div>
+       </div>`;
+  const watermarkHtml = state.watermark
+    ? `<div class="watermark" aria-hidden="true">${esc(state.watermark)}</div>`
+    : "";
+  return `<!doctype html>
+<html lang="hy"><head><meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<meta name="robots" content="noindex" />
+<title>${esc(document.title)} — ${orgName}</title>
+<style>
+  :root { --teal:#1E3A3A; --line:#d4dada; --muted:#5d6b6b; --warn:#8a5a00; --void:#8a1500; --ok:#1E3A3A; }
+  * { box-sizing: border-box; }
+  body { margin:0; font-family: system-ui, -apple-system, "Segoe UI", Roboto, "Noto Sans Armenian", sans-serif; color:#152020; background:#eef1f1; }
+  .sheet { position:relative; max-width: 760px; margin: 24px auto; background:#fff; border:1px solid var(--line); border-radius:10px; padding:40px 44px; overflow:hidden; }
+  .org { font-size:13px; letter-spacing:.06em; text-transform:uppercase; color:var(--teal); font-weight:700; }
+  .org .tax { color:var(--muted); font-weight:500; letter-spacing:0; text-transform:none; }
+  h1 { font-size:24px; margin:10px 0 4px; }
+  .doctype { color:var(--muted); font-size:13px; text-transform:uppercase; letter-spacing:.05em; }
+  .banner { margin:18px 0; padding:10px 14px; border-radius:8px; font-weight:700; font-size:14px; border:1px solid; }
+  .banner.ok { color:var(--ok); border-color:var(--teal); background:#eaf3f0; }
+  .banner.warn { color:var(--warn); border-color:#d8b15a; background:#fbf3df; }
+  .banner.void { color:var(--void); border-color:#d88a7a; background:#fbe7e2; }
+  .body { margin:22px 0; line-height:1.6; font-size:15px; white-space:normal; }
+  h2 { font-size:13px; text-transform:uppercase; letter-spacing:.05em; color:var(--muted); margin:26px 0 8px; }
+  table { width:100%; border-collapse:collapse; font-size:13px; }
+  th, td { text-align:left; padding:8px 10px; border-bottom:1px solid var(--line); vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  .muted { color:var(--muted); font-size:12px; }
+  .hash { font-family: ui-monospace, "SF Mono", Menlo, monospace; font-size:11px; overflow-wrap:anywhere; word-break:break-word; color:#334747; }
+  .seal { margin-top:24px; padding:16px; border:1px solid var(--line); border-radius:8px; background:#f7faf9; }
+  .seal.not-sealed { background:#fbf6ea; }
+  .seal-title { font-weight:700; margin-bottom:4px; }
+  .seal-hash { margin-top:8px; }
+  .watermark { position:absolute; top:50%; left:50%; transform:translate(-50%,-50%) rotate(-30deg); font-size:64px; font-weight:800; color:rgba(138,21,0,.08); white-space:nowrap; pointer-events:none; letter-spacing:.1em; }
+  .footer { margin-top:28px; padding-top:14px; border-top:1px solid var(--line); color:var(--muted); font-size:11px; }
+  @media print {
+    body { background:#fff; }
+    .sheet { border:0; border-radius:0; margin:0; max-width:none; padding:0; }
+    .no-print { display:none !important; }
+    @page { margin: 18mm; }
+  }
+  .toolbar { max-width:760px; margin:16px auto 0; text-align:right; }
+  .toolbar button { background:var(--teal); color:#fff; border:0; border-radius:8px; padding:9px 16px; font-size:14px; font-weight:600; cursor:pointer; }
+  @media (max-width: 640px) {
+    .sheet { margin: 16px 0; padding: 28px 22px; border-left:0; border-right:0; border-radius:0; }
+    .toolbar { padding: 0 12px; }
+    table, thead, tbody, tr, th, td { display:block; width:100%; }
+    thead { display:none; }
+    tr { border-bottom:1px solid var(--line); padding:8px 0; }
+    td { border-bottom:0; padding:4px 0; }
+    td::before { display:block; color:var(--muted); font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.04em; }
+    td:nth-child(1)::before { content:"Name"; }
+    td:nth-child(2)::before { content:"Status"; }
+    td:nth-child(3)::before { content:"Signed"; }
+    td:nth-child(4)::before { content:"SHA-256"; }
+  }
+</style></head>
+<body>
+  <div class="toolbar no-print"><button type="button" onclick="window.print()">Տպել / Save as PDF</button></div>
+  <div class="sheet">
+    ${watermarkHtml}
+    <div class="org">${orgName}${orgTaxId ? ` · <span class="tax">ՀՎՀՀ ${orgTaxId}</span>` : ""}</div>
+    <h1>${esc(document.title)}</h1>
+    <div class="doctype">${esc(document.docType)}${customerName ? ` · ${esc(customerName)}` : ""}</div>
+    <div class="banner ${state.bannerClass}">${esc(state.bannerText)}</div>
+    <div class="body">${bodyHtml}</div>
+    <h2>Ստորագրողներ · Signers</h2>
+    <table>
+      <thead><tr><th>Անուն · Name</th><th>Կարգավիճակ · Status</th><th>Ստորագրված · Signed</th><th>SHA-256</th></tr></thead>
+      <tbody>${signerRows || `<tr><td colspan="4" class="muted">Ստորագրողներ չկան · No signers</td></tr>`}</tbody>
+    </table>
+    ${sealedBlock}
+    <div class="footer">Generated by ${orgName} · A1 Suite · ${fmtTs(new Date().toISOString())}</div>
+  </div>
+</body></html>`;
 }
 
 function getDocumentSigners(db, orgId, documentId) {

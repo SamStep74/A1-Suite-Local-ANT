@@ -58,9 +58,12 @@ export function DocsRegistryPanel({ data, canWrite, onAddSigner, onSend, onSign,
           const busyDoc = actionState === `doc:act:${doc.id}`;
           return (
             <div className="row" key={doc.id} style={{ flexDirection: "column", alignItems: "stretch", gap: "6px" }}>
-              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", gap: "8px", alignItems: "center" }}>
                 <span>{doc.title} · {doc.docType} · <strong>{doc.status}</strong>{signers.length ? ` · ${signedCount}/${signers.length} signed` : ""}{doc.sealedAt ? " · sealed ✓" : ""}</span>
-                <span className={statusClass(doc.status)}>{doc.status}</span>
+                <span style={{ display: "flex", gap: "8px", alignItems: "center" }}>
+                  <a className="mini-action secondary" href={`/api/docs/documents/${encodeURIComponent(doc.id)}/export`} target="_blank" rel="noreferrer" title="Open a printable certificate (Save as PDF)">Export / print</a>
+                  <span className={statusClass(doc.status)}>{doc.status}</span>
+                </span>
               </div>
               {signers.length > 0 && (
                 <div style={{ fontSize: "0.85em", opacity: 0.85 }}>

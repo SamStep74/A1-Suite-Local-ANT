@@ -1116,6 +1116,9 @@ textarea {
 }
 
 .mini-action {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
   min-height: 32px;
   min-width: 88px;
   border: 1px solid var(--ruby);
@@ -1124,6 +1127,10 @@ textarea {
   color: #fff;
   font-size: 12px;
   font-weight: 900;
+  line-height: 1;
+  text-align: center;
+  text-decoration: none;
+  cursor: pointer;
 }
 
 .mini-action:disabled {
