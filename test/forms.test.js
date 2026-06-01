@@ -55,13 +55,24 @@ test("forms: definition CRUD is auth-gated; public submit creates a CRM lead", a
     // The lead now exists in CRM
     const leadsAfter = (await app.inject({ method: "GET", url: "/api/crm/leads", headers: { cookie: owner } })).json();
     assert.strictEqual((leadsAfter.leads || []).length, beforeCount + 1, "a CRM lead was created from the public submission");
-    assert.ok((leadsAfter.leads || []).some(l => l.email === "aram@example.com"), "lead carries the submitted email");
+    const publicLead = (leadsAfter.leads || []).find(l => l.email === "aram@example.com");
+    assert.ok(publicLead, "lead carries the submitted email");
+    assert.strictEqual(publicLead.createdByName || null, null, "public form lead is not attributed to a human owner");
 
     // The submission is recorded against the form, linked to the lead
     const formDetail = (await app.inject({ method: "GET", url: "/api/forms/form-lead-intake", headers: { cookie: owner } })).json();
     assert.ok(formDetail.form.submissions.length >= 1, "submission recorded");
     assert.ok(formDetail.form.submissions[0].leadId, "submission linked to a lead");
     assert.strictEqual(formDetail.form.submissions[0].data.email, "aram@example.com");
+
+    const formAudit = app.db.prepare("SELECT user_id AS userId FROM audit_events WHERE type = 'forms.submission.received' ORDER BY rowid DESC LIMIT 1").get();
+    assert.strictEqual(formAudit.userId, null, "public submission audit is not attributed to a human owner");
+    const leadAudit = app.db.prepare("SELECT user_id AS userId FROM audit_events WHERE type = 'crm.lead.created' AND details LIKE ? ORDER BY rowid DESC LIMIT 1")
+      .get(`%${publicLead.id}%`);
+    assert.strictEqual(leadAudit.userId, null, "public lead audit is not attributed to a human owner");
+    const leadEvent = app.db.prepare("SELECT actor_user_id AS actorUserId FROM suite_events WHERE event_type = 'crm.lead.created' AND subject_id = ? ORDER BY id DESC LIMIT 1")
+      .get(publicLead.id);
+    assert.strictEqual(leadEvent.actorUserId, null, "public lead timeline event is not attributed to a human owner");
   } finally { await app.close(); }
 });
 

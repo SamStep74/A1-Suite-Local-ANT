@@ -74,3 +74,20 @@ test("public quotes: POST accept is per-IP rate limited (429 after the burst)", 
     assert.ok(limited > 0, "excess accept attempts from one IP must be 429");
   } finally { await app.close(); }
 });
+
+test("public quotes: acceptance evidence records the direct client IP", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ip = "198.51.100.33";
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/public/quotes/${SEEDED_TOKEN}/accept`,
+      payload: { signerName: "Direct Buyer", signerEmail: "buyer@example.com" },
+      remoteAddress: ip
+    });
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const row = app.db.prepare("SELECT ip_address AS ipAddress FROM quote_acceptances WHERE quote_id = ?").get(res.json().quote.id);
+    assert.strictEqual(row.ipAddress, ip);
+  } finally { await app.close(); }
+});

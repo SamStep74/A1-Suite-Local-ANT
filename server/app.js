@@ -2762,35 +2762,30 @@ function registerApi(app, db, options = {}) {
     }
     const now = new Date().toISOString();
     const submissionIp = String(request.ip || "").slice(0, 64);
-    // Synthesize the org's system actor (Owner) so the lead is created the SAME way the
-    // authenticated CRM path does — the public caller never gets a session/identity.
-    const actor = db.prepare("SELECT id, name, email, role, org_id FROM users WHERE org_id = ? AND role = 'Owner' ORDER BY created_at ASC LIMIT 1").get(orgId);
     let leadId = null;
-    if (actor) {
-      try {
-        const lead = createCrmLead(db, actor, {
-          companyName: data.companyName || data.company || data.contactName || "Form submission",
-          contactName: data.contactName || data.name || data.companyName || "Unknown",
-          email: data.email || "",
-          phone: data.phone || "",
-          interest: data.interest || data.message || "Submitted via intake form",
-          source: "Web form",
-          channel: "Form",
-          consentStatus: "consent-review-required"
-        });
-        leadId = lead ? lead.id : null;
-      } catch (err) {
-        // A malformed submission shouldn't 500 the public endpoint — record the submission
-        // without a lead (lead validation is stricter than raw capture).
-        leadId = null;
-      }
+    try {
+      const lead = createCrmLead(db, { id: null, org_id: orgId }, {
+        companyName: data.companyName || data.company || data.contactName || "Form submission",
+        contactName: data.contactName || data.name || data.companyName || "Unknown",
+        email: data.email || "",
+        phone: data.phone || "",
+        interest: data.interest || data.message || "Submitted via intake form",
+        source: "Web form",
+        channel: "Form",
+        consentStatus: "consent-review-required"
+      }, { createdByUserId: null, actorUserId: null, auditUserId: null });
+      leadId = lead ? lead.id : null;
+    } catch (err) {
+      // A malformed submission shouldn't 500 the public endpoint — record the submission
+      // without a lead (lead validation is stricter than raw capture).
+      leadId = null;
     }
     const submissionId = randomId("fsub");
     db.prepare(`INSERT INTO form_submissions (id, org_id, form_id, data, lead_id, submitter_ip, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(submissionId, orgId, formRow.id, JSON.stringify(data), leadId, submissionIp, now);
     db.prepare("UPDATE forms SET submission_count = submission_count + 1, updated_at = ? WHERE id = ?").run(now, formRow.id);
-    audit(db, orgId, actor ? actor.id : null, "forms.submission.received", { formId: formRow.id, submissionId, leadId });
+    audit(db, orgId, null, "forms.submission.received", { formId: formRow.id, submissionId, leadId });
     // Public response: minimal, never leak org/lead internals back to the anonymous caller.
     return { ok: true, received: true };
   });
@@ -3267,7 +3262,7 @@ ${controls}
       err.statusCode = 404;
       throw err;
     }
-    return { ok: true, ...(await acceptPublicQuote(db, quote, request.body || {}, request.headers)) };
+    return { ok: true, ...(await acceptPublicQuote(db, quote, request.body || {}, { headers: request.headers, ip: request.ip })) };
   });
 
   app.post("/api/finance/periods/:periodKey/close", async request => {
@@ -40586,7 +40581,7 @@ function formatAccessReview(row, includePayload = false) {
   return review;
 }
 
-function createCrmLead(db, user, body) {
+function createCrmLead(db, user, body, options = {}) {
   const leadInput = normalizeCrmLeadInput(body);
   const score = calculateCrmLeadScore(leadInput);
   const rating = score >= 80 ? "hot" : score >= 55 ? "warm" : "cold";
@@ -40595,6 +40590,9 @@ function createCrmLead(db, user, body) {
   const nextAction = chooseLeadNextAction(leadInput, score);
   const now = new Date().toISOString();
   const leadId = randomId("lead");
+  const createdByUserId = Object.prototype.hasOwnProperty.call(options, "createdByUserId") ? options.createdByUserId : user.id;
+  const actorUserId = Object.prototype.hasOwnProperty.call(options, "actorUserId") ? options.actorUserId : user.id;
+  const auditUserId = Object.prototype.hasOwnProperty.call(options, "auditUserId") ? options.auditUserId : user.id;
   db.prepare(`
     INSERT INTO crm_leads (
       id, org_id, company_name, contact_name, email, phone, tax_id, segment,
@@ -40623,20 +40621,20 @@ function createCrmLead(db, user, body) {
     status,
     routedTo?.id || null,
     nextAction,
-    user.id,
+    createdByUserId || null,
     now,
     now
   );
   emitSuiteEvent(db, {
     orgId: user.org_id,
-    actorUserId: user.id,
+    actorUserId: actorUserId || null,
     eventType: "crm.lead.created",
     subjectType: "crm_lead",
     subjectId: leadId,
     status,
     payload: { score, rating, segment: leadInput.segment, estimatedValue: leadInput.estimatedValue, channel: leadInput.channel }
   });
-  audit(db, user.org_id, user.id, "crm.lead.created", { leadId, score, rating, routedToUserId: routedTo?.id || null });
+  audit(db, user.org_id, auditUserId || null, "crm.lead.created", { leadId, score, rating, routedToUserId: routedTo?.id || null });
   return getCrmLead(db, user.org_id, leadId);
 }
 
@@ -46051,7 +46049,10 @@ function formatPrivacyRetentionAssessment(row) {
   };
 }
 
-async function acceptPublicQuote(db, publicQuote, body, headers = {}) {
+async function acceptPublicQuote(db, publicQuote, body, evidence = {}) {
+  const headers = evidence.headers || evidence;
+  const directIp = String(evidence.ip || "").trim();
+  const forwardedIp = String(headers["x-forwarded-for"] || headers["x-real-ip"] || "").split(",")[0].trim();
   const quote = publicQuote.quote;
   const orgId = publicQuote.organization.id;
   const existingAcceptance = getQuoteAcceptanceByQuote(db, orgId, quote.id);
@@ -46100,7 +46101,7 @@ async function acceptPublicQuote(db, publicQuote, body, headers = {}) {
     signerName,
     signerEmail,
     acceptedAt,
-    String(headers["x-forwarded-for"] || headers["x-real-ip"] || ""),
+    (directIp || forwardedIp).slice(0, 64),
     String(headers["user-agent"] || ""),
     now
   );
