@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
-import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel, FinanceOpeningBalancesPanel, FinanceOpeningBalancesForm, FinanceExpenseListPanel, FinanceBillListPanel, FinancePayrollRunsPanel } from "./finance.jsx";
+import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel, FinanceOpeningBalancesPanel, FinanceOpeningBalancesForm, FinanceExpenseListPanel, FinanceBillListPanel, FinancePayrollRunsPanel, FinanceTaxRatesPanel } from "./finance.jsx";
 import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm, CrmActivityPanel } from "./crm.jsx";
 import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
 import { PeopleEmployeeForm, PeopleRegistryPanel } from "./people.jsx";
@@ -269,7 +269,8 @@ function App() {
         const expenses = await api("/api/finance/expenses").catch(() => ({ expenses: [] }));
         const bills = await api("/api/finance/bills").catch(() => ({ bills: [] }));
         const payrollRuns = await api("/api/payroll/runs").catch(() => ({ runs: [] }));
-        setFinance({ trialBalance, statements, vat, payables, openingBalances, expenses, bills, payrollRuns: { payrollRuns: payrollRuns.runs || [] } });
+        const taxRates = await api("/api/finance/tax-rates").catch(() => ({ taxRates: [] }));
+        setFinance({ trialBalance, statements, vat, payables, openingBalances, expenses, bills, payrollRuns: { payrollRuns: payrollRuns.runs || [] }, taxRates: { taxRates: taxRates.taxRates || [] } });
       } else {
         setFinance(null);
       }
@@ -3781,6 +3782,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               <FinanceTrialBalancePanel data={finance.trialBalance} />
               <FinanceStatementsPanel data={finance.statements} />
               <FinanceVatPanel data={finance.vat} />
+              <FinanceTaxRatesPanel data={finance.taxRates} />
               <FinanceExpenseForm onCreate={createExpense} actionState={actionState} />
               <FinanceBillForm onCreate={createBill} actionState={actionState} />
               <FinancePayrollForm onRun={runPayroll} actionState={actionState} />

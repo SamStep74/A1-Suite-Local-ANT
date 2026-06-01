@@ -79,6 +79,41 @@ export function FinanceVatPanel({ data }) {
   );
 }
 
+export function FinanceTaxRatesPanel({ data }) {
+  const rows = (data && data.taxRates) || [];
+  if (rows.length === 0) return null;
+  const pct = rate => (typeof rate === "number" ? `${(rate * 100).toFixed(rate * 100 % 1 === 0 ? 0 : 2)}%` : "—");
+  // The current VAT rate = the most-recent VAT row effective on/before today.
+  const today = new Date().toISOString().slice(0, 10);
+  const currentVat = rows.filter(r => r.kind === "vat" && r.effectiveDate <= today).sort((a, b) => b.effectiveDate.localeCompare(a.effectiveDate))[0];
+  return (
+    <article className="panel finance-tax-rates-panel">
+      <div className="panel-head">
+        <div>
+          <span className="section-label">HayHashvapah Finance</span>
+          <h2>Tax rates · Հարկային դրույքներ</h2>
+        </div>
+        {currentVat && <strong className="aging-badge">VAT {pct(currentVat.rate)}</strong>}
+      </div>
+      <div className="rows">
+        {rows.map((r, i) => {
+          const isCurrent = currentVat && r.kind === currentVat.kind && r.effectiveDate === currentVat.effectiveDate;
+          const scheduled = r.effectiveDate > today;
+          return (
+            <div className="row" key={`${r.kind}:${r.effectiveDate}:${i}`}>
+              <span>
+                <strong>{r.kind === "vat" ? "ԱԱՀ · VAT" : r.kind}</strong> · {pct(r.rate)} · from {r.effectiveDate}
+                {isCurrent ? " · current" : scheduled ? " · scheduled" : ""}
+                {r.note ? ` — ${r.note}` : ""}
+              </span>
+            </div>
+          );
+        })}
+      </div>
+    </article>
+  );
+}
+
 export function FinanceExpenseForm({ onCreate, actionState }) {
   const [description, setDescription] = useState("");
   const [subtotal, setSubtotal] = useState("");
