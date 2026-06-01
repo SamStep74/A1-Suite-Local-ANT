@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-01 · main after platform auth failure hardening · 37 tags · **322 tests (322 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-01 · main after platform tenant auth-cache hardening · 37 tags · **325 tests (325 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 22 slices)
+### Hardening (production-readiness pass — 23 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -57,6 +57,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 20. **Authenticated unmapped tenant fail-closed** rejects authenticated Studio API requests when A1 Platform resolves a tenant but does not provide a local organization mapping, while preserving local/single-tenant behavior and non-strict `tenant:null` fail-open behavior.
 21. **Unmapped tenant login fail-closed** applies the same resolved-tenant org mapping guard to password login and MFA verification before challenges are created, marked verified, or sessions/cookies are issued.
 22. **Platform auth failure fail-closed** treats A1 Platform auth/config failures as blocking even outside strict mode, so a bad Platform token cannot silently downgrade tenant enforcement to local fail-open mode.
+23. **Platform tenant auth-cache hardening** treats Platform `401`/`403` responses as auth failures unless they carry a known blocking tenant-state code, keeps malformed/auth-proxy responses sanitized, and scopes cached tenant decisions by strict-mode and Platform-token context so token rotation or strict-mode changes cannot reuse stale allow/null decisions.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -104,6 +105,8 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
+- Latest Platform auth-status hardening commit: `0729441` (`Fail closed on coded platform auth statuses`), pushed with this handoff.
+- Previous Platform tenant auth-cache hardening commit: `067fdb6` (`Scope platform tenant cache by auth context`), pushed with this handoff.
 - Latest Platform auth failure hardening commit: `8421f18` (`Fail closed on platform tenant auth errors`), pushed with this handoff.
 - Latest tenant-login mapping hardening commit: `8d35652` (`feat(platform): block unmapped tenant login`), pushed with this handoff.
 - Latest tenant-org mapping hardening commit: `0d5f377` (`Harden platform tenant org mapping checks`), pushed with this handoff.
@@ -122,16 +125,16 @@ Current checkpoint:
 - Previous professional source signoff commit: `357e874` (`feat(compliance): require professional source signoff`).
 - Previous production readiness commit: `3fe4f93` (`feat(compliance): add production readiness review gate`).
 - Previous copilot audit commit: `255ed4b` (`test(copilot): cover month-close preview guardrail`).
-- Verification from `~/dev/A1-Suite-Local`: focused tenant/auth suite `node --test test/platform-tenant.test.js test/auth-ratelimit.test.js` = 24 pass; `npm test` = 322 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-platform-auth-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass; `git diff --check` = pass. Read-only explorer selected non-strict Platform auth/config failures as the next fail-closed gap; final read-only code review returned no findings.
-- Browser/API proof: restarted preview on the current checkout; `/api/health` remains public with `platformTenant.enabled=false` in local mode, and the in-app browser loads `http://127.0.0.1:4178/` with the Armenian A1 Suite login and no console errors. Platform lookup is opt-in, sends the original tenant host in `x-a1-request-host`, respects `ARMOSPHERA_ONE_ALLOW_EGRESS`/allowlist, caches per-host lookups, sanitizes Platform error messages, fails open only for non-blocking temporary lookup failures and non-strict `tenant:null`, blocks Platform auth failures, strict null tenants, disabled tenants/modules, maintenance responses, rejects cross-host session replay when Platform returns an org mapping, hides public forms/quotes for wrong-host or unmapped-host public access, rejects authenticated routes for resolved tenants that lack a local org mapping, and rejects password login/MFA verification before issuing sessions/cookies for those unmapped tenants.
-- Live preview for OPPO while the Mac is awake: server bound to `0.0.0.0:4178`; current LAN URL is `http://172.16.100.165:4178/`; current throwaway DB is `/tmp/a1-suite-platform-auth-ui.sqlite`.
+- Verification from `~/dev/A1-Suite-Local`: focused tenant/auth suite `node --test test/platform-tenant.test.js test/auth-ratelimit.test.js` = 27 pass; `npm test` = 325 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-platform-cache-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass; `git diff --check` = pass. Read-only explorer selected bare Platform auth-status handling as the next fail-closed gap; read-only code review caught unrecognized coded auth statuses, which this checkpoint fixes by treating HTTP `401`/`403` as authoritative unless the payload carries a known blocking tenant-state code.
+- Browser/API proof: restarted preview on the current checkout; `/api/health` remains public with `platformTenant.enabled=false` in local mode, and the in-app browser loads `http://127.0.0.1:4178/` with the Armenian A1 Suite login and no console errors. Platform lookup is opt-in, sends the original tenant host in `x-a1-request-host`, respects `ARMOSPHERA_ONE_ALLOW_EGRESS`/allowlist, caches per-host lookups only within the same strict-mode and Platform-token scope, sanitizes Platform error messages, treats bare Platform `401`/`403` statuses as auth failures, fails open only for non-blocking temporary lookup failures and non-strict `tenant:null`, blocks Platform auth failures, strict null tenants, disabled tenants/modules, maintenance responses, rejects cross-host session replay when Platform returns an org mapping, hides public forms/quotes for wrong-host or unmapped-host public access, rejects authenticated routes for resolved tenants that lack a local org mapping, and rejects password login/MFA verification before issuing sessions/cookies for those unmapped tenants.
+- Live preview for OPPO while the Mac is awake: server bound to `0.0.0.0:4178`; current LAN URL is `http://172.16.100.165:4178/`; current throwaway DB is `/tmp/a1-suite-platform-cache-ui.sqlite`.
 - Next unchecked task from `2026-06-01-armenian-legal-accounting-copilot.md`: none; checklist is complete. The old "retire in-repo suite" note is moot in this repo because there is no `suite/` directory here.
 
 ### ⚠ ENV CAVEAT — old OneDrive copy was flaky
 `node --test` previously stalled / reported `cancelled` in the OneDrive-synced folder because of filesystem contention around the large `app.js`. The local `~/dev/A1-Suite-Local` checkout is the reliable working tree. If a future run regresses only in a synced/cloud folder, verify from this local checkout before treating it as a code failure. Reliable fallback patterns:
 - **Per-file**: `node --test test/<one>.test.js` (one short invocation).
 - **Clean worktree**: `git worktree add --detach /tmp/run HEAD && ln -s "$PWD/node_modules" /tmp/run/ && cd /tmp/run && node --test test/*.test.js`.
-- Last clean full-suite run from `~/dev/A1-Suite-Local` at `8421f18`: **322 tests / 322 pass / 0 fail / 0 cancelled**.
+- Last clean full-suite run from `~/dev/A1-Suite-Local` at `0729441`: **325 tests / 325 pass / 0 fail / 0 cancelled**.
 
 ---
 

@@ -1740,3 +1740,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Temporary lookup failures, generic Platform unavailability, and non-strict `tenant:null` responses still preserve the local-first fail-open path.
 - Sanitized client messages now distinguish tenant availability blocks from Platform lookup/auth failures without leaking raw Platform messages, tokens, database URLs, or secrets.
 - Added Platform-enabled tests proving non-strict `PLATFORM_AUTH_FAILED` returns sanitized `401`, blocks password login, emits no cookie, and creates no local session.
+
+### Slice 149 - Platform Tenant Auth-Cache Hardening
+
+- A1 Platform `401`/`403` responses now default to `PLATFORM_AUTH_FAILED` even when the response body is missing, malformed, not an object, or carries an unrecognized gateway auth code, preserving fail-closed tenant enforcement outside strict mode.
+- Tenant cache keys now include strict-mode state and a short SHA-256 fingerprint of the Platform token, so token rotation or strict-mode changes cannot reuse stale cached tenant/null decisions.
+- Raw Platform messages remain sanitized before reaching clients, and token/database/secrets are not exposed in auth failure responses.
+- Temporary Platform outages and non-strict `tenant:null` responses still preserve the local-first fail-open path.
+- Added Platform-enabled tests proving auth statuses block health/login without cookies or sessions, unrecognized coded auth responses stay sanitized, token changes bypass stale cached tenant decisions, and strict-mode changes bypass stale cached null decisions.
