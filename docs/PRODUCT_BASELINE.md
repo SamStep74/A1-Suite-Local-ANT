@@ -1688,3 +1688,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - HTTPS downgrade attempts reuse the `legal.source.review.blocked` suite/audit event with `reason: "scheme-downgrade"` and store only source id, normalized hosts, and protocols.
 - Downgrade audit payloads deliberately omit the raw rejected URL, title, review note, requested status/date, and reviewer role, keeping rejected review content out of durable evidence.
 - Added API tests proving HTTPS-to-HTTP downgrade attempts return `400`, leave `legal_sources` and `legal_source_reviews` unchanged, and keep normal same-host HTTPS review updates working.
+
+### Slice 142 - Legal Source Credentialed URL Guard
+
+- Legal source review URLs that contain username/password userinfo are rejected before mutating `legal_sources` or adding review history, even when the host and HTTPS scheme are otherwise valid.
+- Credentialed URL blocks reuse the `legal.source.review.blocked` suite/audit event with `reason: "url-credentials"` and store only source id, normalized hosts, and protocols.
+- Credentialed URL audit payloads deliberately omit the raw rejected URL, username/password, title, review note, requested status/date, and reviewer role, keeping secrets and rejected review content out of durable evidence.
+- Copilot source links refuse credentialed legacy source URLs, so citations with embedded credentials are never rendered as clickable external links.
+- Added API and source-link helper tests proving credentialed review attempts return `400`, leave source state unchanged, avoid secret leakage in suite/audit payloads, and hide credentialed citation links.

@@ -15538,6 +15538,74 @@ test("legal source review does not downgrade maintained HTTPS source URLs", asyn
   });
 });
 
+test("legal source review rejects credentialed source URLs", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const credentialedUrl = "https://reviewer:secret@arlis.am/hy/acts/224990?reviewed=2026-05-26";
+    const credentialed = await app.inject({
+      method: "POST",
+      url: "/api/legal/sources/law-tax-code/reviews",
+      headers: { cookie },
+      payload: {
+        title: "RA Tax Code Article 63 VAT rate - credentialed URL",
+        sourceUrl: credentialedUrl,
+        effectiveDate: "2026-05-26",
+        status: "active",
+        reviewNote: "Credentialed source URLs must not become official citation evidence."
+      }
+    });
+    assert.equal(credentialed.statusCode, 400);
+
+    const blockedTimeline = app.db.prepare("SELECT * FROM suite_events WHERE event_type = ? ORDER BY id DESC LIMIT 1")
+      .get("legal.source.review.blocked");
+    assert.ok(blockedTimeline);
+    assert.equal(blockedTimeline.subject_type, "legal_source");
+    assert.equal(blockedTimeline.subject_id, "law-tax-code");
+    assert.equal(blockedTimeline.status, "blocked");
+    const blockedPayload = JSON.parse(blockedTimeline.payload);
+    assert.equal(blockedPayload.sourceId, "law-tax-code");
+    assert.equal(blockedPayload.existingHost, "arlis.am");
+    assert.equal(blockedPayload.attemptedHost, "arlis.am");
+    assert.equal(blockedPayload.existingProtocol, "https:");
+    assert.equal(blockedPayload.attemptedProtocol, "https:");
+    assert.equal(blockedPayload.reason, "url-credentials");
+    assert.equal(blockedPayload.requestedStatus, undefined);
+    assert.equal(blockedPayload.requestedEffectiveDate, undefined);
+    assert.equal(blockedPayload.reviewerRole, undefined);
+    const blockedPayloadText = JSON.stringify(blockedPayload);
+    assert.ok(!blockedPayloadText.includes(credentialedUrl));
+    assert.ok(!blockedPayloadText.includes("reviewer"));
+    assert.ok(!blockedPayloadText.includes("secret"));
+    assert.ok(!blockedPayloadText.includes("credentialed URL"));
+    assert.ok(!blockedPayloadText.includes("Credentialed source URLs must not become official citation evidence."));
+
+    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
+    assert.equal(audit.statusCode, 200, audit.body);
+    const blockedAudit = audit.json().events.find(event => event.type === "legal.source.review.blocked");
+    assert.ok(blockedAudit);
+    assert.equal(blockedAudit.details.sourceId, "law-tax-code");
+    assert.equal(blockedAudit.details.existingHost, "arlis.am");
+    assert.equal(blockedAudit.details.attemptedHost, "arlis.am");
+    assert.equal(blockedAudit.details.existingProtocol, "https:");
+    assert.equal(blockedAudit.details.attemptedProtocol, "https:");
+    assert.equal(blockedAudit.details.reason, "url-credentials");
+    assert.equal(blockedAudit.details.requestedStatus, undefined);
+    assert.equal(blockedAudit.details.requestedEffectiveDate, undefined);
+    assert.equal(blockedAudit.details.reviewerRole, undefined);
+    const blockedAuditText = JSON.stringify(blockedAudit.details);
+    assert.ok(!blockedAuditText.includes(credentialedUrl));
+    assert.ok(!blockedAuditText.includes("reviewer"));
+    assert.ok(!blockedAuditText.includes("secret"));
+    assert.ok(!blockedAuditText.includes("credentialed URL"));
+    assert.ok(!blockedAuditText.includes("Credentialed source URLs must not become official citation evidence."));
+
+    const listed = await app.inject({ method: "GET", url: "/api/legal/sources", headers: { cookie } });
+    const source = listed.json().sources.find(item => item.id === "law-tax-code");
+    assert.equal(source.sourceUrl, "https://www.arlis.am/hy/acts/224990");
+    assert.equal(source.reviewCount, 0);
+  });
+});
+
 test("non-owner cannot review legal source registry entries", async () => {
   await withApp(async app => {
     const cookie = await login(app, "support@armosphera.local");

@@ -4,6 +4,7 @@ export function getSourceLink(source) {
   try {
     const parsed = new URL(rawUrl);
     if (!["http:", "https:"].includes(parsed.protocol)) return null;
+    if (parsed.username || parsed.password) return null;
     return {
       href: parsed.href,
       host: parsed.host.replace(/^www\./, "")

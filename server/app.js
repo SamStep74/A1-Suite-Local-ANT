@@ -44422,6 +44422,12 @@ function createLegalSourceReview(db, user, sourceId, body) {
     err.statusCode = 400;
     throw err;
   }
+  if (hasSourceUrlCredentials(sourceUrl)) {
+    recordLegalSourceReviewBlock(db, user, current, sourceUrl, status, effectiveDate, "url-credentials");
+    const err = new Error("Legal source review URL must not include credentials");
+    err.statusCode = 400;
+    throw err;
+  }
   if (!isSameSourceHost(current.source_url, sourceUrl)) {
     recordLegalSourceReviewBlock(db, user, current, sourceUrl, status, effectiveDate, "host-mismatch");
     const err = new Error("Legal source review URL must stay on the existing source host");
@@ -44477,6 +44483,9 @@ function recordLegalSourceReviewBlock(db, user, source, attemptedUrl, requestedS
   if (reason === "scheme-downgrade") {
     details.existingProtocol = normalizedSourceProtocol(source.source_url);
     details.attemptedProtocol = normalizedSourceProtocol(attemptedUrl);
+  } else if (reason === "url-credentials") {
+    details.existingProtocol = normalizedSourceProtocol(source.source_url);
+    details.attemptedProtocol = normalizedSourceProtocol(attemptedUrl);
   } else {
     details.requestedStatus = requestedStatus;
     details.requestedEffectiveDate = requestedEffectiveDate;
@@ -44511,6 +44520,15 @@ function isSameSourceHost(existingUrl, nextUrl) {
 
 function isSourceSchemeDowngrade(existingUrl, nextUrl) {
   return normalizedSourceProtocol(existingUrl) === "https:" && normalizedSourceProtocol(nextUrl) === "http:";
+}
+
+function hasSourceUrlCredentials(value) {
+  try {
+    const parsed = new URL(value);
+    return Boolean(parsed.username || parsed.password);
+  } catch {
+    return false;
+  }
 }
 
 function normalizedSourceHost(value) {

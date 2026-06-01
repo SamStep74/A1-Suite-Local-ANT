@@ -18,6 +18,7 @@ test("getSourceLink rejects missing, malformed, and non-HTTP source URLs", () =>
   assert.equal(getSourceLink({ sourceUrl: "not a url" }), null);
   assert.equal(getSourceLink({ sourceUrl: "javascript:alert(1)" }), null);
   assert.equal(getSourceLink({ sourceUrl: "file:///tmp/source.pdf" }), null);
+  assert.equal(getSourceLink({ sourceUrl: "https://reviewer:secret@arlis.am/hy/acts/224990" }), null);
 });
 
 test("formatSourceDate prefers latest review creation date before source effective date", () => {
