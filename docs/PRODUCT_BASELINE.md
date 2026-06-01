@@ -1726,3 +1726,10 @@ Status: shipped in the local prototype on 2026-05-28.
 - Non-strict `tenant:null` lookup behavior still fails open for local/single-tenant continuity, matching the existing Platform bridge policy.
 - Public form and quote tenant scoping remains separate and continues to hide wrong-host or unmapped-host anonymous resources with generic missing-resource responses.
 - Added Platform-enabled tests covering `tenant:null` fail-open and resolved-unmapped tenant rejection on `/api/me`, `/api/suite`, and `/api/platform/tenant`.
+
+### Slice 147 - Unmapped Tenant Login Fail-Closed
+
+- Password login now applies the resolved-tenant org mapping guard after credential verification and before MFA challenge or session creation.
+- MFA login verification now runs the same tenant guard after a valid challenge/user is known but before marking the challenge verified, updating the factor, creating a session, or setting a cookie.
+- Non-strict `tenant:null` lookup behavior, invalid-credential handling, auth rate limits, disabled/module tenant blocking, and generic public-resource 404 behavior remain unchanged.
+- Added Platform-enabled tests proving resolved-unmapped tenants block password login without cookies/sessions, block MFA session issuance without mutating the challenge, and still reject mapped-host session replay on authenticated routes.
