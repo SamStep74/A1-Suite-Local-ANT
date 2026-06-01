@@ -1787,3 +1787,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Document signing consent evidence now uses the same explicit trusted-proxy public client identity resolver as public quote and form evidence, while untrusted forwarded headers remain ignored.
 - Long clinic workflow tests now simulate separate public quote buyers with distinct public IPs instead of relying on one shared loopback client, keeping production throttling strict without making fixtures brittle.
 - Added regression tests for loopback public form-submit spam, loopback public quote token enumeration, loopback public quote accept attempts, and trusted/untrusted document signature evidence.
+
+### Slice 155 - Platform Tenant-Null Public Resource Guard
+
+- Successful A1 Platform `tenant:null` responses now keep authenticated Studio continuity fail-open outside strict mode, but no longer let anonymous tenant-bound public resources fall back to unscoped local lookup.
+- Public form pages/submissions and public quote read/accept endpoints treat `tenant:null` as an unmapped public-resource tenant and return the same generic `404` shape used for missing, wrong-host, unmapped-host, and lookup-failure resources.
+- Blocked public form submissions do not create CRM leads, and blocked public quote acceptance leaves the quote in `sent` state.
+- Existing local/single-tenant behavior remains unchanged when Platform tenant resolution is disabled, and authenticated `/api/me` still works for non-strict `tenant:null` continuity.
+- Added Platform-enabled tests proving health continuity plus generic public-resource `404`s and no mutation under successful `tenant:null` lookup.
