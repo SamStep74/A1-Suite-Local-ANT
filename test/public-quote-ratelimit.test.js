@@ -54,6 +54,23 @@ test("public quotes: token enumeration via GET is throttled even for unknown tok
   } finally { await app.close(); }
 });
 
+test("public quotes: loopback token enumeration via GET is throttled by default", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    let notFound = 0;
+    let limited = 0;
+    for (let i = 0; i < 50; i++) {
+      const res = await app.inject({ method: "GET", url: `/api/public/quotes/loopback-guess-${i}`, remoteAddress: "127.0.0.1" });
+      if (res.statusCode === 404) notFound += 1;
+      else if (res.statusCode === 429) limited += 1;
+      else assert.fail(`unexpected loopback GET status ${res.statusCode} on attempt ${i}`);
+    }
+    assert.ok(notFound > 0, "early loopback guesses return 404");
+    assert.ok(limited > 0, "loopback tunnel quote enumeration must be throttled with 429");
+  } finally { await app.close(); }
+});
+
 test("public quotes: untrusted forwarded headers cannot rotate around GET throttling", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -122,6 +139,26 @@ test("public quotes: POST accept is per-IP rate limited (429 after the burst)", 
     assert.ok(handled > 0, "some accepts are processed before the limit");
     assert.ok(handled <= 15, `accept burst should be bounded (~10/min), got ${handled}`);
     assert.ok(limited > 0, "excess accept attempts from one IP must be 429");
+  } finally { await app.close(); }
+});
+
+test("public quotes: loopback accept attempts are throttled by default", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const url = `/api/public/quotes/${SEEDED_TOKEN}/accept`;
+    const payload = { signerName: "Loopback Buyer", signerEmail: "loopback-buyer@example.com" };
+
+    let handled = 0;
+    let limited = 0;
+    for (let i = 0; i < 25; i++) {
+      const res = await app.inject({ method: "POST", url, payload, remoteAddress: "127.0.0.1" });
+      if (res.statusCode === 429) limited += 1;
+      else handled += 1;
+    }
+    assert.ok(handled > 0, "some loopback accepts are processed before the limit");
+    assert.ok(handled <= 15, `loopback accept burst should be bounded, got ${handled}`);
+    assert.ok(limited > 0, "loopback tunnel quote accepts must be throttled with 429");
   } finally { await app.close(); }
 });
 

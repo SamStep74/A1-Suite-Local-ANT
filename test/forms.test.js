@@ -139,6 +139,27 @@ test("forms: public submit is per-IP rate limited (429 after the burst), and oth
   } finally { await app.close(); }
 });
 
+test("forms: public submit throttles loopback tunnel traffic by default", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const url = "/api/forms/form-lead-intake/submit";
+    const payload = { companyName: "Loopback Co", contactName: "Tunnel", email: "loopback@example.com", phone: "+374 99 101010", interest: "loopback tunnel" };
+
+    let okCount = 0;
+    let limited = 0;
+    for (let i = 0; i < 25; i++) {
+      const res = await app.inject({ method: "POST", url, payload, remoteAddress: "127.0.0.1" });
+      if (res.statusCode === 200) okCount += 1;
+      else if (res.statusCode === 429) limited += 1;
+      else assert.fail(`unexpected loopback submit status ${res.statusCode} on attempt ${i}`);
+    }
+    assert.ok(okCount > 0, "some loopback submissions should succeed before the limit");
+    assert.ok(okCount <= 15, `loopback burst should be bounded, got ${okCount} successes`);
+    assert.ok(limited > 0, "loopback tunnel public submits must be throttled with 429");
+  } finally { await app.close(); }
+});
+
 test("forms: trusted proxy client IPs are used for loopback public submit limits", async () => {
   const app = buildApp({
     dbPath: ":memory:",

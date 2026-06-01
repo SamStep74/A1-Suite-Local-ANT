@@ -2303,9 +2303,8 @@ function registerApi(app, db, options = {}) {
     // If the signer is bound to a user account, only that user may sign (consent integrity).
     if (signer.signerUserId && signer.signerUserId !== user.id) { const e = new Error("Only the assigned signer may sign"); e.statusCode = 403; throw e; }
     const now = new Date().toISOString();
-    // Local-only product: the authenticated socket peer is the trustworthy address.
-    // Do NOT fall back to x-forwarded-for (no trustProxy → attacker-controlled, would taint evidence).
-    const ip = String(request.ip || "").slice(0, 64);
+    const client = publicClientIdentity(request);
+    const ip = String(client.ip || "").slice(0, 64);
     const ua = String((request.headers && request.headers["user-agent"]) || "").slice(0, 256);
     // Re-read the canonical body from the DB at signing time so the consent hash is over the
     // exact stored bytes, independent of the in-memory snapshot fetched above.
@@ -2768,7 +2767,7 @@ function registerApi(app, db, options = {}) {
     // Unauthenticated write path: throttle per-IP (per form) to blunt spam/DoS that would
     // otherwise flood the org's CRM with junk leads. 10 submissions per minute per IP.
     const client = publicClientIdentity(request);
-    enforceRateLimit(`form-submit:${client.rateLimitIp}:${formId}`, 10, 60 * 1000, client.rateLimitIp);
+    enforcePublicRateLimit(`form-submit:${client.rateLimitIp}:${formId}`, 10, 60 * 1000);
     // Resolve the published form across orgs by id (public caller has no org context).
     const tenantOrgId = platformTenantResourceOrgId(request, env);
     const formParams = [formId];
@@ -3274,7 +3273,7 @@ ${controls}
     // Unauthenticated read keyed by an attacker-supplied token: throttle per-IP to blunt
     // token enumeration. 30/min allows legitimate buyers to re-view their quote.
     const client = publicClientIdentity(request);
-    enforceRateLimit(`public-quote-get:${client.rateLimitIp}`, 30, 60 * 1000, client.rateLimitIp);
+    enforcePublicRateLimit(`public-quote-get:${client.rateLimitIp}`, 30, 60 * 1000);
     const tenantOrgId = platformTenantResourceOrgId(request, env);
     const quote = getPublicQuote(db, request.params.token, tenantOrgId);
     if (!quote || !["sent", "viewed", "accepted"].includes(quote.quote.status)) {
@@ -3288,7 +3287,7 @@ ${controls}
   app.post("/api/public/quotes/:token/accept", async request => {
     // Unauthenticated write keyed by an attacker-supplied token: throttle per-IP. 10/min.
     const client = publicClientIdentity(request);
-    enforceRateLimit(`public-quote-accept:${client.rateLimitIp}`, 10, 60 * 1000, client.rateLimitIp);
+    enforcePublicRateLimit(`public-quote-accept:${client.rateLimitIp}`, 10, 60 * 1000);
     const tenantOrgId = platformTenantResourceOrgId(request, env);
     const quote = getPublicQuote(db, request.params.token, tenantOrgId);
     if (!quote) {

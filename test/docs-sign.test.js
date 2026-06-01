@@ -9,6 +9,33 @@ async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
   return res.headers["set-cookie"];
 }
 
+async function createSentOneSignerDocument(app, cookie, title = "Trusted proxy consent evidence") {
+  const created = await app.inject({
+    method: "POST",
+    url: "/api/docs/documents",
+    headers: { cookie },
+    payload: { title, body: "Consent evidence body", docType: "agreement" }
+  });
+  assert.strictEqual(created.statusCode, 200, created.body);
+  const docId = created.json().document.id;
+  const signer = await app.inject({
+    method: "POST",
+    url: `/api/docs/documents/${docId}/signers`,
+    headers: { cookie },
+    payload: { signerName: "Անահիտ Ստորագրող" }
+  });
+  assert.strictEqual(signer.statusCode, 200, signer.body);
+  const signerId = signer.json().document.signers[0].id;
+  const sent = await app.inject({
+    method: "POST",
+    url: `/api/docs/documents/${docId}/send`,
+    headers: { cookie },
+    payload: {}
+  });
+  assert.strictEqual(sent.statusCode, 200, sent.body);
+  return { docId, signerId };
+}
+
 test("docs-sign: full lifecycle draft -> signers -> send -> sign -> sealed signed", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -218,5 +245,53 @@ test("docs-sign: read-only Auditor cannot record consent (sign) — 403, no frau
     assert.strictEqual(after.document.status, "out-for-signature");
     assert.strictEqual(after.document.signers[0].status, "pending", "no consent was recorded");
     assert.strictEqual(after.document.signers[0].checksum, "", "no evidence checksum was written");
+  } finally { await app.close(); }
+});
+
+test("docs-sign: signature evidence ignores untrusted forwarded headers", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const { docId, signerId } = await createSentOneSignerDocument(app, owner);
+
+    const signed = await app.inject({
+      method: "POST",
+      url: `/api/docs/documents/${docId}/sign`,
+      remoteAddress: "203.0.113.88",
+      headers: { cookie: owner, "cf-connecting-ip": "198.51.100.88" },
+      payload: { signerId }
+    });
+    assert.strictEqual(signed.statusCode, 200, signed.body);
+
+    const row = app.db.prepare("SELECT ip_address AS ipAddress FROM document_signers WHERE id = ?").get(signerId);
+    assert.strictEqual(row.ipAddress, "203.0.113.88", "untrusted forwarded evidence is ignored");
+  } finally { await app.close(); }
+});
+
+test("docs-sign: signature evidence uses trusted proxy client IP only when configured", async () => {
+  const app = buildApp({
+    dbPath: ":memory:",
+    env: {
+      ARMOSPHERA_ONE_PUBLIC_TRUSTED_PROXY_IPS: "127.0.0.1",
+      ARMOSPHERA_ONE_PUBLIC_CLIENT_IP_HEADER: "cf-connecting-ip"
+    }
+  });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const { docId, signerId } = await createSentOneSignerDocument(app, owner);
+
+    const signed = await app.inject({
+      method: "POST",
+      url: `/api/docs/documents/${docId}/sign`,
+      remoteAddress: "127.0.0.1",
+      headers: { cookie: owner, "cf-connecting-ip": "198.51.100.89" },
+      payload: { signerId }
+    });
+    assert.strictEqual(signed.statusCode, 200, signed.body);
+
+    const row = app.db.prepare("SELECT ip_address AS ipAddress FROM document_signers WHERE id = ?").get(signerId);
+    assert.strictEqual(row.ipAddress, "198.51.100.89", "trusted proxy consent evidence records the configured public client IP");
   } finally { await app.close(); }
 });

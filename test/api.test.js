@@ -25,6 +25,12 @@ async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
   return response.headers["set-cookie"];
 }
 
+let publicQuoteAcceptCounter = 1;
+function nextPublicQuoteAcceptRemoteAddress() {
+  const n = publicQuoteAcceptCounter++;
+  return `198.51.${100 + Math.floor(n / 200)}.${(n % 200) + 1}`;
+}
+
 function totpCode(secretBase32, nowMs = Date.now()) {
   const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
   const clean = String(secretBase32 || "").replace(/=+$/g, "").replace(/\s+/g, "").toUpperCase();
@@ -2478,6 +2484,7 @@ test("accountant can hand accepted pilot quote into HayHashvapah invoice approva
     const accepted = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${proof.quote.publicToken}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
       payload: {
         signerName: "Nare Clinic Owner",
         signerEmail: "owner@nareclinic.am",
@@ -3295,6 +3302,7 @@ test("accountant can hand accepted renewal quote into HayHashvapah invoice appro
     const accepted = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${proof.renewalQuote.publicToken}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
       payload: {
         signerName: "Nare Clinic Owner",
         signerEmail: "owner@nareclinic.am",
@@ -4213,6 +4221,7 @@ test("accountant can hand accepted next renewal quote into HayHashvapah invoice 
     const accepted = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${proof.nextRenewalQuote.publicToken}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
       payload: {
         signerName: "Nare Clinic Owner",
         signerEmail: "owner@nareclinic.am",
@@ -5228,6 +5237,7 @@ test("accountant can hand accepted following renewal quote into HayHashvapah inv
     const accepted = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${proof.followingRenewalQuote.publicToken}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
       payload: {
         signerName: "Nare Clinic Owner",
         signerEmail: "owner@nareclinic.am",
@@ -6347,6 +6357,7 @@ test("accountant can hand accepted subsequent renewal quote into HayHashvapah in
     const accepted = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${proof.subsequentRenewalQuote.publicToken}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
       payload: {
         signerName: "Nare Clinic Owner",
         signerEmail: "owner@nareclinic.am",
@@ -7567,6 +7578,7 @@ test("accountant can hand accepted continuation renewal quote into HayHashvapah 
     const accepted = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${proof.continuationRenewalQuote.publicToken}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
       payload: {
         signerName: "Nare Clinic Owner",
         signerEmail: "owner@nareclinic.am",
@@ -8806,6 +8818,7 @@ test("accountant can hand accepted ongoing renewal quote into HayHashvapah invoi
     const accepted = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${proof.ongoingRenewalQuote.publicToken}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
       payload: {
         signerName: "Nare Clinic Owner",
         signerEmail: "owner@nareclinic.am",
@@ -9997,6 +10010,7 @@ test("accountant can hand accepted next ongoing renewal quote into HayHashvapah 
     const accepted = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${proof.nextOngoingRenewalQuote.publicToken}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
       payload: {
         signerName: "Nare Clinic Owner",
         signerEmail: "owner@nareclinic.am",
@@ -11197,6 +11211,7 @@ test("accountant can hand accepted following ongoing renewal quote into HayHashv
     const accepted = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${proof.followingOngoingRenewalQuote.publicToken}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
       payload: {
         signerName: "Nare Clinic Owner",
         signerEmail: "owner@nareclinic.am",
@@ -12398,6 +12413,7 @@ test("accountant can hand accepted subsequent ongoing renewal quote into HayHash
     const accepted = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${proof.subsequentOngoingRenewalQuote.publicToken}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
       payload: {
         signerName: "Nare Clinic Owner",
         signerEmail: "owner@nareclinic.am",
@@ -13641,6 +13657,7 @@ test("accountant can hand accepted next recurring ongoing renewal quote into Hay
     const accepted = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${proof.nextRecurringOngoingRenewalQuote.publicToken}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
       payload: {
         signerName: "Nare Clinic Owner",
         signerEmail: "owner@nareclinic.am",
@@ -15826,6 +15843,7 @@ test("public quote acceptance marks deal won and creates finance approval once",
     const accepted = await app.inject({
       method: "POST",
       url: "/api/public/quotes/public-quote-ani-inbox-token/accept",
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
       payload: {
         signerName: "Ani Owner",
         signerEmail: "owner@anibeauty.am",
@@ -15848,6 +15866,7 @@ test("public quote acceptance marks deal won and creates finance approval once",
     const repeated = await app.inject({
       method: "POST",
       url: "/api/public/quotes/public-quote-ani-inbox-token/accept",
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
       payload: {
         signerName: "Ani Owner",
         signerEmail: "owner@anibeauty.am",
@@ -15996,6 +16015,7 @@ test("quote acceptance delivers signed quote and deal webhooks", async () => {
       const accepted = await app.inject({
         method: "POST",
         url: "/api/public/quotes/public-quote-ani-inbox-token/accept",
+        remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
         payload: {
           signerName: "Ani Owner",
           signerEmail: "owner@anibeauty.am",
@@ -16111,6 +16131,7 @@ test("failed webhook delivery can be retried manually", async () => {
       const accepted = await app.inject({
         method: "POST",
         url: "/api/public/quotes/public-quote-ani-inbox-token/accept",
+        remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
         payload: {
           signerName: "Ani Owner",
           signerEmail: "owner@anibeauty.am",
@@ -18568,6 +18589,7 @@ async function createAcceptedClinicPilotQuoteHandoff(app) {
   const accepted = await app.inject({
     method: "POST",
     url: `/api/public/quotes/${proof.quote.publicToken}/accept`,
+    remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
     payload: {
       signerName: "Nare Clinic Owner",
       signerEmail: "owner@nareclinic.am",
@@ -18754,6 +18776,7 @@ async function createPilotRenewalAcceptanceHandoff(app) {
   const accepted = await app.inject({
     method: "POST",
     url: `/api/public/quotes/${proof.renewalQuote.publicToken}/accept`,
+    remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
     payload: {
       signerName: "Nare Clinic Owner",
       signerEmail: "owner@nareclinic.am",
@@ -18938,6 +18961,7 @@ async function createPilotNextRenewalAcceptanceHandoff(app) {
   const accepted = await app.inject({
     method: "POST",
     url: `/api/public/quotes/${proof.nextRenewalQuote.publicToken}/accept`,
+    remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
     payload: {
       signerName: "Nare Clinic Owner",
       signerEmail: "owner@nareclinic.am",
@@ -19130,6 +19154,7 @@ async function createPilotFollowingRenewalAcceptanceHandoff(app) {
   const accepted = await app.inject({
     method: "POST",
     url: `/api/public/quotes/${proof.followingRenewalQuote.publicToken}/accept`,
+    remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
     payload: {
       signerName: "Nare Clinic Owner",
       signerEmail: "owner@nareclinic.am",
@@ -19322,6 +19347,7 @@ async function createPilotSubsequentRenewalAcceptanceHandoff(app) {
   const accepted = await app.inject({
     method: "POST",
     url: `/api/public/quotes/${proof.subsequentRenewalQuote.publicToken}/accept`,
+    remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
     payload: {
       signerName: "Nare Clinic Owner",
       signerEmail: "owner@nareclinic.am",
@@ -19523,6 +19549,7 @@ async function createPilotContinuationRenewalQuoteAcceptanceHandoff(app) {
   const accepted = await app.inject({
     method: "POST",
     url: `/api/public/quotes/${proof.continuationRenewalQuote.publicToken}/accept`,
+    remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
     payload: {
       signerName: "Nare Clinic Owner",
       signerEmail: "owner@nareclinic.am",
@@ -19724,6 +19751,7 @@ async function createPilotOngoingRenewalAcceptanceHandoff(app) {
   const accepted = await app.inject({
     method: "POST",
     url: `/api/public/quotes/${proof.ongoingRenewalQuote.publicToken}/accept`,
+    remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
     payload: {
       signerName: "Nare Clinic Owner",
       signerEmail: "owner@nareclinic.am",
@@ -19925,6 +19953,7 @@ async function createPilotNextOngoingRenewalAcceptanceHandoff(app) {
   const accepted = await app.inject({
     method: "POST",
     url: `/api/public/quotes/${proof.nextOngoingRenewalQuote.publicToken}/accept`,
+    remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
     payload: {
       signerName: "Nare Clinic Owner",
       signerEmail: "owner@nareclinic.am",
@@ -20126,6 +20155,7 @@ async function createPilotFollowingOngoingRenewalAcceptanceHandoff(app) {
   const accepted = await app.inject({
     method: "POST",
     url: `/api/public/quotes/${proof.followingOngoingRenewalQuote.publicToken}/accept`,
+    remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
     payload: {
       signerName: "Nare Clinic Owner",
       signerEmail: "owner@nareclinic.am",
@@ -20327,6 +20357,7 @@ async function createPilotSubsequentOngoingRenewalAcceptanceHandoff(app) {
   const accepted = await app.inject({
     method: "POST",
     url: `/api/public/quotes/${proof.subsequentOngoingRenewalQuote.publicToken}/accept`,
+    remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
     payload: {
       signerName: "Nare Clinic Owner",
       signerEmail: "owner@nareclinic.am",
@@ -20529,6 +20560,7 @@ async function createPilotNextRecurringOngoingRenewalAcceptanceHandoff(app) {
   const accepted = await app.inject({
     method: "POST",
     url: `/api/public/quotes/${proof.nextRecurringOngoingRenewalQuote.publicToken}/accept`,
+    remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
     payload: {
       signerName: "Nare Clinic Owner",
       signerEmail: "owner@nareclinic.am",
@@ -20678,6 +20710,7 @@ async function acceptAniQuote(app) {
   return app.inject({
     method: "POST",
     url: "/api/public/quotes/public-quote-ani-inbox-token/accept",
+    remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
     headers: {
       "user-agent": "Armosphera-One-Test/1.0",
       "x-forwarded-for": "203.0.113.42"
