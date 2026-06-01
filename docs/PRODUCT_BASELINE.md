@@ -1748,3 +1748,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Raw Platform messages remain sanitized before reaching clients, and token/database/secrets are not exposed in auth failure responses.
 - Temporary Platform outages and non-strict `tenant:null` responses still preserve the local-first fail-open path.
 - Added Platform-enabled tests proving auth statuses block health/login without cookies or sessions, unrecognized coded auth responses stay sanitized, token changes bypass stale cached tenant decisions, and strict-mode changes bypass stale cached null decisions.
+
+### Slice 150 - Platform Public Resource Lookup-Failure Guard
+
+- Non-strict temporary A1 Platform tenant lookup failures now keep `/api/health` and authenticated local continuity fail-open, but tenant-bound anonymous public resources no longer fall back to unscoped lookup.
+- Public form pages/submissions and public quote read/accept endpoints treat lookup failure as an unmapped public-resource tenant and return the same generic `404` shape used for missing or wrong-tenant resources.
+- Blocked public form submissions do not create CRM leads, and blocked public quote acceptance leaves the quote in `sent` state.
+- Existing opt-in behavior, strict fail-closed behavior, non-strict `tenant:null` authenticated continuity, and wrong-host/unmapped-host generic 404 behavior remain unchanged.
+- Added Platform-enabled tests proving health continuity plus generic public-resource 404s and no mutation under temporary Platform lookup failure.
