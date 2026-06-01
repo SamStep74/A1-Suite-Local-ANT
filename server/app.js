@@ -44422,6 +44422,11 @@ function createLegalSourceReview(db, user, sourceId, body) {
     err.statusCode = 400;
     throw err;
   }
+  if (!isSameSourceHost(current.source_url, sourceUrl)) {
+    const err = new Error("Legal source review URL must stay on the existing source host");
+    err.statusCode = 400;
+    throw err;
+  }
 
   const now = new Date().toISOString();
   const reviewId = randomId("legal-src-review");
@@ -44461,6 +44466,20 @@ function isValidHttpUrl(value) {
     return ["http:", "https:"].includes(parsed.protocol);
   } catch {
     return false;
+  }
+}
+
+function isSameSourceHost(existingUrl, nextUrl) {
+  const existingHost = normalizedSourceHost(existingUrl);
+  const nextHost = normalizedSourceHost(nextUrl);
+  return Boolean(existingHost && nextHost && existingHost === nextHost);
+}
+
+function normalizedSourceHost(value) {
+  try {
+    return new URL(value).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
   }
 }
 

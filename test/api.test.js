@@ -15406,9 +15406,49 @@ test("owner can review and version Armenian legal source registry entries", asyn
     const answerSource = created.json().sources.find(item => item.id === "law-tax-code");
     assert.equal(answerSource.status, "active");
     assert.equal(answerSource.effectiveDate, "2026-05-26");
+    assert.equal(answerSource.sourceUrl, "https://www.arlis.am/hy/acts/224990?reviewed=2026-05-26");
 
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
     assert.ok(audit.json().events.some(event => event.type === "legal.source.reviewed" && event.details.sourceId === "law-tax-code"));
+  });
+});
+
+test("legal source review keeps reviewed URLs on the existing source host", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const sameHost = await app.inject({
+      method: "POST",
+      url: "/api/legal/sources/law-tax-code/reviews",
+      headers: { cookie },
+      payload: {
+        title: "RA Tax Code Article 63 VAT rate - same host review",
+        sourceUrl: "https://arlis.am/hy/acts/224990?reviewed=2026-05-26",
+        effectiveDate: "2026-05-26",
+        status: "active",
+        reviewNote: "Same official source host with a reviewed query is accepted."
+      }
+    });
+    assert.equal(sameHost.statusCode, 200, sameHost.body);
+    assert.equal(sameHost.json().source.sourceUrl, "https://arlis.am/hy/acts/224990?reviewed=2026-05-26");
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: "/api/legal/sources/law-tax-code/reviews",
+      headers: { cookie },
+      payload: {
+        title: "RA Tax Code Article 63 VAT rate - wrong host",
+        sourceUrl: "https://example.com/hy/acts/224990",
+        effectiveDate: "2026-05-27",
+        status: "active",
+        reviewNote: "A reviewed legal source must not move to an arbitrary host."
+      }
+    });
+    assert.equal(blocked.statusCode, 400);
+
+    const listed = await app.inject({ method: "GET", url: "/api/legal/sources", headers: { cookie } });
+    const source = listed.json().sources.find(item => item.id === "law-tax-code");
+    assert.equal(source.sourceUrl, "https://arlis.am/hy/acts/224990?reviewed=2026-05-26");
+    assert.equal(source.reviewCount, 1);
   });
 });
 

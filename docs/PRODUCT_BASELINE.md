@@ -1668,3 +1668,9 @@ Status: shipped in the local prototype on 2026-05-28.
 - Copilot source citations now render a safe external link to the maintained Armenian legal/accounting source URL with a visible host label.
 - The UI only renders HTTP(S) source links and keeps them behind an explicit user click, preserving the local/offline default while making cited authority inspectable.
 - Added tests proving VAT Copilot citations carry the seeded ARLIS source URL/effective date, preserve the reviewed source URL through owner-maintained and Accountant-reviewed source updates, and reject non-HTTP(S) links in the UI helper.
+
+### Slice 139 - Legal Source Host Stability
+
+- Legal source reviews now keep each maintained Armenian legal/accounting source on its existing source host while still allowing path, query, and version updates.
+- Host comparison normalizes case and a leading `www.`, so ARLIS review updates can use either `www.arlis.am` or `arlis.am`, while arbitrary host changes are rejected before updating `legal_sources` or adding review history.
+- Added API tests proving reviewed source URLs flow into legal answer citations, same-host updates are accepted, cross-host updates are rejected, and rejected reviews do not advance the stored URL or review count.
