@@ -14928,7 +14928,8 @@ test("accountant can generate grounded advisory overdue invoice explanation with
 test("support customer 360 redacts tax, finance, privacy, and legal payload fields", async () => {
   await withApp(async app => {
     const ownerCookie = await login(app);
-    await reviewPersonalDataSource(app, ownerCookie);
+    const lawyerCookie = await login(app, "lawyer@armosphera.local");
+    await reviewPersonalDataSource(app, lawyerCookie);
 
     const created = await app.inject({
       method: "POST",
@@ -15076,13 +15077,30 @@ test("privacy request requires reviewed Armenian personal-data source", async ()
     });
     assert.equal(blocked.statusCode, 409);
     assert.match(blocked.body, /PERSONAL_DATA_SOURCE_REVIEW_REQUIRED/);
+
+    await maintainSourceAsOwner(app, cookie, "law-personal-data");
+    const stillBlocked = await app.inject({
+      method: "POST",
+      url: "/api/privacy/requests",
+      headers: { cookie },
+      payload: {
+        customerId: "cust-ani",
+        requestType: "export",
+        requesterEmail: "owner@anibeauty.am",
+        channel: "Telegram",
+        note: "Owner-maintained source still needs lawyer signoff."
+      }
+    });
+    assert.equal(stillBlocked.statusCode, 409);
+    assert.match(stillBlocked.body, /PERSONAL_DATA_SOURCE_REVIEW_REQUIRED/);
   });
 });
 
 test("approved privacy request creates idempotent customer data export packet", async () => {
   await withApp(async app => {
     const cookie = await login(app);
-    await reviewPersonalDataSource(app, cookie);
+    const lawyerCookie = await login(app, "lawyer@armosphera.local");
+    await reviewPersonalDataSource(app, lawyerCookie);
 
     const created = await app.inject({
       method: "POST",
@@ -15134,6 +15152,7 @@ test("approved privacy request creates idempotent customer data export packet", 
     assert.equal(executedBody.packet.payload.profile.consentStatus, "consent-review-required");
     assert.ok(executedBody.packet.payload.profileSources.some(source => source.sourceApp === "campaigns"));
     assert.ok(executedBody.packet.payload.legalSource.status === "active");
+    assert.equal(executedBody.packet.payload.legalSource.latestReviewRole, "Lawyer");
     assert.ok(executedBody.events.some(event => event.eventType === "privacy.export_packet.created"));
     assert.ok(executedBody.events.some(event => event.eventType === "workflow.action.executed"));
 
@@ -15164,7 +15183,8 @@ test("approved privacy request creates idempotent customer data export packet", 
 test("approved privacy delete request creates retention assessment instead of direct deletion", async () => {
   await withApp(async app => {
     const cookie = await login(app);
-    await reviewPersonalDataSource(app, cookie);
+    const lawyerCookie = await login(app, "lawyer@armosphera.local");
+    await reviewPersonalDataSource(app, lawyerCookie);
 
     const created = await app.inject({
       method: "POST",
@@ -15588,6 +15608,19 @@ test("signature evidence packet requires reviewed Armenian e-sign source", async
     });
     assert.equal(blocked.statusCode, 409);
     assert.match(blocked.body, /ESIGN_SOURCE_REVIEW_REQUIRED/);
+
+    await maintainSourceAsOwner(app, cookie, "law-esign");
+    const stillBlocked = await app.inject({
+      method: "POST",
+      url: "/api/docs/signature-packets",
+      headers: { cookie },
+      payload: {
+        quoteId: "quote-ani-inbox",
+        note: "Owner-maintained e-sign source still needs lawyer signoff"
+      }
+    });
+    assert.equal(stillBlocked.statusCode, 409);
+    assert.match(stillBlocked.body, /ESIGN_SOURCE_REVIEW_REQUIRED/);
   });
 });
 
@@ -15597,7 +15630,8 @@ test("owner can create idempotent signature evidence packet for accepted quote",
     assert.equal(accepted.statusCode, 200, accepted.body);
     const acceptedBody = accepted.json();
     const cookie = await login(app);
-    await reviewEsignSource(app, cookie);
+    const lawyerCookie = await login(app, "lawyer@armosphera.local");
+    await reviewEsignSource(app, lawyerCookie);
 
     const created = await app.inject({
       method: "POST",
@@ -15620,6 +15654,7 @@ test("owner can create idempotent signature evidence packet for accepted quote",
     assert.equal(body.packet.payload.quote.number, acceptedBody.quote.number);
     assert.equal(body.packet.payload.acceptance.signerEmail, "owner@anibeauty.am");
     assert.equal(body.packet.payload.legalSource.status, "active");
+    assert.equal(body.packet.payload.legalSource.latestReviewRole, "Lawyer");
     assert.equal(body.packet.payload.disclaimer, "Prepared as an Armenian e-signature evidence handoff; not a qualified signature service.");
     assert.ok(body.events.some(event => event.eventType === "docs.signature_packet.created"));
 
@@ -17580,13 +17615,24 @@ test("SRC export requires reviewed VAT legal source before packet creation", asy
     });
     assert.equal(blocked.statusCode, 409);
     assert.match(blocked.body, /VAT_SOURCE_REVIEW_REQUIRED/);
+
+    await maintainSourceAsOwner(app, cookie, "law-tax-code");
+    const stillBlocked = await app.inject({
+      method: "POST",
+      url: "/api/finance/src-exports",
+      headers: { cookie },
+      payload: { periodKey: "2026-05", note: "Owner-maintained tax source still needs accountant signoff" }
+    });
+    assert.equal(stillBlocked.statusCode, 409);
+    assert.match(stillBlocked.body, /VAT_SOURCE_REVIEW_REQUIRED/);
   });
 });
 
 test("owner can create idempotent SRC export packet from posted HayHashvapah invoices", async () => {
   await withApp(async app => {
     const cookie = await login(app);
-    await reviewVatSource(app, cookie);
+    const accountantCookie = await login(app, "accountant@armosphera.local");
+    await reviewVatSource(app, accountantCookie);
     const draft = await executeDraftInvoice(app, cookie);
     const posted = await app.inject({
       method: "POST",
@@ -17615,6 +17661,7 @@ test("owner can create idempotent SRC export packet from posted HayHashvapah inv
     assert.match(body.export.checksum, /^[a-f0-9]{64}$/);
     assert.equal(body.export.payload.organization.taxId, "01234567");
     assert.equal(body.export.payload.legalSource.status, "active");
+    assert.equal(body.export.payload.legalSource.latestReviewRole, "Accountant");
     assert.equal(body.export.payload.invoices[0].number, "HHV-SRC-2026-0002");
     assert.equal(body.export.payload.invoices[0].customer.taxId, "02576111");
     assert.ok(body.events.some(event => event.eventType === "finance.src_export.created"));
@@ -17642,7 +17689,8 @@ test("owner can create idempotent SRC export packet from posted HayHashvapah inv
 test("closed finance period blocks SRC export packet creation", async () => {
   await withApp(async app => {
     const cookie = await login(app);
-    await reviewVatSource(app, cookie);
+    const accountantCookie = await login(app, "accountant@armosphera.local");
+    await reviewVatSource(app, accountantCookie);
     const draft = await executeDraftInvoice(app, cookie);
     const posted = await app.inject({
       method: "POST",
@@ -18003,6 +18051,26 @@ async function executeDraftInvoice(app, cookie) {
   });
   assert.equal(executed.statusCode, 200, executed.body);
   return executed.json().draftInvoice;
+}
+
+async function maintainSourceAsOwner(app, cookie, sourceId) {
+  const source = app.db.prepare("SELECT title, source_url AS sourceUrl, effective_date AS effectiveDate FROM legal_sources WHERE id = ?").get(sourceId);
+  assert.ok(source, `${sourceId} source is seeded`);
+  const reviewed = await app.inject({
+    method: "POST",
+    url: `/api/legal/sources/${sourceId}/reviews`,
+    headers: { cookie },
+    payload: {
+      title: `${source.title} - owner maintained`,
+      sourceUrl: source.sourceUrl,
+      effectiveDate: source.effectiveDate,
+      status: "active",
+      reviewNote: "Owner maintained source metadata; professional signoff is still required."
+    }
+  });
+  assert.equal(reviewed.statusCode, 200, reviewed.body);
+  assert.equal(reviewed.json().review.reviewedByName, "Samvel Owner");
+  return reviewed.json().source;
 }
 
 async function reviewVatSource(app, cookie) {

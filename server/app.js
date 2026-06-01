@@ -44117,6 +44117,7 @@ function getCopilotCitations(db, orgId, intent, question) {
       status: source.status,
       effectiveDate: source.effectiveDate,
       latestReview: source.latestReview,
+      professionalReviewReady: isProfessionalLegalSourceReady(source),
       excerpt: copilotLegalExcerpt(id, question),
       relevance: 96 - index * 5
     };
@@ -44220,22 +44221,22 @@ function getProductionReadiness(db, orgId, query = {}) {
 
 function buildLegalSourceReadinessGates(sources) {
   const required = [
-    { id: "law-tax-code", label: "ԱԱՀ հարկային աղբյուր", ownerRole: "Accountant", reviewerRoles: ["Accountant"] },
-    { id: "law-personal-data", label: "Անձնական տվյալների իրավական աղբյուր", ownerRole: "Lawyer", reviewerRoles: ["Lawyer"] },
-    { id: "law-esign", label: "Էլեկտրոնային ստորագրության իրավական աղբյուր", ownerRole: "Lawyer", reviewerRoles: ["Lawyer"] }
+    { id: "law-tax-code", label: "ԱԱՀ հարկային աղբյուր", ownerRole: "Accountant" },
+    { id: "law-personal-data", label: "Անձնական տվյալների իրավական աղբյուր", ownerRole: "Lawyer" },
+    { id: "law-esign", label: "Էլեկտրոնային ստորագրության իրավական աղբյուր", ownerRole: "Lawyer" }
   ];
   return required.map(item => {
     const source = sources.find(candidate => candidate.id === item.id);
     const latestReview = source?.latestReview || null;
     const reviewerRole = latestReview?.reviewedByRole || "";
-    const professionalReviewPassed = item.reviewerRoles.includes(reviewerRole);
-    const pass = source?.status === "active" && professionalReviewPassed;
+    const reviewerRoles = requiredProfessionalReviewerRoles(item.id);
+    const pass = isProfessionalLegalSourceReady(source);
     return {
       key: item.id,
       label: source?.title || item.label,
       domain: "legal-source",
       ownerRole: item.ownerRole,
-      reviewerRoles: item.reviewerRoles,
+      reviewerRoles,
       pass,
       status: source?.status || "missing",
       requiredStatus: "active",
@@ -44307,6 +44308,39 @@ function parseTaxRateNumber(rawConfig, key) {
   } catch {
     return null;
   }
+}
+
+function requireProfessionalLegalSource(db, orgId, sourceId, errorCode) {
+  const source = getLegalSource(db, orgId, sourceId);
+  if (!isProfessionalLegalSourceReady(source)) {
+    const err = new Error(errorCode);
+    err.statusCode = 409;
+    throw err;
+  }
+  return source;
+}
+
+function isProfessionalLegalSourceReady(source) {
+  if (!source || source.status !== "active") return false;
+  return requiredProfessionalReviewerRoles(source.id).includes(source.latestReview?.reviewedByRole || "");
+}
+
+function requiredProfessionalReviewerRoles(sourceId) {
+  if (sourceId === "law-tax-code") return ["Accountant"];
+  if (["law-personal-data", "law-esign"].includes(sourceId)) return ["Lawyer"];
+  return ["Owner", "Admin"];
+}
+
+function legalSourcePayload(source) {
+  return {
+    id: source.id,
+    title: source.title,
+    status: source.status,
+    effectiveDate: source.effectiveDate,
+    latestReviewId: source.latestReview?.id || null,
+    latestReviewRole: source.latestReview?.reviewedByRole || "",
+    latestReviewerName: source.latestReview?.reviewedByName || ""
+  };
 }
 
 function getLegalSource(db, orgId, sourceId) {
@@ -45391,12 +45425,7 @@ function createSignaturePacket(db, user, body) {
     throw err;
   }
 
-  const legalSource = getLegalSource(db, user.org_id, "law-esign");
-  if (!legalSource || legalSource.status !== "active") {
-    const err = new Error("ESIGN_SOURCE_REVIEW_REQUIRED");
-    err.statusCode = 409;
-    throw err;
-  }
+  const legalSource = requireProfessionalLegalSource(db, user.org_id, "law-esign", "ESIGN_SOURCE_REVIEW_REQUIRED");
 
   const acceptance = getQuoteAcceptanceByQuote(db, user.org_id, quote.id);
   if (!acceptance) {
@@ -45446,13 +45475,7 @@ function createSignaturePacket(db, user, body) {
       ipAddress: acceptance.ipAddress,
       userAgent: acceptance.userAgent
     },
-    legalSource: {
-      id: legalSource.id,
-      title: legalSource.title,
-      status: legalSource.status,
-      effectiveDate: legalSource.effectiveDate,
-      latestReviewId: legalSource.latestReview?.id || null
-    },
+    legalSource: legalSourcePayload(legalSource),
     note: String(body.note || "").trim(),
     disclaimer: "Prepared as an Armenian e-signature evidence handoff; not a qualified signature service."
   };
@@ -45562,12 +45585,7 @@ function formatSignaturePacket(row) {
 function createPrivacyRequest(db, user, body) {
   const customerId = String(body.customerId || "").trim();
   assertCustomer(db, user.org_id, customerId);
-  const legalSource = getLegalSource(db, user.org_id, "law-personal-data");
-  if (!legalSource || legalSource.status !== "active") {
-    const err = new Error("PERSONAL_DATA_SOURCE_REVIEW_REQUIRED");
-    err.statusCode = 409;
-    throw err;
-  }
+  const legalSource = requireProfessionalLegalSource(db, user.org_id, "law-personal-data", "PERSONAL_DATA_SOURCE_REVIEW_REQUIRED");
 
   const requestType = normalizeChoice(body.requestType, ["export", "delete"], "");
   const requesterEmail = String(body.requesterEmail || "").trim();
@@ -46951,12 +46969,7 @@ function createPrivacyExportPacketFromRequest(db, user, approval, request, now) 
   const existing = getPrivacyExportPacketBySourceKey(db, user.org_id, sourceKey);
   if (existing) return existing;
 
-  const legalSource = getLegalSource(db, user.org_id, request.legalSourceId || "law-personal-data");
-  if (!legalSource || legalSource.status !== "active") {
-    const err = new Error("PERSONAL_DATA_SOURCE_REVIEW_REQUIRED");
-    err.statusCode = 409;
-    throw err;
-  }
+  const legalSource = requireProfessionalLegalSource(db, user.org_id, request.legalSourceId || "law-personal-data", "PERSONAL_DATA_SOURCE_REVIEW_REQUIRED");
   const customer = getCustomerSummary(db, user.org_id, request.customerId);
   const profile = getCustomerProfile(db, user.org_id, request.customerId);
   const profileSources = profile ? getProfileSources(db, user.org_id, profile.id) : [];
@@ -46992,13 +47005,7 @@ function createPrivacyExportPacketFromRequest(db, user, approval, request, now) 
       note: request.note,
       createdAt: request.createdAt
     },
-    legalSource: {
-      id: legalSource.id,
-      title: legalSource.title,
-      status: legalSource.status,
-      effectiveDate: legalSource.effectiveDate,
-      latestReviewId: legalSource.latestReview?.id || null
-    },
+    legalSource: legalSourcePayload(legalSource),
     disclaimer: "Prepared for Armenian personal-data request fulfillment review; deletion is not performed by this export packet."
   };
   const checksum = crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
@@ -47038,12 +47045,7 @@ function createPrivacyRetentionAssessmentFromRequest(db, user, approval, request
   const existing = getPrivacyRetentionAssessmentBySourceKey(db, user.org_id, sourceKey);
   if (existing) return existing;
 
-  const legalSource = getLegalSource(db, user.org_id, request.legalSourceId || "law-personal-data");
-  if (!legalSource || legalSource.status !== "active") {
-    const err = new Error("PERSONAL_DATA_SOURCE_REVIEW_REQUIRED");
-    err.statusCode = 409;
-    throw err;
-  }
+  const legalSource = requireProfessionalLegalSource(db, user.org_id, request.legalSourceId || "law-personal-data", "PERSONAL_DATA_SOURCE_REVIEW_REQUIRED");
   const customer = getCustomerSummary(db, user.org_id, request.customerId);
   const profile = getCustomerProfile(db, user.org_id, request.customerId);
   const profileSources = profile ? getProfileSources(db, user.org_id, profile.id) : [];
@@ -47128,13 +47130,7 @@ function createPrivacyRetentionAssessmentFromRequest(db, user, approval, request
     },
     eraseCandidates,
     recommendation,
-    legalSource: {
-      id: legalSource.id,
-      title: legalSource.title,
-      status: legalSource.status,
-      effectiveDate: legalSource.effectiveDate,
-      latestReviewId: legalSource.latestReview?.id || null
-    },
+    legalSource: legalSourcePayload(legalSource),
     disclaimer: "Deletion is not executed automatically; this assessment separates erasable marketing/support data from accounting, contract, and statutory-retention records for owner review."
   };
   const checksum = crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
@@ -48063,12 +48059,7 @@ function createFinanceSrcExport(db, user, body) {
     throw err;
   }
 
-  const legalSource = getLegalSource(db, user.org_id, "law-tax-code");
-  if (!legalSource || legalSource.status !== "active") {
-    const err = new Error("VAT_SOURCE_REVIEW_REQUIRED");
-    err.statusCode = 409;
-    throw err;
-  }
+  const legalSource = requireProfessionalLegalSource(db, user.org_id, "law-tax-code", "VAT_SOURCE_REVIEW_REQUIRED");
 
   const sourceKey = `src-export:${periodKey}`;
   const existing = getFinanceSrcExportBySourceKey(db, user.org_id, sourceKey);
@@ -48123,13 +48114,7 @@ function createFinanceSrcExport(db, user, body) {
       endsOn: period.endsOn,
       status: period.status
     },
-    legalSource: {
-      id: legalSource.id,
-      title: legalSource.title,
-      status: legalSource.status,
-      effectiveDate: legalSource.effectiveDate,
-      latestReviewId: legalSource.latestReview?.id || null
-    },
+    legalSource: legalSourcePayload(legalSource),
     totals: {
       invoiceCount: invoices.length,
       ...totals

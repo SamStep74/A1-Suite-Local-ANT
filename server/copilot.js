@@ -27,7 +27,10 @@ function buildCopilotPacket(input) {
   const context = input.context || {};
   const legal = citations.filter(source => /^law-/.test(source.id || ""));
   const citationRequired = ["vat", "personal-data", "esign", "month-close"].includes(intent);
-  const sourceActive = legal.length > 0 && legal.every(source => source.status === "active");
+  const sourceReady = legal.length > 0 && legal.every(source => (
+    source.status === "active"
+    && (source.professionalReviewReady === undefined || source.professionalReviewReady === true)
+  ));
   const status = citationRequired && legal.length === 0 ? "blocked-missing-citation" : "draft";
   const riskLevel = intent === "payroll" || intent === "month-close" ? "financial" : "legal";
   const reviewRequired = true;
@@ -36,7 +39,7 @@ function buildCopilotPacket(input) {
     intent,
     status,
     modelPolicy: normalizeModelPolicy(input.modelPolicy),
-    answer: buildAnswer({ intent, question: input.question, citations, calculations, context, sourceActive }),
+    answer: buildAnswer({ intent, question: input.question, citations, calculations, context, sourceReady }),
     confidence: confidenceForIntent(intent, citations, calculations),
     riskLevel,
     reviewRequired,
@@ -44,7 +47,7 @@ function buildCopilotPacket(input) {
     citations,
     calculations,
     context,
-    proposedActions: buildProposedActions({ intent, context, sourceActive }),
+    proposedActions: buildProposedActions({ intent, context, sourceReady }),
     guardrails: buildGuardrails(intent),
     createdAt: now
   };
@@ -65,7 +68,7 @@ function confidenceForIntent(intent, citations, calculations) {
   return Math.min(94, base + Math.min(citations.length, 2) * 3 + Math.min(calculations.length, 2) * 2);
 }
 
-function buildAnswer({ intent, citations, calculations, context, sourceActive }) {
+function buildAnswer({ intent, citations, calculations, context, sourceReady }) {
   const citationNames = citations.map(source => source.title).filter(Boolean).join("; ") || "configured Armenian legal source registry";
   if (intent === "vat") {
     const vat = calculations.find(calc => calc.kind === "vat-report");
@@ -73,7 +76,7 @@ function buildAnswer({ intent, citations, calculations, context, sourceActive })
     return [
       "Ներքին ԱԱՀ խորհրդատվության նախագիծ. օգտագործեք նշված հայկական հարկային աղբյուրը, ստուգեք հաճախորդը եւ հաշվետու ժամանակաշրջանը, եւ պատասխանը պահեք հաշվապահի վերանայման տակ:",
       payable !== null ? `Ընթացիկ ԱԱՀ նախադիտումը ցույց է տալիս ${payable} AMD զուտ վճարվելիք ԱԱՀ ${context.periodKey || "ընտրված ժամանակաշրջանի"} համար:` : "Այս պատասխանը ԱԱՀ գումար չի գրանցում:",
-      sourceActive ? "ԱԱՀ աղբյուրը ակտիվ է, ու հաջորդ քայլը կարող է լինել SRC արտահանման փաթեթի պատրաստումը հաշվապահի վերանայման համար:" : "ԱԱՀ աղբյուրը դեռ ակտիվ չէ, ու SRC արտահանման պատրաստումը մնում է անջատված մինչեւ հաշվապահի վերանայում:",
+      sourceReady ? "ԱԱՀ աղբյուրը մասնագիտական վերանայված է, ու հաջորդ քայլը կարող է լինել SRC արտահանման փաթեթի պատրաստումը հաշվապահի վերանայման համար:" : "ԱԱՀ աղբյուրը դեռ մասնագիտական վերանայված չէ, ու SRC արտահանման պատրաստումը մնում է անջատված մինչեւ հաշվապահի վերանայում:",
       `Աղբյուրներ: ${citationNames}:`
     ].join(" ");
   }
@@ -91,7 +94,7 @@ function buildAnswer({ intent, citations, calculations, context, sourceActive })
     return [
       "Ներքին անձնական տվյալների ուղեցույց. օգտագործեք նշված հայկական անձնական տվյալների աղբյուրը եւ վերջնական քայլը անցկացրեք սեփականատիրոջ կամ իրավաբանի վերանայմամբ:",
       deleteMode ? "Ջնջման հարցումների համար նախ պատրաստեք պահպանման գնահատում. հաշվապահական, պայմանագրային կամ օրենքով պահվող գրառումները ինքնաբերաբար մի ջնջեք:" : "Արտահանման հարցումների համար իրավական աղբյուրի վերանայումից հետո պատրաստեք աուդիտավորվող արտահանման հարցում եւ փաթեթ:",
-      sourceActive ? "Անձնական տվյալների աղբյուրը ակտիվ է աշխատանքային հոսք պատրաստելու համար:" : "Անձնական տվյալների աղբյուրը դեռ ակտիվ չէ, ու հարցման պատրաստումը մնում է անջատված մինչեւ իրավաբանի վերանայում:",
+      sourceReady ? "Անձնական տվյալների աղբյուրը մասնագիտական վերանայված է աշխատանքային հոսք պատրաստելու համար:" : "Անձնական տվյալների աղբյուրը դեռ մասնագիտական վերանայված չէ, ու հարցման պատրաստումը մնում է անջատված մինչեւ իրավաբանի վերանայում:",
       `Աղբյուրներ: ${citationNames}:`
     ].join(" ");
   }
@@ -110,7 +113,7 @@ function buildAnswer({ intent, citations, calculations, context, sourceActive })
   ].join(" ");
 }
 
-function buildProposedActions({ intent, context, sourceActive }) {
+function buildProposedActions({ intent, context, sourceReady }) {
   if (intent === "vat") {
     return [{
       key: "finance.src.prepare",
@@ -120,7 +123,7 @@ function buildProposedActions({ intent, context, sourceActive }) {
       payload: { periodKey: context.periodKey || "", note: "Պատրաստված է Copilot-ի ԱԱՀ ուղեցույցից" },
       requiresApproval: true,
       mutates: true,
-      disabledReason: sourceActive ? "" : "ԱԱՀ իրավական աղբյուրը դեռ ակտիվ չէ"
+      disabledReason: sourceReady ? "" : "ԱԱՀ իրավական աղբյուրը դեռ մասնագիտական վերանայված չէ"
     }];
   }
   if (intent === "payroll") {
@@ -150,7 +153,7 @@ function buildProposedActions({ intent, context, sourceActive }) {
       },
       requiresApproval: true,
       mutates: true,
-      disabledReason: sourceActive ? "" : "Անձնական տվյալների իրավական աղբյուրը դեռ ակտիվ չէ"
+      disabledReason: sourceReady ? "" : "Անձնական տվյալների իրավական աղբյուրը դեռ մասնագիտական վերանայված չէ"
     }];
   }
   if (intent === "esign") {

@@ -91,14 +91,38 @@ test("VAT copilot returns cited legal/accounting guidance without creating SRC e
   }
 });
 
-test("VAT copilot enables SRC proposal only after VAT source review", async () => {
+test("VAT copilot enables SRC proposal only after professional VAT source review", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
     await app.ready();
     const cookie = await login(app);
+    const accountantCookie = await login(app, "accountant@armosphera.local", DEFAULT_PASSWORD);
+
     await reviewSource(
       app,
       cookie,
+      "law-tax-code",
+      "ՀՀ Հարկային օրենսգիրք հոդված 63 ԱԱՀ դրույքաչափ - owner maintained",
+      "Owner maintained the source metadata, but this is not accountant signoff."
+    );
+    const ownerOnly = await app.inject({
+      method: "POST",
+      url: "/api/copilot/questions",
+      headers: { cookie },
+      payload: {
+        intent: "vat",
+        customerId: "cust-nare",
+        periodKey: "2026-05",
+        question: "Պատրաստեք ներքին ԱԱՀ ուղեցույց եւ ցույց տվեք հաջորդ SRC փաթեթի քայլը:"
+      }
+    });
+    assert.strictEqual(ownerOnly.statusCode, 200, ownerOnly.body);
+    const ownerOnlyAction = ownerOnly.json().copilot.proposedActions.find(item => item.key === "finance.src.prepare");
+    assert.ok(ownerOnlyAction.disabledReason, "owner-only source maintenance must not unlock SRC preparation");
+
+    await reviewSource(
+      app,
+      accountantCookie,
       "law-tax-code",
       "ՀՀ Հարկային օրենսգիրք հոդված 63 ԱԱՀ դրույքաչափ - հաշվապահի կողմից վերանայված",
       "Հաշվապահը հաստատեց, որ աղբյուրը ակտիվ է Copilot-ի ԱԱՀ ուղեցույցի համար:"

@@ -1640,3 +1640,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - The production readiness gate now treats owner/admin source maintenance as insufficient for production sign-off; it passes legal-source gates only when the latest active review comes from the matching professional role.
 - The workspace review actions are shown to the relevant professional role: Accountant for VAT/tax source review and Lawyer for e-sign/personal-data source review.
 - Added API tests proving professional source-review authorization, Lawyer readiness access, owner-only review not clearing the production gate, auditor write rejection, and least-privilege Lawyer entitlements.
+
+### Slice 135 - Downstream Professional Source Enforcement
+
+- Downstream legal/accounting actions now share the production-readiness source rule instead of checking only `legal_sources.status = active`.
+- SRC export packets require Accountant-reviewed VAT/tax source signoff before packet creation, and their payload records the latest reviewer role/name.
+- Docs e-sign evidence packets, personal-data requests, export packets, and retention assessments require Lawyer-reviewed source signoff before creation/execution, and their payloads preserve the professional reviewer evidence.
+- Copilot citations expose `professionalReviewReady`; proposed SRC/privacy actions remain disabled after owner-only source maintenance and unlock only after matching professional review.
+- Added tests proving owner-only active source maintenance still blocks SRC, e-sign, and privacy workflows while Accountant/Lawyer review unlocks them.
