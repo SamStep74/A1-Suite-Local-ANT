@@ -1733,3 +1733,10 @@ Status: shipped in the local prototype on 2026-05-28.
 - MFA login verification now runs the same tenant guard after a valid challenge/user is known but before marking the challenge verified, updating the factor, creating a session, or setting a cookie.
 - Non-strict `tenant:null` lookup behavior, invalid-credential handling, auth rate limits, disabled/module tenant blocking, and generic public-resource 404 behavior remain unchanged.
 - Added Platform-enabled tests proving resolved-unmapped tenants block password login without cookies/sessions, block MFA session issuance without mutating the challenge, and still reject mapped-host session replay on authenticated routes.
+
+### Slice 148 - Platform Auth Failure Fail-Closed
+
+- A1 Platform auth/config failures now remain blocking even when `A1_PLATFORM_TENANT_STRICT` is off, so a bad Platform token cannot silently disable tenant enforcement.
+- Temporary lookup failures, generic Platform unavailability, and non-strict `tenant:null` responses still preserve the local-first fail-open path.
+- Sanitized client messages now distinguish tenant availability blocks from Platform lookup/auth failures without leaking raw Platform messages, tokens, database URLs, or secrets.
+- Added Platform-enabled tests proving non-strict `PLATFORM_AUTH_FAILED` returns sanitized `401`, blocks password login, emits no cookie, and creates no local session.
