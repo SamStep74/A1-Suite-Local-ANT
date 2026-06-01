@@ -6,6 +6,7 @@ import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm, CrmActivityPanel } from ".
 import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
 import { PeopleEmployeeForm, PeopleRegistryPanel } from "./people.jsx";
 import { DocsCreateForm, DocsRegistryPanel } from "./docs.jsx";
+import { CopilotPanel } from "./copilot.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
 import { FormCreateForm, FormsRegistryPanel } from "./forms.jsx";
 import { loadOr } from "./load-section.js";
@@ -1115,6 +1116,20 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
       onReload();
     } catch {
       setActionState("legal:error");
+    }
+  }
+
+  async function askCopilot(payload) {
+    setActionState("copilot:ask");
+    setActionError("");
+    try {
+      const data = await api("/api/copilot/questions", { method: "POST", body: payload });
+      return data.copilot;
+    } catch (err) {
+      reportActionError(err);
+      throw err;
+    } finally {
+      setActionState("");
     }
   }
 
@@ -3749,6 +3764,13 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
             onImportBankTransaction={importBankTransaction}
             onReconcileBankTransaction={reconcileBankTransaction}
             onGenerateBrief={suite.user.role === "Owner" ? generateCustomerBrief : null}
+          />
+          <CopilotPanel
+            customers={(serviceConsole && serviceConsole.customers) || []}
+            docs={docs}
+            people={people}
+            onAsk={askCopilot}
+            actionState={actionState}
           />
           {crmLeadData && (
             <LeadPipeline

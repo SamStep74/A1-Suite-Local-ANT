@@ -12350,3 +12350,52 @@ textarea {
   font-size: 0.92rem;
 }
 .action-error-banner button { color: var(--ruby); border: 1px solid var(--ruby); background: transparent; border-radius: 6px; padding: 4px 10px; }
+
+.copilot-panel textarea {
+  width: 100%;
+  min-height: 86px;
+  resize: vertical;
+}
+
+.copilot-controls {
+  display: grid;
+  gap: 10px;
+}
+
+.segmented {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.segmented button {
+  border: 1px solid var(--line);
+  background: var(--panel);
+  color: var(--text);
+  border-radius: 8px;
+  padding: 7px 10px;
+  font: inherit;
+  cursor: pointer;
+}
+
+.segmented button.active {
+  border-color: var(--brand);
+  background: color-mix(in srgb, var(--brand) 12%, var(--panel));
+}
+
+.copilot-result {
+  display: grid;
+  gap: 10px;
+  margin-top: 12px;
+}
+
+.copilot-block {
+  display: grid;
+  gap: 6px;
+}
+
+.copilot-block h3 {
+  margin: 0;
+  font-size: 0.86rem;
+  line-height: 1.2;
+}
