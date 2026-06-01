@@ -4,6 +4,7 @@ const config = require("./config");
 const TRUTHY = new Set(["1", "true", "yes", "on"]);
 const BLOCKING_TENANT_CODES = new Set(["TENANT_MAINTENANCE", "TENANT_DISABLED", "MODULE_DISABLED", "EGRESS_BLOCKED", "PLATFORM_AUTH_FAILED"]);
 const TENANT_UNAVAILABLE_CODES = new Set(["TENANT_MAINTENANCE", "TENANT_DISABLED", "MODULE_DISABLED", "EGRESS_BLOCKED"]);
+const AUTH_STATUS_PRESERVED_CODES = new Set(["TENANT_MAINTENANCE", "TENANT_DISABLED", "MODULE_DISABLED", "EGRESS_BLOCKED", "PLATFORM_AUTH_FAILED"]);
 const UNMAPPED_PUBLIC_RESOURCE_ORG_ID = "__a1_platform_unmapped_public_resource__";
 
 function platformResolutionEnabled(env = process.env) {
@@ -114,8 +115,8 @@ function writePlatformTenantCache(cache, key, tenant, env = process.env) {
 function platformTenantErrorCode(statusCode, payload = {}) {
   const errorPayload = platformTenantErrorPayload(payload);
   const code = errorPayload?.code;
+  if ((statusCode === 401 || statusCode === 403) && !AUTH_STATUS_PRESERVED_CODES.has(code)) return "PLATFORM_AUTH_FAILED";
   if (code) return code;
-  if (statusCode === 401 || statusCode === 403) return "PLATFORM_AUTH_FAILED";
   return "A1_PLATFORM_TENANT_UNAVAILABLE";
 }
 

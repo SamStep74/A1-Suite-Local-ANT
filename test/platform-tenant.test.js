@@ -388,12 +388,18 @@ test("platform tenant auth failures fail closed outside strict mode", async () =
   }
 });
 
-test("platform tenant bare auth statuses fail closed outside strict mode", async () => {
+test("platform tenant auth statuses fail closed outside strict mode", async () => {
   const env = { ...PLATFORM_ENV };
+  let calls = 0;
   const fetchImpl = async () => ({
     ok: false,
     status: 401,
-    json: async () => null
+    json: async () => {
+      calls += 1;
+      return calls === 1
+        ? null
+        : { error: { code: "UNAUTHORIZED", message: "gateway unauthorized token platform-token" } };
+    }
   });
 
   const app = buildApp({ dbPath: ":memory:", env, fetch: fetchImpl });
@@ -412,8 +418,12 @@ test("platform tenant bare auth statuses fail closed outside strict mode", async
     });
     assert.equal(loginResponse.statusCode, 401, loginResponse.body);
     assert.equal(loginResponse.json().error, "PLATFORM_AUTH_FAILED");
+    assert.equal(loginResponse.json().message, "A1 Platform tenant lookup failed");
+    assert.ok(!loginResponse.body.includes("platform-token"));
+    assert.ok(!loginResponse.body.includes("gateway unauthorized"));
     assert.equal(loginResponse.headers["set-cookie"], undefined);
     assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM sessions").get().count, 0);
+    assert.equal(calls, 2);
   } finally {
     await app.close();
   }
