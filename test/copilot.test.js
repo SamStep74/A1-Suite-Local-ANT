@@ -216,6 +216,42 @@ test("payroll copilot previews calculation without posting payroll run", async (
   }
 });
 
+test("month-close copilot previews trial balance and VAT without closing the period", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const before = app.db.prepare("SELECT status, closed_at AS closedAt FROM finance_periods WHERE period_key = ?").get("2026-05");
+    assert.ok(before, "seeded open period exists");
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/copilot/questions",
+      headers: { cookie },
+      payload: {
+        intent: "month-close",
+        periodKey: "2026-05",
+        question: "Ամսվա փակման համար ցույց տվեք փորձնական հաշվեկշիռը եւ ԱԱՀ ռիսկերը:"
+      }
+    });
+
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const copilot = res.json().copilot;
+    assert.strictEqual(copilot.intent, "month-close");
+    assert.ok(copilot.answer.includes("Ներքին ամսվա փակման ուղեցույց"));
+    assert.ok(copilot.citations.some(source => source.id === "law-tax-code"));
+    assert.ok(copilot.calculations.some(calc => calc.kind === "trial-balance"));
+    assert.ok(copilot.calculations.some(calc => calc.kind === "vat-report"));
+    assert.ok(copilot.proposedActions.some(action => action.key === "finance.period.close.prepare" && action.mutates === true));
+    assert.ok(copilot.guardrails.some(text => /չի փակում/i.test(text)));
+
+    const after = app.db.prepare("SELECT status, closed_at AS closedAt FROM finance_periods WHERE period_key = ?").get("2026-05");
+    assert.deepStrictEqual(after, before, "copilot must not close finance periods");
+  } finally {
+    await app.close();
+  }
+});
+
 test("copilot enforces app access for finance intents", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
