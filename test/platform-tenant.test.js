@@ -350,6 +350,44 @@ test("platform tenant strict errors are sanitized before returning to clients", 
   }
 });
 
+test("platform tenant auth failures fail closed outside strict mode", async () => {
+  const env = { ...PLATFORM_ENV };
+  const fetchImpl = async () => ({
+    ok: false,
+    status: 401,
+    json: async () => ({
+      error: {
+        code: "PLATFORM_AUTH_FAILED",
+        message: "bad token platform-token with postgresql://a1:secret@postgres:5432/a1"
+      }
+    })
+  });
+
+  const app = buildApp({ dbPath: ":memory:", env, fetch: fetchImpl });
+  await app.ready();
+  try {
+    const health = await app.inject({ method: "GET", url: "/api/health", headers: { host: "demo-client.a1suite.am" } });
+    assert.equal(health.statusCode, 401, health.body);
+    assert.equal(health.json().error, "PLATFORM_AUTH_FAILED");
+    assert.equal(health.json().message, "A1 Platform tenant lookup failed");
+    assert.ok(!health.body.includes("platform-token"));
+    assert.ok(!health.body.includes("postgresql://"));
+    assert.ok(!health.body.includes("secret"));
+
+    const loginResponse = await app.inject({
+      method: "POST",
+      url: "/api/login",
+      headers: { host: "demo-client.a1suite.am" },
+      payload: { email: DEFAULT_EMAIL, password: DEFAULT_PASSWORD }
+    });
+    assert.equal(loginResponse.statusCode, 401, loginResponse.body);
+    assert.equal(loginResponse.headers["set-cookie"], undefined);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM sessions").get().count, 0);
+  } finally {
+    await app.close();
+  }
+});
+
 test("platform tenant lookup respects the outbound egress allowlist", async () => {
   const env = {
     A1_PLATFORM_TENANT_RESOLUTION: "1",

@@ -1,7 +1,8 @@
 const config = require("./config");
 
 const TRUTHY = new Set(["1", "true", "yes", "on"]);
-const BLOCKING_TENANT_CODES = new Set(["TENANT_MAINTENANCE", "TENANT_DISABLED", "MODULE_DISABLED", "EGRESS_BLOCKED"]);
+const BLOCKING_TENANT_CODES = new Set(["TENANT_MAINTENANCE", "TENANT_DISABLED", "MODULE_DISABLED", "EGRESS_BLOCKED", "PLATFORM_AUTH_FAILED"]);
+const TENANT_UNAVAILABLE_CODES = new Set(["TENANT_MAINTENANCE", "TENANT_DISABLED", "MODULE_DISABLED", "EGRESS_BLOCKED"]);
 const UNMAPPED_PUBLIC_RESOURCE_ORG_ID = "__a1_platform_unmapped_public_resource__";
 
 function platformResolutionEnabled(env = process.env) {
@@ -159,7 +160,7 @@ function sanitizePlatformError(error) {
   return {
     ok: false,
     error: code,
-    message: BLOCKING_TENANT_CODES.has(code) ? "A1 Platform tenant is not available" : "A1 Platform tenant lookup failed"
+    message: TENANT_UNAVAILABLE_CODES.has(code) ? "A1 Platform tenant is not available" : "A1 Platform tenant lookup failed"
   };
 }
 
