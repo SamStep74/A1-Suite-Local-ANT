@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-01 · main after legal source HTTPS downgrade guard · 37 tags · **296 tests (296 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-01 · main after legal source credentialed URL guard · 37 tags · **297 tests (297 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 15 slices)
+### Hardening (production-readiness pass — 16 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -50,6 +50,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 13. **Legal source host stability** prevents legal-source review records from moving seeded Armenian sources to arbitrary hosts while still allowing same-host path/query/version updates.
 14. **Legal source host block audit** records rejected cross-host review attempts as metadata-only `legal.source.review.blocked` suite/audit events without storing the raw rejected URL or mutating source history.
 15. **Legal source HTTPS downgrade guard** blocks same-host HTTPS-to-HTTP source review updates and records only source id, normalized hosts, protocols, and `scheme-downgrade` reason.
+16. **Legal source credentialed URL guard** rejects source review URLs with username/password userinfo before mutation, records only host/protocol metadata with `url-credentials`, and prevents credentialed legacy citation URLs from rendering as links.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -97,6 +98,7 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
+- Latest legal source credentialed URL guard commit: `dbfbc01` (`feat(compliance): block credentialed legal source urls`), pushed with this handoff.
 - Latest legal source HTTPS downgrade commit: `1cc47f4` (`feat(compliance): prevent legal source https downgrades`), pushed with this handoff.
 - Latest legal source host-block audit commit: `469e7e4` (`feat(compliance): audit blocked legal source hosts`), pushed with this handoff.
 - Latest legal source host-stability commit: `de44edf` (`feat(compliance): keep legal source reviews on host`), pushed with this handoff.
@@ -107,16 +109,16 @@ Current checkpoint:
 - Previous professional source signoff commit: `357e874` (`feat(compliance): require professional source signoff`).
 - Previous production readiness commit: `3fe4f93` (`feat(compliance): add production readiness review gate`).
 - Previous copilot audit commit: `255ed4b` (`test(copilot): cover month-close preview guardrail`).
-- Verification from `~/dev/A1-Suite-Local`: `node --test --test-name-pattern "legal source review keeps reviewed URLs|legal source review does not downgrade" test/api.test.js` = 2 pass; `node --test test/api.test.js test/copilot.test.js test/copilot-source-link.test.mjs` = 174 pass; `npm run build:ui` = pass; `git diff --check` = pass; `npm test` = 296 pass, 0 fail, 0 cancelled; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-legal-source-scheme-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass. Read-only explorer confirmed the downgrade add point and event shape; read-only code-review subagent flagged the first payload as too broad, the implementation was narrowed, and re-review returned no findings.
-- Browser/API proof: this slice is server/API-only, so no rendered UI changed. The new proof is API-level: same-host HTTPS ARLIS review updates are accepted; same-host `http://arlis.am/...` downgrade attempts are rejected before changing `legal_sources`; `legal.source.review.blocked` appears in both `suite_events` and `/api/audit` with `reason: "scheme-downgrade"` plus host/protocol metadata only; and neither durable event contains the raw rejected URL, title, review note, requested status/date, or reviewer role.
-- Live preview for OPPO while the Mac is awake: server bound to `0.0.0.0:4178`; current LAN URL is `http://172.16.100.165:4178/`; current throwaway DB is `/tmp/a1-suite-legal-source-scheme-ui.sqlite`.
+- Verification from `~/dev/A1-Suite-Local`: `node --test --test-name-pattern "legal source review keeps reviewed URLs|legal source review does not downgrade|legal source review rejects credentialed" test/api.test.js` = 3 pass; `node --test test/copilot-source-link.test.mjs` = 3 pass; `node --test test/api.test.js test/copilot.test.js test/copilot-source-link.test.mjs` = 175 pass; `npm run build:ui` = pass; `git diff --check` = pass; `npm test` = 297 pass, 0 fail, 0 cancelled; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-legal-source-credentials-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass. Read-only explorer confirmed the credentialed-URL guard point and safe event shape; read-only code-review subagent ran the focused guard/link tests and returned no findings.
+- Browser/API proof: this slice is mostly server/API with a small Copilot link-helper guard. Same-host HTTPS ARLIS review updates are accepted; credentialed same-host URLs such as `https://reviewer:secret@arlis.am/...` are rejected before changing `legal_sources`; `legal.source.review.blocked` appears in both `suite_events` and `/api/audit` with `reason: "url-credentials"` plus host/protocol metadata only; neither durable event contains the raw rejected URL, username/password, title, review note, requested status/date, or reviewer role; and `getSourceLink` returns `null` for credentialed legacy source URLs.
+- Live preview for OPPO while the Mac is awake: server bound to `0.0.0.0:4178`; current LAN URL is `http://172.16.100.165:4178/`; current throwaway DB is `/tmp/a1-suite-legal-source-credentials-ui.sqlite`.
 - Next unchecked task from `2026-06-01-armenian-legal-accounting-copilot.md`: none; checklist is complete. The old "retire in-repo suite" note is moot in this repo because there is no `suite/` directory here.
 
 ### ⚠ ENV CAVEAT — old OneDrive copy was flaky
 `node --test` previously stalled / reported `cancelled` in the OneDrive-synced folder because of filesystem contention around the large `app.js`. The local `~/dev/A1-Suite-Local` checkout is the reliable working tree. If a future run regresses only in a synced/cloud folder, verify from this local checkout before treating it as a code failure. Reliable fallback patterns:
 - **Per-file**: `node --test test/<one>.test.js` (one short invocation).
 - **Clean worktree**: `git worktree add --detach /tmp/run HEAD && ln -s "$PWD/node_modules" /tmp/run/ && cd /tmp/run && node --test test/*.test.js`.
-- Last clean full-suite run from `~/dev/A1-Suite-Local`: **295 tests / 295 pass / 0 fail / 0 cancelled**.
+- Last clean full-suite run from `~/dev/A1-Suite-Local`: **297 tests / 297 pass / 0 fail / 0 cancelled**.
 
 ---
 
@@ -142,6 +144,7 @@ Current checkpoint:
 - ~~Legal source host stability~~ — **DONE**: legal-source review updates now normalize source hosts, allow same-host version/path/query changes such as `www.arlis.am` to `arlis.am`, reject arbitrary cross-host moves before persisting review history, and prove reviewed source URLs continue into legal-answer citations.
 - ~~Legal source host block audit~~ — **DONE**: rejected cross-host legal-source review attempts now emit metadata-only `legal.source.review.blocked` suite/audit events with source id, normalized hosts, reason, requested status/date, and reviewer role, while preserving source URL/review history and avoiding durable storage of the raw rejected URL.
 - ~~Legal source HTTPS downgrade guard~~ — **DONE**: maintained HTTPS legal/accounting source URLs cannot be downgraded to HTTP during review. Downgrade blocks emit `legal.source.review.blocked` with only source id, normalized hosts, protocols, and `scheme-downgrade` reason, while same-host HTTPS version updates remain accepted.
+- ~~Legal source credentialed URL guard~~ — **DONE**: legal-source reviews reject source URLs containing URL userinfo before mutation. Blocks emit `legal.source.review.blocked` with only source id, normalized hosts, protocols, and `url-credentials` reason, while Copilot citation links refuse credentialed legacy source URLs.
 
 ---
 
