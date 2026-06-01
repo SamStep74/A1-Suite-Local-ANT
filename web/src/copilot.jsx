@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { formatSourceDate, getSourceLink } from "./copilot-source.js";
 
 const INTENTS = [
   ["vat", "ԱԱՀ / SRC"],
@@ -136,8 +137,9 @@ function CopilotResult({ result }) {
               <span>
                 {source.title} · {source.status}
                 <em className={source.professionalReviewReady ? "source-ready" : "source-blocked"}>{formatSourceReview(source)}</em>
+                <SourceLink source={source} />
               </span>
-              <strong>{source.latestReview?.reviewedAt || source.effectiveDate || "առանց ամսաթվի"}</strong>
+              <strong>{formatSourceDate(source)}</strong>
             </div>
           ))}
         </div>
@@ -155,6 +157,17 @@ function CopilotResult({ result }) {
       )}
       {(result.guardrails || []).map(item => <p className="action-status" key={item}>{item}</p>)}
     </div>
+  );
+}
+
+function SourceLink({ source }) {
+  const link = getSourceLink(source);
+  if (!link) return null;
+  return (
+    <a className="source-link" href={link.href} target="_blank" rel="noopener noreferrer">
+      <span>Բացել աղբյուրը</span>
+      <small>{link.host}</small>
+    </a>
   );
 }
 

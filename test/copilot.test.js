@@ -80,7 +80,11 @@ test("VAT copilot returns cited legal/accounting guidance without creating SRC e
       egress: "blocked-by-default"
     });
     assert.ok(body.copilot.answer.includes("Ներքին ԱԱՀ խորհրդատվության նախագիծ"));
-    assert.ok(body.copilot.citations.some(source => source.id === "law-tax-code"));
+    const taxCitation = body.copilot.citations.find(source => source.id === "law-tax-code");
+    assert.ok(taxCitation);
+    assert.strictEqual(taxCitation.sourceUrl, "https://www.arlis.am/hy/acts/224990");
+    assert.strictEqual(taxCitation.effectiveDate, "2024-06-12");
+    assert.ok(Object.hasOwn(taxCitation, "latestReview"));
     assert.ok(body.copilot.calculations.some(calc => calc.kind === "vat-report"));
     assert.ok(body.copilot.proposedActions.some(action => action.key === "finance.src.prepare" && action.mutates === true));
 
@@ -174,6 +178,10 @@ test("VAT copilot enables SRC proposal only after professional VAT source review
     assert.ok(ownerOnlyAction.disabledReason, "owner-only source maintenance must not unlock SRC preparation");
     assert.strictEqual(ownerOnlyCitation.professionalReviewReady, false);
     assert.strictEqual(ownerOnlyCitation.latestReview.reviewedByRole, "Owner");
+    assert.strictEqual(ownerOnlyCitation.sourceUrl, "https://www.arlis.am/hy/acts/224990?reviewed=2026-06-01");
+    assert.strictEqual(ownerOnlyCitation.latestReview.sourceUrl, ownerOnlyCitation.sourceUrl);
+    assert.strictEqual(ownerOnlyCitation.latestReview.effectiveDate, "2026-06-01");
+    assert.match(ownerOnlyCitation.latestReview.createdAt, /^\d{4}-\d{2}-\d{2}T/);
 
     await reviewSource(
       app,
@@ -202,6 +210,10 @@ test("VAT copilot enables SRC proposal only after professional VAT source review
     assert.strictEqual(action.disabledReason, "");
     assert.deepStrictEqual(action.payload.periodKey, "2026-05");
     assert.strictEqual(citation.professionalReviewReady, true);
+    assert.strictEqual(citation.sourceUrl, "https://www.arlis.am/hy/acts/224990?reviewed=2026-06-01");
+    assert.strictEqual(citation.latestReview.sourceUrl, citation.sourceUrl);
+    assert.strictEqual(citation.latestReview.effectiveDate, "2026-06-01");
+    assert.match(citation.latestReview.createdAt, /^\d{4}-\d{2}-\d{2}T/);
     assert.strictEqual(citation.latestReview.reviewedByRole, "Accountant");
     assert.strictEqual(citation.latestReview.reviewedByName, "HayHashvapah Accountant");
   } finally {
@@ -231,7 +243,11 @@ test("personal-data delete copilot proposes retention assessment, not deletion",
     assert.strictEqual(res.statusCode, 200, res.body);
     const copilot = res.json().copilot;
     assert.strictEqual(copilot.intent, "personal-data");
-    assert.ok(copilot.citations.some(source => source.id === "law-personal-data"));
+    const citation = copilot.citations.find(source => source.id === "law-personal-data");
+    assert.ok(citation);
+    assert.match(citation.sourceUrl, /^https?:\/\//);
+    assert.match(citation.effectiveDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.ok(Object.hasOwn(citation, "latestReview"));
     assert.ok(/պահպան/i.test(copilot.answer));
     assert.ok(copilot.guardrails.some(text => /չի կատարվում/i.test(text)));
     assert.ok(copilot.proposedActions.some(action => action.key === "privacy.request.prepare" && action.payload.requestType === "delete"));
@@ -261,7 +277,11 @@ test("e-sign copilot cites signature source and includes document evidence", asy
     assert.strictEqual(res.statusCode, 200, res.body);
     const copilot = res.json().copilot;
     assert.strictEqual(copilot.intent, "esign");
-    assert.ok(copilot.citations.some(source => source.id === "law-esign"));
+    const citation = copilot.citations.find(source => source.id === "law-esign");
+    assert.ok(citation);
+    assert.match(citation.sourceUrl, /^https?:\/\//);
+    assert.match(citation.effectiveDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.ok(Object.hasOwn(citation, "latestReview"));
     assert.strictEqual(copilot.context.document.id, "doc-anahit-nda");
     assert.ok(Array.isArray(copilot.context.document.signers));
     assert.ok(copilot.proposedActions.some(action => action.key === "docs.export.open" && action.path.includes("/api/docs/documents/doc-anahit-nda/export")));
@@ -291,6 +311,7 @@ test("payroll copilot previews calculation without posting payroll run", async (
     assert.strictEqual(res.statusCode, 200, res.body);
     const copilot = res.json().copilot;
     assert.strictEqual(copilot.intent, "payroll");
+    assert.deepStrictEqual(copilot.citations, []);
     assert.ok(copilot.calculations.some(calc => calc.kind === "payroll-preview" && calc.outputs.net === 436500));
     assert.ok(copilot.proposedActions.some(action => action.key === "payroll.run.prepare" && action.mutates === true));
     assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM payroll_runs").get().count, before);
@@ -322,7 +343,11 @@ test("month-close copilot previews trial balance and VAT without closing the per
     const copilot = res.json().copilot;
     assert.strictEqual(copilot.intent, "month-close");
     assert.ok(copilot.answer.includes("Ներքին ամսվա փակման ուղեցույց"));
-    assert.ok(copilot.citations.some(source => source.id === "law-tax-code"));
+    const citation = copilot.citations.find(source => source.id === "law-tax-code");
+    assert.ok(citation);
+    assert.match(citation.sourceUrl, /^https?:\/\//);
+    assert.match(citation.effectiveDate, /^\d{4}-\d{2}-\d{2}$/);
+    assert.ok(Object.hasOwn(citation, "latestReview"));
     assert.ok(copilot.calculations.some(calc => calc.kind === "trial-balance"));
     assert.ok(copilot.calculations.some(calc => calc.kind === "vat-report"));
     assert.ok(copilot.proposedActions.some(action => action.key === "finance.period.close.prepare" && action.mutates === true));

@@ -12439,6 +12439,38 @@ textarea {
   color: var(--ruby);
 }
 
+.copilot-panel .source-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  max-width: 100%;
+  margin-top: 6px;
+  color: var(--blue);
+  font-size: 12px;
+  font-weight: 900;
+  text-decoration: none;
+  vertical-align: top;
+}
+
+.copilot-panel .source-link:hover {
+  text-decoration: underline;
+}
+
+.copilot-panel .source-link span,
+.copilot-panel .source-link small {
+  display: inline;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.copilot-panel .source-link small {
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 800;
+}
+
 .copilot-panel .row strong {
   max-width: 48%;
   overflow-wrap: anywhere;

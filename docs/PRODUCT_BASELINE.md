@@ -1662,3 +1662,9 @@ Status: shipped in the local prototype on 2026-05-28.
 - Copilot source citations now render professional-review evidence in the Armenian UI instead of showing only source title/status/date.
 - Ready citations show the matching professional reviewer role/name and latest review timestamp; blocked citations show that professional review is still open and identify the latest non-professional reviewer when present.
 - Added tests proving owner-only VAT source maintenance is exposed as not professionally ready, while Accountant review marks the citation ready with reviewer metadata.
+
+### Slice 138 - Copilot Citation Source Links
+
+- Copilot source citations now render a safe external link to the maintained Armenian legal/accounting source URL with a visible host label.
+- The UI only renders HTTP(S) source links and keeps them behind an explicit user click, preserving the local/offline default while making cited authority inspectable.
+- Added tests proving VAT Copilot citations carry the seeded ARLIS source URL/effective date, preserve the reviewed source URL through owner-maintained and Accountant-reviewed source updates, and reject non-HTTP(S) links in the UI helper.
