@@ -3956,6 +3956,12 @@ ${controls}
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8) };
   });
 
+  app.get("/api/compliance/production-readiness", async request => {
+    const user = await app.auth(request);
+    requireProductionReadinessReader(user);
+    return { readiness: getProductionReadiness(db, user.org_id, request.query || {}) };
+  });
+
   app.get("/api/admin/access-reviews", async request => {
     const user = await app.auth(request);
     requireAccessReviewer(user);
@@ -4847,6 +4853,14 @@ function requireAuditExportReader(user) {
 function requireAuditExportWriter(user) {
   if (!["Owner", "Admin"].includes(user.role)) {
     const err = new Error("Audit export writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requireProductionReadinessReader(user) {
+  if (!["Owner", "Admin", "Accountant", "Auditor"].includes(user.role)) {
+    const err = new Error("Production readiness reviewer role required");
     err.statusCode = 403;
     throw err;
   }
@@ -44163,6 +44177,116 @@ function getLegalSources(db, orgId) {
   return db.prepare("SELECT * FROM legal_sources WHERE org_id = ? ORDER BY title")
     .all(orgId)
     .map(row => formatLegalSource(db, orgId, row));
+}
+
+function getProductionReadiness(db, orgId, query = {}) {
+  const asOf = normalizeDate(query.asOf);
+  const legalSources = getLegalSources(db, orgId);
+  const gates = [
+    ...buildLegalSourceReadinessGates(legalSources),
+    buildVatRateReadinessGate(db, orgId, asOf),
+    buildPayrollRateReadinessGate(db, orgId, asOf)
+  ];
+  const blockers = gates.filter(item => !item.pass);
+  return {
+    status: blockers.length === 0 ? "ready" : "blocked",
+    reviewRequired: blockers.length > 0,
+    asOf,
+    generatedAt: new Date().toISOString(),
+    summary: {
+      total: gates.length,
+      passed: gates.length - blockers.length,
+      blocked: blockers.length
+    },
+    gates,
+    blockers
+  };
+}
+
+function buildLegalSourceReadinessGates(sources) {
+  const required = [
+    { id: "law-tax-code", label: "ԱԱՀ հարկային աղբյուր", ownerRole: "Accountant" },
+    { id: "law-personal-data", label: "Անձնական տվյալների իրավական աղբյուր", ownerRole: "Lawyer" },
+    { id: "law-esign", label: "Էլեկտրոնային ստորագրության իրավական աղբյուր", ownerRole: "Lawyer" }
+  ];
+  return required.map(item => {
+    const source = sources.find(candidate => candidate.id === item.id);
+    const pass = source?.status === "active" && Boolean(source.latestReview);
+    return {
+      key: item.id,
+      label: source?.title || item.label,
+      domain: "legal-source",
+      ownerRole: item.ownerRole,
+      pass,
+      status: source?.status || "missing",
+      requiredStatus: "active",
+      effectiveDate: source?.effectiveDate || "",
+      sourceUrl: source?.sourceUrl || "",
+      latestReview: source?.latestReview || null,
+      nextAction: pass ? "reviewed" : `${item.ownerRole} review required before production use`
+    };
+  });
+}
+
+function buildVatRateReadinessGate(db, orgId, asOf) {
+  const row = getEffectiveTaxRateRow(db, orgId, "vat", asOf);
+  const rate = row ? parseTaxRateNumber(row.config, "rate") : null;
+  return {
+    key: "tax-rate-vat-current",
+    label: "Գործող ԱԱՀ դրույքաչափ",
+    domain: "tax-rate",
+    ownerRole: "Accountant",
+    pass: rate !== null && rate > 0,
+    status: rate !== null && rate > 0 ? "configured" : "missing",
+    requiredStatus: "configured",
+    effectiveDate: row?.effectiveDate || "",
+    sourceUrl: "",
+    latestReview: null,
+    rate,
+    summary: rate !== null ? `${Math.round(rate * 10000) / 100}% VAT` : "VAT rate missing",
+    nextAction: rate !== null && rate > 0 ? "configured" : "Configure effective-dated VAT rate before production use"
+  };
+}
+
+function buildPayrollRateReadinessGate(db, orgId, asOf) {
+  const row = getEffectiveTaxRateRow(db, orgId, "payroll", asOf);
+  const incomeTaxRate = row ? parseTaxRateNumber(row.config, "incomeTaxRate") : null;
+  return {
+    key: "tax-rate-payroll-current",
+    label: "Գործող աշխատավարձային կարգավորում",
+    domain: "payroll-rate",
+    ownerRole: "Accountant",
+    pass: incomeTaxRate !== null && incomeTaxRate >= 0,
+    status: incomeTaxRate !== null && incomeTaxRate >= 0 ? "configured" : "missing",
+    requiredStatus: "configured",
+    effectiveDate: row?.effectiveDate || "",
+    sourceUrl: "",
+    latestReview: null,
+    rate: incomeTaxRate,
+    summary: incomeTaxRate !== null ? `${Math.round(incomeTaxRate * 10000) / 100}% income tax` : "Payroll config missing",
+    nextAction: incomeTaxRate !== null && incomeTaxRate >= 0 ? "configured" : "Configure effective-dated payroll rates before production use"
+  };
+}
+
+function getEffectiveTaxRateRow(db, orgId, kind, asOf) {
+  const row = db.prepare(`
+    SELECT kind, effective_date AS effectiveDate, config, note
+    FROM tax_rates
+    WHERE org_id = ? AND kind = ? AND effective_date <= ?
+    ORDER BY effective_date DESC
+    LIMIT 1
+  `).get(orgId, kind, asOf);
+  return row || null;
+}
+
+function parseTaxRateNumber(rawConfig, key) {
+  try {
+    const parsed = JSON.parse(rawConfig || "{}");
+    const value = Number(parsed[key]);
+    return Number.isFinite(value) ? value : null;
+  } catch {
+    return null;
+  }
 }
 
 function getLegalSource(db, orgId, sourceId) {

@@ -7,6 +7,7 @@ import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
 import { PeopleEmployeeForm, PeopleRegistryPanel } from "./people.jsx";
 import { DocsCreateForm, DocsRegistryPanel } from "./docs.jsx";
 import { CopilotPanel } from "./copilot.jsx";
+import { ProductionReadinessPanel } from "./compliance.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
 import { FormCreateForm, FormsRegistryPanel } from "./forms.jsx";
 import { loadOr } from "./load-section.js";
@@ -197,6 +198,7 @@ function App() {
   const [adminAccessReviews, setAdminAccessReviews] = useState([]);
   const [adminSessions, setAdminSessions] = useState(null);
   const [adminAuditExports, setAdminAuditExports] = useState([]);
+  const [productionReadiness, setProductionReadiness] = useState(null);
   const [selectedApp, setSelectedApp] = useState("crm");
   const [loading, setLoading] = useState(true);
 
@@ -311,6 +313,12 @@ function App() {
         setAdminSessions(null);
         setAdminAuditExports([]);
         setIntegrationConnectors([]);
+      }
+      if (["Owner", "Admin", "Accountant", "Auditor"].includes(data.user.role)) {
+        const readinessData = await loadOr(null, () => api("/api/compliance/production-readiness"));
+        setProductionReadiness(readinessData);
+      } else {
+        setProductionReadiness(null);
       }
       if (["Owner", "Admin", "Salesperson", "Operator", "Accountant", "Auditor"].includes(data.user.role)) {
         const pilotData = await loadOr(null, () => api("/api/pilots/templates/clinic-wellness"));
@@ -823,6 +831,7 @@ function App() {
       adminAccessReviews={adminAccessReviews}
       adminSessions={adminSessions}
       adminAuditExports={adminAuditExports}
+      productionReadiness={productionReadiness}
       selectedApp={selectedApp}
       onSelectApp={setSelectedApp}
       onReload={load}
@@ -891,7 +900,7 @@ function Login({ onDone }) {
   );
 }
 
-function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, projects, forms, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, selectedApp, onSelectApp, onReload }) {
+function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, projects, forms, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, productionReadiness, selectedApp, onSelectApp, onReload }) {
   const {
     pilotTemplateData,
     pilotOwnerBriefs,
@@ -3752,6 +3761,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
             onRevokeSession={revokeSession}
           />
         )}
+        <ProductionReadinessPanel data={productionReadiness} />
 
         <section className="content-grid">
           <Customer360
