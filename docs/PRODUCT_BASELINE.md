@@ -1719,3 +1719,10 @@ Status: shipped in the local prototype on 2026-05-28.
 - Tenant/resource mismatches return `404` so public callers cannot distinguish missing resources from resources that belong to another tenant.
 - Single-tenant/local behavior is unchanged when Platform tenant resolution is disabled or a non-blocking lookup fails open.
 - Added Platform-enabled tests proving wrong-host and unmapped-host form pages/submissions and quote reads/accepts are hidden with generic missing-resource responses, and that blocked form submissions and quote acceptances do not mutate the owning tenant.
+
+### Slice 146 - Authenticated Unmapped Tenant Fail-Closed
+
+- Authenticated Studio routes now reject a resolved A1 Platform tenant that lacks a local org mapping, even outside strict mode, using `403 A1_PLATFORM_TENANT_ORG_UNMAPPED`.
+- Non-strict `tenant:null` lookup behavior still fails open for local/single-tenant continuity, matching the existing Platform bridge policy.
+- Public form and quote tenant scoping remains separate and continues to hide wrong-host or unmapped-host anonymous resources with generic missing-resource responses.
+- Added Platform-enabled tests covering `tenant:null` fail-open and resolved-unmapped tenant rejection on `/api/me`, `/api/suite`, and `/api/platform/tenant`.
