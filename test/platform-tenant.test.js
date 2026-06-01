@@ -1,4 +1,5 @@
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const http = require("node:http");
 const test = require("node:test");
 const { buildApp } = require("../server/app");
@@ -21,6 +22,47 @@ async function login(app, host = "demo-client.a1suite.am") {
   });
   assert.equal(response.statusCode, 200, response.body);
   return response.headers["set-cookie"];
+}
+
+function totpCode(secretBase32, nowMs = Date.now()) {
+  const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ234567";
+  const clean = String(secretBase32 || "").replace(/=+$/g, "").replace(/\s+/g, "").toUpperCase();
+  let bits = "";
+  for (const char of clean) {
+    const value = alphabet.indexOf(char);
+    if (value < 0) continue;
+    bits += value.toString(2).padStart(5, "0");
+  }
+  const bytes = [];
+  for (let i = 0; i + 8 <= bits.length; i += 8) bytes.push(parseInt(bits.slice(i, i + 8), 2));
+  const counter = Math.floor(nowMs / 30000);
+  const counterBuffer = Buffer.alloc(8);
+  counterBuffer.writeBigUInt64BE(BigInt(counter));
+  const digest = crypto.createHmac("sha1", Buffer.from(bytes)).update(counterBuffer).digest();
+  const offset = digest[digest.length - 1] & 0x0f;
+  const binary = ((digest[offset] & 0x7f) << 24)
+    | ((digest[offset + 1] & 0xff) << 16)
+    | ((digest[offset + 2] & 0xff) << 8)
+    | (digest[offset + 3] & 0xff);
+  return String(binary % 1000000).padStart(6, "0");
+}
+
+function platformTenantForHost(host) {
+  if (host === "unmapped-auth.a1suite.am") {
+    return {
+      id: "tenant-unmapped-auth",
+      slug: "unmapped-auth",
+      status: "active",
+      modules: [{ code: "studio", enabled: true }]
+    };
+  }
+  return {
+    id: "tenant-demo",
+    orgId: "org-armosphera-demo",
+    slug: "demo-client",
+    status: "active",
+    modules: [{ code: "studio", enabled: true }]
+  };
 }
 
 test("platform tenant resolution is opt-in", async () => {
@@ -228,6 +270,33 @@ test("platform tenant null lookup still fails open for authenticated routes outs
   }
 });
 
+test("platform tenant resolved without org mapping blocks password login outside strict mode", async () => {
+  const env = { ...PLATFORM_ENV };
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ tenant: platformTenantForHost("unmapped-auth.a1suite.am") })
+  });
+
+  const app = buildApp({ dbPath: ":memory:", env, fetch: fetchImpl });
+  await app.ready();
+  try {
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/login",
+      headers: { host: "unmapped-auth.a1suite.am" },
+      payload: { email: DEFAULT_EMAIL, password: DEFAULT_PASSWORD }
+    });
+
+    assert.equal(response.statusCode, 403, response.body);
+    assert.ok(response.body.includes("A1 platform tenant is not mapped to this organization"));
+    assert.equal(response.headers["set-cookie"], undefined);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM sessions").get().count, 0);
+  } finally {
+    await app.close();
+  }
+});
+
 test("platform tenant strict mode fails closed on lookup errors", async () => {
   const env = {
     ...PLATFORM_ENV,
@@ -360,17 +429,10 @@ test("platform tenant successful module-disabled payloads block Studio requests"
 
 test("platform tenant resolved without org mapping rejects authenticated routes outside strict mode", async () => {
   const env = { ...PLATFORM_ENV };
-  const fetchImpl = async () => ({
+  const fetchImpl = async (url, options) => ({
     ok: true,
     status: 200,
-    json: async () => ({
-      tenant: {
-        id: "tenant-unmapped-auth",
-        slug: "unmapped-auth",
-        status: "active",
-        modules: [{ code: "studio", enabled: true }]
-      }
-    })
+    json: async () => ({ tenant: platformTenantForHost(options.headers["x-a1-request-host"]) })
   });
 
   const app = buildApp({ dbPath: ":memory:", env, fetch: fetchImpl });
@@ -384,7 +446,7 @@ test("platform tenant resolved without org mapping rejects authenticated routes 
     assert.equal(health.statusCode, 200, health.body);
     assert.deepEqual(health.json().platformTenant, { enabled: true, resolved: true, strict: false });
 
-    const cookie = await login(app, "unmapped-auth.a1suite.am");
+    const cookie = await login(app, "demo-client.a1suite.am");
     for (const url of ["/api/me", "/api/suite", "/api/platform/tenant"]) {
       const response = await app.inject({
         method: "GET",
@@ -394,6 +456,63 @@ test("platform tenant resolved without org mapping rejects authenticated routes 
       assert.equal(response.statusCode, 403, `${url}: ${response.body}`);
       assert.ok(response.body.includes("A1 platform tenant is not mapped to this organization"));
     }
+  } finally {
+    await app.close();
+  }
+});
+
+test("platform tenant resolved without org mapping blocks MFA session issuance outside strict mode", async () => {
+  const env = { ...PLATFORM_ENV };
+  const fetchImpl = async (url, options) => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ tenant: platformTenantForHost(options.headers["x-a1-request-host"]) })
+  });
+
+  const app = buildApp({ dbPath: ":memory:", env, fetch: fetchImpl });
+  await app.ready();
+  try {
+    const ownerCookie = await login(app, "demo-client.a1suite.am");
+    const enrollment = await app.inject({
+      method: "POST",
+      url: "/api/security/mfa/enroll",
+      headers: { host: "demo-client.a1suite.am", cookie: ownerCookie },
+      payload: { label: "Tenant replay guard" }
+    });
+    assert.equal(enrollment.statusCode, 200, enrollment.body);
+    const setupKey = enrollment.json().setup.manualSetupKey;
+    const verification = await app.inject({
+      method: "POST",
+      url: "/api/security/mfa/verify-enrollment",
+      headers: { host: "demo-client.a1suite.am", cookie: ownerCookie },
+      payload: { factorId: enrollment.json().factor.id, code: totpCode(setupKey) }
+    });
+    assert.equal(verification.statusCode, 200, verification.body);
+
+    const challenge = await app.inject({
+      method: "POST",
+      url: "/api/login",
+      headers: { host: "demo-client.a1suite.am" },
+      payload: { email: DEFAULT_EMAIL, password: DEFAULT_PASSWORD }
+    });
+    assert.equal(challenge.statusCode, 200, challenge.body);
+    assert.equal(challenge.json().mfaRequired, true);
+
+    const beforeSessions = app.db.prepare("SELECT COUNT(*) AS count FROM sessions WHERE mfa_verified = 1").get().count;
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/login/mfa",
+      headers: { host: "unmapped-auth.a1suite.am" },
+      payload: { challengeId: challenge.json().challengeId, code: totpCode(setupKey) }
+    });
+
+    assert.equal(response.statusCode, 403, response.body);
+    assert.ok(response.body.includes("A1 platform tenant is not mapped to this organization"));
+    assert.equal(response.headers["set-cookie"], undefined);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM sessions WHERE mfa_verified = 1").get().count, beforeSessions);
+    const challengeRow = app.db.prepare("SELECT status, verified_at FROM login_mfa_challenges WHERE id = ?").get(challenge.json().challengeId);
+    assert.equal(challengeRow.status, "pending");
+    assert.equal(challengeRow.verified_at, null);
   } finally {
     await app.close();
   }

@@ -224,6 +224,7 @@ function registerApi(app, db, options = {}) {
       reply.code(401);
       return { ok: false, error: "INVALID_LOGIN" };
     }
+    assertPlatformTenantUser(request, user, env);
     const mfaFactor = getActiveMfaFactor(db, user.org_id, user.id);
     if (mfaFactor) {
       const challenge = createMfaLoginChallenge(db, user, mfaFactor);
@@ -259,7 +260,8 @@ function registerApi(app, db, options = {}) {
     if (challengeId) enforceRateLimit(`login-mfa:${challengeId}`, 5, 10 * 60 * 1000, request.ip);
     const result = verifyMfaLoginChallenge(db, request.body || {}, {
       userAgent: request.headers["user-agent"],
-      ipAddress: request.ip
+      ipAddress: request.ip,
+      beforeSession: user => assertPlatformTenantUser(request, user, env)
     });
     reply.setCookie("sid", result.session.token, {
       httpOnly: true,
@@ -4229,9 +4231,6 @@ function verifyMfaLoginChallenge(db, body, context = {}) {
     err.statusCode = 401;
     throw err;
   }
-  const verifiedAt = new Date().toISOString();
-  db.prepare("UPDATE login_mfa_challenges SET status = 'verified', verified_at = ? WHERE id = ?").run(verifiedAt, challengeId);
-  db.prepare("UPDATE user_mfa_factors SET last_verified_at = ?, updated_at = ? WHERE id = ?").run(verifiedAt, verifiedAt, row.factor_id);
   const user = {
     id: row.user_id,
     org_id: row.org_id,
@@ -4240,6 +4239,10 @@ function verifyMfaLoginChallenge(db, body, context = {}) {
     role: row.role,
     password_hash: row.password_hash
   };
+  if (typeof context.beforeSession === "function") context.beforeSession(user);
+  const verifiedAt = new Date().toISOString();
+  db.prepare("UPDATE login_mfa_challenges SET status = 'verified', verified_at = ? WHERE id = ?").run(verifiedAt, challengeId);
+  db.prepare("UPDATE user_mfa_factors SET last_verified_at = ?, updated_at = ? WHERE id = ?").run(verifiedAt, verifiedAt, row.factor_id);
   const session = createSession(db, user.id, {
     userAgent: context.userAgent,
     ipAddress: context.ipAddress,
