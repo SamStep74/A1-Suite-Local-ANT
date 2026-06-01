@@ -12422,6 +12422,23 @@ textarea {
   white-space: normal;
 }
 
+.copilot-panel .row span em {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  font-style: normal;
+  font-weight: 800;
+  overflow-wrap: anywhere;
+}
+
+.copilot-panel .row span em.source-ready {
+  color: var(--teal);
+}
+
+.copilot-panel .row span em.source-blocked {
+  color: var(--ruby);
+}
+
 .copilot-panel .row strong {
   max-width: 48%;
   overflow-wrap: anywhere;

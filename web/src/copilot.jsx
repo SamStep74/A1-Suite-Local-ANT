@@ -8,6 +8,14 @@ const INTENTS = [
   ["month-close", "Ամսվա փակում"]
 ];
 
+const REVIEW_ROLE_LABELS = {
+  Accountant: "Հաշվապահ",
+  Lawyer: "Իրավաբան",
+  Owner: "Սեփականատեր",
+  Admin: "Ադմին",
+  Auditor: "Աուդիտոր"
+};
+
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 
 export function CopilotPanel({ customers, docs, people, onAsk, actionState }) {
@@ -125,8 +133,11 @@ function CopilotResult({ result }) {
           <h3>Աղբյուրներ</h3>
           {citations.map(source => (
             <div className="row" key={source.id}>
-              <span>{source.title} · {source.status}</span>
-              <strong>{source.effectiveDate || "առանց ամսաթվի"}</strong>
+              <span>
+                {source.title} · {source.status}
+                <em className={source.professionalReviewReady ? "source-ready" : "source-blocked"}>{formatSourceReview(source)}</em>
+              </span>
+              <strong>{source.latestReview?.reviewedAt || source.effectiveDate || "առանց ամսաթվի"}</strong>
             </div>
           ))}
         </div>
@@ -145,6 +156,15 @@ function CopilotResult({ result }) {
       {(result.guardrails || []).map(item => <p className="action-status" key={item}>{item}</p>)}
     </div>
   );
+}
+
+function formatSourceReview(source) {
+  const latest = source.latestReview || {};
+  const role = REVIEW_ROLE_LABELS[latest.reviewedByRole] || latest.reviewedByRole || "չնշված դեր";
+  const reviewer = latest.reviewedByName ? ` · ${latest.reviewedByName}` : "";
+  if (source.professionalReviewReady) return `Մասնագիտական վերանայում՝ ${role}${reviewer}`;
+  if (latest.reviewedByRole) return `Մասնագիտական վերանայումը բաց է · վերջին վերանայումը՝ ${role}${reviewer}`;
+  return "Մասնագիտական վերանայում չկա";
 }
 
 function formatCalculation(calc) {

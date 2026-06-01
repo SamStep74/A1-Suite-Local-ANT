@@ -1656,3 +1656,9 @@ Status: shipped in the local prototype on 2026-05-28.
 - Raw user question text and generated answer text are not stored in the audit metadata, keeping sensitive advisory prompts out of durable logs while preserving traceability.
 - The Copilot API returns the fresh event list, and the React workspace refreshes the Event bus and Audit panels after a Copilot ask without discarding the visible answer.
 - Added tests proving Copilot remains non-mutating while advisory use is traceable through customer timeline and audit records.
+
+### Slice 137 - Copilot Citation Review Evidence
+
+- Copilot source citations now render professional-review evidence in the Armenian UI instead of showing only source title/status/date.
+- Ready citations show the matching professional reviewer role/name and latest review timestamp; blocked citations show that professional review is still open and identify the latest non-professional reviewer when present.
+- Added tests proving owner-only VAT source maintenance is exposed as not professionally ready, while Accountant review marks the citation ready with reviewer metadata.

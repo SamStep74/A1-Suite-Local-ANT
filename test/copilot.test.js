@@ -170,7 +170,10 @@ test("VAT copilot enables SRC proposal only after professional VAT source review
     });
     assert.strictEqual(ownerOnly.statusCode, 200, ownerOnly.body);
     const ownerOnlyAction = ownerOnly.json().copilot.proposedActions.find(item => item.key === "finance.src.prepare");
+    const ownerOnlyCitation = ownerOnly.json().copilot.citations.find(item => item.id === "law-tax-code");
     assert.ok(ownerOnlyAction.disabledReason, "owner-only source maintenance must not unlock SRC preparation");
+    assert.strictEqual(ownerOnlyCitation.professionalReviewReady, false);
+    assert.strictEqual(ownerOnlyCitation.latestReview.reviewedByRole, "Owner");
 
     await reviewSource(
       app,
@@ -194,9 +197,13 @@ test("VAT copilot enables SRC proposal only after professional VAT source review
 
     assert.strictEqual(res.statusCode, 200, res.body);
     const action = res.json().copilot.proposedActions.find(item => item.key === "finance.src.prepare");
+    const citation = res.json().copilot.citations.find(item => item.id === "law-tax-code");
     assert.ok(action);
     assert.strictEqual(action.disabledReason, "");
     assert.deepStrictEqual(action.payload.periodKey, "2026-05");
+    assert.strictEqual(citation.professionalReviewReady, true);
+    assert.strictEqual(citation.latestReview.reviewedByRole, "Accountant");
+    assert.strictEqual(citation.latestReview.reviewedByName, "HayHashvapah Accountant");
   } finally {
     await app.close();
   }
