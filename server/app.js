@@ -44423,6 +44423,7 @@ function createLegalSourceReview(db, user, sourceId, body) {
     throw err;
   }
   if (!isSameSourceHost(current.source_url, sourceUrl)) {
+    recordLegalSourceReviewHostBlock(db, user, current, sourceUrl, status, effectiveDate);
     const err = new Error("Legal source review URL must stay on the existing source host");
     err.statusCode = 400;
     throw err;
@@ -44458,6 +44459,28 @@ function createLegalSourceReview(db, user, sourceId, body) {
     source: getLegalSource(db, user.org_id, current.id),
     review: getLegalSourceReview(db, user.org_id, reviewId)
   };
+}
+
+function recordLegalSourceReviewHostBlock(db, user, source, attemptedUrl, requestedStatus, requestedEffectiveDate) {
+  const details = {
+    sourceId: source.id,
+    existingHost: normalizedSourceHost(source.source_url),
+    attemptedHost: normalizedSourceHost(attemptedUrl),
+    reason: "host-mismatch",
+    requestedStatus,
+    requestedEffectiveDate,
+    reviewerRole: user.role
+  };
+  emitSuiteEvent(db, {
+    orgId: user.org_id,
+    actorUserId: user.id,
+    eventType: "legal.source.review.blocked",
+    subjectType: "legal_source",
+    subjectId: source.id,
+    status: "blocked",
+    payload: details
+  });
+  audit(db, user.org_id, user.id, "legal.source.review.blocked", details);
 }
 
 function isValidHttpUrl(value) {

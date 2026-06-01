@@ -15445,6 +15445,32 @@ test("legal source review keeps reviewed URLs on the existing source host", asyn
     });
     assert.equal(blocked.statusCode, 400);
 
+    const blockedTimeline = app.db.prepare("SELECT * FROM suite_events WHERE event_type = ? ORDER BY id DESC LIMIT 1")
+      .get("legal.source.review.blocked");
+    assert.ok(blockedTimeline);
+    assert.equal(blockedTimeline.subject_type, "legal_source");
+    assert.equal(blockedTimeline.subject_id, "law-tax-code");
+    assert.equal(blockedTimeline.status, "blocked");
+    const blockedPayload = JSON.parse(blockedTimeline.payload);
+    assert.equal(blockedPayload.sourceId, "law-tax-code");
+    assert.equal(blockedPayload.existingHost, "arlis.am");
+    assert.equal(blockedPayload.attemptedHost, "example.com");
+    assert.equal(blockedPayload.reason, "host-mismatch");
+    assert.equal(blockedPayload.requestedStatus, "active");
+    assert.equal(blockedPayload.requestedEffectiveDate, "2026-05-27");
+    assert.equal(blockedPayload.reviewerRole, "Owner");
+    assert.ok(!JSON.stringify(blockedPayload).includes("https://example.com/hy/acts/224990"));
+
+    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
+    assert.equal(audit.statusCode, 200, audit.body);
+    const blockedAudit = audit.json().events.find(event => event.type === "legal.source.review.blocked");
+    assert.ok(blockedAudit);
+    assert.equal(blockedAudit.details.sourceId, "law-tax-code");
+    assert.equal(blockedAudit.details.existingHost, "arlis.am");
+    assert.equal(blockedAudit.details.attemptedHost, "example.com");
+    assert.equal(blockedAudit.details.reason, "host-mismatch");
+    assert.ok(!JSON.stringify(blockedAudit.details).includes("https://example.com/hy/acts/224990"));
+
     const listed = await app.inject({ method: "GET", url: "/api/legal/sources", headers: { cookie } });
     const source = listed.json().sources.find(item => item.id === "law-tax-code");
     assert.equal(source.sourceUrl, "https://arlis.am/hy/acts/224990?reviewed=2026-05-26");

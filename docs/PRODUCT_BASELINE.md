@@ -1674,3 +1674,10 @@ Status: shipped in the local prototype on 2026-05-28.
 - Legal source reviews now keep each maintained Armenian legal/accounting source on its existing source host while still allowing path, query, and version updates.
 - Host comparison normalizes case and a leading `www.`, so ARLIS review updates can use either `www.arlis.am` or `arlis.am`, while arbitrary host changes are rejected before updating `legal_sources` or adding review history.
 - Added API tests proving reviewed source URLs flow into legal answer citations, same-host updates are accepted, cross-host updates are rejected, and rejected reviews do not advance the stored URL or review count.
+
+### Slice 140 - Legal Source Host Block Audit
+
+- Blocked legal-source host changes now leave a metadata-only governance trail instead of failing silently.
+- When a reviewer attempts to move a maintained Armenian legal/accounting source to a different host, the API emits matching `legal.source.review.blocked` suite and audit events before returning `400`.
+- The event payload records only the source id, normalized existing host, normalized attempted host, reason, requested status/date, and reviewer role. It deliberately avoids storing the raw rejected URL in durable audit metadata.
+- Added API tests proving the blocked attempt is visible in timeline/audit evidence while `legal_sources` and `legal_source_reviews` remain unchanged.
