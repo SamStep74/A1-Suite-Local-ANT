@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-01 · main after Armenian legal/accounting copilot slice · 35 tags · **283 tests (283 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-01 · main after auditor-readonly RBAC guard · 36 tags · **284 tests (284 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
