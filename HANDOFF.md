@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-01 · main after professional legal-source signoff hardening · 37 tags · **290 tests (290 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-01 · main after downstream professional source enforcement · 37 tags · **290 tests (290 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 6 slices)
+### Hardening (production-readiness pass — 9 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -43,6 +43,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 6. **Project detail expander** (lazy task/milestone/time tree).
 7. **Production readiness gate** (`/api/compliance/production-readiness`) blocks production use until legal sources have Accountant/Lawyer review and effective-dated VAT/payroll rates are configured.
 8. **Professional source signoff** adds a Lawyer demo role, preserves reviewer-role metadata, and requires Accountant review for tax/VAT sources plus Lawyer review for personal-data/e-sign sources before the readiness gate can pass.
+9. **Downstream professional source enforcement** applies the same Accountant/Lawyer source-signoff rule to Copilot proposed actions and downstream SRC/e-sign/privacy packet creation instead of trusting `legal_sources.status = active` alone.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -90,12 +91,13 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest professional source signoff commit: `357e874` (`feat(compliance): require professional source signoff`), pushed with this handoff.
+- Latest downstream source enforcement commit: `c0a4225` (`feat(compliance): enforce professional source gates downstream`), pushed with this handoff.
+- Previous professional source signoff commit: `357e874` (`feat(compliance): require professional source signoff`).
 - Previous production readiness commit: `3fe4f93` (`feat(compliance): add production readiness review gate`).
 - Previous copilot audit commit: `255ed4b` (`test(copilot): cover month-close preview guardrail`).
-- Verification from `~/dev/A1-Suite-Local`: `node --test test/production-readiness.test.js` = 4 pass; `node --test test/auditor-readonly-coverage.test.js` = 2 pass; `node --test --test-name-pattern "expanded Armenia SaaS roles" test/api.test.js` = 1 pass; `npm test` = 290 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass.
-- Browser proof: Playwright desktop `1280x900` and mobile `390x844` used the real UI to log in as Accountant and Lawyer, review the VAT/e-sign/personal-data sources, and confirm the Armenian production-readiness gate flips to Ready with no horizontal overflow.
-- Live preview for OPPO while the Mac is awake: server bound to `0.0.0.0:4178`; use the `MAC_IP` command above for the current LAN URL.
+- Verification from `~/dev/A1-Suite-Local`: `node --test test/copilot.test.js` = 9 pass; `node --test test/production-readiness.test.js` = 4 pass; `node --test --test-name-pattern "privacy request requires|approved privacy request|approved privacy delete|signature evidence packet requires|idempotent signature evidence|SRC export requires|idempotent SRC export|closed finance period blocks SRC export" test/api.test.js` = 8 pass; `npm test` = 290 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass.
+- Browser proof: in-app Browser at `http://127.0.0.1:4178/` confirmed the real UI title `A1 Suite`, meaningful Armenian app content, no framework overlay, clean console, and no horizontal overflow in a narrow/mobile viewport. Owner-only VAT source maintenance left the Copilot SRC action professionally blocked; Accountant review changed the answer to professionally reviewed and exposed `POST /api/finance/src-exports` without the disabled professional-review message.
+- Live preview for OPPO while the Mac is awake: server bound to `0.0.0.0:4178`; current LAN URL is `http://172.16.100.165:4178/`.
 - Next unchecked task from `2026-06-01-armenian-legal-accounting-copilot.md`: none; checklist is complete. The old "retire in-repo suite" note is moot in this repo because there is no `suite/` directory here.
 
 ### ⚠ ENV CAVEAT — old OneDrive copy was flaky
@@ -121,6 +123,7 @@ Current checkpoint:
 - ~~Armenian legal/accounting copilot~~ — **DONE** (`armenian-copilot-mvp`): local advisory `POST /api/copilot/questions`, Gemini 3.5 Flash model policy metadata, Armenian-first UI/API/tests, citation-required VAT/privacy/e-sign guidance, deterministic payroll/VAT/month-close previews, month-close no-close guardrail coverage, proposed actions only, no external egress during validation.
 - **Retire the in-repo `suite/`** — moot here; there is no `suite/` directory in `A1-Suite-Local`, and the related hub lives in the separate HayHashvapah repo.
 - ~~Production readiness gate for accountant/lawyer review~~ — **DONE**: `GET /api/compliance/production-readiness` is a read-only compliance gate for Owner/Admin/Accountant/Lawyer/Auditor. Legal-source gates now require the latest active review to come from the matching professional role: Accountant for tax/VAT, Lawyer for personal-data and e-sign. Owner/Admin can still maintain source records, but their review alone does not clear production signoff.
+- ~~Downstream professional source enforcement~~ — **DONE**: Copilot citations include professional-review readiness, proposed actions stay disabled after owner-only source maintenance, and SRC/e-sign/privacy packet creation requires matching Accountant/Lawyer source review before generating governed evidence packets.
 
 ---
 
