@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-01 · main after docs-export slice · 33 tags · **268 tests (268 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-01 · main after docs-templates slice · 34 tags · **271 tests (271 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -88,7 +88,8 @@ npm test             # node --test  (see caveat below)
 - ~~Docs signature-status detail expander~~ — **DONE** (`docs-signature-evidence`): per-signer SHA-256 + sealed doc hash, toggle in the Docs panel.
 - ~~Forms public rendered page~~ — **DONE** (`forms-public-page`): `GET /f/:id` server-renders a published form as a standalone HTML page (no auth/SPA bundle), HTML-escaped (stored-XSS guard), posts to the rate-limited submit endpoint; draft/unknown → 404.
 - ~~Docs signed-PDF export~~ — **DONE** (`docs-export`): authenticated `/api/docs/documents/:id/export` renders a self-contained printable certificate with `@media print`, pending/draft/voided watermarks, signer SHA-256 evidence, sealed document hash, cross-org 404, and HTML escaping.
-- **Docs templates**, **VAT-rate versioning UI** (the `resolveVatRate` seam exists; the 7 inline `/1.2` sites weren't rewritten — low rate-change risk).
+- ~~Docs templates~~ — **DONE** (`docs-templates`): `document_templates` table + 3 seeded RA templates (NDA, service agreement, job offer); `GET /api/docs/templates` + `POST /api/docs/templates/:id/generate` create a normal draft; single-pass `{{placeholder}}` fill auto-fills org/customer/date and leaves a visible `[ԼՐԱՑՐԵՔ · FILL: x]` marker for the rest; Docs UI template picker derives its inputs from the template's declared variables.
+- **VAT-rate versioning UI** (the `resolveVatRate` seam exists; the 7 inline `/1.2` sites weren't rewritten — low rate-change risk).
 - **Retire the in-repo `suite/`** — lives in the *separate* HayHashvapah hub repo, not this one.
 - **Accountant/lawyer review** of payroll/VAT rates + legal RAG content **required before production** tax/legal use.
 
