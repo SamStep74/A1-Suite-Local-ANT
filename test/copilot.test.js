@@ -208,3 +208,45 @@ test("payroll copilot previews calculation without posting payroll run", async (
     await app.close();
   }
 });
+
+test("copilot enforces app access for finance intents", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const supportCookie = await login(app, "support@armosphera.local", DEFAULT_PASSWORD);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/copilot/questions",
+      headers: { cookie: supportCookie },
+      payload: { intent: "vat", customerId: "cust-nare", periodKey: "2026-05", question: "Explain VAT readiness." }
+    });
+    assert.strictEqual(res.statusCode, 403);
+  } finally {
+    await app.close();
+  }
+});
+
+test("copilot returns 404 for unknown customer or document", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const badCustomer = await app.inject({
+      method: "POST",
+      url: "/api/copilot/questions",
+      headers: { cookie },
+      payload: { intent: "vat", customerId: "cust-nope", question: "Explain VAT." }
+    });
+    assert.strictEqual(badCustomer.statusCode, 404);
+
+    const badDoc = await app.inject({
+      method: "POST",
+      url: "/api/copilot/questions",
+      headers: { cookie },
+      payload: { intent: "esign", documentId: "doc-nope", question: "Review signature evidence." }
+    });
+    assert.strictEqual(badDoc.statusCode, 404);
+  } finally {
+    await app.close();
+  }
+});
