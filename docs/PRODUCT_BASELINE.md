@@ -1756,3 +1756,10 @@ Status: shipped in the local prototype on 2026-05-28.
 - Blocked public form submissions do not create CRM leads, and blocked public quote acceptance leaves the quote in `sent` state.
 - Existing opt-in behavior, strict fail-closed behavior, non-strict `tenant:null` authenticated continuity, and wrong-host/unmapped-host generic 404 behavior remain unchanged.
 - Added Platform-enabled tests proving health continuity plus generic public-resource 404s and no mutation under temporary Platform lookup failure.
+
+### Slice 151 - Public Evidence Attribution Guard
+
+- Anonymous public form submissions no longer synthesize the human Owner as the creator/actor for generated CRM leads.
+- Public form-created CRM leads keep `created_by_user_id` null, `crm.lead.created` suite events keep `actor_user_id` null, and `crm.lead.created` / `forms.submission.received` audit rows keep `user_id` null while preserving org-scoped evidence and CRM routing.
+- Public quote acceptance evidence now stores the direct request socket IP; forwarded proxy headers are only a fallback when no direct IP is available, so attacker-controlled `x-forwarded-for` cannot override local evidence.
+- Added focused tests proving anonymous public form attribution across lead, audit, and timeline evidence, plus direct-IP storage for unauthenticated quote acceptance.
