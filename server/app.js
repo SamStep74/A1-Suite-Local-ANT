@@ -120,6 +120,7 @@ const rag = require("./rag");
 const accounting = require("./accounting");
 const ledger = require("./ledger");
 const payroll = require("./payroll");
+const copilot = require("./copilot");
 
 function buildApp(options = {}) {
   const db = options.db || openDatabase(options.dbPath || process.env.ARMOSPHERA_ONE_DB);
@@ -3654,6 +3655,12 @@ ${controls}
     const user = await app.auth(request);
     const result = createLegalQuestion(db, user, request.body || {});
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.question.customerId) };
+  });
+
+  app.post("/api/copilot/questions", async request => {
+    const user = await app.auth(request);
+    const result = createCopilotQuestion(db, user, request.body || {});
+    return { ok: true, copilot: result };
   });
 
   app.get("/api/finance/vat-report", async request => {
@@ -43954,6 +43961,189 @@ function formatAutomationRule(db, orgId, row) {
     currentVersion: latestVersion?.versionNumber || 1,
     lastVersion: latestVersion
   };
+}
+
+function createCopilotQuestion(db, user, body) {
+  const question = String(body.question || "").trim();
+  if (question.length < 8) {
+    const err = new Error("Copilot question is required");
+    err.statusCode = 400;
+    throw err;
+  }
+  const intent = copilot.normalizeIntent(body.intent, question);
+  requireAppAccess(db, user, copilot.requiredAppForIntent(intent));
+  const customer = getCopilotCustomer(db, user.org_id, body.customerId);
+  const context = buildCopilotContext(db, user, intent, body, customer);
+  const citations = getCopilotCitations(db, user.org_id, intent, question);
+  const calculations = getCopilotCalculations(db, user.org_id, intent, body, context);
+  return copilot.buildCopilotPacket({
+    id: randomId("copilot"),
+    intent,
+    question,
+    citations,
+    calculations,
+    context,
+    now: new Date().toISOString()
+  });
+}
+
+function getCopilotCustomer(db, orgId, customerId) {
+  const id = String(customerId || "").trim();
+  if (!id) return null;
+  const row = db.prepare("SELECT id, name, email, tax_id AS taxId, segment, health_score AS healthScore FROM customers WHERE org_id = ? AND id = ?").get(orgId, id);
+  if (!row) {
+    const err = new Error("Customer not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  return row;
+}
+
+function buildCopilotContext(db, user, intent, body, customer) {
+  const periodKey = normalizePeriodKey(body.periodKey);
+  const base = { customer, periodKey };
+  if (intent === "payroll") {
+    const employee = body.employeeId ? getEmployee(db, user.org_id, body.employeeId) : null;
+    const gross = employee ? employee.grossSalary : Math.max(0, Math.round(Number(body.gross) || 0));
+    return { ...base, employee, gross, asOf: normalizeDate(body.asOf) };
+  }
+  if (intent === "personal-data") {
+    const text = `${body.intent || ""} ${body.question || ""}`.toLowerCase();
+    return { ...base, requestType: /(delete|erase|ջնջ)/i.test(text) ? "delete" : "export" };
+  }
+  if (intent === "esign") {
+    const documentId = String(body.documentId || "").trim();
+    const document = documentId ? getDocument(db, user.org_id, documentId) : null;
+    if (documentId && !document) {
+      const err = new Error("Document not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    return { ...base, document: document ? summarizeCopilotDocument(document) : null };
+  }
+  if (intent === "month-close") {
+    const period = periodKey ? getFinancePeriod(db, user.org_id, periodKey) : null;
+    return { ...base, period };
+  }
+  return base;
+}
+
+function normalizePeriodKey(value) {
+  const text = String(value || "").trim();
+  return /^\d{4}-\d{2}$/.test(text) ? text : new Date().toISOString().slice(0, 7);
+}
+
+function normalizeDate(value) {
+  const text = String(value || "").trim();
+  return /^\d{4}-\d{2}-\d{2}$/.test(text) ? text : new Date().toISOString().slice(0, 10);
+}
+
+function summarizeCopilotDocument(document) {
+  return {
+    id: document.id,
+    title: document.title,
+    docType: document.docType,
+    status: document.status,
+    sealedChecksum: document.sealedChecksum,
+    sealedAt: document.sealedAt,
+    signers: (document.signers || []).map(signer => ({
+      id: signer.id,
+      signerName: signer.signerName,
+      status: signer.status,
+      signedAt: signer.signedAt,
+      checksum: signer.checksum
+    }))
+  };
+}
+
+function getCopilotCitations(db, orgId, intent, question) {
+  const sourceIds = intent === "vat" || intent === "month-close"
+    ? ["law-tax-code"]
+    : intent === "personal-data"
+      ? ["law-personal-data"]
+      : intent === "esign"
+        ? ["law-esign"]
+        : [];
+  const citations = sourceIds.map((id, index) => {
+    const source = getLegalSource(db, orgId, id);
+    if (!source) return null;
+    return {
+      id: source.id,
+      title: source.title,
+      jurisdiction: source.jurisdiction,
+      sourceUrl: source.sourceUrl,
+      status: source.status,
+      effectiveDate: source.effectiveDate,
+      latestReview: source.latestReview,
+      excerpt: copilotLegalExcerpt(id, question),
+      relevance: 96 - index * 5
+    };
+  }).filter(Boolean);
+  if (rag.stats().ready && question) {
+    const hits = rag.search(question, 2);
+    if (hits.length > 0) {
+      const excerpt = hits.map(hit => `[${hit.lawTitle} · ${hit.article}] ${String(hit.text).replace(/\s+/g, " ").trim()}`).join(" ").slice(0, 800);
+      return citations.map(source => ({ ...source, excerpt }));
+    }
+  }
+  return citations;
+}
+
+function copilotLegalExcerpt(sourceId, question) {
+  if (sourceId === "law-tax-code") return `VAT source anchor for: ${String(question || "").slice(0, 160)}`;
+  if (sourceId === "law-personal-data") return `Personal-data consent/export/delete source anchor for: ${String(question || "").slice(0, 160)}`;
+  if (sourceId === "law-esign") return `Electronic document/signature source anchor for: ${String(question || "").slice(0, 160)}`;
+  return "Configured Armenian legal source registry.";
+}
+
+function getCopilotCalculations(db, orgId, intent, body, context) {
+  if (intent === "vat") {
+    const report = ledger.vatReport(db, orgId, context.periodKey);
+    return [{
+      kind: "vat-report",
+      label: `VAT report for ${context.periodKey}`,
+      inputs: { periodKey: context.periodKey },
+      outputs: {
+        outputVat: report.outputVat,
+        inputVat: report.inputVat,
+        netVatPayable: report.netVatPayable
+      }
+    }];
+  }
+  if (intent === "payroll") {
+    const gross = Math.max(0, Math.round(Number(context.gross) || 0));
+    if (gross <= 0) {
+      const err = new Error("gross or employeeId is required for payroll preview");
+      err.statusCode = 400;
+      throw err;
+    }
+    const calc = payroll.calculatePayroll(gross, { config: resolvePayrollConfig(db, orgId, context.asOf) });
+    return [{
+      kind: "payroll-preview",
+      label: `Payroll preview for ${context.asOf}`,
+      inputs: { gross, asOf: context.asOf, employeeId: context.employee?.id || "" },
+      outputs: calc
+    }];
+  }
+  if (intent === "month-close") {
+    const vat = ledger.vatReport(db, orgId, context.periodKey);
+    const tb = ledger.trialBalance(db, orgId);
+    return [
+      {
+        kind: "trial-balance",
+        label: "Trial balance",
+        inputs: { periodKey: context.periodKey },
+        outputs: { balanced: tb.balanced, totalDebit: tb.totalDebit, totalCredit: tb.totalCredit }
+      },
+      {
+        kind: "vat-report",
+        label: `VAT report for ${context.periodKey}`,
+        inputs: { periodKey: context.periodKey },
+        outputs: { outputVat: vat.outputVat, inputVat: vat.inputVat, netVatPayable: vat.netVatPayable }
+      }
+    ];
+  }
+  return [];
 }
 
 function getLegalSources(db, orgId) {
