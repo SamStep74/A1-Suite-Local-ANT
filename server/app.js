@@ -2565,9 +2565,12 @@ function registerApi(app, db, options = {}) {
     const unbilledMinutes = agg.minutes;
     const hours = Math.round((unbilledMinutes / 60) * 100) / 100;
     const total = hourlyRate > 0 ? Math.round((unbilledMinutes / 60) * hourlyRate) : 0;
-    const subtotal = Math.round(total / 1.2);
-    const vat = total - subtotal;
-    return { preview: { projectId: project.id, customerId: project.customerId, unbilledMinutes, unbilledEntries: agg.entries, hours, hourlyRate, subtotal, vat, total, currency: "AMD" } };
+    // VAT rate in force on the as-of date (defaults to today); the bill-time route freezes
+    // the rate on the chosen issue date, so the preview accepts the same asOf for parity.
+    const asOf = /^\d{4}-\d{2}-\d{2}$/.test((request.query && request.query.asOf) || "") ? request.query.asOf : new Date().toISOString().slice(0, 10);
+    const vatRate = resolveVatRate(db, user.org_id, asOf);
+    const { subtotal, vat } = splitVatInclusive(total, vatRate);
+    return { preview: { projectId: project.id, customerId: project.customerId, unbilledMinutes, unbilledEntries: agg.entries, hours, hourlyRate, subtotal, vat, total, vatRate, currency: "AMD" } };
   });
 
   // Billing seam: convert a project's UNBILLED logged time into a posted invoice (+ ledger),
@@ -2602,8 +2605,10 @@ function registerApi(app, db, options = {}) {
     if (totalMinutes <= 0) { const e = new Error("No unbilled time to invoice"); e.statusCode = 400; throw e; }
     const total = Math.round((totalMinutes / 60) * hourlyRate);
     if (!(total > 0)) { const e = new Error("Computed invoice total is zero"); e.statusCode = 400; throw e; }
-    const subtotal = Math.round(total / 1.2);
-    const vat = total - subtotal;
+    // Freeze the VAT split at the rate in force on the invoice's issue date (effective-dated),
+    // so recomputing a historical period uses the rate that applied THEN, not today's.
+    const vatRate = resolveVatRate(db, user.org_id, issueDate);
+    const { subtotal, vat } = splitVatInclusive(total, vatRate);
     const draftId = randomId("draft-inv");
     const number = `DRAFT-PRJ-${project.id.replace(/^proj-/, "").toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 18)}-${periodKey.replace("-", "")}`;
     const dueDate = addDays(issueDate, Number(body.dueDays || 14));
@@ -3657,6 +3662,20 @@ ${controls}
     return ledger.vatReport(db, user.org_id, period);
   });
 
+  // Effective-dated tax-rate history (read-only). Surfaces the VAT (and payroll) rows so the
+  // rate in force on any date is auditable. Writing a new rate is intentionally NOT exposed here
+  // — a mis-entered tax rate is high-impact and gated behind accountant/lawyer review.
+  app.get("/api/finance/tax-rates", async request => {
+    const user = await app.auth(request);
+    const rows = db.prepare("SELECT kind, effective_date AS effectiveDate, config, note FROM tax_rates WHERE org_id = ? ORDER BY kind, effective_date DESC").all(user.org_id);
+    const taxRates = rows.map(r => {
+      let rate = null;
+      try { const c = JSON.parse(r.config); rate = (c && typeof c.rate === "number") ? c.rate : (c && typeof c.incomeTaxRate === "number" ? c.incomeTaxRate : null); } catch { rate = null; }
+      return { kind: r.kind, effectiveDate: r.effectiveDate, rate, note: r.note || "" };
+    });
+    return { taxRates };
+  });
+
   app.get("/api/finance/expenses", async request => {
     const user = await app.auth(request);
     const rows = db.prepare("SELECT id, description, vendor, subtotal, vat, total, incurred_on AS incurredOn, period_key AS periodKey FROM expenses WHERE org_id = ? ORDER BY incurred_on DESC, created_at DESC").all(user.org_id);
@@ -4035,6 +4054,17 @@ function publicUser(user) {
 
 function randomId(prefix) {
   return `${prefix}-${crypto.randomBytes(8).toString("hex")}`;
+}
+
+// VAT-inclusive split at a given rate: a gross `total` already includes VAT at `rate`
+// (e.g. 0.2), so subtotal = round(total / (1 + rate)) and vat = total − subtotal. Centralizes
+// the formerly-hardcoded /1.2 so every call site is rate-aware (the rate comes from
+// resolveVatRate, effective-dated as of the invoice's issue date).
+function splitVatInclusive(total, rate) {
+  const t = Math.round(Number(total) || 0);
+  const r = Number(rate) > 0 ? Number(rate) : 0.2;
+  const subtotal = Math.round(t / (1 + r));
+  return { subtotal, vat: t - subtotal };
 }
 
 function getMfaStatus(db, user) {
