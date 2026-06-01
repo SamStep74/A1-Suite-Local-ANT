@@ -1763,3 +1763,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Public form-created CRM leads keep `created_by_user_id` null, `crm.lead.created` suite events keep `actor_user_id` null, and `crm.lead.created` / `forms.submission.received` audit rows keep `user_id` null while preserving org-scoped evidence and CRM routing.
 - Public quote acceptance evidence now stores the direct request socket IP; forwarded proxy headers are only a fallback when no direct IP is available, so attacker-controlled `x-forwarded-for` cannot override local evidence.
 - Added focused tests proving anonymous public form attribution across lead, audit, and timeline evidence, plus direct-IP storage for unauthenticated quote acceptance.
+
+### Slice 152 - Public Form and Session Edge Guard
+
+- Anonymous public form-page lookups (`GET /f/:id`) are now per-IP rate limited before DB lookup/rendering, so form-id enumeration receives `429` while a fresh IP can still load a published form.
+- The public form-page lookup throttle is enforced even when tunnel/reverse-proxy traffic reaches Fastify as loopback, while existing local-operator loopback exemptions remain in place for auth/setup and public quote acceptance flows.
+- Bearer-authenticated `/api/logout` now revokes the bearer token, matching cookie-session logout semantics.
+- `getUserBySession` carries `mfa_verified`, and privileged Owner/Admin sessions created before MFA activation are rejected once an active MFA factor exists unless the session was completed through MFA.
+- Added focused tests for public form-page enumeration throttling, loopback/tunnel form-page throttling, stale pre-MFA privileged session rejection, bearer logout revocation, plus public quote regression coverage to keep unrelated quote acceptances from sharing one loopback bucket.
