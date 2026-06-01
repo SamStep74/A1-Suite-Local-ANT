@@ -15,6 +15,9 @@ Built by evolving the Armosphera-One prototype; folds in HayHashvapah Finance
 (incl. RA-law RAG) and Armosphera CRM assets over the roadmap. See the design spec at
 `docs/superpowers/specs/2026-05-28-armosphera-one-claude-local-design.md`.
 
+Operator installation, backup, and tenant transfer procedures are documented in
+`docs/deployment/a1-suite-installation-transfer-trilingual.md`.
+
 ## Run (local server)
 
 ```bash
