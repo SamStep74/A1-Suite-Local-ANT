@@ -1681,3 +1681,10 @@ Status: shipped in the local prototype on 2026-05-28.
 - When a reviewer attempts to move a maintained Armenian legal/accounting source to a different host, the API emits matching `legal.source.review.blocked` suite and audit events before returning `400`.
 - The event payload records only the source id, normalized existing host, normalized attempted host, reason, requested status/date, and reviewer role. It deliberately avoids storing the raw rejected URL in durable audit metadata.
 - Added API tests proving the blocked attempt is visible in timeline/audit evidence while `legal_sources` and `legal_source_reviews` remain unchanged.
+
+### Slice 141 - Legal Source HTTPS Downgrade Guard
+
+- Maintained Armenian legal/accounting sources that already use HTTPS can no longer be reviewed into HTTP URLs, even when the normalized host stays the same.
+- HTTPS downgrade attempts reuse the `legal.source.review.blocked` suite/audit event with `reason: "scheme-downgrade"` and store only source id, normalized hosts, and protocols.
+- Downgrade audit payloads deliberately omit the raw rejected URL, title, review note, requested status/date, and reviewer role, keeping rejected review content out of durable evidence.
+- Added API tests proving HTTPS-to-HTTP downgrade attempts return `400`, leave `legal_sources` and `legal_source_reviews` unchanged, and keep normal same-host HTTPS review updates working.

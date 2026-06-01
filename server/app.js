@@ -44423,8 +44423,14 @@ function createLegalSourceReview(db, user, sourceId, body) {
     throw err;
   }
   if (!isSameSourceHost(current.source_url, sourceUrl)) {
-    recordLegalSourceReviewHostBlock(db, user, current, sourceUrl, status, effectiveDate);
+    recordLegalSourceReviewBlock(db, user, current, sourceUrl, status, effectiveDate, "host-mismatch");
     const err = new Error("Legal source review URL must stay on the existing source host");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (isSourceSchemeDowngrade(current.source_url, sourceUrl)) {
+    recordLegalSourceReviewBlock(db, user, current, sourceUrl, status, effectiveDate, "scheme-downgrade");
+    const err = new Error("Legal source review URL must not downgrade an HTTPS source");
     err.statusCode = 400;
     throw err;
   }
@@ -44461,16 +44467,21 @@ function createLegalSourceReview(db, user, sourceId, body) {
   };
 }
 
-function recordLegalSourceReviewHostBlock(db, user, source, attemptedUrl, requestedStatus, requestedEffectiveDate) {
+function recordLegalSourceReviewBlock(db, user, source, attemptedUrl, requestedStatus, requestedEffectiveDate, reason) {
   const details = {
     sourceId: source.id,
     existingHost: normalizedSourceHost(source.source_url),
     attemptedHost: normalizedSourceHost(attemptedUrl),
-    reason: "host-mismatch",
-    requestedStatus,
-    requestedEffectiveDate,
-    reviewerRole: user.role
+    reason
   };
+  if (reason === "scheme-downgrade") {
+    details.existingProtocol = normalizedSourceProtocol(source.source_url);
+    details.attemptedProtocol = normalizedSourceProtocol(attemptedUrl);
+  } else {
+    details.requestedStatus = requestedStatus;
+    details.requestedEffectiveDate = requestedEffectiveDate;
+    details.reviewerRole = user.role;
+  }
   emitSuiteEvent(db, {
     orgId: user.org_id,
     actorUserId: user.id,
@@ -44498,9 +44509,21 @@ function isSameSourceHost(existingUrl, nextUrl) {
   return Boolean(existingHost && nextHost && existingHost === nextHost);
 }
 
+function isSourceSchemeDowngrade(existingUrl, nextUrl) {
+  return normalizedSourceProtocol(existingUrl) === "https:" && normalizedSourceProtocol(nextUrl) === "http:";
+}
+
 function normalizedSourceHost(value) {
   try {
     return new URL(value).hostname.toLowerCase().replace(/^www\./, "");
+  } catch {
+    return "";
+  }
+}
+
+function normalizedSourceProtocol(value) {
+  try {
+    return new URL(value).protocol.toLowerCase();
   } catch {
     return "";
   }

@@ -15478,6 +15478,66 @@ test("legal source review keeps reviewed URLs on the existing source host", asyn
   });
 });
 
+test("legal source review does not downgrade maintained HTTPS source URLs", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const downgradeUrl = "http://arlis.am/hy/acts/224990?reviewed=2026-05-26";
+    const downgraded = await app.inject({
+      method: "POST",
+      url: "/api/legal/sources/law-tax-code/reviews",
+      headers: { cookie },
+      payload: {
+        title: "RA Tax Code Article 63 VAT rate - transport downgrade",
+        sourceUrl: downgradeUrl,
+        effectiveDate: "2026-05-26",
+        status: "active",
+        reviewNote: "Same official source host must still preserve HTTPS transport."
+      }
+    });
+    assert.equal(downgraded.statusCode, 400);
+
+    const blockedTimeline = app.db.prepare("SELECT * FROM suite_events WHERE event_type = ? ORDER BY id DESC LIMIT 1")
+      .get("legal.source.review.blocked");
+    assert.ok(blockedTimeline);
+    assert.equal(blockedTimeline.subject_type, "legal_source");
+    assert.equal(blockedTimeline.subject_id, "law-tax-code");
+    assert.equal(blockedTimeline.status, "blocked");
+    const blockedPayload = JSON.parse(blockedTimeline.payload);
+    assert.equal(blockedPayload.sourceId, "law-tax-code");
+    assert.equal(blockedPayload.existingHost, "arlis.am");
+    assert.equal(blockedPayload.attemptedHost, "arlis.am");
+    assert.equal(blockedPayload.existingProtocol, "https:");
+    assert.equal(blockedPayload.attemptedProtocol, "http:");
+    assert.equal(blockedPayload.reason, "scheme-downgrade");
+    assert.equal(blockedPayload.requestedStatus, undefined);
+    assert.equal(blockedPayload.requestedEffectiveDate, undefined);
+    assert.equal(blockedPayload.reviewerRole, undefined);
+    assert.ok(!JSON.stringify(blockedPayload).includes(downgradeUrl));
+    assert.ok(!JSON.stringify(blockedPayload).includes("transport downgrade"));
+    assert.ok(!JSON.stringify(blockedPayload).includes("Same official source host must still preserve HTTPS transport."));
+
+    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
+    assert.equal(audit.statusCode, 200, audit.body);
+    const blockedAudit = audit.json().events.find(event => event.type === "legal.source.review.blocked");
+    assert.ok(blockedAudit);
+    assert.equal(blockedAudit.details.sourceId, "law-tax-code");
+    assert.equal(blockedAudit.details.existingProtocol, "https:");
+    assert.equal(blockedAudit.details.attemptedProtocol, "http:");
+    assert.equal(blockedAudit.details.reason, "scheme-downgrade");
+    assert.equal(blockedAudit.details.requestedStatus, undefined);
+    assert.equal(blockedAudit.details.requestedEffectiveDate, undefined);
+    assert.equal(blockedAudit.details.reviewerRole, undefined);
+    assert.ok(!JSON.stringify(blockedAudit.details).includes(downgradeUrl));
+    assert.ok(!JSON.stringify(blockedAudit.details).includes("transport downgrade"));
+    assert.ok(!JSON.stringify(blockedAudit.details).includes("Same official source host must still preserve HTTPS transport."));
+
+    const listed = await app.inject({ method: "GET", url: "/api/legal/sources", headers: { cookie } });
+    const source = listed.json().sources.find(item => item.id === "law-tax-code");
+    assert.equal(source.sourceUrl, "https://www.arlis.am/hy/acts/224990");
+    assert.equal(source.reviewCount, 0);
+  });
+});
+
 test("non-owner cannot review legal source registry entries", async () => {
   await withApp(async app => {
     const cookie = await login(app, "support@armosphera.local");
