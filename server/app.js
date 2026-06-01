@@ -185,11 +185,11 @@ function registerApi(app, db, options = {}) {
   // per key and rejects once `limit` hits fall inside `windowMs`.
   const rateLimitHits = new Map();
   const rateLimitDisabled = options.rateLimit === false;
-  // Loopback is the self-hosted operator's own machine (local-first product) — trusted, never throttled.
+  // Loopback is the self-hosted operator's own machine for auth setup, but public
+  // routes can also arrive as loopback through a tunnel/reverse proxy.
   const LOOPBACK_IPS = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
-  function enforceRateLimit(key, limit, windowMs, ip) {
+  function recordRateLimitHit(key, limit, windowMs) {
     if (rateLimitDisabled) return;
-    if (ip && LOOPBACK_IPS.has(ip)) return;
     const now = Date.now();
     const cutoff = now - windowMs;
     const recent = (rateLimitHits.get(key) || []).filter(ts => ts > cutoff);
@@ -198,6 +198,13 @@ function registerApi(app, db, options = {}) {
     }
     recent.push(now);
     rateLimitHits.set(key, recent);
+  }
+  function enforceRateLimit(key, limit, windowMs, ip) {
+    if (ip && LOOPBACK_IPS.has(ip)) return;
+    recordRateLimitHit(key, limit, windowMs);
+  }
+  function enforcePublicRateLimit(key, limit, windowMs) {
+    recordRateLimitHit(key, limit, windowMs);
   }
 
   app.get("/api/health", async request => ({
@@ -3232,7 +3239,7 @@ ${controls}
     const fid = String(request.params.id || "");
     // Public form pages are unauthenticated and id-addressable; throttle per-IP before
     // lookup so form-id enumeration cannot hammer the DB/render path.
-    enforceRateLimit(`public-form-page:${String(request.ip || "")}`, 60, 60 * 1000, request.ip);
+    enforcePublicRateLimit(`public-form-page:${String(request.ip || "")}`, 60, 60 * 1000);
     const tenantOrgId = platformTenantResourceOrgId(request, env);
     const formParams = [fid];
     let formWhere = "id = ? AND status = 'published'";

@@ -104,6 +104,17 @@ test("forms-public-page: public page lookup is per-IP rate limited", async () =>
     assert.ok(notFound > 0, "early guesses return 404");
     assert.ok(limited > 0, "sustained public form-page enumeration must be throttled");
 
+    notFound = 0;
+    limited = 0;
+    for (let i = 0; i < 80; i++) {
+      const res = await app.inject({ method: "GET", url: `/f/loopback-guess-${i}`, remoteAddress: "127.0.0.1" });
+      if (res.statusCode === 404) notFound += 1;
+      else if (res.statusCode === 429) limited += 1;
+      else assert.fail(`unexpected loopback status ${res.statusCode} on attempt ${i}`);
+    }
+    assert.ok(notFound > 0, "early loopback guesses return 404");
+    assert.ok(limited > 0, "loopback/tunnel public form-page enumeration must be throttled");
+
     const other = await app.inject({ method: "GET", url: "/f/form-lead-intake", remoteAddress: "198.51.100.81" });
     assert.strictEqual(other.statusCode, 200, "a fresh IP can still load a public form page");
   } finally { await app.close(); }
