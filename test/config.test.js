@@ -108,6 +108,60 @@ test("egress ON with empty allowlist blocks external hosts (deny-until-listed)",
   }
 });
 
+test("public client IP resolver ignores proxy headers by default", () => {
+  const ip = config.resolvePublicClientIp({
+    directIp: "203.0.113.10",
+    headers: { "cf-connecting-ip": "198.51.100.10", "x-forwarded-for": "198.51.100.11" }
+  }, {});
+  assert.strictEqual(ip, "203.0.113.10");
+});
+
+test("public client IP resolver honors configured headers only from trusted proxies", () => {
+  const env = {
+    ARMOSPHERA_ONE_PUBLIC_TRUSTED_PROXY_IPS: "127.0.0.1, ::1",
+    ARMOSPHERA_ONE_PUBLIC_CLIENT_IP_HEADER: "cf-connecting-ip"
+  };
+  assert.strictEqual(config.resolvePublicClientIp({
+    directIp: "127.0.0.1",
+    headers: { "cf-connecting-ip": "198.51.100.12" }
+  }, env), "198.51.100.12");
+  assert.strictEqual(config.resolvePublicClientIp({
+    directIp: "203.0.113.12",
+    headers: { "cf-connecting-ip": "198.51.100.12" }
+  }, env), "203.0.113.12");
+});
+
+test("public client IP resolver handles x-forwarded-for and malformed values deterministically", () => {
+  const env = {
+    ARMOSPHERA_ONE_PUBLIC_TRUSTED_PROXY_IPS: "127.0.0.1",
+    ARMOSPHERA_ONE_PUBLIC_CLIENT_IP_HEADER: "x-forwarded-for"
+  };
+  assert.strictEqual(config.resolvePublicClientIp({
+    directIp: "127.0.0.1",
+    headers: { "x-forwarded-for": "198.51.100.13" }
+  }, env), "198.51.100.13");
+  assert.strictEqual(config.resolvePublicClientIp({
+    directIp: "127.0.0.1",
+    headers: { "x-forwarded-for": "198.51.100.13, 203.0.113.13" }
+  }, env), "127.0.0.1");
+  assert.deepStrictEqual(config.resolvePublicClientIpDetails({
+    directIp: "127.0.0.1",
+    headers: { "x-forwarded-for": "198.51.100.13, 203.0.113.13" }
+  }, env), {
+    ip: "127.0.0.1",
+    source: "trusted-proxy-fallback",
+    reason: "multi-value-x-forwarded-for"
+  });
+  assert.strictEqual(config.resolvePublicClientIp({
+    directIp: "127.0.0.1",
+    headers: { "x-forwarded-for": "not-an-ip" }
+  }, env), "127.0.0.1");
+  assert.strictEqual(config.resolvePublicClientIp({
+    directIp: "127.0.0.1",
+    headers: { "x-forwarded-for": "a".repeat(200) }
+  }, env), "127.0.0.1");
+});
+
 test("resolveLawsDbPath honors ARMOSPHERA_ONE_LAWS_DB", () => {
   const prev = process.env.ARMOSPHERA_ONE_LAWS_DB;
   process.env.ARMOSPHERA_ONE_LAWS_DB = "/tmp/laws-x.sqlite";

@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const os = require("node:os");
 const path = require("node:path");
+const net = require("node:net");
 
 const PRODUCT = Object.freeze({
   name: "A1 Suite",
@@ -38,6 +39,7 @@ function resolveLawsDbPath() {
 }
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
+const PUBLIC_CLIENT_IP_HEADERS = new Set(["cf-connecting-ip", "x-real-ip", "x-forwarded-for"]);
 
 function allowEgress(env = process.env) {
   return env.ARMOSPHERA_ONE_ALLOW_EGRESS === "1";
@@ -74,6 +76,58 @@ function assertEgressAllowed(url, env = process.env) {
   if (!list.includes(host)) throw new EgressBlockedError(host || String(url)); // deny unless explicitly allowlisted
 }
 
+function normalizeIpLiteral(value) {
+  let ip = String(value || "").trim();
+  if (!ip || ip.length > 64) return "";
+  if (ip.startsWith("[") && ip.endsWith("]")) ip = ip.slice(1, -1);
+  const mapped = /^::ffff:(\d{1,3}(?:\.\d{1,3}){3})$/i.exec(ip);
+  if (mapped && net.isIP(mapped[1]) === 4) return mapped[1];
+  return net.isIP(ip) ? ip.toLowerCase() : "";
+}
+
+function publicTrustedProxyIps(env = process.env) {
+  return new Set(String(env.ARMOSPHERA_ONE_PUBLIC_TRUSTED_PROXY_IPS || "")
+    .split(",")
+    .map(normalizeIpLiteral)
+    .filter(Boolean));
+}
+
+function publicClientIpHeader(env = process.env) {
+  const header = String(env.ARMOSPHERA_ONE_PUBLIC_CLIENT_IP_HEADER || "").trim().toLowerCase();
+  return PUBLIC_CLIENT_IP_HEADERS.has(header) ? header : "";
+}
+
+function headerValue(headers = {}, name = "") {
+  const lowerName = String(name || "").toLowerCase();
+  for (const [key, value] of Object.entries(headers || {})) {
+    if (String(key).toLowerCase() === lowerName) {
+      if (Array.isArray(value)) return value[0];
+      return value;
+    }
+  }
+  return "";
+}
+
+function resolvePublicClientIpDetails(input = {}, env = process.env) {
+  const directIp = normalizeIpLiteral(input.directIp) || String(input.directIp || "").trim().slice(0, 64);
+  const trustedProxies = publicTrustedProxyIps(env);
+  if (!directIp || !trustedProxies.has(directIp)) return { ip: directIp, source: "direct" };
+  const header = publicClientIpHeader(env);
+  if (!header) return { ip: directIp, source: "direct" };
+  const raw = headerValue(input.headers, header);
+  if (header === "x-forwarded-for" && String(raw || "").includes(",")) {
+    return { ip: directIp, source: "trusted-proxy-fallback", reason: "multi-value-x-forwarded-for" };
+  }
+  const candidate = String(raw || "").split(",")[0].trim();
+  const forwardedIp = normalizeIpLiteral(candidate);
+  if (forwardedIp) return { ip: forwardedIp, source: "trusted-header", header };
+  return { ip: directIp, source: "trusted-proxy-fallback", reason: "invalid-client-ip-header" };
+}
+
+function resolvePublicClientIp(input = {}, env = process.env) {
+  return resolvePublicClientIpDetails(input, env).ip;
+}
+
 let fetchImpl = (...args) => globalThis.fetch(...args);
 function setFetchImpl(fn) { fetchImpl = fn; }
 
@@ -100,6 +154,7 @@ module.exports = {
   PRODUCT,
   computeDataDir, ensureDir, resolveDataDir, resolveDbPath, resolveLawsDbPath,
   allowEgress, egressAllowlist, assertEgressAllowed, EgressBlockedError,
+  publicTrustedProxyIps, publicClientIpHeader, resolvePublicClientIp, resolvePublicClientIpDetails,
   safeFetch, setFetchImpl,
   ai, lawEmbed
 };

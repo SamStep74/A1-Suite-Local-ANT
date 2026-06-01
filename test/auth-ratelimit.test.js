@@ -51,6 +51,79 @@ test("auth: login is per-IP rate limited (429) from one external IP", async () =
   } finally { await app.close(); }
 });
 
+test("auth: trusted proxy client IP is used for loopback login throttling", async () => {
+  const localApp = buildApp({ dbPath: ":memory:" });
+  try {
+    await localApp.ready();
+    for (let i = 0; i < 15; i++) {
+      const res = await localApp.inject({
+        method: "POST",
+        url: "/api/login",
+        payload: { email: `local-${i}@nowhere.test`, password: "wrong" },
+        remoteAddress: "127.0.0.1",
+        headers: { "cf-connecting-ip": "203.0.113.82" }
+      });
+      assert.strictEqual(res.statusCode, 401, "plain local loopback remains exempt when proxy trust is not configured");
+    }
+  } finally { await localApp.close(); }
+
+  const proxiedApp = buildApp({
+    dbPath: ":memory:",
+    env: {
+      ARMOSPHERA_ONE_PUBLIC_TRUSTED_PROXY_IPS: "127.0.0.1",
+      ARMOSPHERA_ONE_PUBLIC_CLIENT_IP_HEADER: "cf-connecting-ip"
+    }
+  });
+  try {
+    await proxiedApp.ready();
+    let unauthorized = 0;
+    let limited = 0;
+    for (let i = 0; i < 25; i++) {
+      const res = await proxiedApp.inject({
+        method: "POST",
+        url: "/api/login",
+        payload: { email: `proxied-${i}@nowhere.test`, password: "wrong" },
+        remoteAddress: "127.0.0.1",
+        headers: { "cf-connecting-ip": "203.0.113.82" }
+      });
+      if (res.statusCode === 401) unauthorized += 1;
+      else if (res.statusCode === 429) limited += 1;
+      else assert.fail(`unexpected trusted-proxy login status ${res.statusCode} on attempt ${i}`);
+    }
+    assert.ok(unauthorized > 0, "some proxied login attempts are processed before the limit");
+    assert.ok(limited > 0, "trusted-proxy loopback login attempts are throttled by public client IP");
+  } finally { await proxiedApp.close(); }
+});
+
+test("auth: malformed trusted-proxy x-forwarded-for still falls into a non-exempt login bucket", async () => {
+  const app = buildApp({
+    dbPath: ":memory:",
+    env: {
+      ARMOSPHERA_ONE_PUBLIC_TRUSTED_PROXY_IPS: "127.0.0.1",
+      ARMOSPHERA_ONE_PUBLIC_CLIENT_IP_HEADER: "x-forwarded-for"
+    }
+  });
+  try {
+    await app.ready();
+    let unauthorized = 0;
+    let limited = 0;
+    for (let i = 0; i < 25; i++) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/login",
+        payload: { email: `xff-spoof-${i}@nowhere.test`, password: "wrong" },
+        remoteAddress: "127.0.0.1",
+        headers: { "x-forwarded-for": `198.51.100.${i + 1}, 127.0.0.1` }
+      });
+      if (res.statusCode === 401) unauthorized += 1;
+      else if (res.statusCode === 429) limited += 1;
+      else assert.fail(`unexpected trusted-proxy XFF login status ${res.statusCode} on attempt ${i}`);
+    }
+    assert.ok(unauthorized > 0, "some malformed-XFF login attempts are processed before the limit");
+    assert.ok(limited > 0, "malformed trusted-proxy XFF must not re-enter the loopback throttle exemption");
+  } finally { await app.close(); }
+});
+
 test("auth: login is per-email rate limited (429) even across rotating IPs", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

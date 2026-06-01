@@ -206,6 +206,14 @@ function registerApi(app, db, options = {}) {
   function enforcePublicRateLimit(key, limit, windowMs) {
     recordRateLimitHit(key, limit, windowMs);
   }
+  function publicClientIdentity(request) {
+    const resolved = config.resolvePublicClientIpDetails({ directIp: request.ip, headers: request.headers }, env);
+    const ip = resolved.ip || String(request.ip || "");
+    const rateLimitIp = resolved.source === "trusted-proxy-fallback" && LOOPBACK_IPS.has(ip)
+      ? `trusted-proxy:${ip}`
+      : ip;
+    return { ip, rateLimitIp };
+  }
 
   app.get("/api/health", async request => ({
     ok: true,
@@ -228,9 +236,10 @@ function registerApi(app, db, options = {}) {
     // Brute-force throttle BEFORE the credential check: per-IP blunts single-source
     // password spraying; per-email blunts a distributed attack on one account across
     // many IPs. Loopback is exempt (local-first product). Both throw 429.
-    enforceRateLimit(`login-ip:${String(request.ip || "")}`, 10, 60 * 1000, request.ip);
+    const client = publicClientIdentity(request);
+    enforceRateLimit(`login-ip:${client.rateLimitIp}`, 10, 60 * 1000, client.rateLimitIp);
     const normalizedEmail = String(email || "").trim().toLowerCase();
-    if (normalizedEmail) enforceRateLimit(`login-email:${normalizedEmail}`, 5, 60 * 1000, request.ip);
+    if (normalizedEmail) enforceRateLimit(`login-email:${normalizedEmail}`, 5, 60 * 1000, client.rateLimitIp);
     const user = db.prepare("SELECT * FROM users WHERE lower(email) = lower(?)").get(email || "");
     if (!user || !verifyPassword(password || "", user.password_hash)) {
       reply.code(401);
@@ -251,7 +260,7 @@ function registerApi(app, db, options = {}) {
     }
     const session = createSession(db, user.id, {
       userAgent: request.headers["user-agent"],
-      ipAddress: request.ip,
+      ipAddress: client.ip,
       mfaVerified: false
     });
     reply.setCookie("sid", session.token, {
@@ -269,10 +278,11 @@ function registerApi(app, db, options = {}) {
     // attempt-capped: 5 tries per challenge (keyed on challengeId, so rotating IPs
     // cannot parallelize the search). After that the challenge is locked (429).
     const challengeId = String((request.body || {}).challengeId || "").trim();
-    if (challengeId) enforceRateLimit(`login-mfa:${challengeId}`, 5, 10 * 60 * 1000, request.ip);
+    const client = publicClientIdentity(request);
+    if (challengeId) enforceRateLimit(`login-mfa:${challengeId}`, 5, 10 * 60 * 1000, client.rateLimitIp);
     const result = verifyMfaLoginChallenge(db, request.body || {}, {
       userAgent: request.headers["user-agent"],
-      ipAddress: request.ip,
+      ipAddress: client.ip,
       beforeSession: user => assertPlatformTenantUser(request, user, env)
     });
     reply.setCookie("sid", result.session.token, {
@@ -2757,7 +2767,8 @@ function registerApi(app, db, options = {}) {
     const formId = String(request.params.id || "");
     // Unauthenticated write path: throttle per-IP (per form) to blunt spam/DoS that would
     // otherwise flood the org's CRM with junk leads. 10 submissions per minute per IP.
-    enforceRateLimit(`form-submit:${String(request.ip || "")}:${formId}`, 10, 60 * 1000, request.ip);
+    const client = publicClientIdentity(request);
+    enforceRateLimit(`form-submit:${client.rateLimitIp}:${formId}`, 10, 60 * 1000, client.rateLimitIp);
     // Resolve the published form across orgs by id (public caller has no org context).
     const tenantOrgId = platformTenantResourceOrgId(request, env);
     const formParams = [formId];
@@ -2778,7 +2789,7 @@ function registerApi(app, db, options = {}) {
       if (f && f.key && f.required && !String(data[f.key] || "").trim()) { const e = new Error(`Field "${f.label || f.key}" is required`); e.statusCode = 400; throw e; }
     }
     const now = new Date().toISOString();
-    const submissionIp = String(request.ip || "").slice(0, 64);
+    const submissionIp = String(client.ip || "").slice(0, 64);
     let leadId = null;
     try {
       const lead = createCrmLead(db, { id: null, org_id: orgId }, {
@@ -3239,7 +3250,8 @@ ${controls}
     const fid = String(request.params.id || "");
     // Public form pages are unauthenticated and id-addressable; throttle per-IP before
     // lookup so form-id enumeration cannot hammer the DB/render path.
-    enforcePublicRateLimit(`public-form-page:${String(request.ip || "")}`, 60, 60 * 1000);
+    const client = publicClientIdentity(request);
+    enforcePublicRateLimit(`public-form-page:${client.rateLimitIp}`, 60, 60 * 1000);
     const tenantOrgId = platformTenantResourceOrgId(request, env);
     const formParams = [fid];
     let formWhere = "id = ? AND status = 'published'";
@@ -3261,7 +3273,8 @@ ${controls}
   app.get("/api/public/quotes/:token", async request => {
     // Unauthenticated read keyed by an attacker-supplied token: throttle per-IP to blunt
     // token enumeration. 30/min allows legitimate buyers to re-view their quote.
-    enforceRateLimit(`public-quote-get:${String(request.ip || "")}`, 30, 60 * 1000, request.ip);
+    const client = publicClientIdentity(request);
+    enforceRateLimit(`public-quote-get:${client.rateLimitIp}`, 30, 60 * 1000, client.rateLimitIp);
     const tenantOrgId = platformTenantResourceOrgId(request, env);
     const quote = getPublicQuote(db, request.params.token, tenantOrgId);
     if (!quote || !["sent", "viewed", "accepted"].includes(quote.quote.status)) {
@@ -3274,7 +3287,8 @@ ${controls}
 
   app.post("/api/public/quotes/:token/accept", async request => {
     // Unauthenticated write keyed by an attacker-supplied token: throttle per-IP. 10/min.
-    enforceRateLimit(`public-quote-accept:${String(request.ip || "")}`, 10, 60 * 1000, request.ip);
+    const client = publicClientIdentity(request);
+    enforceRateLimit(`public-quote-accept:${client.rateLimitIp}`, 10, 60 * 1000, client.rateLimitIp);
     const tenantOrgId = platformTenantResourceOrgId(request, env);
     const quote = getPublicQuote(db, request.params.token, tenantOrgId);
     if (!quote) {
@@ -3282,7 +3296,7 @@ ${controls}
       err.statusCode = 404;
       throw err;
     }
-    return { ok: true, ...(await acceptPublicQuote(db, quote, request.body || {}, { headers: request.headers, ip: request.ip })) };
+    return { ok: true, ...(await acceptPublicQuote(db, quote, request.body || {}, { headers: request.headers, ip: client.ip })) };
   });
 
   app.post("/api/finance/periods/:periodKey/close", async request => {

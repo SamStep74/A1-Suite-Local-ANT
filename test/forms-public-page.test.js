@@ -119,3 +119,61 @@ test("forms-public-page: public page lookup is per-IP rate limited", async () =>
     assert.strictEqual(other.statusCode, 200, "a fresh IP can still load a public form page");
   } finally { await app.close(); }
 });
+
+test("forms-public-page: proxy headers are ignored unless proxy trust is enabled", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    let notFound = 0;
+    let limited = 0;
+    for (let i = 0; i < 80; i++) {
+      const res = await app.inject({
+        method: "GET",
+        url: `/f/spoofed-guess-${i}`,
+        remoteAddress: "203.0.113.90",
+        headers: { "x-forwarded-for": `198.51.100.${i + 1}` }
+      });
+      if (res.statusCode === 404) notFound += 1;
+      else if (res.statusCode === 429) limited += 1;
+      else assert.fail(`unexpected spoofed-header status ${res.statusCode} on attempt ${i}`);
+    }
+    assert.ok(notFound > 0, "early spoofed-header guesses return 404");
+    assert.ok(limited > 0, "rotating untrusted forwarded headers must not bypass the public form-page limit");
+  } finally { await app.close(); }
+});
+
+test("forms-public-page: trusted proxy client IP prevents loopback tunnel traffic from sharing one bucket", async () => {
+  const app = buildApp({
+    dbPath: ":memory:",
+    env: {
+      ARMOSPHERA_ONE_PUBLIC_TRUSTED_PROXY_IPS: "127.0.0.1",
+      ARMOSPHERA_ONE_PUBLIC_CLIENT_IP_HEADER: "cf-connecting-ip"
+    }
+  });
+  try {
+    await app.ready();
+    let notFound = 0;
+    let limited = 0;
+    for (let i = 0; i < 80; i++) {
+      const res = await app.inject({
+        method: "GET",
+        url: `/f/proxied-guess-${i}`,
+        remoteAddress: "127.0.0.1",
+        headers: { "cf-connecting-ip": "203.0.113.91" }
+      });
+      if (res.statusCode === 404) notFound += 1;
+      else if (res.statusCode === 429) limited += 1;
+      else assert.fail(`unexpected trusted-proxy status ${res.statusCode} on attempt ${i}`);
+    }
+    assert.ok(notFound > 0, "early proxied guesses return 404");
+    assert.ok(limited > 0, "one proxied client is still throttled");
+
+    const other = await app.inject({
+      method: "GET",
+      url: "/f/form-lead-intake",
+      remoteAddress: "127.0.0.1",
+      headers: { "cf-connecting-ip": "198.51.100.91" }
+    });
+    assert.strictEqual(other.statusCode, 200, "a different trusted-proxy client can still load a public form page");
+  } finally { await app.close(); }
+});

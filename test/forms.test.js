@@ -138,3 +138,84 @@ test("forms: public submit is per-IP rate limited (429 after the burst), and oth
     assert.strictEqual(other.statusCode, 200, "a fresh IP can still submit");
   } finally { await app.close(); }
 });
+
+test("forms: trusted proxy client IPs are used for loopback public submit limits", async () => {
+  const app = buildApp({
+    dbPath: ":memory:",
+    env: {
+      ARMOSPHERA_ONE_PUBLIC_TRUSTED_PROXY_IPS: "127.0.0.1",
+      ARMOSPHERA_ONE_PUBLIC_CLIENT_IP_HEADER: "cf-connecting-ip"
+    }
+  });
+  try {
+    await app.ready();
+    const url = "/api/forms/form-lead-intake/submit";
+    const payload = { companyName: "Proxy Co", contactName: "Buyer", email: "proxy-buyer@example.com", phone: "+374 99 121212", interest: "proxy tunnel" };
+
+    let okCount = 0;
+    let limited = 0;
+    for (let i = 0; i < 25; i++) {
+      const res = await app.inject({
+        method: "POST",
+        url,
+        payload,
+        remoteAddress: "127.0.0.1",
+        headers: { "cf-connecting-ip": "198.51.100.40" }
+      });
+      if (res.statusCode === 200) okCount += 1;
+      else if (res.statusCode === 429) limited += 1;
+      else assert.fail(`unexpected trusted-proxy submit status ${res.statusCode} on attempt ${i}`);
+    }
+    assert.ok(okCount > 0, "some proxied submissions should succeed before the limit");
+    assert.ok(limited > 0, "one proxied public submit client is still throttled");
+
+    for (let i = 0; i < 16; i++) {
+      const res = await app.inject({
+        method: "POST",
+        url,
+        payload,
+        remoteAddress: "127.0.0.1",
+        headers: { "cf-connecting-ip": `198.51.100.${i + 41}` }
+      });
+      assert.strictEqual(res.statusCode, 200, `proxied client ${i} should not inherit a global loopback submit bucket`);
+    }
+  } finally { await app.close(); }
+});
+
+test("forms: public submit evidence uses trusted proxy client IP only when configured", async () => {
+  const untrusted = buildApp({ dbPath: ":memory:" });
+  try {
+    await untrusted.ready();
+    const res = await untrusted.inject({
+      method: "POST",
+      url: "/api/forms/form-lead-intake/submit",
+      payload: { companyName: "Spoof Form", contactName: "Visitor", email: "spoof-form@example.com", phone: "+374 99 343434", interest: "spoof evidence" },
+      remoteAddress: "203.0.113.57",
+      headers: { "cf-connecting-ip": "198.51.100.57" }
+    });
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const row = untrusted.db.prepare("SELECT submitter_ip AS submitterIp FROM form_submissions WHERE form_id = ? ORDER BY created_at DESC LIMIT 1").get("form-lead-intake");
+    assert.strictEqual(row.submitterIp, "203.0.113.57", "untrusted forwarded form evidence is ignored");
+  } finally { await untrusted.close(); }
+
+  const trusted = buildApp({
+    dbPath: ":memory:",
+    env: {
+      ARMOSPHERA_ONE_PUBLIC_TRUSTED_PROXY_IPS: "127.0.0.1",
+      ARMOSPHERA_ONE_PUBLIC_CLIENT_IP_HEADER: "cf-connecting-ip"
+    }
+  });
+  try {
+    await trusted.ready();
+    const res = await trusted.inject({
+      method: "POST",
+      url: "/api/forms/form-lead-intake/submit",
+      payload: { companyName: "Trusted Form", contactName: "Visitor", email: "trusted-form@example.com", phone: "+374 99 565656", interest: "trusted evidence" },
+      remoteAddress: "127.0.0.1",
+      headers: { "cf-connecting-ip": "198.51.100.58" }
+    });
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const row = trusted.db.prepare("SELECT submitter_ip AS submitterIp FROM form_submissions WHERE form_id = ? ORDER BY created_at DESC LIMIT 1").get("form-lead-intake");
+    assert.strictEqual(row.submitterIp, "198.51.100.58", "trusted proxy form evidence records the configured public client IP");
+  } finally { await trusted.close(); }
+});
