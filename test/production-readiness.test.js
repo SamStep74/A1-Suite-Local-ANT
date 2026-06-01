@@ -60,15 +60,30 @@ test("production readiness gate becomes ready after required professional review
   const app = buildApp({ dbPath: ":memory:" });
   try {
     await app.ready();
-    const cookie = await login(app);
-    await reviewSource(app, cookie, "law-tax-code", "Accountant");
-    await reviewSource(app, cookie, "law-personal-data", "Lawyer");
-    await reviewSource(app, cookie, "law-esign", "Lawyer");
+    const ownerCookie = await login(app);
+    const accountantCookie = await login(app, "accountant@armosphera.local", DEFAULT_PASSWORD);
+    const lawyerCookie = await login(app, "lawyer@armosphera.local", DEFAULT_PASSWORD);
+
+    await reviewSource(app, ownerCookie, "law-tax-code", "Owner");
+    await reviewSource(app, ownerCookie, "law-personal-data", "Owner");
+    await reviewSource(app, ownerCookie, "law-esign", "Owner");
+
+    const ownerOnly = await app.inject({
+      method: "GET",
+      url: "/api/compliance/production-readiness?asOf=2026-05-31",
+      headers: { cookie: ownerCookie }
+    });
+    assert.strictEqual(ownerOnly.statusCode, 200, ownerOnly.body);
+    assert.strictEqual(ownerOnly.json().readiness.status, "blocked", "owner maintenance review is not professional sign-off");
+
+    await reviewSource(app, accountantCookie, "law-tax-code", "Accountant");
+    await reviewSource(app, lawyerCookie, "law-personal-data", "Lawyer");
+    await reviewSource(app, lawyerCookie, "law-esign", "Lawyer");
 
     const res = await app.inject({
       method: "GET",
       url: "/api/compliance/production-readiness?asOf=2026-05-31",
-      headers: { cookie }
+      headers: { cookie: ownerCookie }
     });
 
     assert.strictEqual(res.statusCode, 200, res.body);
@@ -89,6 +104,7 @@ test("production readiness gate is limited to review roles", async () => {
     await app.ready();
     const supportCookie = await login(app, "support@armosphera.local", DEFAULT_PASSWORD);
     const accountantCookie = await login(app, "accountant@armosphera.local", DEFAULT_PASSWORD);
+    const lawyerCookie = await login(app, "lawyer@armosphera.local", DEFAULT_PASSWORD);
 
     const blocked = await app.inject({
       method: "GET",
@@ -103,6 +119,71 @@ test("production readiness gate is limited to review roles", async () => {
       headers: { cookie: accountantCookie }
     });
     assert.strictEqual(allowed.statusCode, 200, allowed.body);
+
+    const lawyerAllowed = await app.inject({
+      method: "GET",
+      url: "/api/compliance/production-readiness",
+      headers: { cookie: lawyerCookie }
+    });
+    assert.strictEqual(lawyerAllowed.statusCode, 200, lawyerAllowed.body);
+  } finally {
+    await app.close();
+  }
+});
+
+test("legal source reviews require the matching professional role", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const accountantCookie = await login(app, "accountant@armosphera.local", DEFAULT_PASSWORD);
+    const lawyerCookie = await login(app, "lawyer@armosphera.local", DEFAULT_PASSWORD);
+    const auditorCookie = await login(app, "auditor@armosphera.local", DEFAULT_PASSWORD);
+
+    await reviewSource(app, accountantCookie, "law-tax-code", "Accountant");
+
+    const accountantOnEsign = await app.inject({
+      method: "POST",
+      url: "/api/legal/sources/law-esign/reviews",
+      headers: { cookie: accountantCookie },
+      payload: {
+        title: "RA Law on Electronic Document and Electronic Signature",
+        sourceUrl: "https://www.cba.am/EN/lalaws/Law_on_e_docs_and%20_e_signatures.pdf",
+        effectiveDate: "2026-05-31",
+        status: "active",
+        reviewNote: "Accountant cannot certify the legal e-sign source."
+      }
+    });
+    assert.strictEqual(accountantOnEsign.statusCode, 403);
+
+    await reviewSource(app, lawyerCookie, "law-esign", "Lawyer");
+
+    const lawyerOnTax = await app.inject({
+      method: "POST",
+      url: "/api/legal/sources/law-tax-code/reviews",
+      headers: { cookie: lawyerCookie },
+      payload: {
+        title: "RA Tax Code Article 63 VAT rate",
+        sourceUrl: "https://www.arlis.am/hy/acts/224990",
+        effectiveDate: "2026-05-31",
+        status: "active",
+        reviewNote: "Lawyer cannot certify the tax accounting source."
+      }
+    });
+    assert.strictEqual(lawyerOnTax.statusCode, 403);
+
+    const auditorOnTax = await app.inject({
+      method: "POST",
+      url: "/api/legal/sources/law-tax-code/reviews",
+      headers: { cookie: auditorCookie },
+      payload: {
+        title: "RA Tax Code Article 63 VAT rate",
+        sourceUrl: "https://www.arlis.am/hy/acts/224990",
+        effectiveDate: "2026-05-31",
+        status: "active",
+        reviewNote: "Auditor is read-only and cannot certify source content."
+      }
+    });
+    assert.strictEqual(auditorOnTax.statusCode, 403);
   } finally {
     await app.close();
   }

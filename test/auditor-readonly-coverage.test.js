@@ -25,6 +25,7 @@ function writeEndpoints() {
     ["People employee", "POST", "/api/people/employees", { fullName: "Audit Hire" }],
     ["People run-payroll", "POST", "/api/people/employees/emp-davit/run-payroll", {}],
     ["Forms definition", "POST", "/api/forms", { title: "Audit form", fields: [] }],
+    ["Legal source review", "POST", "/api/legal/sources/law-tax-code/reviews", { title: "Audit source", sourceUrl: "https://www.arlis.am/hy/acts/224990", effectiveDate: "2026-05-31", status: "active", reviewNote: "Auditor must not certify legal sources." }],
     ["Finance expense", "POST", "/api/finance/expenses", { description: "x", subtotal: 1000, vat: 200 }],
     ["Finance bill", "POST", "/api/finance/bills", { supplier: "x", subtotal: 1000, vat: 200 }],
     ["Payroll run", "POST", "/api/payroll/run", { gross: 300000 }],

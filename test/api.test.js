@@ -95,6 +95,7 @@ test("expanded Armenia SaaS roles receive least-privilege app entitlements", asy
   await withApp(async app => {
     const roles = [
       ["accountant@armosphera.local", "Accountant", ["finance", "docs", "analytics"]],
+      ["lawyer@armosphera.local", "Lawyer", ["docs", "analytics"]],
       ["sales@armosphera.local", "Salesperson", ["crm", "campaigns", "docs", "analytics"]],
       ["service.manager@armosphera.local", "Service Manager", ["crm", "desk", "docs", "analytics", "flow"]],
       ["auditor@armosphera.local", "Auditor", ["docs", "analytics"]]

@@ -6405,12 +6405,14 @@ function ensureRoleLayer(db) {
   const orgs = db.prepare("SELECT id FROM organizations").all();
   const userRows = [
     ["user-accountant", "accountant@armosphera.local", "HayHashvapah Accountant", "Accountant"],
+    ["user-lawyer", "lawyer@armosphera.local", "Armosphera Lawyer", "Lawyer"],
     ["user-sales", "sales@armosphera.local", "Armosphera Sales", "Salesperson"],
     ["user-service-manager", "service.manager@armosphera.local", "Service Manager", "Service Manager"],
     ["user-auditor", "auditor@armosphera.local", "Read Only Auditor", "Auditor"]
   ];
   const roleApps = {
     Accountant: ["finance", "docs", "analytics"],
+    Lawyer: ["docs", "analytics"],
     Salesperson: ["crm", "campaigns", "docs", "analytics"],
     "Service Manager": ["crm", "desk", "docs", "analytics", "flow"],
     Auditor: ["docs", "analytics"]

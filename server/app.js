@@ -3951,7 +3951,7 @@ ${controls}
 
   app.post("/api/legal/sources/:id/reviews", async request => {
     const user = await app.auth(request);
-    requireOwner(user);
+    requireLegalSourceReviewer(user, request.params.id);
     const result = createLegalSourceReview(db, user, request.params.id, request.body || {});
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8) };
   });
@@ -4859,11 +4859,26 @@ function requireAuditExportWriter(user) {
 }
 
 function requireProductionReadinessReader(user) {
-  if (!["Owner", "Admin", "Accountant", "Auditor"].includes(user.role)) {
+  if (!["Owner", "Admin", "Accountant", "Lawyer", "Auditor"].includes(user.role)) {
     const err = new Error("Production readiness reviewer role required");
     err.statusCode = 403;
     throw err;
   }
+}
+
+function requireLegalSourceReviewer(user, sourceId) {
+  const allowed = legalSourceReviewerRoles(sourceId);
+  if (!allowed.includes(user.role)) {
+    const err = new Error("Professional legal source reviewer role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function legalSourceReviewerRoles(sourceId) {
+  if (sourceId === "law-tax-code") return ["Owner", "Admin", "Accountant"];
+  if (["law-personal-data", "law-esign"].includes(sourceId)) return ["Owner", "Admin", "Lawyer"];
+  return ["Owner", "Admin"];
 }
 
 function requireIntegrationReader(user) {
@@ -44205,25 +44220,30 @@ function getProductionReadiness(db, orgId, query = {}) {
 
 function buildLegalSourceReadinessGates(sources) {
   const required = [
-    { id: "law-tax-code", label: "ԱԱՀ հարկային աղբյուր", ownerRole: "Accountant" },
-    { id: "law-personal-data", label: "Անձնական տվյալների իրավական աղբյուր", ownerRole: "Lawyer" },
-    { id: "law-esign", label: "Էլեկտրոնային ստորագրության իրավական աղբյուր", ownerRole: "Lawyer" }
+    { id: "law-tax-code", label: "ԱԱՀ հարկային աղբյուր", ownerRole: "Accountant", reviewerRoles: ["Accountant"] },
+    { id: "law-personal-data", label: "Անձնական տվյալների իրավական աղբյուր", ownerRole: "Lawyer", reviewerRoles: ["Lawyer"] },
+    { id: "law-esign", label: "Էլեկտրոնային ստորագրության իրավական աղբյուր", ownerRole: "Lawyer", reviewerRoles: ["Lawyer"] }
   ];
   return required.map(item => {
     const source = sources.find(candidate => candidate.id === item.id);
-    const pass = source?.status === "active" && Boolean(source.latestReview);
+    const latestReview = source?.latestReview || null;
+    const reviewerRole = latestReview?.reviewedByRole || "";
+    const professionalReviewPassed = item.reviewerRoles.includes(reviewerRole);
+    const pass = source?.status === "active" && professionalReviewPassed;
     return {
       key: item.id,
       label: source?.title || item.label,
       domain: "legal-source",
       ownerRole: item.ownerRole,
+      reviewerRoles: item.reviewerRoles,
       pass,
       status: source?.status || "missing",
       requiredStatus: "active",
       effectiveDate: source?.effectiveDate || "",
       sourceUrl: source?.sourceUrl || "",
-      latestReview: source?.latestReview || null,
-      nextAction: pass ? "reviewed" : `${item.ownerRole} review required before production use`
+      latestReview,
+      reviewedByRole: reviewerRole,
+      nextAction: pass ? "professionally reviewed" : `${item.ownerRole} review required before production use`
     };
   });
 }
@@ -44370,7 +44390,7 @@ function isValidHttpUrl(value) {
 
 function getLegalSourceReview(db, orgId, reviewId) {
   const row = db.prepare(`
-    SELECT legal_source_reviews.*, users.name AS reviewed_by_name
+    SELECT legal_source_reviews.*, users.name AS reviewed_by_name, users.role AS reviewed_by_role
     FROM legal_source_reviews
     LEFT JOIN users ON users.id = legal_source_reviews.reviewed_by_user_id
     WHERE legal_source_reviews.org_id = ? AND legal_source_reviews.id = ?
@@ -44380,7 +44400,7 @@ function getLegalSourceReview(db, orgId, reviewId) {
 
 function getLegalSourceLatestReview(db, orgId, sourceId) {
   const row = db.prepare(`
-    SELECT legal_source_reviews.*, users.name AS reviewed_by_name
+    SELECT legal_source_reviews.*, users.name AS reviewed_by_name, users.role AS reviewed_by_role
     FROM legal_source_reviews
     LEFT JOIN users ON users.id = legal_source_reviews.reviewed_by_user_id
     WHERE legal_source_reviews.org_id = ? AND legal_source_reviews.legal_source_id = ?
@@ -44396,6 +44416,7 @@ function formatLegalSourceReview(row) {
     sourceId: row.legal_source_id,
     reviewedByUserId: row.reviewed_by_user_id,
     reviewedByName: row.reviewed_by_name,
+    reviewedByRole: row.reviewed_by_role,
     title: row.title,
     sourceUrl: row.source_url,
     status: row.status,

@@ -314,7 +314,7 @@ function App() {
         setAdminAuditExports([]);
         setIntegrationConnectors([]);
       }
-      if (["Owner", "Admin", "Accountant", "Auditor"].includes(data.user.role)) {
+      if (["Owner", "Admin", "Accountant", "Lawyer", "Auditor"].includes(data.user.role)) {
         const readinessData = await loadOr(null, () => api("/api/compliance/production-readiness"));
         setProductionReadiness(readinessData);
       } else {
@@ -1341,11 +1341,11 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
       await api("/api/legal/sources/law-tax-code/reviews", {
         method: "POST",
         body: {
-          title: "RA Tax Code Article 63 VAT rate - owner reviewed",
+          title: "RA Tax Code Article 63 VAT rate - accountant reviewed",
           sourceUrl: "https://www.arlis.am/hy/acts/224990",
           effectiveDate: new Date().toISOString().slice(0, 10),
           status: "active",
-          reviewNote: "Owner confirmed this source is ready for Armenian localization demo use."
+          reviewNote: "Accountant confirmed this source is ready for Armenian production VAT guidance."
         }
       });
       setActionState("source-review:done");
@@ -1361,11 +1361,11 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
       await api("/api/legal/sources/law-esign/reviews", {
         method: "POST",
         body: {
-          title: "RA Law on Electronic Document and Electronic Signature - owner reviewed",
+          title: "RA Law on Electronic Document and Electronic Signature - lawyer reviewed",
           sourceUrl: "https://www.cba.am/EN/lalaws/Law_on_e_docs_and%20_e_signatures.pdf",
           effectiveDate: new Date().toISOString().slice(0, 10),
           status: "active",
-          reviewNote: "Owner confirmed this source is ready for accepted quote evidence packets."
+          reviewNote: "Lawyer confirmed this source is ready for accepted quote evidence packets."
         }
       });
       setActionState("source-review:done");
@@ -1381,11 +1381,11 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
       await api("/api/legal/sources/law-personal-data/reviews", {
         method: "POST",
         body: {
-          title: "RA Law on Protection of Personal Data - owner reviewed",
+          title: "RA Law on Protection of Personal Data - lawyer reviewed",
           sourceUrl: "https://www.arlis.am/DocumentView.aspx?docid=117034",
           effectiveDate: new Date().toISOString().slice(0, 10),
           status: "active",
-          reviewNote: "Owner confirmed this source is ready for customer export and deletion request handling."
+          reviewNote: "Lawyer confirmed this source is ready for customer export and deletion request handling."
         }
       });
       setActionState("source-review:done");
@@ -4757,9 +4757,9 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
             privacyExportPackets={suite.privacyExportPackets || []}
             privacyRetentionAssessments={suite.privacyRetentionAssessments || []}
             actionState={actionState}
-            onReviewSource={suite.user.role === "Owner" ? reviewVatSource : null}
-            onReviewEsignSource={suite.user.role === "Owner" ? reviewEsignSource : null}
-            onReviewPersonalDataSource={suite.user.role === "Owner" ? reviewPersonalDataSource : null}
+            onReviewSource={suite.user.role === "Accountant" ? reviewVatSource : null}
+            onReviewEsignSource={suite.user.role === "Lawyer" ? reviewEsignSource : null}
+            onReviewPersonalDataSource={suite.user.role === "Lawyer" ? reviewPersonalDataSource : null}
             onPrepareSrcExport={suite.user.role === "Owner" ? prepareSrcExport : null}
             onPrepareSignaturePacket={suite.user.role === "Owner" ? prepareSignaturePacket : null}
             onPreparePrivacyExport={suite.user.role === "Owner" ? preparePrivacyExport : null}

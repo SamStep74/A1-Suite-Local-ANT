@@ -145,13 +145,13 @@ Status: shipped in the local prototype on 2026-05-26.
 
 Status: shipped in the local prototype on 2026-05-26.
 
-- Added legal source review records for owner-reviewed Armenian legal/accounting source versions.
-- Added owner-only `/api/legal/sources/:id/reviews` with status, effective date, title, URL, and review note validation.
+- Added legal source review records for maintained and professionally reviewed Armenian legal/accounting source versions.
+- Added `/api/legal/sources/:id/reviews` with status, effective date, title, URL, review note validation, Owner/Admin maintenance access, and source-specific Accountant/Lawyer professional review access.
 - Legal source reviews update the source registry while preserving review history, latest reviewer, and review count.
 - Legal answers now cite source metadata that reflects the latest reviewed legal source version.
 - Added suite events and audit records for `legal.source.reviewed`.
 - Updated the workspace Legal and accounting readiness panel with legal source registry cards and VAT review action.
-- Added API tests for owner source review, source listing with latest review metadata, answer citation freshness, audit capture, and non-owner rejection.
+- Added API tests for owner source maintenance, professional source review, source listing with latest review metadata, answer citation freshness, audit capture, and non-reviewer rejection.
 
 ## Implemented Slice 11: SRC Offline Export Packet
 
@@ -238,7 +238,7 @@ Status: shipped in the local prototype on 2026-05-26.
 
 Status: shipped in the local prototype on 2026-05-26.
 
-- Added expanded Armenia SaaS roles: Accountant, Salesperson, Service Manager, and Auditor.
+- Added expanded Armenia SaaS roles: Accountant, Lawyer, Salesperson, Service Manager, and Auditor.
 - Added least-privilege app entitlements for the expanded roles while preserving Owner/Admin full-suite access and Support's restricted service-facing access.
 - Added owner-created access review packets with role summaries, user lists, app matrix, privileged-user inventory, orphaned assignment-role findings, governance controls, and SHA-256 checksum.
 - Added auditor-readable `/api/admin/access-reviews` listing while keeping packet creation owner-only.
@@ -1632,3 +1632,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Added next recurring ongoing closeout packets to tenant backup scope and emitted `pilot.next_recurring_ongoing_renewal_closeout.created` suite/audit events.
 - Updated the workspace with a Next recurring closeout panel showing close date, amount, following due date, following recurring task id, status, controls, and checksum evidence.
 - Added API tests proving Support/Accountant rejection, closeout creation, following recurring task scheduling, checksum verification, idempotency, auditor metadata visibility, Customer 360 linkage, backup inclusion, and audit evidence.
+
+### Slice 134 - Professional Legal Source Production Review
+
+- Added the Lawyer demo role with docs/analytics entitlement so legal reviewers can log in separately from owner/admin users.
+- Source reviews now preserve reviewer role metadata and allow Owner/Admin maintenance while requiring Accountant review for the tax-code source and Lawyer review for personal-data/e-sign sources.
+- The production readiness gate now treats owner/admin source maintenance as insufficient for production sign-off; it passes legal-source gates only when the latest active review comes from the matching professional role.
+- The workspace review actions are shown to the relevant professional role: Accountant for VAT/tax source review and Lawyer for e-sign/personal-data source review.
+- Added API tests proving professional source-review authorization, Lawyer readiness access, owner-only review not clearing the production gate, auditor write rejection, and least-privilege Lawyer entitlements.
