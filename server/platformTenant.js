@@ -1,3 +1,4 @@
+const crypto = require("node:crypto");
 const config = require("./config");
 
 const TRUTHY = new Set(["1", "true", "yes", "on"]);
@@ -61,7 +62,7 @@ async function resolvePlatformTenant(request, env = process.env, fetchImpl = glo
   const tenantHost = request.headers.host || request.hostname || "";
   const headers = { "x-a1-request-host": tenantHost };
   if (env.A1_PLATFORM_TOKEN) headers["x-a1-platform-token"] = env.A1_PLATFORM_TOKEN;
-  const cacheKey = `${String(url)}|${tenantHost}`;
+  const cacheKey = `${String(url)}|${tenantHost}|${platformTenantCacheScope(env)}`;
   const cached = readPlatformTenantCache(cache, cacheKey);
   if (cached !== undefined) return cached;
 
@@ -72,8 +73,8 @@ async function resolvePlatformTenant(request, env = process.env, fetchImpl = glo
     const payload = await response.json().catch(() => ({}));
     if (!response.ok) {
       const statusCode = response.status || 503;
-      const code = payload.error?.code || "A1_PLATFORM_TENANT_UNAVAILABLE";
-      const message = payload.error?.message || `A1 platform tenant lookup failed with ${statusCode}`;
+      const code = platformTenantErrorCode(statusCode, payload);
+      const message = platformTenantErrorMessage(statusCode, payload);
       throw platformError(message, statusCode, code);
     }
     if (!payload.tenant) {
@@ -108,6 +109,33 @@ function writePlatformTenantCache(cache, key, tenant, env = process.env) {
   const ttlMs = Number(env.A1_PLATFORM_TENANT_CACHE_MS || 10000);
   if (!Number.isFinite(ttlMs) || ttlMs <= 0) return;
   cache.set(key, { tenant, expiresAt: Date.now() + ttlMs });
+}
+
+function platformTenantErrorCode(statusCode, payload = {}) {
+  const errorPayload = platformTenantErrorPayload(payload);
+  const code = errorPayload?.code;
+  if (code) return code;
+  if (statusCode === 401 || statusCode === 403) return "PLATFORM_AUTH_FAILED";
+  return "A1_PLATFORM_TENANT_UNAVAILABLE";
+}
+
+function platformTenantErrorMessage(statusCode, payload = {}) {
+  return platformTenantErrorPayload(payload)?.message || `A1 platform tenant lookup failed with ${statusCode}`;
+}
+
+function platformTenantErrorPayload(payload = {}) {
+  if (!payload || typeof payload !== "object") return null;
+  if (!payload.error || typeof payload.error !== "object") return null;
+  return payload.error;
+}
+
+function platformTenantCacheScope(env = process.env) {
+  const token = String(env.A1_PLATFORM_TOKEN || "");
+  const tokenScope = token
+    ? crypto.createHash("sha256").update(token).digest("hex").slice(0, 16)
+    : "none";
+  const strictScope = strictModeEnabled(env) ? "strict" : "open";
+  return `${strictScope}|token:${tokenScope}`;
 }
 
 async function attachPlatformTenant(request, env = process.env, fetchImpl = globalThis.fetch, cache = null) {

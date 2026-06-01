@@ -388,6 +388,119 @@ test("platform tenant auth failures fail closed outside strict mode", async () =
   }
 });
 
+test("platform tenant bare auth statuses fail closed outside strict mode", async () => {
+  const env = { ...PLATFORM_ENV };
+  const fetchImpl = async () => ({
+    ok: false,
+    status: 401,
+    json: async () => null
+  });
+
+  const app = buildApp({ dbPath: ":memory:", env, fetch: fetchImpl });
+  await app.ready();
+  try {
+    const health = await app.inject({ method: "GET", url: "/api/health", headers: { host: "demo-client.a1suite.am" } });
+    assert.equal(health.statusCode, 401, health.body);
+    assert.equal(health.json().error, "PLATFORM_AUTH_FAILED");
+    assert.equal(health.json().message, "A1 Platform tenant lookup failed");
+
+    const loginResponse = await app.inject({
+      method: "POST",
+      url: "/api/login",
+      headers: { host: "demo-client.a1suite.am" },
+      payload: { email: DEFAULT_EMAIL, password: DEFAULT_PASSWORD }
+    });
+    assert.equal(loginResponse.statusCode, 401, loginResponse.body);
+    assert.equal(loginResponse.json().error, "PLATFORM_AUTH_FAILED");
+    assert.equal(loginResponse.headers["set-cookie"], undefined);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM sessions").get().count, 0);
+  } finally {
+    await app.close();
+  }
+});
+
+test("platform tenant cache is scoped to platform auth token changes", async () => {
+  const env = {
+    ...PLATFORM_ENV,
+    A1_PLATFORM_TOKEN: "token-ok",
+    A1_PLATFORM_TENANT_CACHE_MS: "60000"
+  };
+  let calls = 0;
+  const fetchImpl = async (url, options) => {
+    calls += 1;
+    if (options.headers["x-a1-platform-token"] === "token-bad") {
+      return {
+        ok: false,
+        status: 401,
+        json: async () => ({
+          error: {
+            code: "PLATFORM_AUTH_FAILED",
+            message: "expired token token-bad with postgresql://a1:secret@postgres:5432/a1"
+          }
+        })
+      };
+    }
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ tenant: platformTenantForHost(options.headers["x-a1-request-host"]) })
+    };
+  };
+
+  const app = buildApp({ dbPath: ":memory:", env, fetch: fetchImpl });
+  await app.ready();
+  try {
+    const first = await app.inject({ method: "GET", url: "/api/health", headers: { host: "demo-client.a1suite.am" } });
+    assert.equal(first.statusCode, 200, first.body);
+    assert.deepEqual(first.json().platformTenant, { enabled: true, resolved: true, strict: false });
+
+    env.A1_PLATFORM_TOKEN = "token-bad";
+    const blocked = await app.inject({ method: "GET", url: "/api/health", headers: { host: "demo-client.a1suite.am" } });
+    assert.equal(blocked.statusCode, 401, blocked.body);
+    assert.equal(blocked.json().error, "PLATFORM_AUTH_FAILED");
+    assert.equal(blocked.json().message, "A1 Platform tenant lookup failed");
+    assert.ok(!blocked.body.includes("token-bad"));
+    assert.ok(!blocked.body.includes("postgresql://"));
+    assert.ok(!blocked.body.includes("secret"));
+    assert.equal(calls, 2);
+  } finally {
+    await app.close();
+  }
+});
+
+test("platform tenant cache is scoped to strict mode changes", async () => {
+  const env = {
+    ...PLATFORM_ENV,
+    A1_PLATFORM_TENANT_CACHE_MS: "60000"
+  };
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls += 1;
+    return {
+      ok: true,
+      status: 200,
+      json: async () => ({ tenant: null })
+    };
+  };
+
+  const app = buildApp({ dbPath: ":memory:", env, fetch: fetchImpl });
+  await app.ready();
+  try {
+    const first = await app.inject({ method: "GET", url: "/api/health", headers: { host: "missing-client.a1suite.am" } });
+    assert.equal(first.statusCode, 200, first.body);
+    assert.deepEqual(first.json().platformTenant, { enabled: true, resolved: false, strict: false });
+
+    env.A1_PLATFORM_TENANT_STRICT = "1";
+    const blocked = await app.inject({ method: "GET", url: "/api/health", headers: { host: "missing-client.a1suite.am" } });
+    assert.equal(blocked.statusCode, 404, blocked.body);
+    assert.equal(blocked.json().error, "A1_PLATFORM_TENANT_NOT_FOUND");
+    assert.equal(blocked.json().message, "A1 Platform tenant lookup failed");
+    assert.equal(calls, 2);
+  } finally {
+    await app.close();
+  }
+});
+
 test("platform tenant lookup respects the outbound egress allowlist", async () => {
   const env = {
     A1_PLATFORM_TENANT_RESOLUTION: "1",
