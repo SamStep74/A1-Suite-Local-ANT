@@ -39,12 +39,12 @@ function resolveLawsDbPath() {
 
 const LOOPBACK = new Set(["127.0.0.1", "localhost", "::1"]);
 
-function allowEgress() {
-  return process.env.ARMOSPHERA_ONE_ALLOW_EGRESS === "1";
+function allowEgress(env = process.env) {
+  return env.ARMOSPHERA_ONE_ALLOW_EGRESS === "1";
 }
 
-function egressAllowlist() {
-  return String(process.env.ARMOSPHERA_ONE_EGRESS_ALLOWLIST || "")
+function egressAllowlist(env = process.env) {
+  return String(env.ARMOSPHERA_ONE_EGRESS_ALLOWLIST || "")
     .split(",").map(s => s.trim().toLowerCase()).filter(Boolean);
 }
 
@@ -66,19 +66,19 @@ function hostOf(url) {
   } catch { return ""; }
 }
 
-function assertEgressAllowed(url) {
+function assertEgressAllowed(url, env = process.env) {
   const host = hostOf(url);
   if (LOOPBACK.has(host)) return; // loopback is always permitted — local-first IPC is never gated
-  if (!allowEgress()) throw new EgressBlockedError(host || String(url));
-  const list = egressAllowlist();
+  if (!allowEgress(env)) throw new EgressBlockedError(host || String(url));
+  const list = egressAllowlist(env);
   if (!list.includes(host)) throw new EgressBlockedError(host || String(url)); // deny unless explicitly allowlisted
 }
 
 let fetchImpl = (...args) => globalThis.fetch(...args);
 function setFetchImpl(fn) { fetchImpl = fn; }
 
-async function safeFetch(url, options) {
-  assertEgressAllowed(url);
+async function safeFetch(url, options, env = process.env) {
+  assertEgressAllowed(url, env);
   return fetchImpl(url, options);
 }
 

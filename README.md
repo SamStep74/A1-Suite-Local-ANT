@@ -79,6 +79,26 @@ local Ollama embedder.
 | `ARMOSPHERA_ONE_LAWS_DB` | Override the legal KB path | `<data dir>/laws.sqlite` |
 | `LAW_EMBED_MODEL` | Local embedder model for semantic search | `bge-m3` |
 | `LAW_EMBED_BASE` | Local embedder base URL (loopback) | `http://127.0.0.1:11434` |
+| `A1_PLATFORM_TENANT_RESOLUTION` | `1` to resolve Studio tenant context from A1 Platform | off |
+| `A1_PLATFORM_API_URL` | A1 Platform API base URL through VM gateway/tunnel | `http://127.0.0.1:8088` |
+| `A1_PLATFORM_TOKEN` | Optional server-to-server token for sensitive tenant context | empty |
+| `A1_PLATFORM_TENANT_STRICT` | `1` to fail closed when platform lookup is unavailable or host is unknown | off |
+| `A1_PLATFORM_TENANT_TIMEOUT_MS` | Platform tenant lookup timeout | `1200` |
+| `A1_PLATFORM_TENANT_CACHE_MS` | Per-host tenant lookup cache TTL | `10000` |
+
+When tenant resolution is enabled, Studio asks A1 Platform for the current
+tenant by `product=studio` and forwards the original request host in
+`x-a1-request-host`. Non-strict mode fails open for temporary platform lookup
+errors; strict mode fails closed. Tenant maintenance, tenant disabled, module
+disabled, and egress-blocked responses always block the request. Public health
+responses expose only enabled/resolved/strict flags; the authenticated
+audit-reader tenant summary redacts database URLs and only exposes sanitized
+module codes.
+
+For the supported VM runtime, keep A1 Platform inside the Ubuntu VM and expose it
+to Mac-hosted product dev servers through `infra/vm/a1-vm.sh tunnel`; then use
+`A1_PLATFORM_API_URL=http://127.0.0.1:8088`. Do not require Docker Desktop on the
+Mac or client machine.
 
 ## Test
 

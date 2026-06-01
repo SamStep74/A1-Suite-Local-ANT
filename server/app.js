@@ -121,13 +121,23 @@ const accounting = require("./accounting");
 const ledger = require("./ledger");
 const payroll = require("./payroll");
 const copilot = require("./copilot");
+const {
+  assertPlatformTenantUser,
+  attachPlatformTenant,
+  platformTenantSummary,
+  publicPlatformTenantSummary,
+  sanitizePlatformError
+} = require("./platformTenant");
 
 function buildApp(options = {}) {
-  const db = options.db || openDatabase(options.dbPath || process.env.ARMOSPHERA_ONE_DB);
+  const env = options.env || process.env;
+  const fetchImpl = options.fetch || globalThis.fetch;
+  const db = options.db || openDatabase(options.dbPath || env.ARMOSPHERA_ONE_DB);
   const app = fastify({ logger: options.logger ?? false });
+  const platformTenantCache = new Map();
 
   app.register(cookie, {
-    secret: process.env.COOKIE_SECRET || "armosphera-one-dev-cookie-secret"
+    secret: env.COOKIE_SECRET || "armosphera-one-dev-cookie-secret"
   });
 
   try { rag.init(config.resolveLawsDbPath()); } catch { /* legal KB optional */ }
@@ -140,10 +150,19 @@ function buildApp(options = {}) {
       err.statusCode = 401;
       throw err;
     }
+    assertPlatformTenantUser(request, user, env);
     return user;
   });
+  app.addHook("preHandler", async (request, reply) => {
+    try {
+      await attachPlatformTenant(request, env, fetchImpl, platformTenantCache);
+    } catch (error) {
+      reply.code(error.statusCode || 503).send(sanitizePlatformError(error));
+      return reply;
+    }
+  });
 
-  registerApi(app, db, options);
+  registerApi(app, db, { ...options, env });
   registerStatic(app);
 
   app.addHook("onClose", () => {
@@ -154,6 +173,7 @@ function buildApp(options = {}) {
 }
 
 function registerApi(app, db, options = {}) {
+  const env = options.env || process.env;
   // In-memory per-IP sliding-window rate limiter for unauthenticated endpoints.
   // Scoped to this app instance (resets per buildApp). Keeps the last hit timestamps
   // per key and rejects once `limit` hits fall inside `windowMs`.
@@ -174,14 +194,21 @@ function registerApi(app, db, options = {}) {
     rateLimitHits.set(key, recent);
   }
 
-  app.get("/api/health", async () => ({
+  app.get("/api/health", async request => ({
     ok: true,
     product: "Armosphera One",
     version: "0.1.0",
     locale: "hy-AM",
     dataRegion: "Armenia hosted / private tenant ready",
-    modules: ["suite", "crm", "finance", "desk", "campaigns", "projects", "people", "docs", "analytics", "flow"]
+    modules: ["suite", "crm", "finance", "desk", "campaigns", "projects", "people", "docs", "analytics", "flow"],
+    platformTenant: publicPlatformTenantSummary(request.a1Tenant, env)
   }));
+
+  app.get("/api/platform/tenant", async request => {
+    const user = await app.auth(request);
+    requireAuditReader(user);
+    return platformTenantSummary(request.a1Tenant, env);
+  });
 
   app.post("/api/login", async (request, reply) => {
     const { email, password } = request.body || {};

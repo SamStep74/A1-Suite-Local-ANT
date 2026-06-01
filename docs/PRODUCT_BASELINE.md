@@ -1703,3 +1703,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - The React workspace skips the global audit fetch for non-audit-reader roles, preserving their app workflow access without leaking organization-wide audit details.
 - Accepted legal source reviews still preserve the full reviewer note in the canonical `legal_source_reviews` record, but `legal.source.reviewed` suite/audit metadata now stores only `reviewNoteHash` and `reviewNoteLength`.
 - Added API and frontend helper tests proving audit feed role gating, accepted legal-source review note non-leakage, Salesperson and Service Manager workflow compatibility, Owner/Admin/Auditor audit-reader access, and non-audit-reader UI audit-fetch suppression.
+
+### Slice 144 - A1 Platform Tenant Resolution Bridge
+
+- Added optional A1 Platform tenant resolution for Studio requests, controlled by `A1_PLATFORM_TENANT_RESOLUTION` and resolved from `product=studio` plus the original request host forwarded as `x-a1-request-host`.
+- `/api/health` now exposes only public enabled/resolved/strict tenant flags, while `/api/platform/tenant` is limited to audit-reader roles and returns a redacted tenant summary without database URLs or raw module objects.
+- Tenant resolution fails open by default for temporary platform lookup failures, fails closed when `A1_PLATFORM_TENANT_STRICT=1`, respects the existing outbound egress allowlist, caches successful per-host lookups, and always blocks tenant maintenance, tenant disabled, or module disabled platform responses.
+- Platform-provided error messages are sanitized before returning to clients, and resolved tenant org ids are checked against authenticated sessions when Platform supplies an org mapping.
+- Added tests proving opt-in behavior, real-fetch `x-a1-request-host` propagation to A1 Platform, token propagation, database URL and module-secret redaction, public health redaction, non-strict fail-open behavior, strict fail-closed behavior, egress blocking, disabled tenant/module blocking, sanitized strict errors, per-host cache behavior, and cross-host session replay rejection.
