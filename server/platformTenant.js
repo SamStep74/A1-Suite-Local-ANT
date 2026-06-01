@@ -2,6 +2,7 @@ const config = require("./config");
 
 const TRUTHY = new Set(["1", "true", "yes", "on"]);
 const BLOCKING_TENANT_CODES = new Set(["TENANT_MAINTENANCE", "TENANT_DISABLED", "MODULE_DISABLED", "EGRESS_BLOCKED"]);
+const UNMAPPED_PUBLIC_RESOURCE_ORG_ID = "__a1_platform_unmapped_public_resource__";
 
 function platformResolutionEnabled(env = process.env) {
   return TRUTHY.has(String(env.A1_PLATFORM_TENANT_RESOLUTION || "").toLowerCase());
@@ -136,6 +137,12 @@ function platformTenantOrgId(tenant) {
   return String(tenant.orgId || tenant.org_id || tenant.organizationId || tenant.organization_id || "").trim();
 }
 
+function platformTenantResourceOrgId(request, env = process.env) {
+  if (!platformResolutionEnabled(env) || !request.a1Tenant) return "";
+  const tenantOrgId = platformTenantOrgId(request.a1Tenant);
+  return tenantOrgId || UNMAPPED_PUBLIC_RESOURCE_ORG_ID;
+}
+
 function assertPlatformTenantUser(request, user, env = process.env) {
   if (!platformResolutionEnabled(env) || !request.a1Tenant) return;
   const tenantOrgId = platformTenantOrgId(request.a1Tenant);
@@ -167,6 +174,7 @@ module.exports = {
   assertPlatformTenantUser,
   attachPlatformTenant,
   platformResolutionEnabled,
+  platformTenantResourceOrgId,
   platformTenantSummary,
   publicPlatformTenantSummary,
   resolvePlatformTenant,

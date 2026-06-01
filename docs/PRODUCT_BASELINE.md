@@ -1711,3 +1711,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Tenant resolution fails open by default for temporary platform lookup failures, fails closed when `A1_PLATFORM_TENANT_STRICT=1`, respects the existing outbound egress allowlist, caches successful per-host lookups, and always blocks tenant maintenance, tenant disabled, or module disabled platform responses.
 - Platform-provided error messages are sanitized before returning to clients, and resolved tenant org ids are checked against authenticated sessions when Platform supplies an org mapping.
 - Added tests proving opt-in behavior, real-fetch `x-a1-request-host` propagation to A1 Platform, token propagation, database URL and module-secret redaction, public health redaction, non-strict fail-open behavior, strict fail-closed behavior, egress blocking, disabled tenant/module blocking, sanitized strict errors, per-host cache behavior, and cross-host session replay rejection.
+
+### Slice 145 - Tenant-Bound Public Forms and Quotes
+
+- Public form pages and submissions now honor the resolved A1 Platform tenant org when tenant resolution is enabled.
+- Public quote read and acceptance endpoints now scope token lookup by the resolved tenant org instead of relying on token-only lookup under a routed host.
+- Tenant/resource mismatches return `404` so public callers cannot distinguish missing resources from resources that belong to another tenant.
+- Single-tenant/local behavior is unchanged when Platform tenant resolution is disabled or a non-blocking lookup fails open.
+- Added Platform-enabled tests proving wrong-host and unmapped-host form pages/submissions and quote reads/accepts are hidden with generic missing-resource responses, and that blocked form submissions and quote acceptances do not mutate the owning tenant.

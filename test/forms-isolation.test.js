@@ -2,8 +2,7 @@
 // Tenant isolation for Forms: one org's form definition must be invisible and immutable
 // to another org. The authenticated routes (GET/PATCH /api/forms/:id) resolve via
 // getForm(db, orgId, id), so a foreign id returns 404 — never 403 (which would leak that
-// the id exists). (The PUBLIC submit route intentionally resolves across orgs and is out
-// of scope here.)
+// the id exists). Platform-enabled public form routes are covered in platform-tenant tests.
 const test = require("node:test");
 const assert = require("node:assert");
 const { buildApp } = require("../server/app");

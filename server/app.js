@@ -124,6 +124,7 @@ const copilot = require("./copilot");
 const {
   assertPlatformTenantUser,
   attachPlatformTenant,
+  platformTenantResourceOrgId,
   platformTenantSummary,
   publicPlatformTenantSummary,
   sanitizePlatformError
@@ -2739,7 +2740,14 @@ function registerApi(app, db, options = {}) {
     // otherwise flood the org's CRM with junk leads. 10 submissions per minute per IP.
     enforceRateLimit(`form-submit:${String(request.ip || "")}:${formId}`, 10, 60 * 1000, request.ip);
     // Resolve the published form across orgs by id (public caller has no org context).
-    const formRow = db.prepare("SELECT id, org_id AS orgId, fields, status FROM forms WHERE id = ?").get(formId);
+    const tenantOrgId = platformTenantResourceOrgId(request, env);
+    const formParams = [formId];
+    let formWhere = "id = ?";
+    if (tenantOrgId) {
+      formWhere += " AND org_id = ?";
+      formParams.push(tenantOrgId);
+    }
+    const formRow = db.prepare(`SELECT id, org_id AS orgId, fields, status FROM forms WHERE ${formWhere}`).get(...formParams);
     if (!formRow || formRow.status !== "published") { const e = new Error("Form not available"); e.statusCode = 404; throw e; }
     const orgId = formRow.orgId;
     const fields = parseFormFields(formRow.fields);
@@ -3215,7 +3223,14 @@ ${controls}
   }
   app.get("/f/:id", async (request, reply) => {
     const fid = String(request.params.id || "");
-    const form = db.prepare("SELECT id, title, fields AS fieldsJson FROM forms WHERE id = ? AND status = 'published'").get(fid);
+    const tenantOrgId = platformTenantResourceOrgId(request, env);
+    const formParams = [fid];
+    let formWhere = "id = ? AND status = 'published'";
+    if (tenantOrgId) {
+      formWhere += " AND org_id = ?";
+      formParams.push(tenantOrgId);
+    }
+    const form = db.prepare(`SELECT id, org_id AS orgId, title, fields AS fieldsJson FROM forms WHERE ${formWhere}`).get(...formParams);
     if (!form) {
       reply.code(404).type("text/html");
       return `<!doctype html><meta charset="utf-8"><title>Not found</title><body style="font-family:system-ui;margin:6vh auto;max-width:480px;padding:0 16px;color:#1a2424"><p>Form not available.</p>`;
@@ -3230,7 +3245,8 @@ ${controls}
     // Unauthenticated read keyed by an attacker-supplied token: throttle per-IP to blunt
     // token enumeration. 30/min allows legitimate buyers to re-view their quote.
     enforceRateLimit(`public-quote-get:${String(request.ip || "")}`, 30, 60 * 1000, request.ip);
-    const quote = getPublicQuote(db, request.params.token);
+    const tenantOrgId = platformTenantResourceOrgId(request, env);
+    const quote = getPublicQuote(db, request.params.token, tenantOrgId);
     if (!quote || !["sent", "viewed", "accepted"].includes(quote.quote.status)) {
       const err = new Error("Quote not found");
       err.statusCode = 404;
@@ -3242,7 +3258,8 @@ ${controls}
   app.post("/api/public/quotes/:token/accept", async request => {
     // Unauthenticated write keyed by an attacker-supplied token: throttle per-IP. 10/min.
     enforceRateLimit(`public-quote-accept:${String(request.ip || "")}`, 10, 60 * 1000, request.ip);
-    const quote = getPublicQuote(db, request.params.token);
+    const tenantOrgId = platformTenantResourceOrgId(request, env);
+    const quote = getPublicQuote(db, request.params.token, tenantOrgId);
     if (!quote) {
       const err = new Error("Quote not found");
       err.statusCode = 404;
@@ -45285,7 +45302,13 @@ function getQuote(db, orgId, quoteId) {
   return row ? formatQuote(row, getQuoteLines(db, orgId, row.id)) : null;
 }
 
-function getPublicQuote(db, token) {
+function getPublicQuote(db, token, orgId = "") {
+  const params = [token];
+  let where = "quotes.public_token = ?";
+  if (orgId) {
+    where += " AND quotes.org_id = ?";
+    params.push(orgId);
+  }
   const row = db.prepare(`
     SELECT quotes.*, customers.name AS customer_name, customers.tax_id,
       customers.email, customers.phone, customers.segment,
@@ -45296,8 +45319,8 @@ function getPublicQuote(db, token) {
     JOIN customers ON customers.id = quotes.customer_id
     JOIN organizations ON organizations.id = quotes.org_id
     LEFT JOIN deals ON deals.id = quotes.deal_id
-    WHERE quotes.public_token = ?
-  `).get(token);
+    WHERE ${where}
+  `).get(...params);
   if (!row) return null;
   const quote = formatQuote(row, getQuoteLines(db, row.org_id, row.id));
   return {
