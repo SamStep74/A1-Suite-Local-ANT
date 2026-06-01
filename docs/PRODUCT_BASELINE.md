@@ -1779,3 +1779,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Multi-value or malformed `x-forwarded-for` falls back to the direct trusted proxy IP but uses a non-exempt proxy rate-limit bucket, so spoofed left-most values cannot bypass login/public throttles.
 - Auth login/MFA, public form page/submit, and public quote read/accept limits use the trusted public client identity; public form submissions and quote acceptance evidence store the resolved evidence IP only when trust is explicitly configured.
 - Added parser, auth, public form, and public quote regression tests covering untrusted spoofed headers, trusted loopback proxy clients, malformed XFF, and evidence behavior.
+
+### Slice 154 - Public Loopback API Throttle Guard
+
+- Public form submissions and public quote read/accept endpoints now use the non-loopback-exempt public limiter, matching the already-hardened `/f/:id` rendered form page.
+- Loopback traffic remains exempt for local operator login/setup flows, but anonymous public API traffic that arrives through a tunnel or reverse proxy as `127.0.0.1` now receives bounded bursts followed by `429`.
+- Document signing consent evidence now uses the same explicit trusted-proxy public client identity resolver as public quote and form evidence, while untrusted forwarded headers remain ignored.
+- Long clinic workflow tests now simulate separate public quote buyers with distinct public IPs instead of relying on one shared loopback client, keeping production throttling strict without making fixtures brittle.
+- Added regression tests for loopback public form-submit spam, loopback public quote token enumeration, loopback public quote accept attempts, and trusted/untrusted document signature evidence.
