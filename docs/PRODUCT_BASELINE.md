@@ -1771,3 +1771,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Bearer-authenticated `/api/logout` now revokes the bearer token, matching cookie-session logout semantics.
 - `getUserBySession` carries `mfa_verified`, and privileged Owner/Admin sessions created before MFA activation are rejected once an active MFA factor exists unless the session was completed through MFA.
 - Added focused tests for public form-page enumeration throttling, loopback/tunnel form-page throttling, stale pre-MFA privileged session rejection, bearer logout revocation, plus public quote regression coverage to keep unrelated quote acceptances from sharing one loopback bucket.
+
+### Slice 153 - Trusted Proxy Public Client Guard
+
+- Added explicit opt-in public client IP resolution for tunnel/reverse-proxy deployments through `ARMOSPHERA_ONE_PUBLIC_TRUSTED_PROXY_IPS` plus `ARMOSPHERA_ONE_PUBLIC_CLIENT_IP_HEADER`.
+- Forwarded headers are ignored by default and only honored when the direct peer is configured as trusted; supported headers are `cf-connecting-ip`, `x-real-ip`, and sanitized single-value `x-forwarded-for`.
+- Multi-value or malformed `x-forwarded-for` falls back to the direct trusted proxy IP but uses a non-exempt proxy rate-limit bucket, so spoofed left-most values cannot bypass login/public throttles.
+- Auth login/MFA, public form page/submit, and public quote read/accept limits use the trusted public client identity; public form submissions and quote acceptance evidence store the resolved evidence IP only when trust is explicitly configured.
+- Added parser, auth, public form, and public quote regression tests covering untrusted spoofed headers, trusted loopback proxy clients, malformed XFF, and evidence behavior.
