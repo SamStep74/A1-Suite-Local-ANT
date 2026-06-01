@@ -351,6 +351,113 @@ test("platform tenant lookup failures hide public tenant-bound resources outside
   }
 });
 
+test("platform tenant null lookup hides public tenant-bound resources outside strict mode", async () => {
+  const env = { ...PLATFORM_ENV };
+  const fetchImpl = async () => ({
+    ok: true,
+    status: 200,
+    json: async () => ({ tenant: null })
+  });
+
+  const app = buildApp({ dbPath: ":memory:", env, fetch: fetchImpl });
+  await app.ready();
+  try {
+    const health = await app.inject({
+      method: "GET",
+      url: "/api/health",
+      headers: { host: "missing-client.a1suite.am" }
+    });
+    assert.equal(health.statusCode, 200, health.body);
+    assert.deepEqual(health.json().platformTenant, { enabled: true, resolved: false, strict: false });
+
+    const page = await app.inject({
+      method: "GET",
+      url: "/f/form-lead-intake",
+      headers: { host: "missing-client.a1suite.am" }
+    });
+    assert.equal(page.statusCode, 404, page.body);
+    const missingPage = await app.inject({
+      method: "GET",
+      url: "/f/form-does-not-exist",
+      headers: { host: "missing-client.a1suite.am" }
+    });
+    assert.equal(page.headers["content-type"], missingPage.headers["content-type"]);
+    assert.equal(page.body, missingPage.body);
+
+    const leadBefore = app.db.prepare("SELECT COUNT(*) AS count FROM crm_leads WHERE org_id = ?").get("org-armosphera-demo").count;
+    const submit = await app.inject({
+      method: "POST",
+      url: "/api/forms/form-lead-intake/submit",
+      headers: { host: "missing-client.a1suite.am" },
+      payload: {
+        companyName: "Null Tenant LLC",
+        contactName: "Null Tenant",
+        email: "null-tenant@example.com",
+        phone: "+374 99 222333",
+        interest: "must not create a lead"
+      }
+    });
+    assert.equal(submit.statusCode, 404, submit.body);
+    const missingSubmit = await app.inject({
+      method: "POST",
+      url: "/api/forms/form-does-not-exist/submit",
+      headers: { host: "missing-client.a1suite.am" },
+      payload: {
+        companyName: "Missing LLC",
+        contactName: "Missing Host",
+        email: "missing@example.com"
+      }
+    });
+    assert.equal(submit.headers["content-type"], missingSubmit.headers["content-type"]);
+    assert.equal(submit.body, missingSubmit.body);
+    const leadAfter = app.db.prepare("SELECT COUNT(*) AS count FROM crm_leads WHERE org_id = ?").get("org-armosphera-demo").count;
+    assert.equal(leadAfter, leadBefore);
+
+    const token = "public-quote-ani-inbox-token";
+    const quote = await app.inject({
+      method: "GET",
+      url: `/api/public/quotes/${token}`,
+      headers: { host: "missing-client.a1suite.am" }
+    });
+    assert.equal(quote.statusCode, 404, quote.body);
+    const missingQuote = await app.inject({
+      method: "GET",
+      url: "/api/public/quotes/public-quote-does-not-exist",
+      headers: { host: "missing-client.a1suite.am" }
+    });
+    assert.equal(quote.headers["content-type"], missingQuote.headers["content-type"]);
+    assert.equal(quote.body, missingQuote.body);
+
+    const accept = await app.inject({
+      method: "POST",
+      url: `/api/public/quotes/${token}/accept`,
+      headers: { host: "missing-client.a1suite.am" },
+      payload: {
+        signerName: "Null Tenant",
+        signerEmail: "null-tenant@example.com",
+        acceptedAt: "2026-05-26"
+      }
+    });
+    assert.equal(accept.statusCode, 404, accept.body);
+    const missingAccept = await app.inject({
+      method: "POST",
+      url: "/api/public/quotes/public-quote-does-not-exist/accept",
+      headers: { host: "missing-client.a1suite.am" },
+      payload: {
+        signerName: "Missing Host",
+        signerEmail: "missing@example.com",
+        acceptedAt: "2026-05-26"
+      }
+    });
+    assert.equal(accept.headers["content-type"], missingAccept.headers["content-type"]);
+    assert.equal(accept.body, missingAccept.body);
+    const quoteStatus = app.db.prepare("SELECT status FROM quotes WHERE org_id = ? AND public_token = ?").get("org-armosphera-demo", token);
+    assert.equal(quoteStatus.status, "sent");
+  } finally {
+    await app.close();
+  }
+});
+
 test("platform tenant null lookup still fails open for authenticated routes outside strict mode", async () => {
   const env = { ...PLATFORM_ENV };
   const fetchImpl = async () => ({

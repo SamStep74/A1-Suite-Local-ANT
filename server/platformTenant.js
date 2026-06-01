@@ -172,7 +172,7 @@ function platformTenantOrgId(tenant) {
 function platformTenantResourceOrgId(request, env = process.env) {
   if (!platformResolutionEnabled(env)) return "";
   if (request.a1PlatformTenantLookupFailed) return UNMAPPED_PUBLIC_RESOURCE_ORG_ID;
-  if (!request.a1Tenant) return "";
+  if (!request.a1Tenant) return UNMAPPED_PUBLIC_RESOURCE_ORG_ID;
   const tenantOrgId = platformTenantOrgId(request.a1Tenant);
   return tenantOrgId || UNMAPPED_PUBLIC_RESOURCE_ORG_ID;
 }
