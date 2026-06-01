@@ -331,6 +331,8 @@ function registerApi(app, db, options = {}) {
   app.get("/api/suite", async request => {
     const user = await app.auth(request);
     const org = getOrganization(db, user.org_id);
+    const legalEvidence = legalEvidenceOptions(user);
+    const financeEvidence = financeEvidenceOptions(user);
     return {
       organization: org,
       user: publicUser(user),
@@ -340,11 +342,11 @@ function registerApi(app, db, options = {}) {
       legalSources: getLegalSources(db, user.org_id),
       localization: localizationChecklist(),
       workflows: workflowMap(),
-      srcExports: getFinanceSrcExports(db, user.org_id),
-      signaturePackets: getSignaturePackets(db, user.org_id),
+      srcExports: getFinanceSrcExports(db, user.org_id, "", financeEvidence),
+      signaturePackets: getSignaturePackets(db, user.org_id, "", legalEvidence),
       privacyRequests: getPrivacyRequests(db, user.org_id),
-      privacyExportPackets: getPrivacyExportPackets(db, user.org_id),
-      privacyRetentionAssessments: getPrivacyRetentionAssessments(db, user.org_id)
+      privacyExportPackets: getPrivacyExportPackets(db, user.org_id, "", legalEvidence),
+      privacyRetentionAssessments: getPrivacyRetentionAssessments(db, user.org_id, "", legalEvidence)
     };
   });
 
@@ -2160,7 +2162,7 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     const customerId = request.query.customerId || "";
     if (customerId) assertCustomer(db, user.org_id, customerId);
-    return { packets: getSignaturePackets(db, user.org_id, customerId) };
+    return { packets: getSignaturePackets(db, user.org_id, customerId, legalEvidenceOptions(user)) };
   });
 
   app.post("/api/docs/signature-packets", async request => {
@@ -2821,10 +2823,11 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     const customerId = request.query.customerId || "";
     if (customerId) assertCustomer(db, user.org_id, customerId);
+    const evidence = legalEvidenceOptions(user);
     return {
       requests: getPrivacyRequests(db, user.org_id, customerId),
-      exportPackets: getPrivacyExportPackets(db, user.org_id, customerId),
-      retentionAssessments: getPrivacyRetentionAssessments(db, user.org_id, customerId)
+      exportPackets: getPrivacyExportPackets(db, user.org_id, customerId, evidence),
+      retentionAssessments: getPrivacyRetentionAssessments(db, user.org_id, customerId, evidence)
     };
   });
 
@@ -3406,7 +3409,7 @@ ${controls}
 
   app.get("/api/finance/src-exports", async request => {
     const user = await app.auth(request);
-    return { exports: getFinanceSrcExports(db, user.org_id, request.query.periodKey || "") };
+    return { exports: getFinanceSrcExports(db, user.org_id, request.query.periodKey || "", financeEvidenceOptions(user)) };
   });
 
   app.post("/api/finance/src-exports", async request => {
@@ -3643,10 +3646,11 @@ ${controls}
     const invoiceLinks = getFinanceInvoiceLinks(db, user.org_id, customer.id);
     const payments = getFinancePayments(db, user.org_id, customer.id);
     const bankTransactions = getFinanceBankTransactions(db, user.org_id, customer.id);
-    const signaturePackets = getSignaturePackets(db, user.org_id, customer.id);
+    const legalEvidence = legalEvidenceOptions(user);
+    const signaturePackets = getSignaturePackets(db, user.org_id, customer.id, legalEvidence);
     const privacyRequests = getPrivacyRequests(db, user.org_id, customer.id);
-    const privacyExportPackets = getPrivacyExportPackets(db, user.org_id, customer.id);
-    const privacyRetentionAssessments = getPrivacyRetentionAssessments(db, user.org_id, customer.id);
+    const privacyExportPackets = getPrivacyExportPackets(db, user.org_id, customer.id, legalEvidence);
+    const privacyRetentionAssessments = getPrivacyRetentionAssessments(db, user.org_id, customer.id, legalEvidence);
     const legalQuestions = getLegalQuestions(db, user.org_id, customer.id);
     const campaigns = getCampaignPerformance(db, user.org_id, customer.id);
     const receivables = getReceivablesAging(db, user.org_id, customer.id);
@@ -4986,6 +4990,14 @@ function legalSourceReviewerRoles(sourceId) {
   if (sourceId === "law-tax-code") return ["Owner", "Admin", "Accountant"];
   if (["law-personal-data", "law-esign"].includes(sourceId)) return ["Owner", "Admin", "Lawyer"];
   return ["Owner", "Admin"];
+}
+
+function legalEvidenceOptions(user) {
+  return { includePayload: ["Owner", "Admin", "Lawyer", "Auditor"].includes(user.role) };
+}
+
+function financeEvidenceOptions(user) {
+  return { includePayload: ["Owner", "Admin", "Accountant", "Auditor"].includes(user.role) };
 }
 
 function requireIntegrationReader(user) {
@@ -45134,6 +45146,7 @@ function createWebhookEndpoint(db, user, body) {
 function isValidWebhookUrl(value) {
   try {
     const parsed = new URL(value);
+    if (parsed.username || parsed.password) return false;
     return ["http:", "https:"].includes(parsed.protocol);
   } catch {
     return false;
@@ -45769,7 +45782,7 @@ function createSignaturePacket(db, user, body) {
   return { idempotent: false, packet: getSignaturePacket(db, user.org_id, packetId) };
 }
 
-function getSignaturePackets(db, orgId, customerId = "") {
+function getSignaturePackets(db, orgId, customerId = "", options = {}) {
   const params = [orgId];
   let where = "WHERE docs_signature_packets.org_id = ?";
   if (customerId) {
@@ -45785,10 +45798,10 @@ function getSignaturePackets(db, orgId, customerId = "") {
     LEFT JOIN users ON users.id = docs_signature_packets.created_by_user_id
     ${where}
     ORDER BY docs_signature_packets.created_at DESC
-  `).all(...params).map(formatSignaturePacket);
+  `).all(...params).map(row => formatSignaturePacket(row, options));
 }
 
-function getSignaturePacket(db, orgId, packetId) {
+function getSignaturePacket(db, orgId, packetId, options = {}) {
   const row = db.prepare(`
     SELECT docs_signature_packets.*, quotes.number AS quote_number, customers.name AS customer_name,
       users.name AS created_by_name
@@ -45798,10 +45811,10 @@ function getSignaturePacket(db, orgId, packetId) {
     LEFT JOIN users ON users.id = docs_signature_packets.created_by_user_id
     WHERE docs_signature_packets.org_id = ? AND docs_signature_packets.id = ?
   `).get(orgId, packetId);
-  return row ? formatSignaturePacket(row) : null;
+  return row ? formatSignaturePacket(row, options) : null;
 }
 
-function getSignaturePacketBySourceKey(db, orgId, sourceKey) {
+function getSignaturePacketBySourceKey(db, orgId, sourceKey, options = {}) {
   const row = db.prepare(`
     SELECT docs_signature_packets.*, quotes.number AS quote_number, customers.name AS customer_name,
       users.name AS created_by_name
@@ -45811,10 +45824,11 @@ function getSignaturePacketBySourceKey(db, orgId, sourceKey) {
     LEFT JOIN users ON users.id = docs_signature_packets.created_by_user_id
     WHERE docs_signature_packets.org_id = ? AND docs_signature_packets.source_key = ?
   `).get(orgId, sourceKey);
-  return row ? formatSignaturePacket(row) : null;
+  return row ? formatSignaturePacket(row, options) : null;
 }
 
-function formatSignaturePacket(row) {
+function formatSignaturePacket(row, options = {}) {
+  const includePayload = options.includePayload !== false;
   return {
     id: row.id,
     customerId: row.customer_id,
@@ -45824,10 +45838,10 @@ function formatSignaturePacket(row) {
     acceptanceId: row.acceptance_id,
     legalSourceId: row.legal_source_id,
     status: row.status,
-    checksum: row.checksum,
-    payload: safeJson(row.payload),
+    checksum: includePayload ? row.checksum : null,
+    payload: includePayload ? safeJson(row.payload) : null,
     note: row.note,
-    sourceKey: row.source_key,
+    sourceKey: includePayload ? row.source_key : null,
     createdByUserId: row.created_by_user_id,
     createdByName: row.created_by_name,
     createdAt: row.created_at
@@ -45988,7 +46002,7 @@ function formatPrivacyRequest(row) {
   };
 }
 
-function getPrivacyExportPackets(db, orgId, customerId = "") {
+function getPrivacyExportPackets(db, orgId, customerId = "", options = {}) {
   const params = [orgId];
   let where = "WHERE privacy_export_packets.org_id = ?";
   if (customerId) {
@@ -46002,10 +46016,10 @@ function getPrivacyExportPackets(db, orgId, customerId = "") {
     LEFT JOIN users ON users.id = privacy_export_packets.created_by_user_id
     ${where}
     ORDER BY privacy_export_packets.created_at DESC
-  `).all(...params).map(formatPrivacyExportPacket);
+  `).all(...params).map(row => formatPrivacyExportPacket(row, options));
 }
 
-function getPrivacyExportPacket(db, orgId, packetId) {
+function getPrivacyExportPacket(db, orgId, packetId, options = {}) {
   const row = db.prepare(`
     SELECT privacy_export_packets.*, customers.name AS customer_name, users.name AS created_by_name
     FROM privacy_export_packets
@@ -46013,10 +46027,10 @@ function getPrivacyExportPacket(db, orgId, packetId) {
     LEFT JOIN users ON users.id = privacy_export_packets.created_by_user_id
     WHERE privacy_export_packets.org_id = ? AND privacy_export_packets.id = ?
   `).get(orgId, packetId);
-  return row ? formatPrivacyExportPacket(row) : null;
+  return row ? formatPrivacyExportPacket(row, options) : null;
 }
 
-function getPrivacyExportPacketBySourceKey(db, orgId, sourceKey) {
+function getPrivacyExportPacketBySourceKey(db, orgId, sourceKey, options = {}) {
   const row = db.prepare(`
     SELECT privacy_export_packets.*, customers.name AS customer_name, users.name AS created_by_name
     FROM privacy_export_packets
@@ -46024,10 +46038,11 @@ function getPrivacyExportPacketBySourceKey(db, orgId, sourceKey) {
     LEFT JOIN users ON users.id = privacy_export_packets.created_by_user_id
     WHERE privacy_export_packets.org_id = ? AND privacy_export_packets.source_key = ?
   `).get(orgId, sourceKey);
-  return row ? formatPrivacyExportPacket(row) : null;
+  return row ? formatPrivacyExportPacket(row, options) : null;
 }
 
-function formatPrivacyExportPacket(row) {
+function formatPrivacyExportPacket(row, options = {}) {
+  const includePayload = options.includePayload !== false;
   return {
     id: row.id,
     customerId: row.customer_id,
@@ -46035,16 +46050,16 @@ function formatPrivacyExportPacket(row) {
     requestId: row.request_id,
     legalSourceId: row.legal_source_id,
     status: row.status,
-    checksum: row.checksum,
-    payload: safeJson(row.payload),
-    sourceKey: row.source_key,
+    checksum: includePayload ? row.checksum : null,
+    payload: includePayload ? safeJson(row.payload) : null,
+    sourceKey: includePayload ? row.source_key : null,
     createdByUserId: row.created_by_user_id,
     createdByName: row.created_by_name,
     createdAt: row.created_at
   };
 }
 
-function getPrivacyRetentionAssessments(db, orgId, customerId = "") {
+function getPrivacyRetentionAssessments(db, orgId, customerId = "", options = {}) {
   const params = [orgId];
   let where = "WHERE privacy_retention_assessments.org_id = ?";
   if (customerId) {
@@ -46058,10 +46073,10 @@ function getPrivacyRetentionAssessments(db, orgId, customerId = "") {
     LEFT JOIN users ON users.id = privacy_retention_assessments.created_by_user_id
     ${where}
     ORDER BY privacy_retention_assessments.created_at DESC
-  `).all(...params).map(formatPrivacyRetentionAssessment);
+  `).all(...params).map(row => formatPrivacyRetentionAssessment(row, options));
 }
 
-function getPrivacyRetentionAssessment(db, orgId, assessmentId) {
+function getPrivacyRetentionAssessment(db, orgId, assessmentId, options = {}) {
   const row = db.prepare(`
     SELECT privacy_retention_assessments.*, customers.name AS customer_name, users.name AS created_by_name
     FROM privacy_retention_assessments
@@ -46069,10 +46084,10 @@ function getPrivacyRetentionAssessment(db, orgId, assessmentId) {
     LEFT JOIN users ON users.id = privacy_retention_assessments.created_by_user_id
     WHERE privacy_retention_assessments.org_id = ? AND privacy_retention_assessments.id = ?
   `).get(orgId, assessmentId);
-  return row ? formatPrivacyRetentionAssessment(row) : null;
+  return row ? formatPrivacyRetentionAssessment(row, options) : null;
 }
 
-function getPrivacyRetentionAssessmentBySourceKey(db, orgId, sourceKey) {
+function getPrivacyRetentionAssessmentBySourceKey(db, orgId, sourceKey, options = {}) {
   const row = db.prepare(`
     SELECT privacy_retention_assessments.*, customers.name AS customer_name, users.name AS created_by_name
     FROM privacy_retention_assessments
@@ -46080,10 +46095,11 @@ function getPrivacyRetentionAssessmentBySourceKey(db, orgId, sourceKey) {
     LEFT JOIN users ON users.id = privacy_retention_assessments.created_by_user_id
     WHERE privacy_retention_assessments.org_id = ? AND privacy_retention_assessments.source_key = ?
   `).get(orgId, sourceKey);
-  return row ? formatPrivacyRetentionAssessment(row) : null;
+  return row ? formatPrivacyRetentionAssessment(row, options) : null;
 }
 
-function formatPrivacyRetentionAssessment(row) {
+function formatPrivacyRetentionAssessment(row, options = {}) {
+  const includePayload = options.includePayload !== false;
   return {
     id: row.id,
     customerId: row.customer_id,
@@ -46092,9 +46108,9 @@ function formatPrivacyRetentionAssessment(row) {
     legalSourceId: row.legal_source_id,
     status: row.status,
     recommendation: row.recommendation,
-    checksum: row.checksum,
-    payload: safeJson(row.payload),
-    sourceKey: row.source_key,
+    checksum: includePayload ? row.checksum : null,
+    payload: includePayload ? safeJson(row.payload) : null,
+    sourceKey: includePayload ? row.source_key : null,
     createdByUserId: row.created_by_user_id,
     createdByName: row.created_by_name,
     createdAt: row.created_at
@@ -48447,7 +48463,7 @@ function getPostedInvoicesForSrcExport(db, orgId, periodKey) {
   `).all(orgId, periodKey);
 }
 
-function getFinanceSrcExports(db, orgId, periodKey = "") {
+function getFinanceSrcExports(db, orgId, periodKey = "", options = {}) {
   const params = [orgId];
   let where = "WHERE finance_src_exports.org_id = ?";
   if (periodKey) {
@@ -48460,30 +48476,31 @@ function getFinanceSrcExports(db, orgId, periodKey = "") {
     LEFT JOIN users ON users.id = finance_src_exports.created_by_user_id
     ${where}
     ORDER BY finance_src_exports.created_at DESC
-  `).all(...params).map(formatFinanceSrcExport);
+  `).all(...params).map(row => formatFinanceSrcExport(row, options));
 }
 
-function getFinanceSrcExport(db, orgId, exportId) {
+function getFinanceSrcExport(db, orgId, exportId, options = {}) {
   const row = db.prepare(`
     SELECT finance_src_exports.*, users.name AS created_by_name
     FROM finance_src_exports
     LEFT JOIN users ON users.id = finance_src_exports.created_by_user_id
     WHERE finance_src_exports.org_id = ? AND finance_src_exports.id = ?
   `).get(orgId, exportId);
-  return row ? formatFinanceSrcExport(row) : null;
+  return row ? formatFinanceSrcExport(row, options) : null;
 }
 
-function getFinanceSrcExportBySourceKey(db, orgId, sourceKey) {
+function getFinanceSrcExportBySourceKey(db, orgId, sourceKey, options = {}) {
   const row = db.prepare(`
     SELECT finance_src_exports.*, users.name AS created_by_name
     FROM finance_src_exports
     LEFT JOIN users ON users.id = finance_src_exports.created_by_user_id
     WHERE finance_src_exports.org_id = ? AND finance_src_exports.source_key = ?
   `).get(orgId, sourceKey);
-  return row ? formatFinanceSrcExport(row) : null;
+  return row ? formatFinanceSrcExport(row, options) : null;
 }
 
-function formatFinanceSrcExport(row) {
+function formatFinanceSrcExport(row, options = {}) {
+  const includePayload = options.includePayload !== false;
   return {
     id: row.id,
     periodKey: row.period_key,
@@ -48493,10 +48510,10 @@ function formatFinanceSrcExport(row) {
     subtotal: row.subtotal,
     vat: row.vat,
     total: row.total,
-    checksum: row.checksum,
-    payload: safeJson(row.payload),
+    checksum: includePayload ? row.checksum : null,
+    payload: includePayload ? safeJson(row.payload) : null,
     note: row.note,
-    sourceKey: row.source_key,
+    sourceKey: includePayload ? row.source_key : null,
     createdByUserId: row.created_by_user_id,
     createdByName: row.created_by_name,
     createdAt: row.created_at

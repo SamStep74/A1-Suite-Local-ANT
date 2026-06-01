@@ -15992,6 +15992,171 @@ test("owner can create idempotent signature evidence packet for accepted quote",
   });
 });
 
+test("evidence packet list endpoints hide payloads from unsupported roles", async () => {
+  await withApp(async app => {
+    const accepted = await acceptAniQuote(app);
+    assert.equal(accepted.statusCode, 200, accepted.body);
+    const acceptedBody = accepted.json();
+    const now = "2026-05-26T12:00:00.000Z";
+    const checksum = value => crypto.createHash("sha256").update(value).digest("hex");
+    const signatureSecret = "A1_SIGNATURE_EVIDENCE_SECRET";
+    const privacyExportSecret = "A1_PRIVACY_EXPORT_SECRET";
+    const privacyRetentionSecret = "A1_PRIVACY_RETENTION_SECRET";
+    const financeSecret = "A1_FINANCE_SRC_SECRET";
+
+    app.db.prepare(`
+      INSERT INTO docs_signature_packets (
+        id, org_id, customer_id, quote_id, acceptance_id, legal_source_id, status, checksum,
+        payload, note, source_key, created_by_user_id, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "sig-redaction-packet",
+      "org-armosphera-demo",
+      "cust-ani",
+      "quote-ani-inbox",
+      acceptedBody.acceptance.id,
+      "law-esign",
+      "archived",
+      checksum(signatureSecret),
+      JSON.stringify({ sentinel: signatureSecret, signerEmail: "owner@anibeauty.am", acceptanceIp: "198.51.100.200" }),
+      "Support must not see signature evidence payload.",
+      "docs-signature:redaction-secret",
+      "user-owner",
+      now
+    );
+    app.db.prepare(`
+      INSERT INTO privacy_requests (
+        id, org_id, customer_id, requested_by_user_id, request_type, requester_email, channel,
+        status, legal_source_id, note, created_at, fulfilled_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "privacy-request-redaction",
+      "org-armosphera-demo",
+      "cust-ani",
+      "user-owner",
+      "export",
+      "owner@anibeauty.am",
+      "Email",
+      "fulfilled",
+      "law-personal-data",
+      "Prepared packet for route redaction check.",
+      now,
+      now
+    );
+    app.db.prepare(`
+      INSERT INTO privacy_export_packets (
+        id, org_id, customer_id, request_id, legal_source_id, status, checksum,
+        payload, source_key, created_by_user_id, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "privacy-export-redaction",
+      "org-armosphera-demo",
+      "cust-ani",
+      "privacy-request-redaction",
+      "law-personal-data",
+      "fulfilled",
+      checksum(privacyExportSecret),
+      JSON.stringify({ sentinel: privacyExportSecret, taxId: "01888999", email: "owner@anibeauty.am" }),
+      "privacy-export:redaction-secret",
+      "user-owner",
+      now
+    );
+    app.db.prepare(`
+      INSERT INTO privacy_retention_assessments (
+        id, org_id, customer_id, request_id, legal_source_id, status, recommendation, checksum,
+        payload, source_key, created_by_user_id, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "privacy-retention-redaction",
+      "org-armosphera-demo",
+      "cust-ani",
+      "privacy-request-redaction",
+      "law-personal-data",
+      "retention-review",
+      "restrict-delete-retain-statutory-records",
+      checksum(privacyRetentionSecret),
+      JSON.stringify({ sentinel: privacyRetentionSecret, eraseCandidates: [{ sourceApp: "campaigns", email: "owner@anibeauty.am" }] }),
+      "privacy-retention:redaction-secret",
+      "user-owner",
+      now
+    );
+    app.db.prepare(`
+      INSERT INTO finance_src_exports (
+        id, org_id, period_key, status, legal_source_id, invoice_count, subtotal, vat, total,
+        checksum, payload, note, source_key, created_by_user_id, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "src-export-redaction",
+      "org-armosphera-demo",
+      "2026-05",
+      "prepared",
+      "law-tax-code",
+      1,
+      100000,
+      20000,
+      120000,
+      checksum(financeSecret),
+      JSON.stringify({ sentinel: financeSecret, customerTaxId: "02576111", accountantMemo: "SRC handoff" }),
+      "Support must not see finance source payload.",
+      "finance-src:redaction-secret",
+      "user-owner",
+      now
+    );
+
+    const supportCookie = await login(app, "support@armosphera.local");
+    const lawyerCookie = await login(app, "lawyer@armosphera.local");
+    const accountantCookie = await login(app, "accountant@armosphera.local");
+
+    const assertEvidenceRedacted = item => {
+      assert.equal(item.payload, null);
+      assert.equal(item.checksum, null);
+      assert.equal(item.sourceKey, null);
+    };
+
+    const supportDocs = await app.inject({ method: "GET", url: "/api/docs/signature-packets?customerId=cust-ani", headers: { cookie: supportCookie } });
+    assert.equal(supportDocs.statusCode, 200, supportDocs.body);
+    assertEvidenceRedacted(supportDocs.json().packets.find(packet => packet.id === "sig-redaction-packet"));
+    assert.ok(!supportDocs.body.includes(signatureSecret));
+
+    const supportPrivacy = await app.inject({ method: "GET", url: "/api/privacy/requests?customerId=cust-ani", headers: { cookie: supportCookie } });
+    assert.equal(supportPrivacy.statusCode, 200, supportPrivacy.body);
+    assertEvidenceRedacted(supportPrivacy.json().exportPackets.find(packet => packet.id === "privacy-export-redaction"));
+    assertEvidenceRedacted(supportPrivacy.json().retentionAssessments.find(assessment => assessment.id === "privacy-retention-redaction"));
+    assert.ok(!supportPrivacy.body.includes(privacyExportSecret));
+    assert.ok(!supportPrivacy.body.includes(privacyRetentionSecret));
+
+    const supportFinance = await app.inject({ method: "GET", url: "/api/finance/src-exports?periodKey=2026-05", headers: { cookie: supportCookie } });
+    assert.equal(supportFinance.statusCode, 200, supportFinance.body);
+    assertEvidenceRedacted(supportFinance.json().exports.find(item => item.id === "src-export-redaction"));
+    assert.ok(!supportFinance.body.includes(financeSecret));
+
+    const supportSuite = await app.inject({ method: "GET", url: "/api/suite", headers: { cookie: supportCookie } });
+    assert.equal(supportSuite.statusCode, 200, supportSuite.body);
+    const suite = supportSuite.json();
+    assertEvidenceRedacted(suite.signaturePackets.find(packet => packet.id === "sig-redaction-packet"));
+    assertEvidenceRedacted(suite.privacyExportPackets.find(packet => packet.id === "privacy-export-redaction"));
+    assertEvidenceRedacted(suite.privacyRetentionAssessments.find(assessment => assessment.id === "privacy-retention-redaction"));
+    assertEvidenceRedacted(suite.srcExports.find(item => item.id === "src-export-redaction"));
+    for (const secret of [signatureSecret, privacyExportSecret, privacyRetentionSecret, financeSecret]) {
+      assert.ok(!supportSuite.body.includes(secret), `${secret} leaked in /api/suite`);
+    }
+
+    const lawyerDocs = await app.inject({ method: "GET", url: "/api/docs/signature-packets?customerId=cust-ani", headers: { cookie: lawyerCookie } });
+    assert.equal(lawyerDocs.json().packets.find(packet => packet.id === "sig-redaction-packet").payload.sentinel, signatureSecret);
+    const lawyerPrivacy = await app.inject({ method: "GET", url: "/api/privacy/requests?customerId=cust-ani", headers: { cookie: lawyerCookie } });
+    assert.equal(lawyerPrivacy.json().exportPackets.find(packet => packet.id === "privacy-export-redaction").payload.sentinel, privacyExportSecret);
+    assert.equal(lawyerPrivacy.json().retentionAssessments.find(assessment => assessment.id === "privacy-retention-redaction").payload.sentinel, privacyRetentionSecret);
+
+    const accountantFinance = await app.inject({ method: "GET", url: "/api/finance/src-exports?periodKey=2026-05", headers: { cookie: accountantCookie } });
+    assert.equal(accountantFinance.json().exports.find(item => item.id === "src-export-redaction").payload.sentinel, financeSecret);
+  });
+});
+
 test("quote acceptance delivers signed quote and deal webhooks", async () => {
   await withWebhookReceiver(async receiver => {
     await withApp(async app => {
@@ -16043,6 +16208,33 @@ test("quote acceptance delivers signed quote and deal webhooks", async () => {
       const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
       assert.ok(audit.json().events.some(event => event.type === "webhook.delivery.succeeded"));
     });
+  });
+});
+
+test("webhook endpoint rejects credentialed URLs before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const credentialedUrl = "https://webhook-user:secret-pass@example.com/backup-webhook";
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/integrations/webhooks",
+      headers: { cookie },
+      payload: {
+        name: "Credentialed connector",
+        url: credentialedUrl,
+        secret: "whsec-credential-test",
+        events: ["deal_won"]
+      }
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.ok(!response.body.includes(credentialedUrl));
+    assert.ok(!response.body.includes("secret-pass"));
+
+    const listed = await app.inject({ method: "GET", url: "/api/integrations/webhooks", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    assert.equal(listed.json().endpoints.some(endpoint => endpoint.url === credentialedUrl), false);
+    const persisted = app.db.prepare("SELECT COUNT(*) AS count FROM webhook_endpoints WHERE url = ?").get(credentialedUrl);
+    assert.equal(persisted.count, 0);
   });
 });
 
