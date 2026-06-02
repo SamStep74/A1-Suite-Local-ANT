@@ -1038,6 +1038,96 @@ test("integration connector rejects invalid status and environment before mutati
   });
 });
 
+test("integration connector rejects malformed status and environment values before mutation", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const configured = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "sandbox",
+        endpointUrl: "https://graph.facebook.com/v20.0",
+        secret: "whsec-connector-enum-type-valid",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Baseline connector enum type."
+      }
+    });
+    assert.equal(configured.statusCode, 200, configured.body);
+
+    const auditCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.configured").count;
+    const rowBefore = app.db.prepare(`
+      SELECT status, environment, endpoint_url, secret_hash, secret_fingerprint, scopes, owner_role, note
+      FROM integration_connectors
+      WHERE connector_key = ?
+    `).get("whatsapp-business");
+    assert.equal(rowBefore.status, "connected");
+    assert.equal(rowBefore.environment, "sandbox");
+
+    const arrayStatus = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: ["connected"],
+        environment: "production",
+        endpointUrl: "https://graph.facebook.com/v21.0",
+        secret: "whsec-connector-status-array",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Array status must not coerce into a valid enum value."
+      }
+    });
+    assert.equal(arrayStatus.statusCode, 400, arrayStatus.body);
+    assert.match(arrayStatus.body, /status must be a string/);
+
+    const arrayEnvironment = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: ["production"],
+        endpointUrl: "https://graph.facebook.com/v22.0",
+        secret: "whsec-connector-environment-array",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Array environment must not coerce into a valid enum value."
+      }
+    });
+    assert.equal(arrayEnvironment.statusCode, 400, arrayEnvironment.body);
+    assert.match(arrayEnvironment.body, /environment must be a string/);
+
+    const rowAfter = app.db.prepare(`
+      SELECT status, environment, endpoint_url, secret_hash, secret_fingerprint, scopes, owner_role, note
+      FROM integration_connectors
+      WHERE connector_key = ?
+    `).get("whatsapp-business");
+    assert.deepEqual(rowAfter, rowBefore);
+    assert.equal(rowAfter.secret_fingerprint === sha256("whsec-connector-status-array").slice(0, 12), false);
+    assert.equal(rowAfter.secret_fingerprint === sha256("whsec-connector-environment-array").slice(0, 12), false);
+
+    const listed = await app.inject({ method: "GET", url: "/api/integrations/connectors", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    const connector = listed.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(connector.status, "connected");
+    assert.equal(connector.environment, "sandbox");
+    assert.equal(connector.endpointUrl, "https://graph.facebook.com/v20.0");
+    assert.equal(connector.secretFingerprint, sha256("whsec-connector-enum-type-valid").slice(0, 12));
+    assert.equal(JSON.stringify(listed.json()).includes("v21.0"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("v22.0"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("whsec-connector-status-array"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("whsec-connector-environment-array"), false);
+
+    const auditCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.configured").count;
+    assert.equal(auditCountAfter, auditCountBefore);
+  });
+});
+
 test("integration connector rejects malformed scopes before mutation", async () => {
   await withApp(async app => {
     const cookie = await login(app);

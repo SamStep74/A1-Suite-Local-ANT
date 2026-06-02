@@ -1929,3 +1929,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Rejected endpoint URL writes return `400` before mutation, leaving endpoint URL, environment, owner role, note, scopes, secret hash/fingerprint, and audit event count unchanged.
 - Added regression coverage proving array and object endpoint URLs do not coerce into connector targets, rotate secrets, appear in connector inventory, or emit extra configuration audit records.
 - Verification for the checkpoint: focused integration connector tests = 8 pass; `test/api.test.js` = 181 pass; `npm test` = 369 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 173 - Integration Connector Enum Type Guard
+
+- Integration connector configuration now rejects non-string submitted `status` and `environment` values before enum validation.
+- Omitted enum fields continue to preserve and sanitize existing values; submitted enum fields must be strings before they can be accepted as readiness/environment evidence.
+- Rejected enum-type writes return `400` before mutation, leaving endpoint URL, environment, status, owner role, note, scopes, secret hash/fingerprint, and audit event count unchanged.
+- Added regression coverage proving array `status` and array `environment` values do not coerce into valid enum values, rotate secrets, change connector targets, appear in inventory, or emit extra configuration audit records.
+- Verification for the checkpoint: focused integration connector tests = 9 pass; `test/api.test.js` = 182 pass; `npm test` = 370 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

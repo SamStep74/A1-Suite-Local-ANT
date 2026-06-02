@@ -6779,7 +6779,12 @@ function configureIntegrationConnector(db, user, connectorKey, body) {
 
 function normalizeIntegrationConnectorChoice(body, field, allowed, fallback) {
   if (Object.prototype.hasOwnProperty.call(body, field)) {
-    const text = String(body[field] || "").trim();
+    if (typeof body[field] !== "string") {
+      const err = new Error(`Integration connector ${field} must be a string`);
+      err.statusCode = 400;
+      throw err;
+    }
+    const text = body[field].trim();
     if (allowed.includes(text)) return text;
     const err = new Error(`Integration connector ${field} must be one of: ${allowed.join(", ")}`);
     err.statusCode = 400;
