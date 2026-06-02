@@ -253,6 +253,44 @@ test("owner can update app assignment and audit the change", async () => {
   });
 });
 
+test("app assignment rejects unknown roles before mutating access-review evidence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/apps/finance/assign",
+      headers: { cookie },
+      payload: { role: "Ghost Role", enabled: true }
+    });
+    assert.equal(rejected.statusCode, 400, rejected.body);
+    assert.match(rejected.body, /Unknown role/);
+
+    const stored = app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM app_assignments
+      WHERE org_id = ? AND role = ?
+    `).get("org-armosphera-demo", "Ghost Role");
+    assert.equal(stored.count, 0);
+
+    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
+    assert.equal(audit.statusCode, 200, audit.body);
+    assert.equal(audit.json().events.some(event => event.type === "app.assignment.updated" && event.metadata.role === "Ghost Role"), false);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/admin/access-reviews",
+      headers: { cookie },
+      payload: {
+        reviewPeriod: "2026-Q2",
+        note: "Access review after rejected role assignment"
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    assert.equal(created.json().review.payload.roles.some(role => role.role === "Ghost Role"), false);
+    assert.equal(created.json().review.payload.orphanedAssignmentRoles.includes("Ghost Role"), false);
+  });
+});
+
 test("owner can create an access review packet for auditor evidence", async () => {
   await withApp(async app => {
     const cookie = await login(app);

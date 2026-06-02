@@ -2843,7 +2843,8 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     requireOwner(user);
     const appId = request.params.id;
-    const { role = "Operator", enabled = true } = request.body || {};
+    const { role: requestedRole = "Operator", enabled = true } = request.body || {};
+    const role = validateAssignableAppRole(db, user.org_id, requestedRole);
     const exists = db.prepare("SELECT id FROM apps WHERE id = ?").get(appId);
     if (!exists) {
       const err = new Error("Unknown app");
@@ -4694,6 +4695,27 @@ function requireOwner(user) {
     err.statusCode = 403;
     throw err;
   }
+}
+
+function validateAssignableAppRole(db, orgId, value) {
+  const role = String(value || "").trim();
+  if (!role || role.length > 80 || /[\x00-\x1f\x7f]/.test(role)) {
+    const err = new Error("Invalid role");
+    err.statusCode = 400;
+    throw err;
+  }
+  const exists = db.prepare(`
+    SELECT role FROM users WHERE org_id = ? AND role = ?
+    UNION
+    SELECT role FROM app_assignments WHERE org_id = ? AND role = ?
+    LIMIT 1
+  `).get(orgId, role, orgId, role);
+  if (!exists) {
+    const err = new Error("Unknown role");
+    err.statusCode = 400;
+    throw err;
+  }
+  return role;
 }
 
 function requirePeopleWriter(user) {
