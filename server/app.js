@@ -18,6 +18,7 @@ const {
 const DEFAULT_REPORT_DATE = "2026-05-26";
 const SEMANTIC_LAYER_VERSION = "2026-05-27";
 const ARMENIA_TIME_ZONE = "Asia/Yerevan";
+const SYSTEM_APP_ASSIGNMENT_ROLES = new Set(["Admin"]);
 const ANALYTICS_REPORT_METRICS = {
   owner: [
     "pipeline-value",
@@ -4704,18 +4705,21 @@ function validateAssignableAppRole(db, orgId, value) {
     err.statusCode = 400;
     throw err;
   }
-  const exists = db.prepare(`
-    SELECT role FROM users WHERE org_id = ? AND role = ?
-    UNION
-    SELECT role FROM app_assignments WHERE org_id = ? AND role = ?
-    LIMIT 1
-  `).get(orgId, role, orgId, role);
-  if (!exists) {
+  if (!getAssignableAppRoleSet(db, orgId).has(role)) {
     const err = new Error("Unknown role");
     err.statusCode = 400;
     throw err;
   }
   return role;
+}
+
+function getAssignableAppRoleSet(db, orgId) {
+  const roles = new Set(SYSTEM_APP_ASSIGNMENT_ROLES);
+  for (const row of db.prepare("SELECT DISTINCT role FROM users WHERE org_id = ?").all(orgId)) {
+    const role = String(row.role || "").trim();
+    if (role) roles.add(role);
+  }
+  return roles;
 }
 
 function requirePeopleWriter(user) {
@@ -40579,8 +40583,9 @@ function buildAccessReviewPayload(db, orgId, reviewPeriod, createdAt) {
     WHERE org_id = ?
     ORDER BY role, email
   `).all(orgId);
-  const roles = getAccessReviewRoles(db, orgId, users);
-  const appMatrix = getAccessReviewAppMatrix(db, orgId);
+  const assignableRoles = getAssignableAppRoleSet(db, orgId);
+  const roles = getAccessReviewRoles(db, orgId, users, assignableRoles);
+  const appMatrix = getAccessReviewAppMatrix(db, orgId, assignableRoles);
   const orphanedAssignmentRoles = roles
     .filter(role => role.users.length === 0 && role.apps.length > 0)
     .map(role => role.role);
@@ -40625,14 +40630,8 @@ function buildAccessReviewPayload(db, orgId, reviewPeriod, createdAt) {
   };
 }
 
-function getAccessReviewRoles(db, orgId, users) {
-  const roleRows = db.prepare(`
-    SELECT role FROM users WHERE org_id = ?
-    UNION
-    SELECT role FROM app_assignments WHERE org_id = ?
-    ORDER BY role
-  `).all(orgId, orgId);
-  return roleRows.map(({ role }) => {
+function getAccessReviewRoles(db, orgId, users, assignableRoles = getAssignableAppRoleSet(db, orgId)) {
+  return [...assignableRoles].sort().map(role => {
     const apps = db.prepare(`
       SELECT apps.id, apps.name, apps.category
       FROM app_assignments
@@ -40649,7 +40648,7 @@ function getAccessReviewRoles(db, orgId, users) {
   });
 }
 
-function getAccessReviewAppMatrix(db, orgId) {
+function getAccessReviewAppMatrix(db, orgId, assignableRoles = getAssignableAppRoleSet(db, orgId)) {
   const apps = db.prepare("SELECT id, name, category FROM apps ORDER BY priority").all();
   return apps.map(app => ({
     appId: app.id,
@@ -40660,7 +40659,7 @@ function getAccessReviewAppMatrix(db, orgId) {
       FROM app_assignments
       WHERE org_id = ? AND app_id = ? AND enabled = 1
       ORDER BY role
-    `).all(orgId, app.id).map(row => row.role)
+    `).all(orgId, app.id).map(row => row.role).filter(role => assignableRoles.has(role))
   }));
 }
 
@@ -44070,6 +44069,7 @@ function getAssignedApps(db, orgId, role) {
 }
 
 function getAllApps(db, orgId) {
+  const assignableRoles = getAssignableAppRoleSet(db, orgId);
   const rows = db.prepare(`
     SELECT apps.*,
       json_group_array(json_object('role', app_assignments.role, 'enabled', app_assignments.enabled)) AS assignments
@@ -44078,7 +44078,10 @@ function getAllApps(db, orgId) {
     GROUP BY apps.id
     ORDER BY apps.priority
   `).all(orgId);
-  return rows.map(row => ({ ...row, assignments: safeJson(row.assignments) }));
+  return rows.map(row => ({
+    ...row,
+    assignments: safeJson(row.assignments).filter(assignment => assignableRoles.has(assignment.role))
+  }));
 }
 
 function getKpis(db, orgId) {

@@ -256,6 +256,11 @@ test("owner can update app assignment and audit the change", async () => {
 test("app assignment rejects unknown roles before mutating access-review evidence", async () => {
   await withApp(async app => {
     const cookie = await login(app);
+    app.db.prepare(`
+      INSERT INTO app_assignments (org_id, role, app_id, enabled)
+      VALUES (?, ?, ?, ?)
+    `).run("org-armosphera-demo", "Ghost Role", "finance", 0);
+
     const rejected = await app.inject({
       method: "POST",
       url: "/api/apps/finance/assign",
@@ -266,15 +271,15 @@ test("app assignment rejects unknown roles before mutating access-review evidenc
     assert.match(rejected.body, /Unknown role/);
 
     const stored = app.db.prepare(`
-      SELECT COUNT(*) AS count
+      SELECT enabled
       FROM app_assignments
       WHERE org_id = ? AND role = ?
     `).get("org-armosphera-demo", "Ghost Role");
-    assert.equal(stored.count, 0);
+    assert.equal(stored.enabled, 0);
 
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
     assert.equal(audit.statusCode, 200, audit.body);
-    assert.equal(audit.json().events.some(event => event.type === "app.assignment.updated" && event.metadata.role === "Ghost Role"), false);
+    assert.equal(audit.json().events.some(event => event.type === "app.assignment.updated" && event.details?.role === "Ghost Role"), false);
 
     const created = await app.inject({
       method: "POST",
@@ -287,6 +292,7 @@ test("app assignment rejects unknown roles before mutating access-review evidenc
     });
     assert.equal(created.statusCode, 200, created.body);
     assert.equal(created.json().review.payload.roles.some(role => role.role === "Ghost Role"), false);
+    assert.equal(created.json().review.payload.appMatrix.some(app => app.roles.includes("Ghost Role")), false);
     assert.equal(created.json().review.payload.orphanedAssignmentRoles.includes("Ghost Role"), false);
   });
 });
