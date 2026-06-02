@@ -16933,6 +16933,26 @@ test("suite event feed redacts sensitive payloads for non-audit roles", async ()
     assert.equal(supportSuiteQuoteEvent.payload.signerName, undefined);
     assert.equal(supportSuiteQuoteEvent.payload.total, undefined);
 
+    const supportCase = await app.inject({
+      method: "POST",
+      url: "/api/service/cases",
+      headers: { cookie: supportCookie },
+      payload: {
+        customerId: "cust-ani",
+        subject: "Client asks for quote acceptance follow-up",
+        priority: "medium",
+        channel: "Telegram"
+      }
+    });
+    assert.equal(supportCase.statusCode, 200, supportCase.body);
+    const supportCaseQuoteEvent = supportCase.json().events.find(event => event.eventType === "crm.quote.accepted");
+    assert.ok(supportCaseQuoteEvent);
+    assert.equal(supportCaseQuoteEvent.payload.quoteNumber, acceptedBody.quote.number);
+    assert.equal(supportCaseQuoteEvent.payload.signerEmail, undefined);
+    assert.equal(supportCaseQuoteEvent.payload.signerName, undefined);
+    assert.equal(supportCaseQuoteEvent.payload.total, undefined);
+    assert.ok(!supportCase.body.includes("owner@anibeauty.am"));
+
     const ownerEvents = await app.inject({ method: "GET", url: "/api/events?customerId=cust-ani", headers: { cookie: ownerCookie } });
     assert.equal(ownerEvents.statusCode, 200, ownerEvents.body);
     const ownerQuoteEvent = ownerEvents.json().events.find(event => event.eventType === "crm.quote.accepted");

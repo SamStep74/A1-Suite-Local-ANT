@@ -110,6 +110,7 @@ test("forms: submission detail blocks non-campaign roles while preserving audito
     const owner = await login(app);
     const support = await login(app, "support@armosphera.local", DEFAULT_PASSWORD);
     const salesperson = await login(app, "sales@armosphera.local", DEFAULT_PASSWORD);
+    const serviceManager = await login(app, "service.manager@armosphera.local", DEFAULT_PASSWORD);
     const auditor = await login(app, "auditor@armosphera.local", DEFAULT_PASSWORD);
 
     const created = await app.inject({
@@ -149,6 +150,20 @@ test("forms: submission detail blocks non-campaign roles while preserving audito
     assert.strictEqual(salesDetail.statusCode, 200, salesDetail.body);
     assert.strictEqual(salesDetail.json().form.submissions[0].data.email, "prospect@example.com");
     assert.strictEqual(salesDetail.json().form.submissions[0].data.message, "private request");
+
+    const managerList = await app.inject({ method: "GET", url: "/api/forms", headers: { cookie: serviceManager } });
+    assert.strictEqual(managerList.statusCode, 200, managerList.body);
+    assert.ok(managerList.json().forms.some(form => form.id === formId));
+    const managerDetail = await app.inject({ method: "GET", url: `/api/forms/${formId}`, headers: { cookie: serviceManager } });
+    assert.strictEqual(managerDetail.statusCode, 200, managerDetail.body);
+    assert.strictEqual(managerDetail.json().form.submissions[0].data.email, "prospect@example.com");
+    const managerCreated = await app.inject({
+      method: "POST",
+      url: "/api/forms",
+      headers: { cookie: serviceManager },
+      payload: { title: "Manager authored intake", fields: [{ key: "email", label: "Email", type: "email", required: true }] }
+    });
+    assert.strictEqual(managerCreated.statusCode, 200, managerCreated.body);
 
     const auditorDetail = await app.inject({ method: "GET", url: `/api/forms/${formId}`, headers: { cookie: auditor } });
     assert.strictEqual(auditorDetail.statusCode, 200, auditorDetail.body);

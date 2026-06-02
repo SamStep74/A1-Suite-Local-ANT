@@ -4891,7 +4891,7 @@ function requireFormsWriter(user) {
 }
 
 function requireFormsReader(db, user) {
-  if (["Owner", "Admin", "Auditor"].includes(user.role) || hasAppAccess(db, user, "campaigns")) return;
+  if (["Owner", "Admin", "Operator", "Salesperson", "Service Manager", "Auditor"].includes(user.role) || hasAppAccess(db, user, "campaigns")) return;
   const err = new Error("Forms reader role required");
   err.statusCode = 403;
   throw err;
@@ -50283,7 +50283,7 @@ function getProfileSources(db, orgId, profileId) {
   `).all(orgId, profileId).map(source => ({ ...source, authoritative: Boolean(source.authoritative) }));
 }
 
-function getRecentSuiteEvents(db, orgId, limit = 25, customerId = "", options = {}) {
+function getRecentSuiteEvents(db, orgId, limit = 25, customerId = "", options = { includePayload: false }) {
   const params = [orgId];
   let where = "WHERE suite_events.org_id = ?";
   if (customerId) {
