@@ -2844,8 +2844,9 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     requireOwner(user);
     const appId = request.params.id;
-    const { role: requestedRole = "Operator", enabled = true } = request.body || {};
+    const { role: requestedRole = "Operator", enabled: requestedEnabled } = request.body || {};
     const role = validateAssignableAppRole(db, user.org_id, requestedRole);
+    const enabled = normalizeAppAssignmentEnabled(requestedEnabled);
     const exists = db.prepare("SELECT id FROM apps WHERE id = ?").get(appId);
     if (!exists) {
       const err = new Error("Unknown app");
@@ -4711,6 +4712,14 @@ function validateAssignableAppRole(db, orgId, value) {
     throw err;
   }
   return role;
+}
+
+function normalizeAppAssignmentEnabled(value) {
+  if (value === undefined) return true;
+  if (typeof value === "boolean") return value;
+  const err = new Error("enabled must be true or false");
+  err.statusCode = 400;
+  throw err;
 }
 
 function getAssignableAppRoleSet(db, orgId) {

@@ -248,8 +248,49 @@ test("owner can update app assignment and audit the change", async () => {
     const supportSuite = await app.inject({ method: "GET", url: "/api/suite", headers: { cookie: supportCookie } });
     assert.ok(supportSuite.json().apps.some(app => app.id === "flow"));
 
+    const disable = await app.inject({
+      method: "POST",
+      url: "/api/apps/flow/assign",
+      headers: { cookie },
+      payload: { role: "Support", enabled: false }
+    });
+    assert.equal(disable.statusCode, 200, disable.body);
+
+    const supportSuiteAfterDisable = await app.inject({ method: "GET", url: "/api/suite", headers: { cookie: supportCookie } });
+    assert.equal(supportSuiteAfterDisable.json().apps.some(app => app.id === "flow"), false);
+
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
     assert.ok(audit.json().events.some(event => event.type === "app.assignment.updated"));
+    assert.ok(audit.json().events.some(event => event.type === "app.assignment.updated" && event.details?.role === "Support" && event.details?.appId === "flow" && event.details?.enabled === false));
+  });
+});
+
+test("app assignment rejects non-boolean enabled values before mutation", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/apps/flow/assign",
+      headers: { cookie },
+      payload: { role: "Support", enabled: "false" }
+    });
+    assert.equal(rejected.statusCode, 400, rejected.body);
+    assert.match(rejected.body, /enabled must be true or false/);
+
+    const stored = app.db.prepare(`
+      SELECT enabled
+      FROM app_assignments
+      WHERE org_id = ? AND role = ? AND app_id = ?
+    `).get("org-armosphera-demo", "Support", "flow");
+    assert.equal(stored, undefined);
+
+    const supportCookie = await login(app, "support@armosphera.local");
+    const supportSuite = await app.inject({ method: "GET", url: "/api/suite", headers: { cookie: supportCookie } });
+    assert.equal(supportSuite.json().apps.some(app => app.id === "flow"), false);
+
+    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
+    assert.equal(audit.statusCode, 200, audit.body);
+    assert.equal(audit.json().events.some(event => event.type === "app.assignment.updated" && event.details?.role === "Support" && event.details?.appId === "flow"), false);
   });
 });
 

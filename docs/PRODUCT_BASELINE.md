@@ -1864,3 +1864,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Access-review packets still expose enabled stale assignment rows through `invalidAssignmentRoles` and the `invalid-app-assignment-roles-detected` finding, preserving auditor visibility without granting runtime access.
 - Added regression coverage with an enabled legacy `Ghost Role` assignment proving the write is rejected, no assignment audit event is created, valid role/app-matrix/orphaned-role evidence stays clean, and stale evidence is explicitly reported.
 - Verification for the checkpoint: focused assignment/access-review tests = 3 pass; `test/api.test.js` = 171 pass; `npm test` = 359 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`; final read-only security review reported no findings.
+
+### Slice 165 - App Assignment Enabled-Value Guard
+
+- Owner app-assignment writes now accept only omitted or boolean `enabled` values; omitted still means enabled, but strings such as `"false"` are rejected instead of becoming truthy access grants.
+- Rejected enabled-value writes return `400`, leave `app_assignments` unchanged, and create no `app.assignment.updated` audit event.
+- The assignment update regression now proves Support can be explicitly disabled from an assigned app and loses the app from `/api/suite` after the boolean `false` update.
+- Added regression coverage proving a string `"false"` toggle is rejected before mutation, Support does not gain Flow access, and no assignment audit entry is emitted for the rejected write.
+- Verification for the checkpoint: focused app-assignment tests = 3 pass; `test/api.test.js` = 172 pass; `npm test` = 360 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
