@@ -1856,3 +1856,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - The same regression compares assigned app ids against `SUITE_APP_IDS` and the `suite-app-<id>` workspace anchor contract in `web/src/main.jsx`, preventing future app-assignment drift from creating a left-sidebar product with no landing target.
 - Rendered Playwright proof on a fresh local preview confirmed every exposed sidebar product opens and scrolls into view for Owner, Operator, Support, Accountant, Lawyer, Salesperson, Service Manager, and Auditor.
 - Verification for the checkpoint: focused dashboard launcher test = 1 pass; `npm test` = 358 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 164 - App Assignment Role Guard
+
+- Owner app-assignment writes now accept only roles represented by current org users plus the explicit system `Admin` role, so arbitrary submitted roles cannot create new entitlement authorities.
+- Existing invalid `app_assignments` rows no longer authorize themselves through the assignment endpoint and no longer appear in live app-assignment inventory as valid role assignments.
+- Access-review packets still expose enabled stale assignment rows through `invalidAssignmentRoles` and the `invalid-app-assignment-roles-detected` finding, preserving auditor visibility without granting runtime access.
+- Added regression coverage with an enabled legacy `Ghost Role` assignment proving the write is rejected, no assignment audit event is created, valid role/app-matrix/orphaned-role evidence stays clean, and stale evidence is explicitly reported.
+- Verification for the checkpoint: focused assignment/access-review tests = 3 pass; `test/api.test.js` = 171 pass; `npm test` = 359 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`; final read-only security review reported no findings.
