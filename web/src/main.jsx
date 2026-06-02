@@ -86,11 +86,23 @@ async function api(path, options = {}) {
 }
 
 const SUITE_APP_IDS = ["crm", "finance", "copilot", "desk", "campaigns", "projects", "people", "docs", "analytics", "flow", "forms"];
+const SUITE_APP_ROUTE_ALIASES = {
+  forms: "campaigns"
+};
+
+function normalizeSuiteAppId(appId, assignedApps = null) {
+  const canonical = SUITE_APP_ROUTE_ALIASES[appId] || appId;
+  if (SUITE_APP_IDS.includes(canonical)) return canonical;
+  if (assignedApps) {
+    return assignedApps.length && assignedApps[0] ? assignedApps[0] : "crm";
+  }
+  return "crm";
+}
 
 function appIdFromLocation(pathname = window.location.pathname) {
   const match = String(pathname || "").match(/^\/app\/([^/?#]+)/);
   const appId = match ? decodeURIComponent(match[1]) : "";
-  return SUITE_APP_IDS.includes(appId) ? appId : "crm";
+  return normalizeSuiteAppId(appId);
 }
 
 function appRoute(appId) {
@@ -236,7 +248,13 @@ function App() {
       const data = await api("/api/suite");
       setSession(data.user);
       setSuite(data);
-      setSelectedApp(current => (data.apps || []).some(app => app.id === current) ? current : (data.apps?.[0]?.id || "crm"));
+      const assignedAppIds = (data.apps || []).map(app => app.id);
+      const requestedAppId = normalizeSuiteAppId(appIdFromLocation(), assignedAppIds);
+      const nextSelectedApp = assignedAppIds.includes(requestedAppId) ? requestedAppId : (assignedAppIds[0] || "crm");
+      setSelectedApp(nextSelectedApp);
+      if (window.location.pathname !== appRoute(nextSelectedApp)) {
+        window.history.replaceState({ selectedApp: nextSelectedApp }, "", appRoute(nextSelectedApp));
+      }
       const firstCustomer = await loadOr(null, () => api("/api/customer-360/cust-nare"));
       setCustomer360(firstCustomer);
       const roleDashboardData = await loadOr(null, () => api("/api/analytics/role-dashboard"));
