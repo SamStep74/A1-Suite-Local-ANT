@@ -956,6 +956,88 @@ test("integration connector rejects unknown owner roles before mutation", async 
   });
 });
 
+test("integration connector rejects invalid status and environment before mutation", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const configured = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "sandbox",
+        endpointUrl: "https://graph.facebook.com/v20.0",
+        secret: "whsec-connector-enum-valid",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Valid connector enum baseline."
+      }
+    });
+    assert.equal(configured.statusCode, 200, configured.body);
+
+    const auditCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.configured").count;
+    const invalidStatus = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "ready",
+        environment: "production",
+        endpointUrl: "https://graph.facebook.com/v21.0",
+        secret: "whsec-connector-status-invalid",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Invalid connector status must not mutate configuration."
+      }
+    });
+    assert.equal(invalidStatus.statusCode, 400, invalidStatus.body);
+    assert.match(invalidStatus.body, /status must be one of/);
+
+    const invalidEnvironment = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "prod",
+        endpointUrl: "https://graph.facebook.com/v22.0",
+        secret: "whsec-connector-environment-invalid",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Invalid connector environment must not mutate configuration."
+      }
+    });
+    assert.equal(invalidEnvironment.statusCode, 400, invalidEnvironment.body);
+    assert.match(invalidEnvironment.body, /environment must be one of/);
+
+    const row = app.db.prepare(`
+      SELECT status, environment, endpoint_url, secret_fingerprint
+      FROM integration_connectors
+      WHERE connector_key = ?
+    `).get("whatsapp-business");
+    assert.equal(row.status, "connected");
+    assert.equal(row.environment, "sandbox");
+    assert.equal(row.endpoint_url, "https://graph.facebook.com/v20.0");
+    assert.equal(row.secret_fingerprint, sha256("whsec-connector-enum-valid").slice(0, 12));
+    assert.equal(row.secret_fingerprint === sha256("whsec-connector-status-invalid").slice(0, 12), false);
+    assert.equal(row.secret_fingerprint === sha256("whsec-connector-environment-invalid").slice(0, 12), false);
+
+    const listed = await app.inject({ method: "GET", url: "/api/integrations/connectors", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    const connector = listed.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(connector.status, "connected");
+    assert.equal(connector.environment, "sandbox");
+    assert.equal(connector.endpointUrl, "https://graph.facebook.com/v20.0");
+    assert.equal(JSON.stringify(listed.json()).includes("whsec-connector-status-invalid"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("whsec-connector-environment-invalid"), false);
+
+    const auditCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.configured").count;
+    assert.equal(auditCountAfter, auditCountBefore);
+  });
+});
+
 test("integration connector rejects credentialed endpoint URLs before persistence", async () => {
   await withApp(async app => {
     const cookie = await login(app);

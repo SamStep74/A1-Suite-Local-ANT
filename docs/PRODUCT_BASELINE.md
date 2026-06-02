@@ -1889,3 +1889,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - This keeps Integration Hub readiness and clinic-pilot remediation evidence assigned only to reachable tenant roles or the explicit system Admin role.
 - Added regression coverage proving a `Ghost Role` connector write is rejected, does not rotate the connector secret fingerprint, does not change environment or endpoint URL, does not appear in connector inventory, and emits no extra `integration.connector.configured` audit event.
 - Verification for the checkpoint: focused integration connector tests = 3 pass; `test/api.test.js` = 176 pass; `npm test` = 364 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 168 - Integration Connector Enum Guard
+
+- Integration connector configuration now rejects invalid submitted `status` and `environment` enum values instead of silently falling back while still mutating the connector row.
+- Rejected enum writes return `400` before mutation, leaving the existing endpoint URL, environment, status, secret fingerprint, and audit event count unchanged.
+- Existing stored legacy enum drift is sanitized through the default planned/sandbox values when those fields are omitted.
+- Added regression coverage proving invalid `status: "ready"` and `environment: "prod"` writes do not rotate connector secret fingerprints, endpoint URLs, status, environment, list output, or audit evidence.
+- Verification for the checkpoint: focused integration connector tests = 4 pass; `test/api.test.js` = 177 pass; `npm test` = 365 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

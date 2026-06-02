@@ -6658,6 +6658,8 @@ const INTEGRATION_CONNECTOR_DEFINITIONS = [
 ];
 
 const INTEGRATION_CONNECTOR_ENDPOINT_URL_LIMIT = 260;
+const INTEGRATION_CONNECTOR_STATUSES = ["planned", "connected", "paused", "error"];
+const INTEGRATION_CONNECTOR_ENVIRONMENTS = ["sandbox", "production", "test"];
 
 function isSafeIntegrationConnectorEndpointUrl(value) {
   const endpointUrl = String(value || "").trim();
@@ -6701,8 +6703,8 @@ function configureIntegrationConnector(db, user, connectorKey, body) {
     ? crypto.createHash("sha256").update(secret).digest("hex")
     : existing?.secret_hash || "";
   const secretFingerprint = secretHash ? secretHash.slice(0, 12) : "";
-  const status = normalizeChoice(body.status, ["planned", "connected", "paused", "error"], existing?.status || "planned");
-  const environment = normalizeChoice(body.environment, ["sandbox", "production", "test"], existing?.environment || "sandbox");
+  const status = normalizeIntegrationConnectorChoice(body, "status", INTEGRATION_CONNECTOR_STATUSES, existing?.status || "planned");
+  const environment = normalizeIntegrationConnectorChoice(body, "environment", INTEGRATION_CONNECTOR_ENVIRONMENTS, existing?.environment || "sandbox");
   const rawEndpointUrl = String(body.endpointUrl || existing?.endpoint_url || "").trim();
   if (rawEndpointUrl && !isSafeIntegrationConnectorEndpointUrl(rawEndpointUrl)) {
     const err = new Error("Integration connector endpoint URL must be HTTP(S), under 260 characters, and must not include credentials");
@@ -6776,6 +6778,17 @@ function configureIntegrationConnector(db, user, connectorKey, body) {
     secretExcluded: Boolean(secretHash)
   });
   return getIntegrationConnector(db, user.org_id, definition.connectorKey);
+}
+
+function normalizeIntegrationConnectorChoice(body, field, allowed, fallback) {
+  if (Object.prototype.hasOwnProperty.call(body, field)) {
+    const text = String(body[field] || "").trim();
+    if (allowed.includes(text)) return text;
+    const err = new Error(`Integration connector ${field} must be one of: ${allowed.join(", ")}`);
+    err.statusCode = 400;
+    throw err;
+  }
+  return normalizeChoice(fallback, allowed, allowed[0]);
 }
 
 function runIntegrationConnectorHealthCheck(db, user, connectorKey, body) {
