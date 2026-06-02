@@ -7,7 +7,9 @@
   "main": "server/index.js",
   "scripts": {
     "start": "node server/index.js",
+    "start:lan": "HOST=0.0.0.0 node server/index.js",
     "dev": "NODE_ENV=development node --watch server/index.js",
+    "dev:lan": "HOST=0.0.0.0 NODE_ENV=development node --watch server/index.js",
     "build:ui": "npm --prefix web install && npm --prefix web run build",
     "test": "node --test",
     "smoke": "node scripts/smoke.js",

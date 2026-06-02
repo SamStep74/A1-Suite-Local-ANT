@@ -26,6 +26,12 @@ npm run build:ui
 npm start
 ```
 
+For phone/lab LAN access (OPPO / remote preview), start with LAN binding:
+
+```bash
+HOST=0.0.0.0 PORT=4178 npm run start:lan
+```
+
 Default URL: `http://127.0.0.1:4100`. The SQLite database is created outside this
 folder, under the OS application-support directory (e.g.
 `~/Library/Application Support/ArmospheraOneClaude/armosphera-one.db` on macOS), so it
