@@ -45214,6 +45214,7 @@ function createWebhookEndpoint(db, user, body) {
   const url = String(body.url || "").trim();
   const secret = String(body.secret || "").trim();
   const events = Array.isArray(body.events) ? body.events.filter(event => WEBHOOK_EVENTS.includes(event)) : [];
+  const enabled = normalizeWebhookEndpointEnabled(body.enabled);
   if (name.length < 2 || !isValidWebhookUrl(url) || secret.length < 8 || events.length === 0) {
     const err = new Error("Webhook name, URL, secret, and at least one supported event are required");
     err.statusCode = 400;
@@ -45224,8 +45225,16 @@ function createWebhookEndpoint(db, user, body) {
   db.prepare(`
     INSERT INTO webhook_endpoints (id, org_id, name, url, secret, events, enabled, created_at, updated_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(endpointId, user.org_id, name, url, secret, JSON.stringify([...new Set(events)]), body.enabled === false ? 0 : 1, now, now);
+  `).run(endpointId, user.org_id, name, url, secret, JSON.stringify([...new Set(events)]), enabled ? 1 : 0, now, now);
   return getWebhookEndpoint(db, user.org_id, endpointId);
+}
+
+function normalizeWebhookEndpointEnabled(value) {
+  if (value === undefined) return true;
+  if (typeof value === "boolean") return value;
+  const err = new Error("enabled must be true or false");
+  err.statusCode = 400;
+  throw err;
 }
 
 function isValidWebhookUrl(value) {

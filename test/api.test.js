@@ -16563,6 +16563,70 @@ test("webhook endpoint rejects credentialed URLs before persistence", async () =
   });
 });
 
+test("webhook endpoint preserves explicit disabled toggle", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/integrations/webhooks",
+      headers: { cookie },
+      payload: {
+        name: "Disabled connector",
+        url: "https://example.com/disabled-webhook",
+        secret: "whsec-disabled-test",
+        events: ["deal_won"],
+        enabled: false
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    assert.equal(created.json().endpoint.enabled, false);
+
+    const row = app.db.prepare(`
+      SELECT enabled
+      FROM webhook_endpoints
+      WHERE org_id = ? AND id = ?
+    `).get("org-armosphera-demo", created.json().endpoint.id);
+    assert.equal(row.enabled, 0);
+
+    const listed = await app.inject({ method: "GET", url: "/api/integrations/webhooks", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    assert.ok(listed.json().endpoints.some(endpoint => endpoint.id === created.json().endpoint.id && endpoint.enabled === false));
+  });
+});
+
+test("webhook endpoint rejects non-boolean enabled values before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/integrations/webhooks",
+      headers: { cookie },
+      payload: {
+        name: "String disabled connector",
+        url: "https://example.com/string-disabled-webhook",
+        secret: "whsec-string-disabled-test",
+        events: ["deal_won"],
+        enabled: "false"
+      }
+    });
+    assert.equal(rejected.statusCode, 400, rejected.body);
+    assert.match(rejected.body, /enabled must be true or false/);
+    assert.ok(!rejected.body.includes("whsec-string-disabled-test"));
+
+    const persisted = app.db.prepare("SELECT COUNT(*) AS count FROM webhook_endpoints WHERE url = ?")
+      .get("https://example.com/string-disabled-webhook");
+    assert.equal(persisted.count, 0);
+
+    const listed = await app.inject({ method: "GET", url: "/api/integrations/webhooks", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    assert.equal(listed.json().endpoints.some(endpoint => endpoint.url === "https://example.com/string-disabled-webhook"), false);
+
+    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
+    assert.equal(audit.statusCode, 200, audit.body);
+    assert.equal(audit.json().events.some(event => event.type === "webhook.endpoint.created"), false);
+  });
+});
+
 test("invoice paid webhook is delivered only for first payment receipt", async () => {
   await withWebhookReceiver(async receiver => {
     await withApp(async app => {
