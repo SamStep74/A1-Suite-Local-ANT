@@ -2082,7 +2082,7 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     requireAppAccess(db, user, "analytics");
     requireAnalyticsSnapshotWriter(user);
-    return captureSemanticMetricSnapshots(db, user, request.body || {});
+    return captureSemanticMetricSnapshots(db, user, request.body === undefined ? {} : request.body);
   });
 
   app.get("/api/analytics/reports", async request => {
@@ -2095,7 +2095,7 @@ function registerApi(app, db, options = {}) {
   app.post("/api/analytics/reports", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "analytics");
-    return { ok: true, report: createAnalyticsReportPacket(db, user, request.body || {}) };
+    return { ok: true, report: createAnalyticsReportPacket(db, user, request.body === undefined ? {} : request.body) };
   });
 
   app.get("/api/analytics/reports/:id", async request => {
@@ -42121,8 +42121,8 @@ function roleDashboardMetricCard(metric) {
 }
 
 function captureSemanticMetricSnapshots(db, user, body) {
-  const reportDate = normalizeSnapshotReportDate(body.reportDate || armeniaDateString());
-  const note = String(body.note || "").trim();
+  const input = normalizeAnalyticsSnapshotCaptureBody(body);
+  const { reportDate, note } = input;
   const capturedAt = new Date().toISOString();
   const semanticMetrics = getSemanticMetrics(db, user.org_id, user, reportDate);
   const insertSnapshot = db.prepare(`
@@ -42321,25 +42321,38 @@ function buildSemanticSnapshotSeries(snapshots) {
   return [...byMetric.values()];
 }
 
+function normalizeAnalyticsSnapshotCaptureBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidAnalyticsMetadata();
+  }
+  return {
+    reportDate: normalizeSnapshotReportDate(Object.prototype.hasOwnProperty.call(body, "reportDate") ? body.reportDate : armeniaDateString()),
+    note: normalizeAnalyticsNote(body, "note")
+  };
+}
+
 function normalizeSnapshotReportDate(value) {
-  const text = String(value || "").trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text) && !Number.isNaN(Date.parse(`${text}T00:00:00.000Z`))) return text;
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    const err = new Error("Report date must be YYYY-MM-DD");
+    err.statusCode = 400;
+    throw err;
+  }
+  const text = value.trim();
+  if (isExactIsoDate(text)) return text;
   const err = new Error("Report date must be YYYY-MM-DD");
   err.statusCode = 400;
   throw err;
 }
 
 function createAnalyticsReportPacket(db, user, body) {
-  const reportType = normalizeChoice(body.reportType, ["owner", "accountant"], "");
+  const input = normalizeAnalyticsReportPacketBody(body);
+  const { reportType, format, periodKey, note } = input;
   if (!reportType) {
     const err = new Error("Report type must be owner or accountant");
     err.statusCode = 400;
     throw err;
   }
   requireAnalyticsReportWriter(user, reportType);
-  const format = normalizeChoice(body.format, ["json", "csv"], "json");
-  const periodKey = normalizeAnalyticsPeriodKey(body.periodKey || armeniaDateString().slice(0, 7));
-  const note = String(body.note || "").trim();
   const createdAt = new Date().toISOString();
   const metricIds = ANALYTICS_REPORT_METRICS[reportType];
   const { from, to } = analyticsPeriodBounds(periodKey);
@@ -42407,6 +42420,18 @@ function createAnalyticsReportPacket(db, user, body) {
     checksum
   });
   return getAnalyticsReportPacket(db, user, reportId, true);
+}
+
+function normalizeAnalyticsReportPacketBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidAnalyticsMetadata();
+  }
+  return {
+    reportType: normalizeAnalyticsChoice(body, "reportType", ["owner", "accountant"], ""),
+    format: normalizeAnalyticsChoice(body, "format", ["json", "csv"], "json"),
+    periodKey: normalizeAnalyticsPeriodKey(Object.prototype.hasOwnProperty.call(body, "periodKey") ? body.periodKey : armeniaDateString().slice(0, 7)),
+    note: normalizeAnalyticsNote(body, "note")
+  };
 }
 
 function buildAnalyticsReportPayload(db, orgId, { reportType, periodKey, format, metricIds, snapshots, createdAt }) {
@@ -42579,10 +42604,48 @@ function formatAnalyticsReportPacket(row, includePayload = false) {
   return report;
 }
 
+function normalizeAnalyticsChoice(body, field, allowed, fallback) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return fallback;
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidAnalyticsMetadata();
+  }
+  const text = value.trim();
+  return allowed.includes(text) ? text : "";
+}
+
+function normalizeAnalyticsNote(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidAnalyticsMetadata();
+  }
+  const note = value.trim();
+  if (note.length > 500) {
+    throwInvalidAnalyticsMetadata();
+  }
+  return note;
+}
+
 function normalizeAnalyticsPeriodKey(value) {
-  const text = String(value || "").trim();
-  if (/^\d{4}-\d{2}$/.test(text)) return text;
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    const err = new Error("Period key must be YYYY-MM");
+    err.statusCode = 400;
+    throw err;
+  }
+  const text = value.trim();
+  const match = /^(\d{4})-(\d{2})$/.exec(text);
+  if (match) {
+    const month = Number(match[2]);
+    if (month >= 1 && month <= 12) return text;
+  }
   const err = new Error("Period key must be YYYY-MM");
+  err.statusCode = 400;
+  throw err;
+}
+
+function throwInvalidAnalyticsMetadata() {
+  const err = new Error("Analytics request requires safe metadata");
   err.statusCode = 400;
   throw err;
 }

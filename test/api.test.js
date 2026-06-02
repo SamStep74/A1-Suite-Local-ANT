@@ -19194,6 +19194,141 @@ test("analytics reports export owner and accountant packets from semantic snapsh
   });
 });
 
+test("analytics snapshot and report packets reject malformed note metadata before persistence", async () => {
+  await withApp(async app => {
+    const accountantCookie = await login(app, "accountant@armosphera.local");
+    const ownerCookie = await login(app);
+    const count = table => app.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count;
+    const suiteEventCount = eventType => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE event_type = ?
+    `).get(eventType).count;
+    const auditEventCount = type => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get(type).count;
+    const persistedSecretCount = () => ({
+      snapshotSecrets: app.db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM analytics_metric_snapshots
+        WHERE note LIKE ?
+          OR note = ?
+      `).get("%secret-analytics-%", "[object Object]").count,
+      reportSecrets: app.db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM analytics_report_packets
+        WHERE note LIKE ?
+          OR note = ?
+      `).get("%secret-analytics-%", "[object Object]").count
+    });
+
+    const seed = await app.inject({
+      method: "POST",
+      url: "/api/analytics/semantic-snapshots",
+      headers: { cookie: accountantCookie },
+      payload: { reportDate: "2026-05-26", note: "Analytics guard seed snapshot" }
+    });
+    assert.equal(seed.statusCode, 200, seed.body);
+
+    const snapshot = {
+      metricSnapshots: count("analytics_metric_snapshots"),
+      reportPackets: count("analytics_report_packets"),
+      snapshotSuiteEvents: suiteEventCount("analytics.semantic_snapshot.captured"),
+      reportSuiteEvents: suiteEventCount("analytics.report_packet.created"),
+      snapshotAuditEvents: auditEventCount("analytics.semantic_snapshot.captured"),
+      reportAuditEvents: auditEventCount("analytics.report_packet.created"),
+      secrets: persistedSecretCount()
+    };
+
+    const malformedSnapshotRequests = [
+      { rawJson: "null" },
+      ["secret-analytics-snapshot-array-body-token"],
+      { reportDate: ["2026-05-27"], note: "secret-analytics-snapshot-array-date-token" },
+      { reportDate: { value: "2026-05-27", token: "secret-analytics-snapshot-object-date-token" }, note: "Snapshot note" },
+      { reportDate: "2026-02-31", note: "secret-analytics-snapshot-invalid-date-token" },
+      { reportDate: "2026-05-27", note: ["secret-analytics-snapshot-array-note-token"] },
+      { reportDate: "2026-05-27", note: { token: "secret-analytics-snapshot-object-note-token" } },
+      { reportDate: "2026-05-27", note: "Snapshot\nsecret-analytics-snapshot-control-note-token" },
+      { reportDate: "2026-05-27", note: `${"N".repeat(501)}secret-analytics-snapshot-long-note-token` }
+    ];
+
+    for (const payload of malformedSnapshotRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/analytics/semantic-snapshots",
+        headers: payload && payload.rawJson ? { cookie: accountantCookie, "content-type": "application/json" } : { cookie: accountantCookie },
+        payload: payload && payload.rawJson ? payload.rawJson : payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-analytics-/);
+      assert.deepEqual({
+        metricSnapshots: count("analytics_metric_snapshots"),
+        reportPackets: count("analytics_report_packets"),
+        snapshotSuiteEvents: suiteEventCount("analytics.semantic_snapshot.captured"),
+        reportSuiteEvents: suiteEventCount("analytics.report_packet.created"),
+        snapshotAuditEvents: auditEventCount("analytics.semantic_snapshot.captured"),
+        reportAuditEvents: auditEventCount("analytics.report_packet.created"),
+        secrets: persistedSecretCount()
+      }, snapshot);
+    }
+
+    const malformedReportRequests = [
+      { rawJson: "null" },
+      ["secret-analytics-report-array-body-token"],
+      { reportType: ["accountant"], periodKey: "2026-05", format: "csv", note: "secret-analytics-report-array-type-token" },
+      { reportType: "accountant", periodKey: ["2026-05"], format: "csv", note: "secret-analytics-report-array-period-token" },
+      { reportType: "accountant", periodKey: "2026-13", format: "csv", note: "secret-analytics-report-invalid-period-token" },
+      { reportType: "accountant", periodKey: "2026-05", format: ["csv"], note: "secret-analytics-report-array-format-token" },
+      { reportType: "accountant", periodKey: "2026-05", format: "csv", note: ["secret-analytics-report-array-note-token"] },
+      { reportType: "accountant", periodKey: "2026-05", format: "csv", note: { token: "secret-analytics-report-object-note-token" } },
+      { reportType: "accountant", periodKey: "2026-05", format: "csv", note: "Report\nsecret-analytics-report-control-note-token" },
+      { reportType: "accountant", periodKey: "2026-05", format: "csv", note: `${"R".repeat(501)}secret-analytics-report-long-note-token` }
+    ];
+
+    for (const payload of malformedReportRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/analytics/reports",
+        headers: payload && payload.rawJson ? { cookie: accountantCookie, "content-type": "application/json" } : { cookie: accountantCookie },
+        payload: payload && payload.rawJson ? payload.rawJson : payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-analytics-/);
+      assert.deepEqual({
+        metricSnapshots: count("analytics_metric_snapshots"),
+        reportPackets: count("analytics_report_packets"),
+        snapshotSuiteEvents: suiteEventCount("analytics.semantic_snapshot.captured"),
+        reportSuiteEvents: suiteEventCount("analytics.report_packet.created"),
+        snapshotAuditEvents: auditEventCount("analytics.semantic_snapshot.captured"),
+        reportAuditEvents: auditEventCount("analytics.report_packet.created"),
+        secrets: persistedSecretCount()
+      }, snapshot);
+    }
+
+    const validSnapshot = await app.inject({
+      method: "POST",
+      url: "/api/analytics/semantic-snapshots",
+      headers: { cookie: accountantCookie },
+      payload: { reportDate: "2026-05-27", note: "Analytics guard accepted snapshot" }
+    });
+    assert.equal(validSnapshot.statusCode, 200, validSnapshot.body);
+    assert.equal(validSnapshot.json().snapshotRun.createdCount, 8);
+    assert.equal(validSnapshot.json().snapshotRun.note, "Analytics guard accepted snapshot");
+
+    const validReport = await app.inject({
+      method: "POST",
+      url: "/api/analytics/reports",
+      headers: { cookie: ownerCookie },
+      payload: { reportType: "owner", periodKey: "2026-05", format: "json", note: "Analytics guard accepted report" }
+    });
+    assert.equal(validReport.statusCode, 200, validReport.body);
+    assert.equal(validReport.json().report.note, "Analytics guard accepted report");
+    assert.equal(count("analytics_report_packets"), snapshot.reportPackets + 1);
+  });
+});
+
 test("analytics role dashboards tailor metrics, actions, and permissions by role", async () => {
   await withApp(async app => {
     const ownerCookie = await login(app);

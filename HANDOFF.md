@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-02 · main after Docs template metadata guard · 83 tags · **408 tests (408 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-02 · main after analytics metadata guard · 84 tags · **409 tests (409 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 83 slices)
+### Hardening (production-readiness pass — 84 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -118,6 +118,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 81. **Service case metadata guard** rejects malformed Desk service-case, reply, update, escalation, and resolution request bodies before persistence, preventing object/array/control-character evidence from entering service cases, messages, escalation/resolution rows, suite events, or audit records while preserving normal multiline service narratives for replies, escalations, and resolution summaries.
 82. **Project billing metadata guard** rejects malformed project bill-time request bodies, hourly rates, issue dates, period keys, and due-day values before invoice, ledger, billed-entry, or audit persistence.
 83. **Docs template metadata guard** rejects malformed document-template generate request bodies, customer IDs, variable keys, and variable values before generated document or audit persistence.
+84. **Analytics metadata guard** rejects malformed semantic snapshot and report packet request bodies, report dates, period keys, report selectors, formats, and notes before analytics snapshot/report, suite-event, or audit persistence.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -165,9 +166,10 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest Docs template metadata guard checkpoint: this checkpoint (`Reject malformed docs template metadata`), pushed with this handoff.
+- Latest analytics metadata guard checkpoint: this checkpoint (`Reject malformed analytics metadata`), pushed with this handoff.
+- Latest analytics metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "analytics semantic snapshots|analytics reports export|analytics snapshot and report packets reject|analytics role dashboards" test/api.test.js` = 4 pass; `node --test test/api.test.js` = 208 pass, 0 fail; `npm test` = 409 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-analytics-metadata-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
+- Previous Docs template metadata guard checkpoint: `50efa52` (`Reject malformed docs template metadata`), pushed before this handoff.
 - Latest Docs template metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test test/docs-templates.test.js` = 5 pass; `node --test test/api.test.js` = 207 pass, 0 fail; `npm test` = 408 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-docs-template-metadata-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/docs-templates.test.js && git diff --check` = pass.
-- Next read-only audit candidate after this checkpoint: analytics semantic snapshot/report note metadata guard (`POST /api/analytics/semantic-snapshots`, `POST /api/analytics/reports`) because notes still coerce through `String(body.note || "")`.
 - Previous project billing metadata guard checkpoint: `334c78a` (`Reject malformed project billing metadata`), pushed before this handoff.
 - Latest project billing metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test test/project-billing.test.js` = 4 pass; `node --test test/api.test.js` = 207 pass, 0 fail; `npm test` = 407 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-project-billing-metadata-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/project-billing.test.js && git diff --check` = pass.
 - Previous service case metadata guard checkpoint: `ef2f337` (`Allow multiline service narratives`), pushed before this handoff.

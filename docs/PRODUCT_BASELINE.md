@@ -2257,3 +2257,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted optional customer IDs and variables still preserve the existing defaults, including auto-filled organization/date/customer context and visible FILL markers for unsupplied declared variables.
 - Rejected malformed template generation requests return `400`, keep submitted payload secrets out of error bodies, leave `documents` and `audit_events` unchanged, and valid template generation plus literal mustache-value insertion remain unchanged.
 - Verification for the checkpoint: focused `test/docs-templates.test.js` = 5 pass; `test/api.test.js` = 207 pass; `npm test` = 408 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 212 - Analytics Metadata Guard
+
+- Analytics semantic snapshot capture and analytics report packet creation now reject non-plain-object request bodies before mutating analytics evidence or writing suite/audit events.
+- Submitted snapshot report dates, report packet types, formats, period keys, and notes must be structurally safe before they can become analytics snapshot/report evidence.
+- Snapshot report dates must be exact ISO calendar dates, report period keys must be valid `YYYY-MM` months, report type/format selectors must be strings in their existing enums, and notes must be bounded single-line strings instead of arrays, objects, control-character text, or overlong values.
+- Omitted optional snapshot report dates, report period keys, formats, and notes still preserve the existing defaults.
+- Rejected malformed analytics requests return `400`, keep submitted payload secrets out of error bodies, leave `analytics_metric_snapshots`, `analytics_report_packets`, analytics suite events, and analytics audit events unchanged, and valid snapshot/report creation remains unchanged.
+- Verification for the checkpoint: focused analytics tests = 4 pass; `test/api.test.js` = 208 pass; `npm test` = 409 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
