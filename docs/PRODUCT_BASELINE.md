@@ -2018,3 +2018,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted and blank official invoice numbers still use the existing `DRAFT-` to `HHV-` fallback, preserving the current no-body post behavior.
 - Rejected malformed post requests return `400`, keep submitted payload secrets out of error bodies, leave `finance_draft_invoices`, `invoices`, `finance_invoice_links`, `ledger_journal`, `suite_events`, and `audit_events` unchanged, and do not leak malformed invoice evidence into receivables.
 - Verification for the checkpoint: focused draft invoice/payment receipt tests = 18 pass; `test/api.test.js` = 192 pass; `npm test` = 380 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 184 - Payment Receipt Metadata Guard
+
+- Payment receipt posting now rejects non-plain-object request bodies before mutating payment, invoice, ledger, collection, event, audit, or webhook state.
+- Submitted payment amounts must be positive finite numbers or numeric strings, while `paidAt`, `method`, and `reference` must be safe strings without control characters before they can become payment source keys or durable evidence.
+- Omitted and blank optional receipt fields still use the current fallback behavior: today's date, `bank-transfer`, and `<invoice-number>-<paid-date>`.
+- Rejected malformed receipt requests return `400`, keep submitted payload secrets out of error bodies, leave `finance_payments`, invoice status, `ledger_journal`, `suite_events`, `audit_events`, and `webhook_deliveries` unchanged, and do not leak malformed payment evidence into receivables.
+- Verification for the checkpoint: focused draft invoice/payment receipt/webhook tests = 19 pass; `test/api.test.js` = 193 pass; `npm test` = 381 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

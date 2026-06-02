@@ -3429,7 +3429,7 @@ ${controls}
       err.statusCode = 404;
       throw err;
     }
-    const result = await recordInvoicePayment(db, user, invoice, request.body || {});
+    const result = await recordInvoicePayment(db, user, invoice, request.body === undefined ? {} : request.body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, invoice.customerId) };
   });
 
@@ -48248,15 +48248,7 @@ function postDraftInvoice(db, user, draftInvoice, body) {
 }
 
 async function recordInvoicePayment(db, user, invoice, body) {
-  const amount = Number(body.amount || 0);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    const err = new Error("Payment amount is required");
-    err.statusCode = 400;
-    throw err;
-  }
-  const paidAt = /^\d{4}-\d{2}-\d{2}$/.test(body.paidAt || "")
-    ? body.paidAt
-    : new Date().toISOString().slice(0, 10);
+  const { amount, paidAt, method, reference } = normalizeInvoicePaymentBody(body, invoice);
   const periodKey = paidAt.slice(0, 7);
   const period = getFinancePeriod(db, user.org_id, periodKey);
   if (!period || period.status !== "open") {
@@ -48265,8 +48257,6 @@ async function recordInvoicePayment(db, user, invoice, body) {
     throw err;
   }
 
-  const reference = String(body.reference || `${invoice.number}-${paidAt}`).trim();
-  const method = String(body.method || "bank-transfer").trim();
   const sourceKey = `payment:${invoice.id}:${reference}:${amount}`;
   const existing = getFinancePaymentBySource(db, user.org_id, sourceKey);
   if (existing) {
@@ -48360,6 +48350,90 @@ async function recordInvoicePayment(db, user, invoice, body) {
     invoice: updatedInvoice,
     collectionFulfillment
   };
+}
+
+function normalizeInvoicePaymentBody(body, invoice) {
+  if (!isPlainObject(body)) {
+    throwInvalidInvoicePayment();
+  }
+  const amount = normalizeInvoicePaymentAmount(body);
+  const paidAt = normalizeInvoicePaymentDate(body);
+  return {
+    amount,
+    paidAt,
+    method: normalizeInvoicePaymentText(body, "method", { fallback: "bank-transfer", maxLength: 80 }),
+    reference: normalizeInvoicePaymentText(body, "reference", { fallback: `${invoice.number}-${paidAt}`, maxLength: 160 })
+  };
+}
+
+function normalizeInvoicePaymentAmount(body) {
+  const hasAmount = Object.prototype.hasOwnProperty.call(body, "amount");
+  const value = hasAmount ? body.amount : undefined;
+  if (value === undefined || value === "" || value === null) {
+    throwInvalidInvoicePayment();
+  }
+  if (typeof value === "string" && /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidInvoicePayment();
+  }
+  if (typeof value !== "number" && typeof value !== "string") {
+    throwInvalidInvoicePayment();
+  }
+  const amount = Number(typeof value === "string" ? value.trim() : value);
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throwInvalidInvoicePayment();
+  }
+  return amount;
+}
+
+function normalizeInvoicePaymentDate(body) {
+  const hasPaidAt = Object.prototype.hasOwnProperty.call(body, "paidAt");
+  const value = hasPaidAt ? body.paidAt : undefined;
+  if (value === undefined || value === "") {
+    return new Date().toISOString().slice(0, 10);
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidInvoicePayment();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidInvoicePayment();
+  }
+  const paidAt = value.trim();
+  if (!paidAt) {
+    return new Date().toISOString().slice(0, 10);
+  }
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(paidAt) || Number.isNaN(Date.parse(`${paidAt}T00:00:00.000Z`))) {
+    throwInvalidInvoicePayment();
+  }
+  return paidAt;
+}
+
+function normalizeInvoicePaymentText(body, field, options = {}) {
+  const { fallback = "", maxLength = 160 } = options;
+  const hasField = Object.prototype.hasOwnProperty.call(body, field);
+  const value = hasField ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidInvoicePayment();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidInvoicePayment();
+  }
+  const text = value.trim();
+  if (!text) {
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidInvoicePayment();
+  }
+  return text;
+}
+
+function throwInvalidInvoicePayment() {
+  const err = new Error("Invalid payment receipt");
+  err.statusCode = 400;
+  throw err;
 }
 
 function refreshCustomerReceivables(db, orgId, customerId) {

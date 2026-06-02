@@ -20783,6 +20783,157 @@ test("payment receipt marks posted invoice paid and appends Customer 360 event",
   });
 });
 
+test("payment receipt rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const draft = await executeDraftInvoice(app, cookie);
+    const posted = await app.inject({
+      method: "POST",
+      url: `/api/finance/draft-invoices/${draft.id}/post`,
+      headers: { cookie },
+      payload: { number: "HHV-2026-PAYMENT-GUARD" }
+    });
+    assert.equal(posted.statusCode, 200, posted.body);
+    const invoiceId = posted.json().invoice.id;
+    const invoiceStatus = () => app.db.prepare(`
+      SELECT status
+      FROM invoices
+      WHERE id = ?
+    `).get(invoiceId).status;
+    const paymentCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM finance_payments
+      WHERE invoice_id = ?
+    `).get(invoiceId).count;
+    const paymentSecretCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM finance_payments
+      WHERE reference LIKE ?
+        OR method LIKE ?
+        OR reference = ?
+        OR method = ?
+    `).get("%secret-payment-receipt-%", "%secret-payment-receipt-%", "[object Object]", "[object Object]").count;
+    const ledgerCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM ledger_journal
+      WHERE source_type = ?
+        AND source_id LIKE ?
+    `).get("payment", "payment-%").count;
+    const suitePaymentEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE event_type = ?
+    `).get("finance.payment.received").count;
+    const auditPaymentEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("finance.payment.received").count;
+    const webhookDeliveryCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM webhook_deliveries
+      WHERE event_key = ?
+    `).get("invoice_paid").count;
+
+    const invoiceStatusBefore = invoiceStatus();
+    const ledgerCountBefore = ledgerCount();
+    const suiteEventCountBefore = suitePaymentEventCount();
+    const auditCountBefore = auditPaymentEventCount();
+    const webhookDeliveryCountBefore = webhookDeliveryCount();
+    const malformedRequests = [
+      {
+        amount: ["3200000"],
+        paidAt: "2026-05-27",
+        method: "bank-transfer",
+        reference: "secret-payment-receipt-array-amount-token"
+      },
+      {
+        amount: { value: 3200000, token: "secret-payment-receipt-object-amount-token" },
+        paidAt: "2026-05-27",
+        method: "bank-transfer",
+        reference: "ACBA-TRX-PAYMENT-GUARD"
+      },
+      {
+        amount: "3200000\nsecret-payment-receipt-control-amount-token",
+        paidAt: "2026-05-27",
+        method: "bank-transfer",
+        reference: "ACBA-TRX-PAYMENT-GUARD"
+      },
+      {
+        amount: 3200000,
+        paidAt: ["2026-05-27"],
+        method: "bank-transfer",
+        reference: "secret-payment-receipt-array-date-token"
+      },
+      {
+        amount: 3200000,
+        paidAt: "not-a-date-secret-payment-receipt-date-token",
+        method: "bank-transfer",
+        reference: "ACBA-TRX-PAYMENT-GUARD"
+      },
+      {
+        amount: 3200000,
+        paidAt: "2026-05-27",
+        method: { text: "bank-transfer", token: "secret-payment-receipt-object-method-token" },
+        reference: "ACBA-TRX-PAYMENT-GUARD"
+      },
+      {
+        amount: 3200000,
+        paidAt: "2026-05-27",
+        method: "bank\nsecret-payment-receipt-control-method-token",
+        reference: "ACBA-TRX-PAYMENT-GUARD"
+      },
+      {
+        amount: 3200000,
+        paidAt: "2026-05-27",
+        method: "bank-transfer",
+        reference: { text: "ACBA-TRX-PAYMENT-GUARD", token: "secret-payment-receipt-object-reference-token" }
+      },
+      {
+        amount: 3200000,
+        paidAt: "2026-05-27",
+        method: "bank-transfer",
+        reference: `${"R".repeat(161)}secret-payment-receipt-long-reference-token`
+      },
+      ["secret-payment-receipt-array-body-token"]
+    ];
+
+    for (const payload of malformedRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: `/api/finance/invoices/${invoiceId}/payments`,
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-payment-receipt-/);
+    }
+
+    assert.equal(invoiceStatus(), invoiceStatusBefore);
+    assert.equal(paymentCount(), 0);
+    assert.equal(paymentSecretCount(), 0);
+    assert.equal(ledgerCount(), ledgerCountBefore);
+    assert.equal(suitePaymentEventCount(), suiteEventCountBefore);
+    assert.equal(auditPaymentEventCount(), auditCountBefore);
+    assert.equal(webhookDeliveryCount(), webhookDeliveryCountBefore);
+
+    const paid = await app.inject({
+      method: "POST",
+      url: `/api/finance/invoices/${invoiceId}/payments`,
+      headers: { cookie },
+      payload: {
+        amount: "3200000",
+        paidAt: "2026-05-27",
+        method: "bank-transfer",
+        reference: "ACBA-TRX-PAYMENT-GUARD"
+      }
+    });
+    assert.equal(paid.statusCode, 200, paid.body);
+    assert.equal(paid.json().payment.reference, "ACBA-TRX-PAYMENT-GUARD");
+    assert.equal(paid.json().invoice.status, "paid");
+  });
+});
+
 test("closed finance period blocks payment receipt", async () => {
   await withApp(async app => {
     const cookie = await login(app);
