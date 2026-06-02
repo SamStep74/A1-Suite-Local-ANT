@@ -1870,5 +1870,5 @@ Status: shipped in the local prototype on 2026-05-28.
 - Owner app-assignment writes now accept only omitted or boolean `enabled` values; omitted still means enabled, but strings such as `"false"` are rejected instead of becoming truthy access grants.
 - Rejected enabled-value writes return `400`, leave `app_assignments` unchanged, and create no `app.assignment.updated` audit event.
 - The assignment update regression now proves Support can be explicitly disabled from an assigned app and loses the app from `/api/suite` after the boolean `false` update.
-- Added regression coverage proving a string `"false"` toggle is rejected before mutation, Support does not gain Flow access, and no assignment audit entry is emitted for the rejected write.
-- Verification for the checkpoint: focused app-assignment tests = 3 pass; `test/api.test.js` = 172 pass; `npm test` = 360 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+- Added regression coverage proving a string `"false"` toggle is rejected before mutation, omitted `enabled` still writes an explicit enabled assignment, Support visibility changes in `/api/suite` match each boolean update, and rejected writes emit no assignment audit entry.
+- Verification for the checkpoint: focused app-assignment tests = 4 pass; `test/api.test.js` = 172 pass; `npm test` = 361 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

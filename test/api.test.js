@@ -294,6 +294,34 @@ test("app assignment rejects non-boolean enabled values before mutation", async 
   });
 });
 
+test("app assignment treats omitted enabled as an explicit enable", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const update = await app.inject({
+      method: "POST",
+      url: "/api/apps/flow/assign",
+      headers: { cookie },
+      payload: { role: "Support" }
+    });
+    assert.equal(update.statusCode, 200, update.body);
+
+    const stored = app.db.prepare(`
+      SELECT enabled
+      FROM app_assignments
+      WHERE org_id = ? AND role = ? AND app_id = ?
+    `).get("org-armosphera-demo", "Support", "flow");
+    assert.equal(stored.enabled, 1);
+
+    const supportCookie = await login(app, "support@armosphera.local");
+    const supportSuite = await app.inject({ method: "GET", url: "/api/suite", headers: { cookie: supportCookie } });
+    assert.ok(supportSuite.json().apps.some(app => app.id === "flow"));
+
+    const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
+    assert.equal(audit.statusCode, 200, audit.body);
+    assert.ok(audit.json().events.some(event => event.type === "app.assignment.updated" && event.details?.role === "Support" && event.details?.appId === "flow" && event.details?.enabled === true));
+  });
+});
+
 test("app assignment rejects unknown roles before mutating access-review evidence", async () => {
   await withApp(async app => {
     const cookie = await login(app);
