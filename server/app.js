@@ -3805,31 +3805,7 @@ ${controls}
     requireFinanceOperator(user);
     const bill = db.prepare("SELECT * FROM bills WHERE org_id = ? AND id = ?").get(user.org_id, request.params.id);
     if (!bill) { const e = new Error("Bill not found"); e.statusCode = 404; throw e; }
-    const body = request.body || {};
-    const amount = Math.round(Number(body.amount) || 0);
-    if (amount <= 0) { const e = new Error("Payment amount is required"); e.statusCode = 400; throw e; }
-    const paidAt = /^\d{4}-\d{2}-\d{2}$/.test(body.paidAt || "") ? body.paidAt : new Date().toISOString().slice(0, 10);
-    const periodKey = paidAt.slice(0, 7);
-    const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
-    if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
-    const reference = String(body.reference || "");
-    const existingPayment = db.prepare(
-      "SELECT * FROM bill_payments WHERE org_id = ? AND bill_id = ? AND amount = ? AND reference = ?"
-    ).get(user.org_id, bill.id, amount, reference);
-    if (existingPayment) {
-      return { idempotent: true, payment: { id: existingPayment.id, billId: bill.id, amount: existingPayment.amount, paidAt: existingPayment.paid_at, status: bill.status } };
-    }
-    const id = randomId("billpay");
-    const now = new Date().toISOString();
-    db.prepare(`INSERT INTO bill_payments (id, org_id, bill_id, amount, currency, paid_at, method, reference, period_key, created_by_user_id, created_at)
-      VALUES (?, ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?)`)
-      .run(id, user.org_id, bill.id, amount, paidAt, String(body.method || "bank-transfer"), reference, periodKey, user.id, now);
-    const paidTotal = db.prepare("SELECT COALESCE(SUM(amount),0) AS p FROM bill_payments WHERE org_id = ? AND bill_id = ?").get(user.org_id, bill.id).p;
-    const status = paidTotal >= bill.total ? "paid" : "partial";
-    db.prepare("UPDATE bills SET status = ? WHERE org_id = ? AND id = ?").run(status, user.org_id, bill.id);
-    ledger.postBillPayment(db, user.org_id, { id, amount, date: paidAt, period_key: periodKey });
-    audit(db, user.org_id, user.id, "finance.bill.paid", { billId: bill.id, paymentId: id, amount });
-    return { payment: { id, billId: bill.id, amount, paidAt, status } };
+    return payFinanceBill(db, user, bill, request.body === undefined ? {} : request.body);
   });
 
   app.get("/api/finance/trial-balance", async request => {
@@ -48415,6 +48391,151 @@ function normalizeFinanceBillText(body, field, options = {}) {
 
 function throwInvalidFinanceBill() {
   const err = new Error("Invalid finance bill");
+  err.statusCode = 400;
+  throw err;
+}
+
+function payFinanceBill(db, user, bill, body) {
+  const input = normalizeFinanceBillPaymentBody(body);
+  const periodKey = input.paidAt.slice(0, 7);
+  const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
+  if (period && period.status === "closed") {
+    const err = new Error("PERIOD_LOCKED");
+    err.statusCode = 409;
+    throw err;
+  }
+  const existingPayment = db.prepare(
+    "SELECT * FROM bill_payments WHERE org_id = ? AND bill_id = ? AND amount = ? AND reference = ?"
+  ).get(user.org_id, bill.id, input.amount, input.reference);
+  if (existingPayment) {
+    return {
+      idempotent: true,
+      payment: {
+        id: existingPayment.id,
+        billId: bill.id,
+        amount: existingPayment.amount,
+        paidAt: existingPayment.paid_at,
+        status: bill.status
+      }
+    };
+  }
+  const id = randomId("billpay");
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO bill_payments (
+      id, org_id, bill_id, amount, currency, paid_at, method, reference,
+      period_key, created_by_user_id, created_at
+    )
+    VALUES (?, ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    user.org_id,
+    bill.id,
+    input.amount,
+    input.paidAt,
+    input.method,
+    input.reference,
+    periodKey,
+    user.id,
+    now
+  );
+  const paidTotal = db.prepare("SELECT COALESCE(SUM(amount),0) AS p FROM bill_payments WHERE org_id = ? AND bill_id = ?").get(user.org_id, bill.id).p;
+  const status = paidTotal >= bill.total ? "paid" : "partial";
+  db.prepare("UPDATE bills SET status = ? WHERE org_id = ? AND id = ?").run(status, user.org_id, bill.id);
+  ledger.postBillPayment(db, user.org_id, { id, amount: input.amount, date: input.paidAt, period_key: periodKey });
+  audit(db, user.org_id, user.id, "finance.bill.paid", { billId: bill.id, paymentId: id, amount: input.amount });
+  return { payment: { id, billId: bill.id, amount: input.amount, paidAt: input.paidAt, status } };
+}
+
+function normalizeFinanceBillPaymentBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidFinanceBillPayment();
+  }
+  return {
+    amount: normalizeFinanceBillPaymentAmount(body, "amount", { required: true }),
+    paidAt: normalizeFinanceBillPaymentDate(body, "paidAt"),
+    method: normalizeFinanceBillPaymentText(body, "method", { fallback: "bank-transfer", maxLength: 80 }),
+    reference: normalizeFinanceBillPaymentText(body, "reference", { fallback: "", maxLength: 160 })
+  };
+}
+
+function normalizeFinanceBillPaymentAmount(body, field, options = {}) {
+  const { required = false, fallback = 0 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidFinanceBillPayment();
+    return fallback;
+  }
+  if (value === null || Array.isArray(value) || typeof value === "object") {
+    throwInvalidFinanceBillPayment();
+  }
+  let amount;
+  if (typeof value === "number") {
+    amount = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidFinanceBillPayment();
+    }
+    const text = value.trim();
+    if (!/^-?\d+(?:\.\d+)?$/.test(text)) {
+      throwInvalidFinanceBillPayment();
+    }
+    amount = Number(text);
+  } else {
+    throwInvalidFinanceBillPayment();
+  }
+  if (!Number.isFinite(amount) || amount < 0) {
+    throwInvalidFinanceBillPayment();
+  }
+  const rounded = Math.round(amount);
+  if (required ? rounded <= 0 : rounded < 0) {
+    throwInvalidFinanceBillPayment();
+  }
+  return rounded;
+}
+
+function normalizeFinanceBillPaymentDate(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return new Date().toISOString().slice(0, 10);
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinanceBillPayment();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceBillPayment();
+  }
+  const date = value.trim();
+  if (!isExactIsoDate(date)) {
+    throwInvalidFinanceBillPayment();
+  }
+  return date;
+}
+
+function normalizeFinanceBillPaymentText(body, field, options = {}) {
+  const { fallback = "", maxLength = 160 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinanceBillPayment();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceBillPayment();
+  }
+  const text = value.trim();
+  if (!text) {
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidFinanceBillPayment();
+  }
+  return text;
+}
+
+function throwInvalidFinanceBillPayment() {
+  const err = new Error("Invalid finance bill payment");
   err.statusCode = 400;
   throw err;
 }

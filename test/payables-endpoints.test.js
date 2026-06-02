@@ -153,3 +153,137 @@ test("bill creation rejects malformed metadata before persistence", async () => 
     assert.strictEqual(created.json().bill.dueDate, `${openPeriod}-11`);
   } finally { await app.close(); }
 });
+
+test("bill payment rejects malformed metadata before persistence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const orgId = app.db.prepare("SELECT id FROM organizations LIMIT 1").get().id;
+    const openPeriod = app.db.prepare("SELECT period_key FROM finance_periods WHERE org_id = ? AND status='open' LIMIT 1").get(orgId).period_key;
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/finance/bills",
+      headers: { cookie },
+      payload: {
+        supplier: "Acme",
+        description: "Payment guard setup",
+        subtotal: 500,
+        vat: 100,
+        billDate: `${openPeriod}-05`,
+        dueDate: `${openPeriod}-10`
+      }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    const billId = created.json().bill.id;
+    const paymentCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM bill_payments
+      WHERE org_id = ? AND bill_id = ?
+    `).get(orgId, billId).count;
+    const paymentSecretCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM bill_payments
+      WHERE org_id = ?
+        AND (
+          paid_at LIKE ?
+          OR method LIKE ?
+          OR reference LIKE ?
+          OR method = ?
+          OR reference = ?
+        )
+    `).get(
+      orgId,
+      "%secret-bill-payment-%",
+      "%secret-bill-payment-%",
+      "%secret-bill-payment-%",
+      "[object Object]",
+      "[object Object]"
+    ).count;
+    const ledgerCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM ledger_journal
+    `).get().count;
+    const auditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("finance.bill.paid").count;
+    const billStatus = () => app.db.prepare(`
+      SELECT status
+      FROM bills
+      WHERE org_id = ? AND id = ?
+    `).get(orgId, billId).status;
+
+    const paymentCountBefore = paymentCount();
+    const ledgerCountBefore = ledgerCount();
+    const auditCountBefore = auditCount();
+    const basePayload = {
+      amount: 600,
+      paidAt: `${openPeriod}-20`,
+      method: "bank-transfer",
+      reference: "WIRE-guard"
+    };
+    const malformedRequests = [
+      null,
+      { ...basePayload, amount: ["600"], reference: "secret-bill-payment-array-amount-token" },
+      { ...basePayload, amount: { value: 600, token: "secret-bill-payment-object-amount-token" } },
+      { ...basePayload, amount: "600\nsecret-bill-payment-control-amount-token" },
+      { ...basePayload, amount: 0, reference: "secret-bill-payment-zero-amount-token" },
+      { ...basePayload, amount: -1, reference: "secret-bill-payment-negative-amount-token" },
+      { ...basePayload, amount: "-0.1", reference: "secret-bill-payment-fractional-negative-amount-token" },
+      { ...basePayload, paidAt: [`${openPeriod}-20`], reference: "secret-bill-payment-array-paid-at-token" },
+      { ...basePayload, paidAt: `${openPeriod}-20\nsecret-bill-payment-control-paid-at-token` },
+      { ...basePayload, paidAt: "not-a-date-secret-bill-payment-date-token" },
+      { ...basePayload, paidAt: "2026-02-30", reference: "secret-bill-payment-impossible-date-token" },
+      { ...basePayload, method: { text: "bank-transfer", token: "secret-bill-payment-object-method-token" } },
+      { ...basePayload, method: "bank-transfer\nsecret-bill-payment-control-method-token" },
+      { ...basePayload, method: `${"M".repeat(81)}secret-bill-payment-long-method-token` },
+      { ...basePayload, reference: { text: "WIRE", token: "secret-bill-payment-object-reference-token" } },
+      { ...basePayload, reference: "WIRE\nsecret-bill-payment-control-reference-token" },
+      { ...basePayload, reference: `${"R".repeat(161)}secret-bill-payment-long-reference-token` },
+      ["secret-bill-payment-array-body-token"]
+    ];
+
+    for (const payload of malformedRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: `/api/finance/bills/${billId}/pay`,
+        headers: { cookie },
+        payload
+      });
+      assert.strictEqual(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-bill-payment-/);
+    }
+
+    assert.strictEqual(paymentCount(), paymentCountBefore);
+    assert.strictEqual(paymentSecretCount(), 0);
+    assert.strictEqual(ledgerCount(), ledgerCountBefore);
+    assert.strictEqual(auditCount(), auditCountBefore);
+    assert.strictEqual(billStatus(), "open");
+
+    const paid = await app.inject({
+      method: "POST",
+      url: `/api/finance/bills/${billId}/pay`,
+      headers: { cookie },
+      payload: {
+        amount: "600",
+        paidAt: `${openPeriod}-21`,
+        method: "bank-transfer",
+        reference: "WIRE-guard-valid"
+      }
+    });
+    assert.strictEqual(paid.statusCode, 200, paid.body);
+    assert.strictEqual(paid.json().payment.billId, billId);
+    assert.strictEqual(paid.json().payment.amount, 600);
+    assert.strictEqual(paid.json().payment.paidAt, `${openPeriod}-21`);
+    assert.strictEqual(paid.json().payment.status, "paid");
+    const paymentRow = app.db.prepare(`
+      SELECT method, reference
+      FROM bill_payments
+      WHERE org_id = ? AND bill_id = ?
+    `).get(orgId, billId);
+    assert.strictEqual(paymentRow.method, "bank-transfer");
+    assert.strictEqual(paymentRow.reference, "WIRE-guard-valid");
+  } finally { await app.close(); }
+});

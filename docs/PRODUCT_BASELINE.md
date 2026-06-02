@@ -2068,3 +2068,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted and blank optional VAT/date/text fields still use the current fallback behavior: zero VAT, today's date, due date equal to bill date, and blank supplier/description.
 - Rejected malformed bill requests return `400`, keep submitted payload secrets out of error bodies, leave `bills`, `ledger_journal`, and `audit_events` unchanged, and do not leak malformed bill evidence into payables reports.
 - Verification for the checkpoint: focused payables tests = 3 pass; `test/api.test.js` = 196 pass; `npm test` = 386 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 190 - Finance Bill Payment Metadata Guard
+
+- Supplier bill payments now reject non-plain-object request bodies before mutating bill payment, payable status, ledger, or audit state.
+- Submitted payment amounts must be positive finite numbers or numeric strings, while submitted payment dates, methods, and references must be safe strings without control characters before they can become payment or ledger evidence.
+- Omitted and blank optional payment fields still use the current fallback behavior: today's date, `bank-transfer`, and blank reference.
+- Rejected malformed bill payment requests return `400`, keep submitted payload secrets out of error bodies, leave `bill_payments`, `bills.status`, `ledger_journal`, and `audit_events` unchanged, and do not leak malformed payment evidence into payables records.
+- Verification for the checkpoint: focused payables tests = 4 pass; `test/api.test.js` = 196 pass; `npm test` = 387 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
