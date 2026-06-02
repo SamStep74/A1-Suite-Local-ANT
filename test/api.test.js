@@ -19051,6 +19051,138 @@ test("workflow test-event validates trigger payload without mutating records", a
   });
 });
 
+test("workflow test-event rejects malformed metadata and payload before persistence", async () => {
+  await withApp(async app => {
+    const ownerCookie = await login(app);
+    const serviceManagerCookie = await login(app, "service.manager@armosphera.local");
+    const testEventCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM workflow_test_events").get().count;
+    const suiteEventCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+      .get("workflow.test_event.created").count;
+    const auditCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("workflow.test_event.created").count;
+
+    const objectEventType = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/test-event",
+      headers: { cookie: serviceManagerCookie },
+      payload: {
+        eventType: { type: "invoice_overdue" },
+        customerId: "cust-nare",
+        subjectType: "invoice",
+        subjectId: "inv-1007",
+        payload: { token: "secret-workflow-event-type-token" }
+      }
+    });
+    assert.equal(objectEventType.statusCode, 400, objectEventType.body);
+    assert.equal(objectEventType.body.includes("secret-workflow-event-type-token"), false);
+
+    const objectSubjectId = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/test-event",
+      headers: { cookie: serviceManagerCookie },
+      payload: {
+        eventType: "invoice_overdue",
+        customerId: "cust-nare",
+        subjectType: "invoice",
+        subjectId: { id: "inv-1007" },
+        payload: { token: "secret-workflow-subject-token" }
+      }
+    });
+    assert.equal(objectSubjectId.statusCode, 400, objectSubjectId.body);
+    assert.equal(objectSubjectId.body.includes("secret-workflow-subject-token"), false);
+
+    const objectInvoiceIdWithValidSubject = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/test-event",
+      headers: { cookie: serviceManagerCookie },
+      payload: {
+        eventType: "invoice_overdue",
+        customerId: "cust-nare",
+        subjectType: "invoice",
+        subjectId: "inv-1007",
+        invoiceId: { id: "inv-malformed" },
+        payload: { token: "secret-workflow-invoice-id-token" }
+      }
+    });
+    assert.equal(objectInvoiceIdWithValidSubject.statusCode, 400, objectInvoiceIdWithValidSubject.body);
+    assert.equal(objectInvoiceIdWithValidSubject.body.includes("secret-workflow-invoice-id-token"), false);
+
+    const boundaryControlEventType = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/test-event",
+      headers: { cookie: serviceManagerCookie },
+      payload: {
+        eventType: "invoice_overdue\n",
+        customerId: "cust-nare",
+        subjectType: "invoice",
+        subjectId: "inv-1007",
+        payload: { token: "secret-workflow-control-event-token" }
+      }
+    });
+    assert.equal(boundaryControlEventType.statusCode, 400, boundaryControlEventType.body);
+    assert.equal(boundaryControlEventType.body.includes("secret-workflow-control-event-token"), false);
+
+    const arrayPayload = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/test-event",
+      headers: { cookie: serviceManagerCookie },
+      payload: {
+        eventType: "invoice_overdue",
+        customerId: "cust-nare",
+        subjectType: "invoice",
+        subjectId: "inv-1007",
+        payload: ["secret-workflow-array-payload-token"]
+      }
+    });
+    assert.equal(arrayPayload.statusCode, 400, arrayPayload.body);
+    assert.equal(arrayPayload.body.includes("secret-workflow-array-payload-token"), false);
+
+    const objectNote = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/test-event",
+      headers: { cookie: serviceManagerCookie },
+      payload: {
+        eventType: "invoice_overdue",
+        customerId: "cust-nare",
+        subjectType: "invoice",
+        subjectId: "inv-1007",
+        payload: { source: "valid metadata before malformed note" },
+        note: { text: "Object notes must not become workflow evidence." }
+      }
+    });
+    assert.equal(objectNote.statusCode, 400, objectNote.body);
+    assert.equal(objectNote.body.includes("[object Object]"), false);
+
+    const arrayBody = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/test-event",
+      headers: { cookie: serviceManagerCookie },
+      payload: ["invoice_overdue", "secret-workflow-array-body-token"]
+    });
+    assert.equal(arrayBody.statusCode, 400, arrayBody.body);
+    assert.equal(arrayBody.body.includes("secret-workflow-array-body-token"), false);
+
+    const testEventCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM workflow_test_events").get().count;
+    assert.equal(testEventCountAfter, testEventCountBefore);
+    const suiteEventCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+      .get("workflow.test_event.created").count;
+    assert.equal(suiteEventCountAfter, suiteEventCountBefore);
+    const auditCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("workflow.test_event.created").count;
+    assert.equal(auditCountAfter, auditCountBefore);
+
+    const listed = await app.inject({ method: "GET", url: "/api/workflow/test-events?customerId=cust-nare", headers: { cookie: ownerCookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    assert.equal(listed.body.includes("[object Object]"), false);
+    assert.equal(listed.body.includes("secret-workflow-event-type-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-subject-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-invoice-id-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-control-event-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-array-payload-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-array-body-token"), false);
+  });
+});
+
 test("owner can generate advisory workflow builder suggestion without mutating workflow state", async () => {
   await withApp(async app => {
     const ownerCookie = await login(app);

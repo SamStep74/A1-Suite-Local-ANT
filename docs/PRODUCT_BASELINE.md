@@ -1970,3 +1970,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Rejected malformed suite-event metadata returns `400`, keeps submitted payload secrets out of error bodies, leaves `suite_events` unchanged, and creates no `suite.event.created` audit record.
 - Added regression coverage proving object-shaped subject/status metadata and array request bodies do not persist, do not audit, and do not leak sensitive payload strings into event lists.
 - Verification for the checkpoint: focused suite event/webhook tests = 7 pass; `test/api.test.js` = 186 pass; `npm test` = 374 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 178 - Workflow Test Event Metadata Guard
+
+- Workflow test-event creation now rejects non-plain-object request bodies before evaluating automation rules.
+- Submitted `eventType`, `subjectType`, `subjectId`, `customerId`, and `note` values must be safe strings before they can become workflow evidence.
+- Submitted test-event payloads must be plain objects; array-shaped payloads are rejected instead of becoming checksum and audit inputs.
+- Rejected malformed workflow test events return `400`, keep submitted payload secrets out of error bodies, leave `workflow_test_events`, `suite_events`, and `audit_events` unchanged, and do not leak `[object Object]` evidence into test-event lists.
+- Verification for the checkpoint: focused workflow test-event tests = 2 pass; `test/api.test.js` = 187 pass; `npm test` = 375 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

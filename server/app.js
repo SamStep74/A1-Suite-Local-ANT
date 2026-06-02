@@ -49117,6 +49117,9 @@ function createWorkflowDryRun(db, user, ruleId, body) {
 }
 
 function createWorkflowTestEvent(db, user, ruleId, body) {
+  if (!isPlainObject(body)) {
+    throwInvalidWorkflowTestEvent();
+  }
   const rule = getAutomationRule(db, user.org_id, ruleId);
   if (!rule) {
     const err = new Error("Workflow rule not found");
@@ -49129,12 +49132,7 @@ function createWorkflowTestEvent(db, user, ruleId, body) {
     throw err;
   }
 
-  const eventType = String(body.eventType || "").trim();
-  if (!eventType) {
-    const err = new Error("eventType is required");
-    err.statusCode = 400;
-    throw err;
-  }
+  const eventType = normalizeWorkflowTestEventText(body, "eventType", { required: true, maxLength: 80 });
   const expectedEventType = workflowTestEventTypeForTrigger(rule.trigger);
   if (eventType !== expectedEventType) {
     const err = new Error(`eventType must be ${expectedEventType} for this workflow rule`);
@@ -49144,8 +49142,8 @@ function createWorkflowTestEvent(db, user, ruleId, body) {
 
   const evaluation = buildWorkflowTestEventEvaluation(db, user, rule, body);
   const guardrails = workflowTestEventGuardrails(rule.action, evaluation);
-  const note = String(body.note || "").trim();
-  const inputPayload = body.payload && typeof body.payload === "object" ? body.payload : {};
+  const note = normalizeWorkflowTestEventText(body, "note", { fallback: "", maxLength: 500 });
+  const inputPayload = normalizeWorkflowTestEventPayload(body);
   const now = new Date().toISOString();
   const testEventId = randomId("workflow-test-event");
   const checksumPayload = {
@@ -49219,6 +49217,45 @@ function createWorkflowTestEvent(db, user, ruleId, body) {
   return { testEvent: getWorkflowTestEvent(db, user.org_id, testEventId) };
 }
 
+function normalizeWorkflowTestEventText(body, field, options = {}) {
+  const { required = false, fallback = "", maxLength = 160 } = options;
+  const hasField = Object.prototype.hasOwnProperty.call(body, field);
+  const value = hasField ? body[field] : undefined;
+  if (value === undefined || value === null || value === "") {
+    if (required) throwInvalidWorkflowTestEvent();
+    return fallback;
+  }
+  if (typeof value !== "string") {
+    throwInvalidWorkflowTestEvent();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidWorkflowTestEvent();
+  }
+  const text = value.trim();
+  if (!text) {
+    if (required) throwInvalidWorkflowTestEvent();
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidWorkflowTestEvent();
+  }
+  return text;
+}
+
+function normalizeWorkflowTestEventPayload(body) {
+  if (!Object.prototype.hasOwnProperty.call(body, "payload")) return {};
+  if (!isPlainObject(body.payload)) {
+    throwInvalidWorkflowTestEvent();
+  }
+  return body.payload;
+}
+
+function throwInvalidWorkflowTestEvent() {
+  const err = new Error("Invalid workflow test event");
+  err.statusCode = 400;
+  throw err;
+}
+
 function buildWorkflowDryRunPreview(db, user, rule, body) {
   if (rule.trigger === "invoice.overdue" && rule.action === "crm.task.create") {
     return buildOverdueInvoiceTaskDryRun(db, user, rule, body);
@@ -49242,15 +49279,21 @@ function buildWorkflowDryRunPreview(db, user, rule, body) {
 
 function buildWorkflowTestEventEvaluation(db, user, rule, body) {
   if (rule.trigger === "invoice.overdue" && rule.action === "crm.task.create") {
-    const subjectType = String(body.subjectType || "invoice").trim();
-    const subjectId = String(body.subjectId || body.invoiceId || "").trim();
+    const subjectType = normalizeWorkflowTestEventText(body, "subjectType", { fallback: "invoice", maxLength: 80 });
+    const invoiceId = Object.prototype.hasOwnProperty.call(body, "invoiceId")
+      ? normalizeWorkflowTestEventText(body, "invoiceId", { fallback: "", maxLength: 160 })
+      : "";
+    const subjectId = Object.prototype.hasOwnProperty.call(body, "subjectId")
+      ? normalizeWorkflowTestEventText(body, "subjectId", { fallback: "", maxLength: 160 })
+      : invoiceId;
+    const customerId = normalizeWorkflowTestEventText(body, "customerId", { fallback: "", maxLength: 120 });
     if (subjectType !== "invoice" || !subjectId) {
       const err = new Error("invoice_overdue test events require invoice subjectType and subjectId");
       err.statusCode = 422;
       throw err;
     }
     const preview = buildOverdueInvoiceTaskDryRun(db, user, rule, {
-      customerId: body.customerId,
+      customerId,
       invoiceId: subjectId
     });
     return {
@@ -49270,13 +49313,13 @@ function buildWorkflowTestEventEvaluation(db, user, rule, body) {
     };
   }
 
-  const customerId = String(body.customerId || "").trim() || null;
+  const customerId = normalizeWorkflowTestEventText(body, "customerId", { fallback: null, maxLength: 120 });
   if (customerId) assertCustomer(db, user.org_id, customerId);
   return {
     status: "matched",
     customerId,
-    subjectType: String(body.subjectType || "test_event").trim(),
-    subjectId: String(body.subjectId || rule.id).trim(),
+    subjectType: normalizeWorkflowTestEventText(body, "subjectType", { fallback: "test_event", maxLength: 80 }),
+    subjectId: normalizeWorkflowTestEventText(body, "subjectId", { fallback: rule.id, maxLength: 160 }),
     result: {
       eventType: workflowTestEventTypeForTrigger(rule.trigger),
       triggerMatched: true,
