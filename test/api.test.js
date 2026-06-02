@@ -1122,6 +1122,124 @@ test("integration connector rejects malformed scopes before mutation", async () 
   });
 });
 
+test("integration connector rejects unsafe evidence text before mutation", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const configured = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "sandbox",
+        endpointUrl: "https://graph.facebook.com/v20.0",
+        secret: "whsec-connector-evidence-valid",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Baseline connector evidence note."
+      }
+    });
+    assert.equal(configured.statusCode, 200, configured.body);
+
+    const health = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/health-check",
+      headers: { cookie },
+      payload: {
+        sampleEvent: "inbound-message",
+        note: "Baseline health evidence note."
+      }
+    });
+    assert.equal(health.statusCode, 200, health.body);
+
+    const configuredAuditBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.configured").count;
+    const healthAuditBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.health_checked").count;
+    const checkCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM integration_connector_checks WHERE connector_key = ?")
+      .get("whatsapp-business").count;
+    const rowBefore = app.db.prepare(`
+      SELECT status, environment, endpoint_url, secret_fingerprint, note, last_health_status, last_health_at
+      FROM integration_connectors
+      WHERE connector_key = ?
+    `).get("whatsapp-business");
+    assert.equal(rowBefore.note, "Baseline connector evidence note.");
+    assert.equal(rowBefore.last_health_status, "ready");
+
+    const invalidConfigureNote = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "production",
+        endpointUrl: "https://graph.facebook.com/v21.0",
+        secret: "whsec-connector-evidence-invalid-note",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: { text: "Object notes must not become connector evidence." }
+      }
+    });
+    assert.equal(invalidConfigureNote.statusCode, 400, invalidConfigureNote.body);
+    assert.match(invalidConfigureNote.body, /note must be a string/);
+
+    const invalidSampleEvent = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/health-check",
+      headers: { cookie },
+      payload: {
+        sampleEvent: "inbound-message\nadmin",
+        note: "Unsafe sample event must not be stored."
+      }
+    });
+    assert.equal(invalidSampleEvent.statusCode, 400, invalidSampleEvent.body);
+    assert.match(invalidSampleEvent.body, /sampleEvent must be a safe string/);
+
+    const invalidHealthNote = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/health-check",
+      headers: { cookie },
+      payload: {
+        sampleEvent: "inbound-message",
+        note: { text: "Object health notes must not become readiness evidence." }
+      }
+    });
+    assert.equal(invalidHealthNote.statusCode, 400, invalidHealthNote.body);
+    assert.match(invalidHealthNote.body, /note must be a string/);
+
+    const rowAfter = app.db.prepare(`
+      SELECT status, environment, endpoint_url, secret_fingerprint, note, last_health_status, last_health_at
+      FROM integration_connectors
+      WHERE connector_key = ?
+    `).get("whatsapp-business");
+    assert.deepEqual(rowAfter, rowBefore);
+    assert.equal(rowAfter.secret_fingerprint === sha256("whsec-connector-evidence-invalid-note").slice(0, 12), false);
+
+    const checkCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM integration_connector_checks WHERE connector_key = ?")
+      .get("whatsapp-business").count;
+    assert.equal(checkCountAfter, checkCountBefore);
+
+    const listed = await app.inject({ method: "GET", url: "/api/integrations/connectors", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    const connector = listed.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(connector.environment, "sandbox");
+    assert.equal(connector.endpointUrl, "https://graph.facebook.com/v20.0");
+    assert.equal(connector.note, "Baseline connector evidence note.");
+    assert.equal(connector.latestCheck.sampleEvent, "inbound-message");
+    assert.equal(connector.latestCheck.note, "Baseline health evidence note.");
+    assert.equal(JSON.stringify(listed.json()).includes("[object Object]"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("inbound-message\\nadmin"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("whsec-connector-evidence-invalid-note"), false);
+
+    const configuredAuditAfter = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.configured").count;
+    const healthAuditAfter = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.health_checked").count;
+    assert.equal(configuredAuditAfter, configuredAuditBefore);
+    assert.equal(healthAuditAfter, healthAuditBefore);
+  });
+});
+
 test("integration connector rejects credentialed endpoint URLs before persistence", async () => {
   await withApp(async app => {
     const cookie = await login(app);

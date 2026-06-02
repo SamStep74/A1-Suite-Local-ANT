@@ -1905,3 +1905,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Rejected scope writes return `400` before mutation, leaving the existing endpoint URL, environment, status, scope list, secret fingerprint, and audit event count unchanged.
 - Added regression coverage proving string scopes and unsafe control-character scope items do not rotate connector secret fingerprints, endpoint URLs, environments, scope evidence, list output, or audit records.
 - Verification for the checkpoint: focused integration connector tests = 5 pass; `test/api.test.js` = 178 pass; `npm test` = 366 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 170 - Integration Connector Evidence Text Guard
+
+- Integration connector configuration and health checks now reject submitted non-string notes, non-string sample events, and control-character evidence text before writing connector or readiness rows.
+- Omitted connector notes continue to preserve existing notes; accepted evidence strings are trimmed, length-limited, and sanitized on output for legacy unsafe rows.
+- Rejected evidence-text writes return `400` before mutation, leaving connector endpoint URL, environment, note, secret fingerprint, last health status, health-check count, and audit event count unchanged.
+- Added regression coverage proving object notes and multiline sample events do not become `[object Object]`, raw control-character readiness evidence, rotated secrets, or extra audit records.
+- Verification for the checkpoint: focused integration connector tests = 6 pass; `test/api.test.js` = 179 pass; `npm test` = 367 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

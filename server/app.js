@@ -6714,7 +6714,7 @@ function configureIntegrationConnector(db, user, connectorKey, body) {
   const endpointUrl = rawEndpointUrl;
   const scopes = normalizeIntegrationConnectorScopes(body, existing ? safeJson(existing.scopes) : []);
   const ownerRole = validateAssignableAppRole(db, user.org_id, body.ownerRole || existing?.owner_role || definition.ownerRole);
-  const note = String(body.note || existing?.note || "").trim().slice(0, 500);
+  const note = normalizeIntegrationConnectorEvidenceText(body, "note", existing?.note || "", 500);
   const connectorId = existing?.id || randomId("integration-connector");
   db.prepare(`
     INSERT INTO integration_connectors (
@@ -6818,6 +6818,29 @@ function normalizeIntegrationConnectorScopes(body, fallback = []) {
   return [...new Set(scopes)].slice(0, 50);
 }
 
+function normalizeIntegrationConnectorEvidenceText(body, field, fallback = "", limit = 500) {
+  if (!Object.prototype.hasOwnProperty.call(body, field)) {
+    return formatIntegrationConnectorEvidenceText(fallback, limit);
+  }
+  if (typeof body[field] !== "string") {
+    const err = new Error(`Integration connector ${field} must be a string`);
+    err.statusCode = 400;
+    throw err;
+  }
+  const text = body[field].trim();
+  if (/[\x00-\x1f\x7f]/.test(text)) {
+    const err = new Error(`Integration connector ${field} must be a safe string`);
+    err.statusCode = 400;
+    throw err;
+  }
+  return text.slice(0, limit);
+}
+
+function formatIntegrationConnectorEvidenceText(value, limit = 500) {
+  const text = String(value || "").trim().slice(0, limit);
+  return /[\x00-\x1f\x7f]/.test(text) ? "" : text;
+}
+
 function runIntegrationConnectorHealthCheck(db, user, connectorKey, body) {
   const connector = getIntegrationConnector(db, user.org_id, connectorKey);
   if (!connector) {
@@ -6825,6 +6848,8 @@ function runIntegrationConnectorHealthCheck(db, user, connectorKey, body) {
     err.statusCode = 404;
     throw err;
   }
+  const sampleEvent = normalizeIntegrationConnectorEvidenceText(body, "sampleEvent", "", 120);
+  const note = normalizeIntegrationConnectorEvidenceText(body, "note", "", 500);
   const missingScopes = connector.requiredScopes.filter(scope => !connector.scopes.includes(scope));
   const checks = [
     { key: "contract-definition", status: "passed", detail: connector.rebuildPolicy },
@@ -6851,8 +6876,8 @@ function runIntegrationConnectorHealthCheck(db, user, connectorKey, body) {
     status,
     JSON.stringify(checks),
     JSON.stringify(missingScopes),
-    String(body.sampleEvent || "").trim().slice(0, 120),
-    String(body.note || "").trim().slice(0, 500),
+    sampleEvent,
+    note,
     user.id,
     now
   );
@@ -6882,8 +6907,8 @@ function runIntegrationConnectorHealthCheck(db, user, connectorKey, body) {
     status,
     checks: JSON.stringify(checks),
     missing_scopes: JSON.stringify(missingScopes),
-    sample_event: String(body.sampleEvent || "").trim().slice(0, 120),
-    note: String(body.note || "").trim().slice(0, 500),
+    sample_event: sampleEvent,
+    note,
     checked_by_user_id: user.id,
     checked_by_name: user.name,
     checked_at: now
@@ -6925,7 +6950,7 @@ function formatIntegrationConnector(row, definition, latestCheck = null) {
     secretFingerprint,
     lastHealthStatus: source.last_health_status || latestCheck?.status || null,
     lastHealthAt: source.last_health_at || latestCheck?.checkedAt || null,
-    note: source.note || "",
+    note: formatIntegrationConnectorEvidenceText(source.note, 500),
     updatedAt: source.updated_at || null,
     latestCheck
   };
@@ -6938,8 +6963,8 @@ function formatIntegrationConnectorCheck(row) {
     status: row.status,
     checks: safeJson(row.checks),
     missingScopes: safeJson(row.missing_scopes),
-    sampleEvent: row.sample_event,
-    note: row.note,
+    sampleEvent: formatIntegrationConnectorEvidenceText(row.sample_event, 120),
+    note: formatIntegrationConnectorEvidenceText(row.note, 500),
     checkedByUserId: row.checked_by_user_id,
     checkedByName: row.checked_by_name,
     checkedAt: row.checked_at
