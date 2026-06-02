@@ -2180,3 +2180,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Rejected malformed forecast updates return `400`, keep submitted payload secrets out of error bodies, leave forecast/suite/audit counts unchanged, and leave an existing forecast row byte-for-byte unchanged.
 - Lead conversion default deal-title generation now keeps no-body conversions valid for CRM or Forms leads with a maximum-length company name by bounding the generated default title to the deal title limit.
 - Verification for the checkpoint: focused CRM conversion/forecast tests = 6 pass; `test/api.test.js` = 201 pass; `npm test` = 399 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 203 - CRM Quote Metadata Guard
+
+- CRM quote creation now rejects missing or non-plain-object request bodies before mutating quote, quote-line, suite-event, or audit state.
+- Submitted customer/deal IDs, titles, valid-until dates, line descriptions, quantities, and unit prices must be structurally safe before they can become commercial quote evidence.
+- Quote valid-until dates must be exact ISO calendar dates, line quantities/prices must be safe positive whole AMD amounts, line arrays are bounded, and legacy `unit_price` inputs remain accepted for compatibility.
+- Quote-release approval requests now reject malformed request bodies and approval notes before creating workflow approvals or release-request evidence, while still allowing omitted notes for normal release requests.
+- Rejected malformed quote requests return `400`, keep submitted payload secrets out of error bodies, leave quotes, quote lines, workflow approvals, suite events, and audit events unchanged, and valid draft quote creation, release approval, public acceptance, and webhooks remain unchanged.
+- Verification for the checkpoint: focused CRM quote tests = 4 pass; `test/api.test.js` = 202 pass; `npm test` = 400 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

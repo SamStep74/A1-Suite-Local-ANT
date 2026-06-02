@@ -2015,14 +2015,14 @@ function registerApi(app, db, options = {}) {
   app.post("/api/crm/quotes", async request => {
     const user = await app.auth(request);
     requireCrmEditor(user);
-    const quote = createCrmQuote(db, user, request.body || {});
+    const quote = createCrmQuote(db, user, request.body);
     return { ok: true, quote, events: getRecentSuiteEvents(db, user.org_id, 8, quote.customerId) };
   });
 
   app.post("/api/crm/quotes/:id/request-approval", async request => {
     const user = await app.auth(request);
     requireCrmEditor(user);
-    const result = requestQuoteReleaseApproval(db, user, request.params.id, request.body || {});
+    const result = requestQuoteReleaseApproval(db, user, request.params.id, request.body === undefined ? {} : request.body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.approval.customerId) };
   });
 
@@ -46604,19 +46604,19 @@ function formatQuote(row, lines = []) {
 }
 
 function createCrmQuote(db, user, body) {
-  const customerId = String(body.customerId || "").trim();
+  const quoteInput = normalizeCrmQuoteInput(body);
+  const customerId = quoteInput.customerId;
   assertCustomer(db, user.org_id, customerId);
-  const dealId = String(body.dealId || "").trim();
+  const dealId = quoteInput.dealId;
   const deal = dealId ? getDeal(db, user.org_id, dealId) : null;
   if (!deal || deal.customerId !== customerId) {
     const err = new Error("Deal is required for quote creation");
     err.statusCode = 422;
     throw err;
   }
-  const title = String(body.title || deal.title || "").trim();
-  const validUntil = String(body.validUntil || "").trim();
-  const lines = normalizeQuoteLines(body.lines || []);
-  if (title.length < 4 || !/^\d{4}-\d{2}-\d{2}$/.test(validUntil) || lines.length === 0) {
+  const title = quoteInput.title || deal.title || "";
+  const { validUntil, lines } = quoteInput;
+  if (title.length < 4 || title.length > 200 || lines.length === 0) {
     const err = new Error("Quote requires title, valid until date, and at least one line");
     err.statusCode = 400;
     throw err;
@@ -46676,20 +46676,144 @@ function createCrmQuote(db, user, body) {
   return getQuote(db, user.org_id, quoteId);
 }
 
-function normalizeQuoteLines(lines) {
-  if (!Array.isArray(lines)) return [];
-  return lines.map((line, index) => {
-    const description = String(line.description || "").trim();
-    const quantity = Math.max(1, Math.round(Number(line.quantity || 1)));
-    const unitPrice = Math.max(0, Math.round(Number(line.unitPrice || line.unit_price || 0)));
-    return {
-      description,
-      quantity,
-      unitPrice,
-      total: quantity * unitPrice,
-      position: index + 1
-    };
-  }).filter(line => line.description.length >= 3 && line.total > 0);
+function normalizeCrmQuoteInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidCrmQuoteMetadata();
+  }
+  return {
+    customerId: normalizeCrmQuoteText(body, "customerId", { required: true, maxLength: 160 }),
+    dealId: normalizeCrmQuoteText(body, "dealId", { required: true, maxLength: 160 }),
+    title: normalizeCrmQuoteText(body, "title", { fallback: "", minLength: 4, maxLength: 200 }),
+    validUntil: normalizeCrmQuoteDate(body, "validUntil"),
+    lines: normalizeCrmQuoteLines(body)
+  };
+}
+
+function normalizeCrmQuoteText(body, field, options = {}) {
+  const { fallback = "", required = false, minLength = 1, maxLength = 200 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidCrmQuoteMetadata("Quote requires title, valid until date, and at least one line");
+    const text = String(fallback || "").trim();
+    if (text && (text.length < minLength || text.length > maxLength || /[\x00-\x1f\x7f]/.test(text))) {
+      throwInvalidCrmQuoteMetadata();
+    }
+    return text;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmQuoteMetadata();
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidCrmQuoteMetadata("Quote requires title, valid until date, and at least one line");
+  }
+  return text;
+}
+
+function normalizeCrmQuoteDate(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "" || value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmQuoteMetadata("Quote requires title, valid until date, and at least one line");
+  }
+  const text = value.trim();
+  if (!isExactIsoDate(text)) {
+    throwInvalidCrmQuoteMetadata("Quote requires title, valid until date, and at least one line");
+  }
+  return text;
+}
+
+function normalizeCrmQuoteLines(body) {
+  const lines = Object.prototype.hasOwnProperty.call(body, "lines") ? body.lines : undefined;
+  if (!Array.isArray(lines) || lines.length === 0 || lines.length > 50) {
+    throwInvalidCrmQuoteMetadata("Quote requires title, valid until date, and at least one line");
+  }
+  return lines.map((line, index) => normalizeCrmQuoteLine(line, index));
+}
+
+function normalizeCrmQuoteLine(line, index) {
+  if (!isPlainObject(line)) {
+    throwInvalidCrmQuoteMetadata();
+  }
+  const description = normalizeCrmQuoteLineText(line, "description", { required: true, minLength: 3, maxLength: 500 });
+  const quantity = normalizeCrmQuoteLineAmount(line, "quantity", { fallback: 1, min: 1, max: 100000 });
+  const unitPrice = normalizeCrmQuoteLineAmount(line, "unitPrice", { altField: "unit_price", required: true, min: 1, max: 1000000000 });
+  const total = quantity * unitPrice;
+  if (!Number.isSafeInteger(total) || total <= 0 || total > 1000000000000) {
+    throwInvalidCrmQuoteMetadata();
+  }
+  return {
+    description,
+    quantity,
+    unitPrice,
+    total,
+    position: index + 1
+  };
+}
+
+function normalizeCrmQuoteLineText(body, field, options = {}) {
+  const { required = false, minLength = 0, maxLength = 500 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidCrmQuoteMetadata("Quote requires title, valid until date, and at least one line");
+    return "";
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmQuoteMetadata();
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidCrmQuoteMetadata("Quote requires title, valid until date, and at least one line");
+  }
+  return text;
+}
+
+function normalizeCrmQuoteLineAmount(body, field, options = {}) {
+  const { altField = "", fallback, required = false, min = 0, max = 1000000000 } = options;
+  let value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined && altField && Object.prototype.hasOwnProperty.call(body, altField)) {
+    value = body[altField];
+  }
+  if (value === undefined || value === "") {
+    if (required) throwInvalidCrmQuoteMetadata("Quote requires title, valid until date, and at least one line");
+    value = fallback;
+  }
+  if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
+    throwInvalidCrmQuoteMetadata();
+  }
+  let amount;
+  if (typeof value === "number") {
+    amount = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidCrmQuoteMetadata();
+    }
+    const text = value.trim();
+    if (!/^\d+$/.test(text)) {
+      throwInvalidCrmQuoteMetadata();
+    }
+    amount = Number(text);
+  } else {
+    throwInvalidCrmQuoteMetadata();
+  }
+  if (!Number.isSafeInteger(amount) || amount < min || amount > max) {
+    throwInvalidCrmQuoteMetadata();
+  }
+  return amount;
+}
+
+function normalizeCrmQuoteReleaseApprovalInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidCrmQuoteMetadata();
+  }
+  return {
+    note: normalizeCrmQuoteText(body, "note", { fallback: "", minLength: 0, maxLength: 1000 })
+  };
+}
+
+function throwInvalidCrmQuoteMetadata(message = "Quote requires safe metadata") {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
 }
 
 function nextQuoteNumber(db, orgId) {
@@ -46709,12 +46833,12 @@ function requestQuoteReleaseApproval(db, user, quoteId, body) {
     err.statusCode = 409;
     throw err;
   }
+  const { note } = normalizeCrmQuoteReleaseApprovalInput(body);
   const existing = getQuoteReleaseApproval(db, user.org_id, quote.id);
   if (existing) return { idempotent: true, approval: existing };
 
   const now = new Date().toISOString();
   const approvalId = `approval-quote-${quote.id.replace(/^quote-/, "")}-release`;
-  const note = String(body.note || "").trim();
   db.prepare(`
     INSERT INTO workflow_approvals (
       id, org_id, rule_id, customer_id, requested_by_user_id, title, action_key,

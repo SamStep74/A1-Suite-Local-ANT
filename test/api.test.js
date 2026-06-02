@@ -17590,6 +17590,145 @@ test("draft CRM quote requires governed approval before public release", async (
   });
 });
 
+test("CRM quote creation and release approval reject malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const salesCookie = await login(app, "sales@armosphera.local");
+    const basePayload = {
+      customerId: "cust-van",
+      dealId: "deal-van-season",
+      title: "Tour booking automation launch",
+      validUntil: "2026-06-30",
+      lines: [
+        { description: "Booking form and WhatsApp follow-up setup", quantity: 1, unitPrice: 480000 },
+        { description: "HayHashvapah invoice handoff checklist", quantity: 1, unitPrice: 240000 }
+      ]
+    };
+    const quoteCounts = () => ({
+      quotes: app.db.prepare("SELECT COUNT(*) AS count FROM quotes").get().count,
+      quoteLines: app.db.prepare("SELECT COUNT(*) AS count FROM quote_lines").get().count,
+      quoteEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.quote.created").count,
+      quoteAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("crm.quote.created").count
+    });
+    const beforeQuotes = quoteCounts();
+    const malformedQuotePayloads = [
+      { ...basePayload, customerId: { value: "cust-van", token: "secret-crm-quote-object-customer-token" } },
+      { ...basePayload, customerId: "cust-van\nsecret-crm-quote-control-customer-token" },
+      { ...basePayload, dealId: ["deal-van-season"], payloadSecret: "secret-crm-quote-array-deal-token" },
+      { ...basePayload, title: { text: "Tour booking", token: "secret-crm-quote-object-title-token" } },
+      { ...basePayload, title: "Tour\nsecret-crm-quote-control-title-token" },
+      { ...basePayload, title: "ABC", payloadSecret: "secret-crm-quote-short-title-token" },
+      { ...basePayload, title: `${"T".repeat(201)}secret-crm-quote-long-title-token` },
+      { ...basePayload, validUntil: ["2026-06-30"], payloadSecret: "secret-crm-quote-array-date-token" },
+      { ...basePayload, validUntil: "2026-06-30\nsecret-crm-quote-control-date-token" },
+      { ...basePayload, validUntil: "2026-02-30", payloadSecret: "secret-crm-quote-impossible-date-token" },
+      { ...basePayload, lines: { description: "secret-crm-quote-object-lines-token" } },
+      { ...basePayload, lines: [] },
+      { ...basePayload, lines: [["secret-crm-quote-array-line-token"]] },
+      { ...basePayload, lines: [{ description: { text: "Setup", token: "secret-crm-quote-object-line-description-token" }, quantity: 1, unitPrice: 480000 }] },
+      { ...basePayload, lines: [{ description: "Setup\nsecret-crm-quote-control-line-description-token", quantity: 1, unitPrice: 480000 }] },
+      { ...basePayload, lines: [{ description: "No", quantity: 1, unitPrice: 480000, payloadSecret: "secret-crm-quote-short-line-token" }] },
+      { ...basePayload, lines: [{ description: "Booking form setup", quantity: { value: 1, token: "secret-crm-quote-object-quantity-token" }, unitPrice: 480000 }] },
+      { ...basePayload, lines: [{ description: "Booking form setup", quantity: "1e3", unitPrice: 480000, payloadSecret: "secret-crm-quote-exponent-quantity-token" }] },
+      { ...basePayload, lines: [{ description: "Booking form setup", quantity: 0, unitPrice: 480000, payloadSecret: "secret-crm-quote-zero-quantity-token" }] },
+      { ...basePayload, lines: [{ description: "Booking form setup", quantity: 1, unitPrice: { amount: 480000, token: "secret-crm-quote-object-price-token" } }] },
+      { ...basePayload, lines: [{ description: "Booking form setup", quantity: 1, unitPrice: "480000\nsecret-crm-quote-control-price-token" }] },
+      { ...basePayload, lines: [{ description: "Booking form setup", quantity: 1, unitPrice: -1, payloadSecret: "secret-crm-quote-negative-price-token" }] },
+      ["secret-crm-quote-array-body-token"]
+    ];
+
+    const rejectedMissingBody = await app.inject({
+      method: "POST",
+      url: "/api/crm/quotes",
+      headers: { cookie: salesCookie }
+    });
+    assert.equal(rejectedMissingBody.statusCode, 400, rejectedMissingBody.body);
+
+    const rejectedNull = await app.inject({
+      method: "POST",
+      url: "/api/crm/quotes",
+      headers: { cookie: salesCookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
+
+    for (const payload of malformedQuotePayloads) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/crm/quotes",
+        headers: { cookie: salesCookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-crm-quote-/);
+    }
+    assert.deepEqual(quoteCounts(), beforeQuotes);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/crm/quotes",
+      headers: { cookie: salesCookie },
+      payload: {
+        ...basePayload,
+        lines: [
+          { description: "Booking form and WhatsApp follow-up setup", quantity: "1", unit_price: "480000" },
+          { description: "HayHashvapah invoice handoff checklist", quantity: 1, unitPrice: 240000 }
+        ]
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const quote = created.json().quote;
+    assert.equal(quote.status, "draft");
+    assert.equal(quote.total, 720000);
+    assert.equal(quote.lines.length, 2);
+    assert.equal(quote.lines[0].unitPrice, 480000);
+
+    const approvalCounts = () => ({
+      approvals: app.db.prepare("SELECT COUNT(*) AS count FROM workflow_approvals WHERE action_key = ?").get("crm.quote.release").count,
+      quoteReleaseEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.quote.release_requested").count,
+      workflowEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("workflow.approval.requested").count,
+      approvalAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("crm.quote.release.requested").count
+    });
+    const beforeApprovals = approvalCounts();
+    const malformedApprovalPayloads = [
+      { note: { text: "Release quote", token: "secret-crm-quote-object-release-note-token" } },
+      { note: ["Release quote"], payloadSecret: "secret-crm-quote-array-release-note-token" },
+      { note: "Release quote\nsecret-crm-quote-control-release-note-token" },
+      { note: `${"N".repeat(1001)}secret-crm-quote-long-release-note-token` },
+      ["secret-crm-quote-array-release-body-token"]
+    ];
+
+    const rejectedNullApproval = await app.inject({
+      method: "POST",
+      url: `/api/crm/quotes/${quote.id}/request-approval`,
+      headers: { cookie: salesCookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.equal(rejectedNullApproval.statusCode, 400, rejectedNullApproval.body);
+
+    for (const payload of malformedApprovalPayloads) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: `/api/crm/quotes/${quote.id}/request-approval`,
+        headers: { cookie: salesCookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-crm-quote-/);
+    }
+    assert.deepEqual(approvalCounts(), beforeApprovals);
+
+    const requested = await app.inject({
+      method: "POST",
+      url: `/api/crm/quotes/${quote.id}/request-approval`,
+      headers: { cookie: salesCookie },
+      payload: { note: "Customer-facing quote should be checked before public release." }
+    });
+    assert.equal(requested.statusCode, 200, requested.body);
+    assert.equal(requested.json().approval.actionKey, "crm.quote.release");
+    assert.equal(requested.json().approval.payload.requestedNote, "Customer-facing quote should be checked before public release.");
+  });
+});
+
 test("public quote acceptance marks deal won and creates finance approval once", async () => {
   await withApp(async app => {
     const accepted = await app.inject({
