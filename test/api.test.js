@@ -731,6 +731,34 @@ test("integration connector rejects credentialed endpoint URLs before persistenc
 
     const persisted = app.db.prepare("SELECT COUNT(*) AS count FROM integration_connectors WHERE endpoint_url = ? OR secret_fingerprint = ?").get(credentialedUrl, sha256("whsec-connector-credentialed").slice(0, 12));
     assert.equal(persisted.count, 0);
+
+    const longCredentialedUrl = `https://${"api-user".repeat(40)}:secret-token@graph.facebook.com/v20.0`;
+    const longResponse = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "sandbox",
+        endpointUrl: longCredentialedUrl,
+        secret: "whsec-connector-long-credentialed",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        note: "Long credentialed connector endpoint URLs must be validated before truncation."
+      }
+    });
+    assert.equal(longResponse.statusCode, 400, longResponse.body);
+    assert.ok(!longResponse.body.includes("api-userapi-user"));
+    assert.ok(!longResponse.body.includes("secret-token"));
+
+    const listedAfterLong = await app.inject({ method: "GET", url: "/api/integrations/connectors", headers: { cookie } });
+    assert.equal(listedAfterLong.statusCode, 200, listedAfterLong.body);
+    const connectorAfterLong = listedAfterLong.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(connectorAfterLong.endpointUrl, "");
+    assert.equal(connectorAfterLong.secretExcluded, false);
+    assert.equal(JSON.stringify(listedAfterLong.json()).includes("api-userapi-user"), false);
+
+    const persistedAfterLong = app.db.prepare("SELECT COUNT(*) AS count FROM integration_connectors WHERE endpoint_url LIKE ? OR secret_fingerprint = ?").get("%api-userapi-user%", sha256("whsec-connector-long-credentialed").slice(0, 12));
+    assert.equal(persistedAfterLong.count, 0);
   });
 });
 
