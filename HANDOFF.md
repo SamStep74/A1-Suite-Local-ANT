@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-02 · main after event-feed and forms-submission read hardening · 37 tags · **353 tests (353 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-02 · main after integration connector credential guard · 37 tags · **354 tests (354 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 33 slices)
+### Hardening (production-readiness pass — 34 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -68,6 +68,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 31. **Evidence payload reader hardening** makes SRC exports, signature evidence packets, privacy export packets, and privacy retention assessments expose full payload/checksum/source-key data only to the matching review roles, while general authenticated suite/list reads receive stable redacted summaries.
 32. **Event feed payload reader hardening** makes `/api/events`, event-returning mutation responses, and `/api/suite` redact sensitive timeline payload keys for non-audit roles while preserving full owner/admin/auditor review evidence.
 33. **Forms submission reader hardening** gates authenticated form definition/submission reads to campaign-enabled roles plus read-only Auditor, preventing Support from reading private intake submissions while preserving public submit behavior.
+34. **Integration connector credential guard** rejects connector endpoint URLs containing username/password userinfo before persistence, keeps credentialed URLs and secrets out of error/list responses, and proves connector records are not written on rejection.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -115,6 +116,7 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
+- Latest integration connector credential guard commit: `d13b092` (`Reject credentialed connector endpoint URLs`), pushed with this handoff.
 - Latest Customer 360 event access policy follow-up commit: `960c598` (`Preserve customer 360 event access policy`), pushed with this handoff.
 - Latest event-feed/forms-submission read hardening commit: `d974869` (`Fix event and form read guard gaps`), pushed with this handoff.
 - Initial event-feed/forms-submission read hardening commit: `09af7c2` (`Harden event and form read access`), pushed with this handoff.
@@ -146,6 +148,7 @@ Current checkpoint:
 - Previous professional source signoff commit: `357e874` (`feat(compliance): require professional source signoff`).
 - Previous production readiness commit: `3fe4f93` (`feat(compliance): add production readiness review gate`).
 - Previous copilot audit commit: `255ed4b` (`test(copilot): cover month-close preview guardrail`).
+- Latest verification from `~/dev/A1-Suite-Local`: connector focused suite `node --test --test-name-pattern "integration connector" test/api.test.js` = 2 pass; `npm test` = 354 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-integration-connector-url-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
 - Verification from `~/dev/A1-Suite-Local`: final Customer 360/event/forms focused suite `node --test --test-name-pattern "support customer 360 redacts|suite event feed redacts sensitive payloads|forms: submission detail blocks non-campaign roles" test/api.test.js test/forms.test.js` = 3 pass; event/forms follow-up focused suite `node --test --test-name-pattern "suite event feed redacts sensitive payloads|forms: submission detail blocks non-campaign roles" test/api.test.js test/forms.test.js` = 2 pass; prior event-feed focused suite `node --test --test-name-pattern "suite event feed redacts sensitive payloads|suite event API appends governed customer timeline events|public quote acceptance marks deal won" test/api.test.js` = 3 pass; prior forms/auditor focused suite `node --test --test-name-pattern "forms: submission detail blocks non-campaign roles|forms: definition CRUD|forms: write-gate|auditor-readonly: the same Auditor CAN still read" test/forms.test.js test/auditor-readonly-coverage.test.js` = 4 pass; `npm test` = 353 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-customer360-followup-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass; `node --check server/app.js && node --check test/api.test.js && node --check test/forms.test.js && git diff --check` = pass. Read-only security-review subagents found and verified closure for authenticated form submission reads available to Support, unoptioned event-returning mutation responses exposing raw payloads, Service Manager form writer/read mismatch, and Owner/Admin Customer 360 over-redaction. The final implementation adds `requireFormsReader` for campaign-enabled and forms-writer roles plus Auditor, defaults unoptioned suite event reads to redacted payloads, directly covers Support mutation responses plus Service Manager Forms read/write behavior, and preserves full Customer 360 timeline payloads for Owner/Admin before the existing Customer 360 role policy redacts non-sensitive roles.
 - Browser/API proof: restarted preview on the current checkout; `/api/health` remains public with `platformTenant.enabled=false` in local mode and 10 modules, and the in-app browser loads `http://127.0.0.1:4178/` with the Armenian A1 Suite login and no console errors. Platform lookup is opt-in, sends the original tenant host in `x-a1-request-host`, respects `ARMOSPHERA_ONE_ALLOW_EGRESS`/allowlist, caches per-host lookups only within the same strict-mode and Platform-token scope, sanitizes Platform error messages, treats bare Platform `401`/`403` statuses as auth failures, keeps non-blocking lookup failures and non-strict `tenant:null` authenticated continuity fail-open, blocks Platform auth failures, strict null tenants, disabled tenants/modules, maintenance responses, rejects cross-host session replay when Platform returns an org mapping, hides public forms/quotes for wrong-host, unmapped-host, non-blocking Platform lookup-failure, or successful Platform `tenant:null` public access, records anonymous public form lead/audit/timeline evidence without human Owner attribution, records public quote acceptance and document signature client IP evidence only from explicit trusted proxy configuration, rejects password login/MFA verification before issuing sessions/cookies for unmapped resolved tenants, revokes bearer-authenticated sessions on logout, rejects stale password-only privileged sessions after MFA activation, throttles public form-page enumeration before DB/render work even when tunnel traffic reaches Fastify as loopback, throttles public form submits and public quote read/accept APIs even when tunnel traffic reaches Fastify as loopback, ignores forwarded headers by default, and uses configured trusted proxy client identity for auth/public rate limits plus public evidence.
 - Live preview for OPPO while the Mac is awake: server bound to `0.0.0.0:4178`; current LAN URL is `http://172.16.100.165:4178/`; current throwaway DB is `/tmp/a1-suite-event-form-ui.sqlite`.
@@ -155,7 +158,7 @@ Current checkpoint:
 `node --test` previously stalled / reported `cancelled` in the OneDrive-synced folder because of filesystem contention around the large `app.js`. The local `~/dev/A1-Suite-Local` checkout is the reliable working tree. If a future run regresses only in a synced/cloud folder, verify from this local checkout before treating it as a code failure. Reliable fallback patterns:
 - **Per-file**: `node --test test/<one>.test.js` (one short invocation).
 - **Clean worktree**: `git worktree add --detach /tmp/run HEAD && ln -s "$PWD/node_modules" /tmp/run/ && cd /tmp/run && node --test test/*.test.js`.
-- Last clean full-suite run from `~/dev/A1-Suite-Local` at `960c598`: **353 tests / 353 pass / 0 fail / 0 cancelled**.
+- Last clean full-suite run from `~/dev/A1-Suite-Local` at `d13b092`: **354 tests / 354 pass / 0 fail / 0 cancelled**.
 
 ---
 

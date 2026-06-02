@@ -1824,3 +1824,10 @@ Status: shipped in the local prototype on 2026-05-28.
 - Campaign-enabled roles and existing forms-writer roles, including Service Manager, can read form definitions and submissions; the read-only Auditor keeps explicit review access; Support is blocked from private intake submissions because Support lacks Campaigns access.
 - Public published-form submission remains unauthenticated, rate-limited, key-whitelisted, and unchanged.
 - Added regression coverage proving Support receives `403` and no submitted email/message content, while Salesperson, Service Manager, and Auditor can still read the submitted form detail.
+
+### Slice 160 - Integration Connector Credential Guard
+
+- Integration connector configuration now rejects endpoint URLs containing username/password userinfo before the connector row is inserted or updated.
+- The rejection path uses a sanitized `400` response that does not echo the full credentialed URL or password material.
+- Failed connector configuration leaves list responses, secret fingerprints, and persisted connector rows unchanged, so credentialed endpoints cannot leak through connector inventory or backup-scoped connector data.
+- Added regression coverage for WhatsApp Business configuration proving the raw credentialed URL and submitted secret fingerprint are absent after rejection.
