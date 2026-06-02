@@ -2034,3 +2034,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted and blank optional bank import text fields still use the current fallback behavior: `Unknown bank`, `AMD`, blank account/description, and `<bank-name>-<date>-<amount>` references.
 - Rejected malformed bank import requests return `400`, keep submitted payload secrets out of error bodies, leave `finance_bank_transactions`, `suite_events`, and `audit_events` unchanged, and do not leak malformed bank evidence into Customer 360 or reconciliation.
 - Verification for the checkpoint: focused bank transaction/payment receipt tests = 6 pass; `test/api.test.js` = 194 pass; `npm test` = 382 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 186 - SRC Export Metadata Guard
+
+- SRC export creation now rejects non-plain-object request bodies before building Armenian SRC accountant-review packets.
+- Submitted `periodKey` values must be real `YYYY-MM` strings, and submitted notes must be safe strings without control characters before they can become packet, checksum, source-key, suite-event, or audit evidence.
+- Omitted and blank optional notes still use the current blank-note fallback, preserving existing export behavior for valid requests.
+- Rejected malformed SRC export requests return `400`, keep submitted payload secrets out of error bodies, leave `finance_src_exports`, `suite_events`, and `audit_events` unchanged, and do not leak malformed export evidence into stored packets.
+- Verification for the checkpoint: focused SRC export/finance tests = 14 pass; `test/api.test.js` = 195 pass; `npm test` = 383 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

@@ -20487,6 +20487,96 @@ test("owner can create idempotent SRC export packet from posted HayHashvapah inv
   });
 });
 
+test("SRC export rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const accountantCookie = await login(app, "accountant@armosphera.local");
+    await reviewVatSource(app, accountantCookie);
+    const draft = await executeDraftInvoice(app, cookie);
+    const posted = await app.inject({
+      method: "POST",
+      url: `/api/finance/draft-invoices/${draft.id}/post`,
+      headers: { cookie },
+      payload: { number: "HHV-SRC-2026-GUARD" }
+    });
+    assert.equal(posted.statusCode, 200, posted.body);
+
+    const exportCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM finance_src_exports
+    `).get().count;
+    const exportSecretCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM finance_src_exports
+      WHERE period_key LIKE ?
+        OR note LIKE ?
+        OR source_key LIKE ?
+        OR payload LIKE ?
+        OR note = ?
+    `).get(
+      "%secret-src-export-%",
+      "%secret-src-export-%",
+      "%secret-src-export-%",
+      "%secret-src-export-%",
+      "[object Object]"
+    ).count;
+    const suiteExportEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE event_type = ?
+    `).get("finance.src_export.created").count;
+    const auditExportEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("finance.src_export.created").count;
+
+    const exportCountBefore = exportCount();
+    const suiteEventCountBefore = suiteExportEventCount();
+    const auditCountBefore = auditExportEventCount();
+    const malformedRequests = [
+      null,
+      { periodKey: null, note: "secret-src-export-null-period-token" },
+      { periodKey: ["2026-05"], note: "secret-src-export-array-period-token" },
+      { periodKey: { key: "2026-05", token: "secret-src-export-object-period-token" } },
+      { periodKey: "2026-05\nsecret-src-export-control-period-token" },
+      { periodKey: "not-a-period-secret-src-export-period-token" },
+      { periodKey: "2026-05", note: null },
+      { periodKey: "2026-05", note: ["Accountant note"] },
+      { periodKey: "2026-05", note: { text: "Accountant note", token: "secret-src-export-object-note-token" } },
+      { periodKey: "2026-05", note: "SRC export\nsecret-src-export-control-note-token" },
+      { periodKey: "2026-05", note: `${"N".repeat(501)}secret-src-export-long-note-token` },
+      ["secret-src-export-array-body-token"]
+    ];
+
+    for (const payload of malformedRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/finance/src-exports",
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-src-export-/);
+    }
+
+    assert.equal(exportCount(), exportCountBefore);
+    assert.equal(exportSecretCount(), 0);
+    assert.equal(suiteExportEventCount(), suiteEventCountBefore);
+    assert.equal(auditExportEventCount(), auditCountBefore);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/finance/src-exports",
+      headers: { cookie },
+      payload: { periodKey: "2026-05", note: "SRC export guard accepted" }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    assert.equal(created.json().export.periodKey, "2026-05");
+    assert.equal(created.json().export.note, "SRC export guard accepted");
+  });
+});
+
 test("closed finance period blocks SRC export packet creation", async () => {
   await withApp(async app => {
     const cookie = await login(app);

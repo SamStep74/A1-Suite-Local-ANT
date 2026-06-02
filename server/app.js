@@ -3416,7 +3416,7 @@ ${controls}
   app.post("/api/finance/src-exports", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const result = createFinanceSrcExport(db, user, request.body || {});
+    const result = createFinanceSrcExport(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8) };
   });
 
@@ -48774,12 +48774,7 @@ function emptyBankMatch(reason) {
 }
 
 function createFinanceSrcExport(db, user, body) {
-  const periodKey = String(body.periodKey || "").trim();
-  if (!/^\d{4}-\d{2}$/.test(periodKey)) {
-    const err = new Error("Valid periodKey is required");
-    err.statusCode = 400;
-    throw err;
-  }
+  const { periodKey, note } = normalizeFinanceSrcExportBody(body);
 
   const period = getFinancePeriod(db, user.org_id, periodKey);
   if (!period || period.status !== "open") {
@@ -48849,7 +48844,7 @@ function createFinanceSrcExport(db, user, body) {
       ...totals
     },
     invoices,
-    note: String(body.note || "").trim(),
+    note,
     disclaimer: "Prepared as an offline packet for accountant review; not submitted to SRC."
   };
   const checksum = crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
@@ -48892,6 +48887,59 @@ function createFinanceSrcExport(db, user, body) {
   audit(db, user.org_id, user.id, "finance.src_export.created", { exportId, periodKey, invoiceCount: invoices.length, total: totals.total });
 
   return { idempotent: false, export: getFinanceSrcExport(db, user.org_id, exportId) };
+}
+
+function normalizeFinanceSrcExportBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidFinanceSrcExport();
+  }
+  return {
+    periodKey: normalizeFinanceSrcExportPeriodKey(body),
+    note: normalizeFinanceSrcExportText(body, "note", { fallback: "", maxLength: 500 })
+  };
+}
+
+function normalizeFinanceSrcExportPeriodKey(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "periodKey") ? body.periodKey : undefined;
+  if (value === undefined || value === "" || value === null || typeof value !== "string") {
+    throwInvalidFinanceSrcExport();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceSrcExport();
+  }
+  const periodKey = value.trim();
+  if (!/^\d{4}-\d{2}$/.test(periodKey)) {
+    throwInvalidFinanceSrcExport();
+  }
+  return periodKey;
+}
+
+function normalizeFinanceSrcExportText(body, field, options = {}) {
+  const { fallback = "", maxLength = 500 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinanceSrcExport();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceSrcExport();
+  }
+  const text = value.trim();
+  if (!text) {
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidFinanceSrcExport();
+  }
+  return text;
+}
+
+function throwInvalidFinanceSrcExport() {
+  const err = new Error("Invalid SRC export");
+  err.statusCode = 400;
+  throw err;
 }
 
 function getPostedInvoicesForSrcExport(db, orgId, periodKey) {
