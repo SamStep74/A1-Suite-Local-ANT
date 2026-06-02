@@ -2115,6 +2115,14 @@ Status: shipped in the local prototype on 2026-05-28.
 
 - Professional legal-source reviews now reject non-plain-object request bodies before mutating maintained legal sources, review rows, suite events, or audit records.
 - Submitted review titles, source URLs, effective dates, statuses, and review notes must be safe strings without control characters before they can become legal-source evidence.
-- Effective dates must be exact ISO calendar dates, source URLs must be HTTP(S), statuses must remain in the legal-source lifecycle enum, and canonical review notes are bounded before storage.
-- Rejected malformed review requests return `400`, keep submitted payload secrets out of error bodies, leave `legal_sources`, `legal_source_reviews`, `suite_events`, and `audit_events` unchanged, while existing host mismatch, HTTPS downgrade, and credentialed URL block-audit behavior remains intact.
-- Verification for the checkpoint: focused legal-source/production-readiness tests = 8 pass; `test/api.test.js` = 197 pass; `npm test` = 392 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+- Effective dates must be exact ISO calendar dates, source URLs must be bounded HTTP(S) URLs without non-default ports, statuses must remain in the legal-source lifecycle enum, and canonical review notes are bounded before storage.
+- Rejected malformed review requests return `400`, keep submitted payload secrets out of error bodies, leave `legal_sources`, `legal_source_reviews`, `suite_events`, and `audit_events` unchanged, while blocked host mismatch, HTTPS downgrade, and credentialed URL evidence now stores only the trusted existing host plus attempted-host hash/match metadata.
+- Verification for the checkpoint: focused admin/legal/production-readiness tests = 9 pass; `test/api.test.js` = 198 pass; `npm test` = 393 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 196 - Admin Evidence Metadata Guard
+
+- Audit export, access review, and tenant backup packet creation now reject non-plain-object request bodies before mutating admin evidence state.
+- Submitted notes, audit export period bounds, and access review periods must be structurally safe before they can become packet or audit evidence.
+- Audit export period bounds must be exact ISO dates or canonical UTC timestamps, access review periods must be `YYYY-Qn` or a real `YYYY-MM`, and malformed values are rejected before packet creation.
+- Rejected malformed admin evidence requests return `400`, keep submitted payload secrets out of error bodies, leave `audit_export_packets`, `access_review_packets`, `tenant_backup_packets`, `suite_events`, and `audit_events` unchanged, and valid packet creation remains unchanged.
+- Verification for the checkpoint: focused admin/legal/production-readiness tests = 9 pass; `test/api.test.js` = 198 pass; `npm test` = 393 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

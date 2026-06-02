@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-02 · main after legal source review metadata guard · 67 tags · **392 tests (392 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-02 · main after admin and legal source metadata guards · 68 tags · **393 tests (393 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 67 slices)
+### Hardening (production-readiness pass — 68 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -49,8 +49,8 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 12. **Copilot citation source links** renders safe HTTP(S) links to the maintained Armenian source URL with a visible host label, fixes reviewed-date display to use `latestReview.createdAt`, and unit-tests malformed/non-HTTP link rejection.
 13. **Legal source host stability** prevents legal-source review records from moving seeded Armenian sources to arbitrary hosts while still allowing same-host path/query/version updates.
 14. **Legal source host block audit** records rejected cross-host review attempts as metadata-only `legal.source.review.blocked` suite/audit events without storing the raw rejected URL or mutating source history.
-15. **Legal source HTTPS downgrade guard** blocks same-host HTTPS-to-HTTP source review updates and records only source id, normalized hosts, protocols, and `scheme-downgrade` reason.
-16. **Legal source credentialed URL guard** rejects source review URLs with username/password userinfo before mutation, records only host/protocol metadata with `url-credentials`, and prevents credentialed legacy citation URLs from rendering as links.
+15. **Legal source HTTPS downgrade guard** blocks same-host HTTPS-to-HTTP source review updates and records only source id, trusted existing host, attempted-host hash/match, protocols, and `scheme-downgrade` reason.
+16. **Legal source credentialed URL guard** rejects source review URLs with username/password userinfo before mutation, records only trusted existing-host/protocol plus attempted-host hash/match metadata with `url-credentials`, and prevents credentialed legacy citation URLs from rendering as links.
 17. **Audit reader gate and legal review note metadata** limits `/api/audit` to Owner/Admin/Auditor, keeps non-reader UI flows from fetching it, and stores only legal-review note hash/length in suite/audit metadata while preserving the canonical review note.
 18. **A1 Platform tenant resolution bridge** optionally resolves Studio tenant context from A1 Platform via `x-a1-request-host`, keeps health public metadata minimal, gates detailed tenant summaries to audit readers, enforces egress/strict/disabled-tenant rules, and blocks cross-host session replay when Platform supplies an org mapping.
 19. **Tenant-bound public forms and quotes** scopes anonymous public form pages/submissions and quote read/acceptance tokens by the resolved A1 Platform tenant org, returning generic `404` responses for wrong-host or unmapped-host access so public callers cannot distinguish foreign tenant resources from missing resources.
@@ -101,7 +101,8 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 64. **Payroll run metadata guard** rejects malformed finance and People-HR payroll run request bodies, gross amounts, dates, employee evidence, and payroll config overrides before persistence, preventing object/array/control-character evidence from entering payroll runs, ledger journal rows, or audit trails.
 65. **People-HR employee metadata and payroll config bounds guard** rejects malformed employee create/update request bodies, names, tax IDs, salaries, dates, status values, and contact fields before persistence, while also bounding payroll override rates, thresholds, and stamp brackets so impossible config evidence cannot enter payroll runs, employee registry rows, or audit trails.
 66. **Payroll preview metadata guard** rejects malformed payroll calculation preview request bodies, gross amounts, effective dates, and bounded config overrides before returning calculations, preventing invalid preview evidence while preserving no-persistence preview behavior.
-67. **Legal source review metadata guard** rejects malformed professional legal-source review request bodies, titles, URLs, effective dates, statuses, and review notes before persistence, preventing object/array/control-character evidence from entering maintained legal sources, review rows, suite events, or audit trails.
+67. **Legal source review metadata guard** rejects malformed professional legal-source review request bodies, titles, URLs, effective dates, statuses, review notes, non-default URL ports, and overlong source URLs before persistence, and keeps rejected host labels out of block metadata while preserving hash/match evidence.
+68. **Admin evidence metadata guard** rejects malformed audit-export, access-review, and tenant-backup request bodies, notes, period bounds, and review periods before persistence, preventing object/array/control-character evidence from entering admin packets or audit trails.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -149,8 +150,8 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest legal source review metadata guard checkpoint: this checkpoint (`Reject malformed legal source reviews`), pushed with this handoff.
-- Latest legal source review metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "legal source review|production readiness" test/api.test.js test/production-readiness.test.js` = 8 pass; `node --test test/api.test.js` = 197 pass, 0 fail; `npm test` = 392 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-legal-source-review-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
+- Latest admin and legal source metadata guard checkpoint: this checkpoint (`Reject malformed admin and legal evidence`), pushed with this handoff.
+- Latest admin and legal source metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "admin evidence packets|legal source review|production readiness" test/api.test.js test/production-readiness.test.js` = 9 pass; `node --test test/api.test.js` = 198 pass, 0 fail; `npm test` = 393 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-admin-legal-evidence-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
 - Previous payroll preview metadata guard commit: `4aa33bf` (`Reject malformed payroll previews`), already pushed before this legal source review handoff.
 - Latest payroll preview metadata guard checkpoint: `4aa33bf` (`Reject malformed payroll previews`), pushed before this handoff.
 - Latest payroll preview metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test test/payroll-endpoints.test.js test/payroll-employee-fk.test.js test/payroll.test.js test/tax-rate-versioning.test.js` = 10 pass; `node --test test/api.test.js` = 196 pass, 0 fail; `npm test` = 391 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-payroll-preview-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/payroll-endpoints.test.js && git diff --check` = pass.

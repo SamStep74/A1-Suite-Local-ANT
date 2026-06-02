@@ -3955,14 +3955,14 @@ ${controls}
   app.post("/api/admin/audit-exports", async request => {
     const user = await app.auth(request);
     requireAuditExportWriter(user);
-    const packet = createAuditExport(db, user, request.body || {});
+    const packet = createAuditExport(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, export: packet };
   });
 
   app.post("/api/admin/access-reviews", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const review = createAccessReview(db, user, request.body || {});
+    const review = createAccessReview(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, review };
   });
 
@@ -3975,7 +3975,7 @@ ${controls}
   app.post("/api/admin/backups", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const backup = createTenantBackup(db, user, request.body || {});
+    const backup = createTenantBackup(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, backup };
   });
 
@@ -4390,8 +4390,7 @@ function publicSessionId(token) {
 
 function createAuditExport(db, user, body) {
   const now = new Date().toISOString();
-  const requestedStart = String(body.periodStart || "").trim();
-  const requestedEnd = String(body.periodEnd || "").trim();
+  const { periodStart: requestedStart, periodEnd: requestedEnd, note } = normalizeAuditExportBody(body);
   const events = getAuditEventsForExport(db, user.org_id, requestedStart, requestedEnd);
   const chain = [];
   let previousHash = "GENESIS";
@@ -4424,7 +4423,6 @@ function createAuditExport(db, user, body) {
   };
   const checksum = sha256Json(payload);
   const exportId = randomId("audit-export");
-  const note = String(body.note || "").trim();
   db.prepare(`
     INSERT INTO audit_export_packets (
       id, org_id, status, period_start, period_end, event_count,
@@ -4459,15 +4457,54 @@ function createAuditExport(db, user, body) {
   return getAuditExport(db, user.org_id, exportId, true);
 }
 
+function normalizeAuditExportBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidAdminEvidenceRequest();
+  }
+  const periodStart = normalizeAdminEvidencePeriodBound(body, "periodStart");
+  const periodEnd = normalizeAdminEvidencePeriodBound(body, "periodEnd");
+  if (periodStart && periodEnd && periodStart > periodEnd) {
+    throwInvalidAdminEvidenceRequest();
+  }
+  const note = normalizeAdminEvidenceText(body, "note", { fallback: "", maxLength: 500 });
+  return { periodStart, periodEnd, note };
+}
+
+function normalizeAdminEvidencePeriodBound(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string") {
+    throwInvalidAdminEvidenceRequest();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidAdminEvidenceRequest();
+  }
+  const text = value.trim();
+  if (!text) return "";
+  if (!isValidAdminEvidenceIsoBound(text)) {
+    throwInvalidAdminEvidenceRequest();
+  }
+  return text;
+}
+
+function isValidAdminEvidenceIsoBound(value) {
+  if (isExactIsoDate(value)) return true;
+  if (!/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(?:\.\d{3})?Z$/.test(value)) return false;
+  const parsed = new Date(value);
+  if (!Number.isFinite(parsed.getTime())) return false;
+  const canonical = parsed.toISOString();
+  return value === canonical || value === canonical.replace(".000Z", "Z");
+}
+
 function getAuditEventsForExport(db, orgId, periodStart, periodEnd) {
   const filters = ["audit_events.org_id = ?"];
   const params = [orgId];
   if (periodStart) {
-    filters.push("created_at >= ?");
+    filters.push("audit_events.created_at >= ?");
     params.push(periodStart);
   }
   if (periodEnd) {
-    filters.push("created_at <= ?");
+    filters.push("audit_events.created_at <= ?");
     params.push(periodEnd);
   }
   return db.prepare(`
@@ -40747,11 +40784,14 @@ function getOrganization(db, orgId) {
 
 function createAccessReview(db, user, body) {
   const now = new Date().toISOString();
+  if (!isPlainObject(body)) {
+    throwInvalidAdminEvidenceRequest();
+  }
   const reviewPeriod = normalizeReviewPeriod(body.reviewPeriod, now);
   const payload = buildAccessReviewPayload(db, user.org_id, reviewPeriod, now);
   const checksum = crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
   const reviewId = randomId("access-review");
-  const note = String(body.note || "").trim();
+  const note = normalizeAdminEvidenceText(body, "note", { fallback: "", maxLength: 500 });
   db.prepare(`
     INSERT INTO access_review_packets (
       id, org_id, status, review_period, checksum, payload,
@@ -40788,8 +40828,19 @@ function createAccessReview(db, user, body) {
 }
 
 function normalizeReviewPeriod(value, nowIso) {
-  const text = String(value || "").trim();
-  if (/^\d{4}-Q[1-4]$/.test(text) || /^\d{4}-\d{2}$/.test(text)) return text;
+  if (value !== undefined && value !== "") {
+    if (value === null || typeof value !== "string") {
+      throwInvalidAdminEvidenceRequest();
+    }
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidAdminEvidenceRequest();
+    }
+    const text = value.trim();
+    if (/^\d{4}-Q[1-4]$/.test(text) || /^\d{4}-(0[1-9]|1[0-2])$/.test(text)) return text;
+    if (text) {
+      throwInvalidAdminEvidenceRequest();
+    }
+  }
   const date = new Date(nowIso);
   const quarter = Math.floor(date.getUTCMonth() / 3) + 1;
   return `${date.getUTCFullYear()}-Q${quarter}`;
@@ -42650,12 +42701,15 @@ function getCrmLeadConversionActivity(db, orgId, leadId) {
 }
 
 function createTenantBackup(db, user, body) {
+  if (!isPlainObject(body)) {
+    throwInvalidAdminEvidenceRequest();
+  }
   const now = new Date().toISOString();
   const payload = buildTenantBackupPayload(db, user.org_id, now);
   const tableCounts = countBackupTables(payload);
   const checksum = crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
   const backupId = randomId("tenant-backup");
-  const note = String(body.note || "").trim();
+  const note = normalizeAdminEvidenceText(body, "note", { fallback: "", maxLength: 500 });
   db.prepare(`
     INSERT INTO tenant_backup_packets (
       id, org_id, status, checksum, payload, table_counts, exclusions,
@@ -42681,6 +42735,36 @@ function createTenantBackup(db, user, body) {
     exclusions: BACKUP_EXCLUSIONS
   });
   return getTenantBackup(db, user.org_id, backupId, true);
+}
+
+function normalizeAdminEvidenceText(body, field, options = {}) {
+  const { fallback = "", required = false, minLength = 0, maxLength = 500 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidAdminEvidenceRequest();
+    const text = String(fallback || "").trim();
+    if (text.length < minLength || text.length > maxLength || /[\x00-\x1f\x7f]/.test(text)) {
+      throwInvalidAdminEvidenceRequest();
+    }
+    return text;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidAdminEvidenceRequest();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidAdminEvidenceRequest();
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidAdminEvidenceRequest();
+  }
+  return text;
+}
+
+function throwInvalidAdminEvidenceRequest() {
+  const err = new Error("Admin evidence request requires safe metadata");
+  err.statusCode = 400;
+  throw err;
 }
 
 function buildTenantBackupPayload(db, orgId, createdAt) {
@@ -44989,7 +45073,7 @@ function normalizeLegalSourceReviewUrl(body, field, fallback) {
   const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
   if (value === undefined || value === "") {
     const url = String(fallback || "").trim();
-    if (!isValidHttpUrl(url)) {
+    if (!isValidLegalSourceReviewUrl(url)) {
       throwInvalidLegalSourceReview();
     }
     return url;
@@ -45001,7 +45085,7 @@ function normalizeLegalSourceReviewUrl(body, field, fallback) {
     throwInvalidLegalSourceReview();
   }
   const url = value.trim();
-  if (!isValidHttpUrl(url)) {
+  if (!isValidLegalSourceReviewUrl(url)) {
     throwInvalidLegalSourceReview();
   }
   return url;
@@ -45046,10 +45130,13 @@ function legalSourceReviewNoteMetadata(reviewNote) {
 }
 
 function recordLegalSourceReviewBlock(db, user, source, attemptedUrl, requestedStatus, requestedEffectiveDate, reason) {
+  const existingHost = normalizedSourceHost(source.source_url);
+  const attemptedHost = normalizedSourceHost(attemptedUrl);
   const details = {
     sourceId: source.id,
-    existingHost: normalizedSourceHost(source.source_url),
-    attemptedHost: normalizedSourceHost(attemptedUrl),
+    existingHost,
+    attemptedHostHash: sourceHostHash(attemptedHost),
+    attemptedHostMatchesExisting: Boolean(existingHost && attemptedHost && existingHost === attemptedHost),
     reason
   };
   if (reason === "scheme-downgrade") {
@@ -45084,10 +45171,24 @@ function isValidHttpUrl(value) {
   }
 }
 
+function isValidLegalSourceReviewUrl(value) {
+  if (!value || value.length > 2048 || !isValidHttpUrl(value)) return false;
+  return !hasExplicitNonDefaultHttpPort(value);
+}
+
+function hasExplicitNonDefaultHttpPort(value) {
+  try {
+    return Boolean(new URL(value).port);
+  } catch {
+    return true;
+  }
+}
+
 function isSameSourceHost(existingUrl, nextUrl) {
   const existingHost = normalizedSourceHost(existingUrl);
   const nextHost = normalizedSourceHost(nextUrl);
-  return Boolean(existingHost && nextHost && existingHost === nextHost);
+  return Boolean(existingHost && nextHost && existingHost === nextHost
+    && normalizedSourcePort(existingUrl) === normalizedSourcePort(nextUrl));
 }
 
 function isSourceSchemeDowngrade(existingUrl, nextUrl) {
@@ -45109,6 +45210,18 @@ function normalizedSourceHost(value) {
   } catch {
     return "";
   }
+}
+
+function normalizedSourcePort(value) {
+  try {
+    return new URL(value).port;
+  } catch {
+    return "";
+  }
+}
+
+function sourceHostHash(host) {
+  return host ? crypto.createHash("sha256").update(host).digest("hex") : "";
 }
 
 function normalizedSourceProtocol(value) {

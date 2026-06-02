@@ -770,6 +770,115 @@ test("owner can create tamper-evident audit export packet for auditor review", a
   });
 });
 
+test("admin evidence packets reject malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const packetCounts = () => ({
+      auditExports: app.db.prepare("SELECT COUNT(*) AS count FROM audit_export_packets WHERE org_id = ?").get("org-armosphera-demo").count,
+      accessReviews: app.db.prepare("SELECT COUNT(*) AS count FROM access_review_packets WHERE org_id = ?").get("org-armosphera-demo").count,
+      backups: app.db.prepare("SELECT COUNT(*) AS count FROM tenant_backup_packets WHERE org_id = ?").get("org-armosphera-demo").count,
+      suiteEvents: app.db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM suite_events
+        WHERE org_id = ?
+          AND event_type = ?
+      `).get("org-armosphera-demo", "admin.access_review.created").count,
+      auditEvents: app.db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM audit_events
+        WHERE org_id = ?
+          AND type IN (?, ?, ?)
+      `).get("org-armosphera-demo", "admin.audit_export.created", "admin.access_review.created", "admin.backup.created").count
+    });
+    const before = packetCounts();
+    const targets = [
+      "/api/admin/audit-exports",
+      "/api/admin/access-reviews",
+      "/api/admin/backups"
+    ];
+    const rejectedNull = async url => {
+      const response = await app.inject({
+        method: "POST",
+        url,
+        headers: { cookie, "content-type": "application/json" },
+        payload: "null"
+      });
+      assert.equal(response.statusCode, 400, response.body);
+      assert.doesNotMatch(response.body, /secret-admin-evidence-/);
+    };
+    const rejected = async (url, payload) => {
+      const response = await app.inject({
+        method: "POST",
+        url,
+        headers: { cookie },
+        payload
+      });
+      assert.equal(response.statusCode, 400, response.body);
+      assert.doesNotMatch(response.body, /secret-admin-evidence-/);
+    };
+
+    for (const url of targets) {
+      await rejectedNull(url);
+      await rejected(url, ["secret-admin-evidence-array-body-token"]);
+      await rejected(url, { note: { value: "Ready", token: "secret-admin-evidence-object-note-token" } });
+      await rejected(url, { note: "Ready\nsecret-admin-evidence-control-note-token" });
+      await rejected(url, { note: `${"N".repeat(501)}secret-admin-evidence-long-note-token` });
+    }
+    await rejected("/api/admin/audit-exports", { periodStart: { value: "2026-06-01", token: "secret-admin-evidence-object-start-token" } });
+    await rejected("/api/admin/audit-exports", { periodStart: "2026-02-30" });
+    await rejected("/api/admin/audit-exports", { periodStart: "2026-06-01\nsecret-admin-evidence-control-start-token" });
+    await rejected("/api/admin/audit-exports", { periodEnd: ["2026-06-30"] });
+    await rejected("/api/admin/audit-exports", { periodStart: "2026-06-30", periodEnd: "2026-06-01" });
+    await rejected("/api/admin/access-reviews", { reviewPeriod: { value: "2026-Q2", token: "secret-admin-evidence-object-period-token" } });
+    await rejected("/api/admin/access-reviews", { reviewPeriod: "2026-Q9" });
+    await rejected("/api/admin/access-reviews", { reviewPeriod: "2026-13" });
+    await rejected("/api/admin/access-reviews", { reviewPeriod: "2026-Q2\nsecret-admin-evidence-control-period-token" });
+
+    assert.deepEqual(packetCounts(), before);
+
+    const auditExport = await app.inject({
+      method: "POST",
+      url: "/api/admin/audit-exports",
+      headers: { cookie },
+      payload: {
+        periodStart: "2026-01-01",
+        periodEnd: "2027-12-31",
+        note: "Owner-created audit export after malformed metadata rejection."
+      }
+    });
+    assert.equal(auditExport.statusCode, 200, auditExport.body);
+    assert.equal(auditExport.json().export.note, "Owner-created audit export after malformed metadata rejection.");
+
+    const accessReview = await app.inject({
+      method: "POST",
+      url: "/api/admin/access-reviews",
+      headers: { cookie },
+      payload: {
+        reviewPeriod: "2026-06",
+        note: "Owner-created access review after malformed metadata rejection."
+      }
+    });
+    assert.equal(accessReview.statusCode, 200, accessReview.body);
+    assert.equal(accessReview.json().review.reviewPeriod, "2026-06");
+
+    const backup = await app.inject({
+      method: "POST",
+      url: "/api/admin/backups",
+      headers: { cookie },
+      payload: { note: "Owner-created backup after malformed metadata rejection." }
+    });
+    assert.equal(backup.statusCode, 200, backup.body);
+    assert.equal(backup.json().backup.note, "Owner-created backup after malformed metadata rejection.");
+
+    const after = packetCounts();
+    assert.equal(after.auditExports, before.auditExports + 1);
+    assert.equal(after.accessReviews, before.accessReviews + 1);
+    assert.equal(after.backups, before.backups + 1);
+    assert.equal(after.suiteEvents, before.suiteEvents + 1);
+    assert.equal(after.auditEvents, before.auditEvents + 3);
+  });
+});
+
 test("owner can configure integration connector contracts without rebuilding commodity apps", async () => {
   await withApp(async app => {
     const ownerCookie = await login(app);
@@ -16781,6 +16890,8 @@ test("legal source review rejects malformed metadata before persistence", async 
       { ...basePayload, sourceUrl: ["https://www.arlis.am/hy/acts/224990"] },
       { ...basePayload, sourceUrl: "https://www.arlis.am/hy/acts/224990\nsecret-legal-review-control-url-token" },
       { ...basePayload, sourceUrl: "ftp://www.arlis.am/hy/acts/224990" },
+      { ...basePayload, sourceUrl: "https://www.arlis.am:4443/hy/acts/224990?secret-legal-review-port-token=1" },
+      { ...basePayload, sourceUrl: `https://www.arlis.am/hy/acts/${"2".repeat(2050)}secret-legal-review-long-url-token` },
       { ...basePayload, effectiveDate: ["2026-05-26"] },
       { ...basePayload, effectiveDate: "2026-05-26\nsecret-legal-review-control-date-token" },
       { ...basePayload, effectiveDate: "2026-02-30" },
@@ -16855,19 +16966,21 @@ test("legal source review keeps reviewed URLs on the existing source host", asyn
     assert.equal(sameHost.statusCode, 200, sameHost.body);
     assert.equal(sameHost.json().source.sourceUrl, "https://arlis.am/hy/acts/224990?reviewed=2026-05-26");
 
+    const blockedUrl = "https://secret-legal-review-host-token.example.com/hy/acts/224990";
     const blocked = await app.inject({
       method: "POST",
       url: "/api/legal/sources/law-tax-code/reviews",
       headers: { cookie },
       payload: {
         title: "RA Tax Code Article 63 VAT rate - wrong host",
-        sourceUrl: "https://example.com/hy/acts/224990",
+        sourceUrl: blockedUrl,
         effectiveDate: "2026-05-27",
         status: "active",
         reviewNote: "A reviewed legal source must not move to an arbitrary host."
       }
     });
-    assert.equal(blocked.statusCode, 400);
+    assert.equal(blocked.statusCode, 400, blocked.body);
+    assert.ok(!blocked.body.includes("secret-legal-review-host-token"));
 
     const blockedTimeline = app.db.prepare("SELECT * FROM suite_events WHERE event_type = ? ORDER BY id DESC LIMIT 1")
       .get("legal.source.review.blocked");
@@ -16878,12 +16991,15 @@ test("legal source review keeps reviewed URLs on the existing source host", asyn
     const blockedPayload = JSON.parse(blockedTimeline.payload);
     assert.equal(blockedPayload.sourceId, "law-tax-code");
     assert.equal(blockedPayload.existingHost, "arlis.am");
-    assert.equal(blockedPayload.attemptedHost, "example.com");
+    assert.equal(blockedPayload.attemptedHost, undefined);
+    assert.match(blockedPayload.attemptedHostHash, /^[a-f0-9]{64}$/);
+    assert.equal(blockedPayload.attemptedHostMatchesExisting, false);
     assert.equal(blockedPayload.reason, "host-mismatch");
     assert.equal(blockedPayload.requestedStatus, "active");
     assert.equal(blockedPayload.requestedEffectiveDate, "2026-05-27");
     assert.equal(blockedPayload.reviewerRole, "Owner");
-    assert.ok(!JSON.stringify(blockedPayload).includes("https://example.com/hy/acts/224990"));
+    assert.ok(!JSON.stringify(blockedPayload).includes(blockedUrl));
+    assert.ok(!JSON.stringify(blockedPayload).includes("secret-legal-review-host-token"));
 
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
     assert.equal(audit.statusCode, 200, audit.body);
@@ -16891,9 +17007,12 @@ test("legal source review keeps reviewed URLs on the existing source host", asyn
     assert.ok(blockedAudit);
     assert.equal(blockedAudit.details.sourceId, "law-tax-code");
     assert.equal(blockedAudit.details.existingHost, "arlis.am");
-    assert.equal(blockedAudit.details.attemptedHost, "example.com");
+    assert.equal(blockedAudit.details.attemptedHost, undefined);
+    assert.match(blockedAudit.details.attemptedHostHash, /^[a-f0-9]{64}$/);
+    assert.equal(blockedAudit.details.attemptedHostMatchesExisting, false);
     assert.equal(blockedAudit.details.reason, "host-mismatch");
-    assert.ok(!JSON.stringify(blockedAudit.details).includes("https://example.com/hy/acts/224990"));
+    assert.ok(!JSON.stringify(blockedAudit.details).includes(blockedUrl));
+    assert.ok(!JSON.stringify(blockedAudit.details).includes("secret-legal-review-host-token"));
 
     const listed = await app.inject({ method: "GET", url: "/api/legal/sources", headers: { cookie } });
     const source = listed.json().sources.find(item => item.id === "law-tax-code");
@@ -16929,7 +17048,9 @@ test("legal source review does not downgrade maintained HTTPS source URLs", asyn
     const blockedPayload = JSON.parse(blockedTimeline.payload);
     assert.equal(blockedPayload.sourceId, "law-tax-code");
     assert.equal(blockedPayload.existingHost, "arlis.am");
-    assert.equal(blockedPayload.attemptedHost, "arlis.am");
+    assert.equal(blockedPayload.attemptedHost, undefined);
+    assert.match(blockedPayload.attemptedHostHash, /^[a-f0-9]{64}$/);
+    assert.equal(blockedPayload.attemptedHostMatchesExisting, true);
     assert.equal(blockedPayload.existingProtocol, "https:");
     assert.equal(blockedPayload.attemptedProtocol, "http:");
     assert.equal(blockedPayload.reason, "scheme-downgrade");
@@ -16945,6 +17066,9 @@ test("legal source review does not downgrade maintained HTTPS source URLs", asyn
     const blockedAudit = audit.json().events.find(event => event.type === "legal.source.review.blocked");
     assert.ok(blockedAudit);
     assert.equal(blockedAudit.details.sourceId, "law-tax-code");
+    assert.equal(blockedAudit.details.attemptedHost, undefined);
+    assert.match(blockedAudit.details.attemptedHostHash, /^[a-f0-9]{64}$/);
+    assert.equal(blockedAudit.details.attemptedHostMatchesExisting, true);
     assert.equal(blockedAudit.details.existingProtocol, "https:");
     assert.equal(blockedAudit.details.attemptedProtocol, "http:");
     assert.equal(blockedAudit.details.reason, "scheme-downgrade");
@@ -16989,7 +17113,9 @@ test("legal source review rejects credentialed source URLs", async () => {
     const blockedPayload = JSON.parse(blockedTimeline.payload);
     assert.equal(blockedPayload.sourceId, "law-tax-code");
     assert.equal(blockedPayload.existingHost, "arlis.am");
-    assert.equal(blockedPayload.attemptedHost, "arlis.am");
+    assert.equal(blockedPayload.attemptedHost, undefined);
+    assert.match(blockedPayload.attemptedHostHash, /^[a-f0-9]{64}$/);
+    assert.equal(blockedPayload.attemptedHostMatchesExisting, true);
     assert.equal(blockedPayload.existingProtocol, "https:");
     assert.equal(blockedPayload.attemptedProtocol, "https:");
     assert.equal(blockedPayload.reason, "url-credentials");
@@ -17009,7 +17135,9 @@ test("legal source review rejects credentialed source URLs", async () => {
     assert.ok(blockedAudit);
     assert.equal(blockedAudit.details.sourceId, "law-tax-code");
     assert.equal(blockedAudit.details.existingHost, "arlis.am");
-    assert.equal(blockedAudit.details.attemptedHost, "arlis.am");
+    assert.equal(blockedAudit.details.attemptedHost, undefined);
+    assert.match(blockedAudit.details.attemptedHostHash, /^[a-f0-9]{64}$/);
+    assert.equal(blockedAudit.details.attemptedHostMatchesExisting, true);
     assert.equal(blockedAudit.details.existingProtocol, "https:");
     assert.equal(blockedAudit.details.attemptedProtocol, "https:");
     assert.equal(blockedAudit.details.reason, "url-credentials");
