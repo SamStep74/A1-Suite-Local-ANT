@@ -103,6 +103,59 @@ test("forms: write-gate (Auditor 403), key-whitelisting, and required-field enfo
   } finally { await app.close(); }
 });
 
+test("forms: submission detail blocks non-campaign roles while preserving auditor read access", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const support = await login(app, "support@armosphera.local", DEFAULT_PASSWORD);
+    const salesperson = await login(app, "sales@armosphera.local", DEFAULT_PASSWORD);
+    const auditor = await login(app, "auditor@armosphera.local", DEFAULT_PASSWORD);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/forms",
+      headers: { cookie: owner },
+      payload: {
+        title: "Private intake",
+        status: "published",
+        fields: [
+          { key: "email", label: "Email", type: "email", required: true },
+          { key: "message", label: "Message", type: "textarea", required: false }
+        ]
+      }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    const formId = created.json().form.id;
+
+    const submitted = await app.inject({
+      method: "POST",
+      url: `/api/forms/${formId}/submit`,
+      payload: { email: "prospect@example.com", message: "private request" }
+    });
+    assert.strictEqual(submitted.statusCode, 200, submitted.body);
+
+    const supportList = await app.inject({ method: "GET", url: "/api/forms", headers: { cookie: support } });
+    assert.strictEqual(supportList.statusCode, 403, supportList.body);
+    assert.ok(!supportList.body.includes("prospect@example.com"));
+    assert.ok(!supportList.body.includes("private request"));
+
+    const supportDetail = await app.inject({ method: "GET", url: `/api/forms/${formId}`, headers: { cookie: support } });
+    assert.strictEqual(supportDetail.statusCode, 403, supportDetail.body);
+    assert.ok(!supportDetail.body.includes("prospect@example.com"));
+    assert.ok(!supportDetail.body.includes("private request"));
+
+    const salesDetail = await app.inject({ method: "GET", url: `/api/forms/${formId}`, headers: { cookie: salesperson } });
+    assert.strictEqual(salesDetail.statusCode, 200, salesDetail.body);
+    assert.strictEqual(salesDetail.json().form.submissions[0].data.email, "prospect@example.com");
+    assert.strictEqual(salesDetail.json().form.submissions[0].data.message, "private request");
+
+    const auditorDetail = await app.inject({ method: "GET", url: `/api/forms/${formId}`, headers: { cookie: auditor } });
+    assert.strictEqual(auditorDetail.statusCode, 200, auditorDetail.body);
+    assert.strictEqual(auditorDetail.json().form.submissions[0].data.email, "prospect@example.com");
+  } finally { await app.close(); }
+});
+
 test("forms: submitting an unknown form id -> 404", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

@@ -338,7 +338,7 @@ function registerApi(app, db, options = {}) {
       user: publicUser(user),
       apps: getAssignedApps(db, user.org_id, user.role),
       kpis: getKpis(db, user.org_id),
-      events: getRecentSuiteEvents(db, user.org_id, 6),
+      events: getRecentSuiteEvents(db, user.org_id, 6, "", eventFeedOptions(user)),
       legalSources: getLegalSources(db, user.org_id),
       localization: localizationChecklist(),
       workflows: workflowMap(),
@@ -2697,12 +2697,14 @@ function registerApi(app, db, options = {}) {
   // intentionally PUBLIC (an outside prospect fills it), scoped to a published form's org.
   app.get("/api/forms", async request => {
     const user = await app.auth(request);
+    requireFormsReader(db, user);
     const forms = db.prepare("SELECT id, title, status, submission_count AS submissionCount, updated_at AS updatedAt FROM forms WHERE org_id = ? ORDER BY updated_at DESC, created_at DESC").all(user.org_id);
     return { forms };
   });
 
   app.get("/api/forms/:id", async request => {
     const user = await app.auth(request);
+    requireFormsReader(db, user);
     const form = getForm(db, user.org_id, request.params.id);
     if (!form) { const e = new Error("Form not found"); e.statusCode = 404; throw e; }
     form.submissions = db.prepare("SELECT id, data, lead_id AS leadId, created_at AS createdAt FROM form_submissions WHERE org_id = ? AND form_id = ? ORDER BY created_at DESC LIMIT 100").all(user.org_id, form.id).map(s => ({ ...s, data: (() => { try { return JSON.parse(s.data); } catch { return {}; } })() }));
@@ -3503,7 +3505,7 @@ ${controls}
     const user = await app.auth(request);
     const limit = Math.min(Number(request.query.limit || 25), 100);
     const customerId = request.query.customerId || "";
-    return { events: getRecentSuiteEvents(db, user.org_id, limit, customerId) };
+    return { events: getRecentSuiteEvents(db, user.org_id, limit, customerId, eventFeedOptions(user)) };
   });
 
   app.post("/api/events", async request => {
@@ -3522,7 +3524,7 @@ ${controls}
       subjectId: event.subjectId,
       customerId: event.customerId
     });
-    return { ok: true, events: getRecentSuiteEvents(db, user.org_id, 10, event.customerId) };
+    return { ok: true, events: getRecentSuiteEvents(db, user.org_id, 10, event.customerId, eventFeedOptions(user)) };
   });
 
   app.get("/api/ai/customer-briefs", async request => {
@@ -4888,6 +4890,13 @@ function requireFormsWriter(user) {
   }
 }
 
+function requireFormsReader(db, user) {
+  if (["Owner", "Admin", "Auditor"].includes(user.role) || hasAppAccess(db, user, "campaigns")) return;
+  const err = new Error("Forms reader role required");
+  err.statusCode = 403;
+  throw err;
+}
+
 function parseFormFields(raw) {
   let fields = [];
   try { fields = JSON.parse(raw || "[]"); } catch { fields = []; }
@@ -4998,6 +5007,10 @@ function legalEvidenceOptions(user) {
 
 function financeEvidenceOptions(user) {
   return { includePayload: ["Owner", "Admin", "Accountant", "Auditor"].includes(user.role) };
+}
+
+function eventFeedOptions(user) {
+  return { includePayload: ["Owner", "Admin", "Auditor"].includes(user.role) };
 }
 
 function requireIntegrationReader(user) {
@@ -43962,7 +43975,7 @@ function redactEventPayload(payload) {
   if (!payload || typeof payload !== "object") return {};
   const safe = {};
   for (const [key, value] of Object.entries(payload)) {
-    if (/amount|currency|email|ip|phone|tax|tin|total|vat/i.test(key)) continue;
+    if (/amount|checksum|currency|email|ip|phone|reference|secret|signer|sourceKey|tax|tin|token|total|vat/i.test(key)) continue;
     safe[key] = typeof value === "object" ? "restricted" : value;
   }
   return safe;
@@ -50270,7 +50283,7 @@ function getProfileSources(db, orgId, profileId) {
   `).all(orgId, profileId).map(source => ({ ...source, authoritative: Boolean(source.authoritative) }));
 }
 
-function getRecentSuiteEvents(db, orgId, limit = 25, customerId = "") {
+function getRecentSuiteEvents(db, orgId, limit = 25, customerId = "", options = {}) {
   const params = [orgId];
   let where = "WHERE suite_events.org_id = ?";
   if (customerId) {
@@ -50286,20 +50299,23 @@ function getRecentSuiteEvents(db, orgId, limit = 25, customerId = "") {
     ${where}
     ORDER BY suite_events.created_at DESC, suite_events.id DESC
     LIMIT ?
-  `).all(...params).map(event => ({
-    id: event.id,
-    orgId: event.org_id,
-    actorUserId: event.actor_user_id,
-    actorName: event.actor_name,
-    eventType: event.event_type,
-    subjectType: event.subject_type,
-    subjectId: event.subject_id,
-    customerId: event.customer_id,
-    customerName: event.customer_name,
-    payload: safeJson(event.payload),
-    status: event.status,
-    createdAt: event.created_at
-  }));
+  `).all(...params).map(event => {
+    const payload = safeJson(event.payload);
+    return {
+      id: event.id,
+      orgId: event.org_id,
+      actorUserId: event.actor_user_id,
+      actorName: event.actor_name,
+      eventType: event.event_type,
+      subjectType: event.subject_type,
+      subjectId: event.subject_id,
+      customerId: event.customer_id,
+      customerName: event.customer_name,
+      payload: options.includePayload === false ? redactEventPayload(payload) : payload,
+      status: event.status,
+      createdAt: event.created_at
+    };
+  });
 }
 
 function localizationChecklist() {

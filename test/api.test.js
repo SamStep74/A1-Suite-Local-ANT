@@ -16907,6 +16907,41 @@ test("suite event API appends governed customer timeline events", async () => {
   });
 });
 
+test("suite event feed redacts sensitive payloads for non-audit roles", async () => {
+  await withApp(async app => {
+    const accepted = await acceptAniQuote(app);
+    assert.equal(accepted.statusCode, 200, accepted.body);
+    const acceptedBody = accepted.json();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+
+    const supportEvents = await app.inject({ method: "GET", url: "/api/events?customerId=cust-ani", headers: { cookie: supportCookie } });
+    assert.equal(supportEvents.statusCode, 200, supportEvents.body);
+    const supportQuoteEvent = supportEvents.json().events.find(event => event.eventType === "crm.quote.accepted");
+    assert.ok(supportQuoteEvent);
+    assert.equal(supportQuoteEvent.payload.quoteNumber, acceptedBody.quote.number);
+    assert.equal(supportQuoteEvent.payload.signerEmail, undefined);
+    assert.equal(supportQuoteEvent.payload.signerName, undefined);
+    assert.equal(supportQuoteEvent.payload.total, undefined);
+    assert.ok(!supportEvents.body.includes("owner@anibeauty.am"));
+
+    const supportSuite = await app.inject({ method: "GET", url: "/api/suite", headers: { cookie: supportCookie } });
+    assert.equal(supportSuite.statusCode, 200, supportSuite.body);
+    const supportSuiteQuoteEvent = supportSuite.json().events.find(event => event.eventType === "crm.quote.accepted");
+    assert.ok(supportSuiteQuoteEvent);
+    assert.equal(supportSuiteQuoteEvent.payload.signerEmail, undefined);
+    assert.equal(supportSuiteQuoteEvent.payload.signerName, undefined);
+    assert.equal(supportSuiteQuoteEvent.payload.total, undefined);
+
+    const ownerEvents = await app.inject({ method: "GET", url: "/api/events?customerId=cust-ani", headers: { cookie: ownerCookie } });
+    assert.equal(ownerEvents.statusCode, 200, ownerEvents.body);
+    const ownerQuoteEvent = ownerEvents.json().events.find(event => event.eventType === "crm.quote.accepted");
+    assert.equal(ownerQuoteEvent.payload.signerEmail, "owner@anibeauty.am");
+    assert.equal(ownerQuoteEvent.payload.signerName, "Ani Owner");
+    assert.equal(ownerQuoteEvent.payload.total, acceptedBody.quote.total);
+  });
+});
+
 test("service console returns SLA queue, knowledge, and approval context", async () => {
   await withApp(async app => {
     const cookie = await login(app);
