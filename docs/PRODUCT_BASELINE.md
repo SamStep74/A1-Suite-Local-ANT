@@ -1978,3 +1978,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Submitted test-event payloads must be plain objects; array-shaped payloads are rejected instead of becoming checksum and audit inputs.
 - Rejected malformed workflow test events return `400`, keep submitted payload secrets out of error bodies, leave `workflow_test_events`, `suite_events`, and `audit_events` unchanged, and do not leak `[object Object]` evidence into test-event lists.
 - Verification for the checkpoint: focused workflow test-event tests = 2 pass; `test/api.test.js` = 187 pass; `npm test` = 375 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 179 - Workflow Dry-Run Metadata Guard
+
+- Workflow dry-run creation now rejects non-plain-object request bodies before evaluating automation previews.
+- Submitted `customerId`, `invoiceId`, and `note` values must be safe strings before they can become matched-subject, preview, checksum, or note evidence.
+- Control-character notes and array-shaped request bodies are rejected instead of becoming dry-run evidence.
+- Rejected malformed workflow dry-runs return `400`, keep submitted payload secrets out of error bodies, leave `workflow_dry_runs`, `suite_events`, and `audit_events` unchanged, and do not leak `[object Object]` evidence into dry-run lists.
+- Verification for the checkpoint: focused workflow dry-run tests = 2 pass; `test/api.test.js` = 188 pass; `npm test` = 376 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

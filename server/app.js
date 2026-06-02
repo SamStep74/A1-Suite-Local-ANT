@@ -3488,14 +3488,16 @@ ${controls}
   app.post("/api/workflow/rules/:id/dry-run", async request => {
     const user = await app.auth(request);
     requireWorkflowOperator(user);
-    const result = createWorkflowDryRun(db, user, request.params.id, request.body || {});
+    const body = request.body === undefined ? {} : request.body;
+    const result = createWorkflowDryRun(db, user, request.params.id, body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.dryRun.customerId) };
   });
 
   app.post("/api/workflow/rules/:id/test-event", async request => {
     const user = await app.auth(request);
     requireWorkflowOperator(user);
-    const result = createWorkflowTestEvent(db, user, request.params.id, request.body || {});
+    const body = request.body === undefined ? {} : request.body;
+    const result = createWorkflowTestEvent(db, user, request.params.id, body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.testEvent.customerId) };
   });
 
@@ -49029,6 +49031,9 @@ function rollbackAutomationRuleVersion(db, user, ruleId, body) {
 }
 
 function createWorkflowDryRun(db, user, ruleId, body) {
+  if (!isPlainObject(body)) {
+    throwInvalidWorkflowDryRun();
+  }
   const rule = getAutomationRule(db, user.org_id, ruleId);
   if (!rule) {
     const err = new Error("Workflow rule not found");
@@ -49057,7 +49062,7 @@ function createWorkflowDryRun(db, user, ruleId, body) {
   const checksum = crypto.createHash("sha256").update(JSON.stringify(checksumPayload)).digest("hex");
   const dryRunId = randomId("workflow-dry-run");
   const sourceKey = `dry-run:${rule.id}:${preview.matchedSubjectType}:${preview.matchedSubjectId}:${Date.parse(now)}`;
-  const note = String(body.note || "").trim();
+  const note = normalizeWorkflowDryRunText(body, "note", { fallback: "", maxLength: 500 });
 
   db.prepare(`
     INSERT INTO workflow_dry_runs (
@@ -49114,6 +49119,44 @@ function createWorkflowDryRun(db, user, ruleId, body) {
   });
 
   return { dryRun: getWorkflowDryRun(db, user.org_id, dryRunId) };
+}
+
+function normalizeWorkflowDryRunText(body, field, options = {}) {
+  const { required = false, fallback = "", maxLength = 160 } = options;
+  const hasField = Object.prototype.hasOwnProperty.call(body, field);
+  const value = hasField ? body[field] : undefined;
+  if (value === undefined) {
+    if (required) throwInvalidWorkflowDryRun();
+    return fallback;
+  }
+  if (value === null) {
+    throwInvalidWorkflowDryRun();
+  }
+  if (value === "") {
+    if (required) throwInvalidWorkflowDryRun();
+    return fallback;
+  }
+  if (typeof value !== "string") {
+    throwInvalidWorkflowDryRun();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidWorkflowDryRun();
+  }
+  const text = value.trim();
+  if (!text) {
+    if (required) throwInvalidWorkflowDryRun();
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidWorkflowDryRun();
+  }
+  return text;
+}
+
+function throwInvalidWorkflowDryRun() {
+  const err = new Error("Invalid workflow dry-run");
+  err.statusCode = 400;
+  throw err;
 }
 
 function createWorkflowTestEvent(db, user, ruleId, body) {
@@ -49221,7 +49264,14 @@ function normalizeWorkflowTestEventText(body, field, options = {}) {
   const { required = false, fallback = "", maxLength = 160 } = options;
   const hasField = Object.prototype.hasOwnProperty.call(body, field);
   const value = hasField ? body[field] : undefined;
-  if (value === undefined || value === null || value === "") {
+  if (value === undefined) {
+    if (required) throwInvalidWorkflowTestEvent();
+    return fallback;
+  }
+  if (value === null) {
+    throwInvalidWorkflowTestEvent();
+  }
+  if (value === "") {
     if (required) throwInvalidWorkflowTestEvent();
     return fallback;
   }
@@ -49260,7 +49310,7 @@ function buildWorkflowDryRunPreview(db, user, rule, body) {
   if (rule.trigger === "invoice.overdue" && rule.action === "crm.task.create") {
     return buildOverdueInvoiceTaskDryRun(db, user, rule, body);
   }
-  const customerId = String(body.customerId || "").trim() || null;
+  const customerId = normalizeWorkflowDryRunText(body, "customerId", { fallback: null, maxLength: 120 });
   if (customerId) assertCustomer(db, user.org_id, customerId);
   return {
     status: "ready",
@@ -49331,8 +49381,8 @@ function buildWorkflowTestEventEvaluation(db, user, rule, body) {
 }
 
 function buildOverdueInvoiceTaskDryRun(db, user, rule, body) {
-  const requestedCustomerId = String(body.customerId || "").trim();
-  const invoiceId = String(body.invoiceId || "").trim();
+  const requestedCustomerId = normalizeWorkflowDryRunText(body, "customerId", { fallback: "", maxLength: 120 });
+  const invoiceId = normalizeWorkflowDryRunText(body, "invoiceId", { fallback: "", maxLength: 160 });
   const invoice = invoiceId
     ? getInvoice(db, user.org_id, invoiceId)
     : getFirstOverdueInvoice(db, user.org_id, requestedCustomerId);

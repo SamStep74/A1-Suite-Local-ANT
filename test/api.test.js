@@ -18958,6 +18958,154 @@ test("workflow dry-run previews overdue invoice action without creating task", a
   });
 });
 
+test("workflow dry-run rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const dryRunCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM workflow_dry_runs").get().count;
+    const suiteEventCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+      .get("workflow.dry_run.created").count;
+    const auditCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("workflow.dry_run.created").count;
+
+    const objectCustomerId = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/dry-run",
+      headers: { cookie },
+      payload: {
+        customerId: { id: "cust-nare" },
+        invoiceId: "inv-1007",
+        note: "Customer object must not become dry-run evidence.",
+        payloadSecret: "secret-workflow-dry-run-customer-token"
+      }
+    });
+    assert.equal(objectCustomerId.statusCode, 400, objectCustomerId.body);
+    assert.equal(objectCustomerId.body.includes("secret-workflow-dry-run-customer-token"), false);
+
+    const objectInvoiceId = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/dry-run",
+      headers: { cookie },
+      payload: {
+        customerId: "cust-nare",
+        invoiceId: { id: "inv-1007" },
+        note: "Invoice object must not become matched subject evidence.",
+        payloadSecret: "secret-workflow-dry-run-invoice-token"
+      }
+    });
+    assert.equal(objectInvoiceId.statusCode, 400, objectInvoiceId.body);
+    assert.equal(objectInvoiceId.body.includes("secret-workflow-dry-run-invoice-token"), false);
+
+    const objectNote = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/dry-run",
+      headers: { cookie },
+      payload: {
+        customerId: "cust-nare",
+        invoiceId: "inv-1007",
+        note: { text: "Object notes must not become dry-run evidence." },
+        payloadSecret: "secret-workflow-dry-run-note-token"
+      }
+    });
+    assert.equal(objectNote.statusCode, 400, objectNote.body);
+    assert.equal(objectNote.body.includes("[object Object]"), false);
+    assert.equal(objectNote.body.includes("secret-workflow-dry-run-note-token"), false);
+
+    const controlNote = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/dry-run",
+      headers: { cookie },
+      payload: {
+        customerId: "cust-nare",
+        invoiceId: "inv-1007",
+        note: "control\nnote",
+        payloadSecret: "secret-workflow-dry-run-control-token"
+      }
+    });
+    assert.equal(controlNote.statusCode, 400, controlNote.body);
+    assert.equal(controlNote.body.includes("secret-workflow-dry-run-control-token"), false);
+
+    const nullBody = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/dry-run",
+      headers: { cookie },
+      payload: null
+    });
+    assert.equal(nullBody.statusCode, 400, nullBody.body);
+
+    const nullCustomerId = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/dry-run",
+      headers: { cookie },
+      payload: {
+        customerId: null,
+        invoiceId: "inv-1007",
+        note: "Null customer ids must not fall back to all customers.",
+        payloadSecret: "secret-workflow-dry-run-null-customer-token"
+      }
+    });
+    assert.equal(nullCustomerId.statusCode, 400, nullCustomerId.body);
+    assert.equal(nullCustomerId.body.includes("secret-workflow-dry-run-null-customer-token"), false);
+
+    const nullInvoiceId = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/dry-run",
+      headers: { cookie },
+      payload: {
+        customerId: "cust-nare",
+        invoiceId: null,
+        note: "Null invoice ids must not fall back to first overdue invoice.",
+        payloadSecret: "secret-workflow-dry-run-null-invoice-token"
+      }
+    });
+    assert.equal(nullInvoiceId.statusCode, 400, nullInvoiceId.body);
+    assert.equal(nullInvoiceId.body.includes("secret-workflow-dry-run-null-invoice-token"), false);
+
+    const nullNote = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/dry-run",
+      headers: { cookie },
+      payload: {
+        customerId: "cust-nare",
+        invoiceId: "inv-1007",
+        note: null,
+        payloadSecret: "secret-workflow-dry-run-null-note-token"
+      }
+    });
+    assert.equal(nullNote.statusCode, 400, nullNote.body);
+    assert.equal(nullNote.body.includes("secret-workflow-dry-run-null-note-token"), false);
+
+    const arrayBody = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/dry-run",
+      headers: { cookie },
+      payload: ["cust-nare", "inv-1007", "secret-workflow-dry-run-array-token"]
+    });
+    assert.equal(arrayBody.statusCode, 400, arrayBody.body);
+    assert.equal(arrayBody.body.includes("secret-workflow-dry-run-array-token"), false);
+
+    const dryRunCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM workflow_dry_runs").get().count;
+    assert.equal(dryRunCountAfter, dryRunCountBefore);
+    const suiteEventCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+      .get("workflow.dry_run.created").count;
+    assert.equal(suiteEventCountAfter, suiteEventCountBefore);
+    const auditCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("workflow.dry_run.created").count;
+    assert.equal(auditCountAfter, auditCountBefore);
+
+    const listed = await app.inject({ method: "GET", url: "/api/workflow/dry-runs?customerId=cust-nare", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    assert.equal(listed.body.includes("[object Object]"), false);
+    assert.equal(listed.body.includes("secret-workflow-dry-run-customer-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-dry-run-invoice-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-dry-run-note-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-dry-run-control-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-dry-run-null-customer-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-dry-run-null-invoice-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-dry-run-null-note-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-dry-run-array-token"), false);
+  });
+});
+
 test("workflow test-event validates trigger payload without mutating records", async () => {
   await withApp(async app => {
     const ownerCookie = await login(app);
@@ -19153,6 +19301,53 @@ test("workflow test-event rejects malformed metadata and payload before persiste
     assert.equal(objectNote.statusCode, 400, objectNote.body);
     assert.equal(objectNote.body.includes("[object Object]"), false);
 
+    const nullNote = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/test-event",
+      headers: { cookie: serviceManagerCookie },
+      payload: {
+        eventType: "invoice_overdue",
+        customerId: "cust-nare",
+        subjectType: "invoice",
+        subjectId: "inv-1007",
+        payload: { token: "secret-workflow-null-note-token" },
+        note: null
+      }
+    });
+    assert.equal(nullNote.statusCode, 400, nullNote.body);
+    assert.equal(nullNote.body.includes("secret-workflow-null-note-token"), false);
+
+    const nullInvoiceId = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/test-event",
+      headers: { cookie: serviceManagerCookie },
+      payload: {
+        eventType: "invoice_overdue",
+        customerId: "cust-nare",
+        subjectType: "invoice",
+        subjectId: "inv-1007",
+        invoiceId: null,
+        payload: { token: "secret-workflow-null-invoice-id-token" }
+      }
+    });
+    assert.equal(nullInvoiceId.statusCode, 400, nullInvoiceId.body);
+    assert.equal(nullInvoiceId.body.includes("secret-workflow-null-invoice-id-token"), false);
+
+    const nullFallbackMetadata = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-won-invoice/test-event",
+      headers: { cookie: serviceManagerCookie },
+      payload: {
+        eventType: "deal_stage_changed",
+        customerId: null,
+        subjectType: null,
+        subjectId: null,
+        payload: { token: "secret-workflow-null-fallback-token" }
+      }
+    });
+    assert.equal(nullFallbackMetadata.statusCode, 400, nullFallbackMetadata.body);
+    assert.equal(nullFallbackMetadata.body.includes("secret-workflow-null-fallback-token"), false);
+
     const arrayBody = await app.inject({
       method: "POST",
       url: "/api/workflow/rules/rule-overdue-task/test-event",
@@ -19179,6 +19374,9 @@ test("workflow test-event rejects malformed metadata and payload before persiste
     assert.equal(listed.body.includes("secret-workflow-invoice-id-token"), false);
     assert.equal(listed.body.includes("secret-workflow-control-event-token"), false);
     assert.equal(listed.body.includes("secret-workflow-array-payload-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-null-note-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-null-invoice-id-token"), false);
+    assert.equal(listed.body.includes("secret-workflow-null-fallback-token"), false);
     assert.equal(listed.body.includes("secret-workflow-array-body-token"), false);
   });
 });
