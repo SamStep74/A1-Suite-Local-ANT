@@ -85,7 +85,7 @@ async function api(path, options = {}) {
   return data;
 }
 
-const SUITE_APP_IDS = ["crm", "finance", "copilot", "desk", "campaigns", "projects", "people", "docs", "analytics", "flow"];
+const SUITE_APP_IDS = ["crm", "finance", "copilot", "desk", "campaigns", "projects", "people", "docs", "analytics", "flow", "forms"];
 
 function appIdFromLocation(pathname = window.location.pathname) {
   const match = String(pathname || "").match(/^\/app\/([^/?#]+)/);
@@ -264,13 +264,19 @@ function App() {
         setCrmQuotes(null);
         setCrmActivities(null);
       }
-      if ((data.apps || []).some(app => app.id === "campaigns")) {
+      const assignedApps = new Set((data.apps || []).map(app => app.id));
+      const hasCampaigns = assignedApps.has("campaigns");
+      const hasForms = assignedApps.has("forms");
+      if (hasCampaigns) {
         const campaignData = await loadOr(null, () => api("/api/campaigns/performance"));
         setCampaignPerformance(campaignData);
+      } else {
+        setCampaignPerformance(null);
+      }
+      if (hasCampaigns || hasForms) {
         const formsData = await loadOr(null, () => api("/api/forms"));
         setForms(formsData);
       } else {
-        setCampaignPerformance(null);
         setForms(null);
       }
       if ((data.apps || []).some(app => app.id === "analytics")) {
@@ -3947,7 +3953,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           )}
           {forms && (
             <>
-              <div className="suite-app-anchor">
+              <div id="suite-app-forms" className="suite-app-anchor">
                 <FormsRegistryPanel
                   data={forms}
                   canWrite={["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role)}
