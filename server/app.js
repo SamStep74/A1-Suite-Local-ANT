@@ -3664,7 +3664,7 @@ ${controls}
       customer,
       profile,
       profileSources: profile ? getProfileSources(db, user.org_id, profile.id) : [],
-      timeline: getRecentSuiteEvents(db, user.org_id, 12, customer.id),
+      timeline: getRecentSuiteEvents(db, user.org_id, 12, customer.id, { includePayload: true }),
       crm: {
         deals,
         quotes,

@@ -15038,6 +15038,9 @@ test("support customer 360 redacts tax, finance, privacy, and legal payload fiel
     });
     assert.equal(created.statusCode, 200, created.body);
     const approvalId = created.json().approval.id;
+    const accepted = await acceptAniQuote(app);
+    assert.equal(accepted.statusCode, 200, accepted.body);
+    const acceptedBody = accepted.json();
     await app.inject({
       method: "POST",
       url: `/api/workflow/approvals/${approvalId}/decision`,
@@ -15070,6 +15073,14 @@ test("support customer 360 redacts tax, finance, privacy, and legal payload fiel
     assert.equal(body.privacy.exportPackets[0].payload, null);
     assert.equal(body.privacy.exportPackets[0].checksum, "restricted");
     assert.ok(body.timeline.every(event => !event.payload || event.payload.total === undefined));
+
+    const ownerCustomer360 = await app.inject({ method: "GET", url: "/api/customer-360/cust-ani", headers: { cookie: ownerCookie } });
+    assert.equal(ownerCustomer360.statusCode, 200, ownerCustomer360.body);
+    const ownerQuoteEvent = ownerCustomer360.json().timeline.find(event => event.eventType === "crm.quote.accepted");
+    assert.ok(ownerQuoteEvent);
+    assert.equal(ownerQuoteEvent.payload.signerEmail, "owner@anibeauty.am");
+    assert.equal(ownerQuoteEvent.payload.signerName, "Ani Owner");
+    assert.equal(ownerQuoteEvent.payload.total, acceptedBody.quote.total);
 
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: ownerCookie } });
     assert.ok(audit.json().events.some(event => event.type === "customer360.sensitive_fields.redacted" && event.details.customerId === "cust-ani" && event.details.role === "Support"));
