@@ -1917,7 +1917,15 @@ Status: shipped in the local prototype on 2026-05-28.
 ### Slice 171 - Integration Connector Secret Guard
 
 - Integration connector configuration now validates submitted `secret` values before hashing them into connector credential fingerprints.
-- Omitted and blank submitted secrets continue to preserve the existing fingerprint; non-empty submitted secrets must be strings without control characters.
+- Omitted and blank submitted secrets continue to preserve the existing fingerprint; non-empty submitted secrets must be strings up to 4096 characters without control characters.
 - Rejected secret writes return `400` before mutation, leaving endpoint URL, environment, owner role, note, scopes, secret hash/fingerprint, and audit event count unchanged.
 - Added regression coverage proving object secrets and multiline secrets do not become `[object Object]`-derived fingerprints, malformed credential hashes, list output, or extra configuration audit records.
 - Verification for the checkpoint: focused integration connector tests = 7 pass; `test/api.test.js` = 180 pass; `npm test` = 368 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 172 - Integration Connector Endpoint URL Guard
+
+- Integration connector configuration now rejects non-string submitted `endpointUrl` values before URL safety validation.
+- Omitted endpoint URLs continue to preserve and sanitize existing connector URLs; submitted endpoint URLs must be strings before they can be accepted as routing evidence.
+- Rejected endpoint URL writes return `400` before mutation, leaving endpoint URL, environment, owner role, note, scopes, secret hash/fingerprint, and audit event count unchanged.
+- Added regression coverage proving array and object endpoint URLs do not coerce into connector targets, rotate secrets, appear in connector inventory, or emit extra configuration audit records.
+- Verification for the checkpoint: focused integration connector tests = 8 pass; `test/api.test.js` = 181 pass; `npm test` = 369 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

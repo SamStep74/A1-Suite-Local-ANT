@@ -6702,7 +6702,7 @@ function configureIntegrationConnector(db, user, connectorKey, body) {
   const secretFingerprint = secretHash ? secretHash.slice(0, 12) : "";
   const status = normalizeIntegrationConnectorChoice(body, "status", INTEGRATION_CONNECTOR_STATUSES, existing?.status || "planned");
   const environment = normalizeIntegrationConnectorChoice(body, "environment", INTEGRATION_CONNECTOR_ENVIRONMENTS, existing?.environment || "sandbox");
-  const rawEndpointUrl = String(body.endpointUrl || existing?.endpoint_url || "").trim();
+  const rawEndpointUrl = normalizeIntegrationConnectorEndpointUrl(body, existing?.endpoint_url || "");
   if (rawEndpointUrl && !isSafeIntegrationConnectorEndpointUrl(rawEndpointUrl)) {
     const err = new Error("Integration connector endpoint URL must be HTTP(S), under 260 characters, and must not include credentials");
     err.statusCode = 400;
@@ -6832,6 +6832,18 @@ function normalizeIntegrationConnectorSecretHash(body, fallbackHash = "") {
     throw err;
   }
   return crypto.createHash("sha256").update(secret).digest("hex");
+}
+
+function normalizeIntegrationConnectorEndpointUrl(body, fallback = "") {
+  if (!Object.prototype.hasOwnProperty.call(body, "endpointUrl")) {
+    return formatIntegrationConnectorEndpointUrl(fallback);
+  }
+  if (typeof body.endpointUrl !== "string") {
+    const err = new Error("Integration connector endpoint URL must be a string");
+    err.statusCode = 400;
+    throw err;
+  }
+  return body.endpointUrl.trim();
 }
 
 function normalizeIntegrationConnectorEvidenceText(body, field, fallback = "", limit = 500) {

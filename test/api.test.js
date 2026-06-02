@@ -1328,6 +1328,94 @@ test("integration connector rejects malformed secrets before mutation", async ()
   });
 });
 
+test("integration connector rejects malformed endpoint URL values before mutation", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const configured = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "sandbox",
+        endpointUrl: "https://graph.facebook.com/v20.0",
+        secret: "whsec-connector-endpoint-valid",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Baseline connector endpoint URL."
+      }
+    });
+    assert.equal(configured.statusCode, 200, configured.body);
+
+    const auditCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.configured").count;
+    const rowBefore = app.db.prepare(`
+      SELECT status, environment, endpoint_url, secret_hash, secret_fingerprint, scopes, owner_role, note
+      FROM integration_connectors
+      WHERE connector_key = ?
+    `).get("whatsapp-business");
+    assert.equal(rowBefore.endpoint_url, "https://graph.facebook.com/v20.0");
+    assert.equal(rowBefore.secret_fingerprint, sha256("whsec-connector-endpoint-valid").slice(0, 12));
+
+    const arrayEndpoint = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "production",
+        endpointUrl: ["https://graph.facebook.com/v21.0"],
+        secret: "whsec-connector-endpoint-array",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Array endpoint URL must not be coerced into a connector target."
+      }
+    });
+    assert.equal(arrayEndpoint.statusCode, 400, arrayEndpoint.body);
+    assert.match(arrayEndpoint.body, /endpoint URL must be a string/);
+
+    const objectEndpoint = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "production",
+        endpointUrl: { href: "https://graph.facebook.com/v22.0" },
+        secret: "whsec-connector-endpoint-object",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Object endpoint URL must not become connector routing evidence."
+      }
+    });
+    assert.equal(objectEndpoint.statusCode, 400, objectEndpoint.body);
+    assert.match(objectEndpoint.body, /endpoint URL must be a string/);
+
+    const rowAfter = app.db.prepare(`
+      SELECT status, environment, endpoint_url, secret_hash, secret_fingerprint, scopes, owner_role, note
+      FROM integration_connectors
+      WHERE connector_key = ?
+    `).get("whatsapp-business");
+    assert.deepEqual(rowAfter, rowBefore);
+    assert.equal(rowAfter.secret_fingerprint === sha256("whsec-connector-endpoint-array").slice(0, 12), false);
+    assert.equal(rowAfter.secret_fingerprint === sha256("whsec-connector-endpoint-object").slice(0, 12), false);
+
+    const listed = await app.inject({ method: "GET", url: "/api/integrations/connectors", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    const connector = listed.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(connector.environment, "sandbox");
+    assert.equal(connector.endpointUrl, "https://graph.facebook.com/v20.0");
+    assert.equal(connector.secretFingerprint, sha256("whsec-connector-endpoint-valid").slice(0, 12));
+    assert.equal(JSON.stringify(listed.json()).includes("v21.0"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("v22.0"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("whsec-connector-endpoint"), false);
+
+    const auditCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.configured").count;
+    assert.equal(auditCountAfter, auditCountBefore);
+  });
+});
+
 test("integration connector rejects credentialed endpoint URLs before persistence", async () => {
   await withApp(async app => {
     const cookie = await login(app);
