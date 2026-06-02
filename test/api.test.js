@@ -3455,6 +3455,30 @@ test("sales can hand off paid pilot offer into governed CRM quote release", asyn
     });
     assert.equal(supportDenied.statusCode, 403);
 
+    const quoteHandoffCounts = () => ({
+      quotes: app.db.prepare("SELECT COUNT(*) AS count FROM quotes").get().count,
+      quoteLines: app.db.prepare("SELECT COUNT(*) AS count FROM quote_lines").get().count,
+      approvals: app.db.prepare("SELECT COUNT(*) AS count FROM workflow_approvals WHERE action_key = ?").get("crm.quote.release").count,
+      handoffs: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_offer_quote_handoff_packets").get().count,
+      quoteEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.quote.created").count,
+      releaseEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.quote.release_requested").count,
+      quoteAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("crm.quote.created").count,
+      releaseAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("crm.quote.release.requested").count
+    });
+    const beforeMalformedHandoff = quoteHandoffCounts();
+    const malformedHandoff = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/paid-offers/${offer.id}/quote-handoff`,
+      headers: { cookie: salespersonCookie },
+      payload: {
+        dealId: "deal-nare-retainer",
+        note: `${"N".repeat(1001)}secret-pilot-quote-handoff-long-note-token`
+      }
+    });
+    assert.equal(malformedHandoff.statusCode, 400, malformedHandoff.body);
+    assert.doesNotMatch(malformedHandoff.body, /secret-pilot-quote-handoff-/);
+    assert.deepEqual(quoteHandoffCounts(), beforeMalformedHandoff);
+
     const created = await app.inject({
       method: "POST",
       url: `/api/pilots/clinic-wellness/paid-offers/${offer.id}/quote-handoff`,
@@ -17785,6 +17809,107 @@ test("public quote acceptance marks deal won and creates finance approval once",
 
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
     assert.ok(audit.json().events.some(event => event.type === "crm.quote.accepted"));
+  });
+});
+
+test("public quote acceptance rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const token = "public-quote-ani-inbox-token";
+    const counts = () => ({
+      acceptances: app.db.prepare("SELECT COUNT(*) AS count FROM quote_acceptances").get().count,
+      financeApprovals: app.db.prepare("SELECT COUNT(*) AS count FROM workflow_approvals WHERE action_key = ?").get("finance.invoice.propose").count,
+      quoteAcceptedEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.quote.accepted").count,
+      dealWonEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.deal.won").count,
+      workflowEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("workflow.approval.requested").count,
+      quoteAcceptedAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("crm.quote.accepted").count,
+      webhookDeliveries: app.db.prepare("SELECT COUNT(*) AS count FROM webhook_deliveries").get().count
+    });
+    const quoteRow = () => app.db.prepare(`
+      SELECT status, accepted_at AS acceptedAt
+      FROM quotes
+      WHERE org_id = ? AND public_token = ?
+    `).get("org-armosphera-demo", token);
+    const dealRow = () => app.db.prepare(`
+      SELECT stage, probability, next_step AS nextStep
+      FROM deals
+      WHERE org_id = ? AND id = ?
+    `).get("org-armosphera-demo", "deal-ani-inbox");
+    const beforeCounts = counts();
+    const beforeQuote = quoteRow();
+    const beforeDeal = dealRow();
+    const basePayload = {
+      signerName: "Ani Owner",
+      signerEmail: "owner@anibeauty.am",
+      acceptedAt: "2026-05-26"
+    };
+    const malformedPayloads = [
+      { ...basePayload, signerName: { value: "Ani Owner", token: "secret-public-quote-accept-object-name-token" } },
+      { ...basePayload, signerName: "Ani\nsecret-public-quote-accept-control-name-token" },
+      { ...basePayload, signerName: "A", payloadSecret: "secret-public-quote-accept-short-name-token" },
+      { ...basePayload, signerName: `${"N".repeat(161)}secret-public-quote-accept-long-name-token` },
+      { ...basePayload, signerEmail: ["owner@anibeauty.am"], payloadSecret: "secret-public-quote-accept-array-email-token" },
+      { ...basePayload, signerEmail: "owner@anibeauty.am\nsecret-public-quote-accept-control-email-token" },
+      { ...basePayload, signerEmail: "not-an-email-secret-public-quote-accept-email-token" },
+      { ...basePayload, acceptedAt: { date: "2026-05-26", token: "secret-public-quote-accept-object-date-token" } },
+      { ...basePayload, acceptedAt: "2026-05-26\nsecret-public-quote-accept-control-date-token" },
+      { ...basePayload, acceptedAt: "2026-02-30", payloadSecret: "secret-public-quote-accept-impossible-date-token" },
+      ["secret-public-quote-accept-array-body-token"]
+    ];
+
+    const rejectedMissingBody = await app.inject({
+      method: "POST",
+      url: `/api/public/quotes/${token}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress()
+    });
+    assert.equal(rejectedMissingBody.statusCode, 400, rejectedMissingBody.body);
+
+    const rejectedNull = await app.inject({
+      method: "POST",
+      url: `/api/public/quotes/${token}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
+      headers: { "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
+
+    for (const payload of malformedPayloads) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: `/api/public/quotes/${token}/accept`,
+        remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-public-quote-accept-/);
+    }
+
+    assert.deepEqual(counts(), beforeCounts);
+    assert.deepEqual(quoteRow(), beforeQuote);
+    assert.deepEqual(dealRow(), beforeDeal);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: `/api/public/quotes/${token}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
+      payload: basePayload
+    });
+    assert.equal(accepted.statusCode, 200, accepted.body);
+    assert.equal(accepted.json().quote.status, "accepted");
+    assert.equal(accepted.json().acceptance.signerName, "Ani Owner");
+    assert.equal(accepted.json().acceptance.signerEmail, "owner@anibeauty.am");
+
+    const persistedAcceptance = app.db.prepare("SELECT * FROM quote_acceptances WHERE quote_id = ?").get("quote-ani-inbox");
+    const afterValidCounts = counts();
+    const rejectedExisting = await app.inject({
+      method: "POST",
+      url: `/api/public/quotes/${token}/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
+      payload: { ...basePayload, signerEmail: ["secret-public-quote-accept-existing-email-token"] }
+    });
+    assert.equal(rejectedExisting.statusCode, 400, rejectedExisting.body);
+    assert.doesNotMatch(rejectedExisting.body, /secret-public-quote-accept-/);
+    assert.deepEqual(app.db.prepare("SELECT * FROM quote_acceptances WHERE quote_id = ?").get("quote-ani-inbox"), persistedAcceptance);
+    assert.deepEqual(counts(), afterValidCounts);
   });
 });
 

@@ -3382,7 +3382,7 @@ ${controls}
       err.statusCode = 404;
       throw err;
     }
-    return { ok: true, ...(await acceptPublicQuote(db, quote, request.body || {}, { headers: request.headers, ip: client.ip })) };
+    return { ok: true, ...(await acceptPublicQuote(db, quote, request.body, { headers: request.headers, ip: client.ip })) };
   });
 
   app.post("/api/finance/periods/:periodKey/close", async request => {
@@ -9843,6 +9843,7 @@ function createClinicWellnessOfferQuoteHandoff(db, user, offerIdParam, body) {
     err.statusCode = 422;
     throw err;
   }
+  const approvalNote = normalizeCrmQuoteReleaseApprovalNoteForHandoff(body, "Release the paid pilot quote after owner review.");
   const validUntil = normalizeIsoDate(body.validUntil || offer.validUntil, "validUntil");
   const quote = createCrmQuote(db, user, {
     customerId: offer.customerId,
@@ -9851,9 +9852,7 @@ function createClinicWellnessOfferQuoteHandoff(db, user, offerIdParam, body) {
     validUntil,
     lines: buildPilotOfferQuoteLines(offer)
   });
-  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, {
-    note: String(body.note || "Release the paid pilot quote after owner review.").trim()
-  });
+  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, { note: approvalNote });
   const approval = approvalResult.approval;
   const now = new Date().toISOString();
   const note = String(body.note || "").trim().slice(0, 500);
@@ -11530,6 +11529,7 @@ function createClinicWellnessRenewalQuoteHandoff(db, user, closeoutPacketIdParam
     throw err;
   }
 
+  const approvalNote = normalizeCrmQuoteReleaseApprovalNoteForHandoff(body, "Release the monthly renewal quote after owner review.");
   const validUntil = normalizeIsoDate(
     body.validUntil || closeout.renewalDueDate || addDays(closeout.closeoutDate || armeniaDateString(), 14),
     "validUntil"
@@ -11541,9 +11541,7 @@ function createClinicWellnessRenewalQuoteHandoff(db, user, closeoutPacketIdParam
     validUntil,
     lines: buildPilotRenewalQuoteLines(db, user.org_id, closeout)
   });
-  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, {
-    note: String(body.note || "Release the monthly renewal quote after owner review.").trim()
-  });
+  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, { note: approvalNote });
   const approval = approvalResult.approval;
   const now = new Date().toISOString();
   const note = String(body.note || "").trim().slice(0, 500);
@@ -13430,6 +13428,7 @@ function createClinicWellnessNextRenewalQuoteHandoff(db, user, renewalCloseoutPa
     throw err;
   }
 
+  const approvalNote = normalizeCrmQuoteReleaseApprovalNoteForHandoff(body, "Release the next monthly renewal quote after owner review.");
   const validUntil = normalizeIsoDate(
     body.validUntil || addDays(closeout.nextRenewalDueDate || closeout.closeoutDate || armeniaDateString(), 14),
     "validUntil"
@@ -13441,9 +13440,7 @@ function createClinicWellnessNextRenewalQuoteHandoff(db, user, renewalCloseoutPa
     validUntil,
     lines: buildPilotNextRenewalQuoteLines(closeout)
   });
-  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, {
-    note: String(body.note || "Release the next monthly renewal quote after owner review.").trim()
-  });
+  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, { note: approvalNote });
   const approval = approvalResult.approval;
   const now = new Date().toISOString();
   const note = String(body.note || "").trim().slice(0, 500);
@@ -15628,6 +15625,7 @@ function createClinicWellnessFollowingRenewalQuoteHandoff(db, user, nextRenewalC
     throw err;
   }
 
+  const approvalNote = normalizeCrmQuoteReleaseApprovalNoteForHandoff(body, "Release the following monthly renewal quote after owner review.");
   const validUntil = normalizeIsoDate(
     body.validUntil || addDays(closeout.followingRenewalDueDate || closeout.closeoutDate || armeniaDateString(), 14),
     "validUntil"
@@ -15639,9 +15637,7 @@ function createClinicWellnessFollowingRenewalQuoteHandoff(db, user, nextRenewalC
     validUntil,
     lines: buildPilotFollowingRenewalQuoteLines(closeout)
   });
-  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, {
-    note: String(body.note || "Release the following monthly renewal quote after owner review.").trim()
-  });
+  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, { note: approvalNote });
   const approval = approvalResult.approval;
   const now = new Date().toISOString();
   const note = String(body.note || "").trim().slice(0, 500);
@@ -18126,6 +18122,7 @@ function createClinicWellnessSubsequentRenewalQuoteHandoff(db, user, followingRe
     throw err;
   }
 
+  const approvalNote = normalizeCrmQuoteReleaseApprovalNoteForHandoff(body, "Release the subsequent monthly renewal quote after owner review.");
   const validUntil = normalizeIsoDate(
     body.validUntil || addDays(closeout.subsequentRenewalDueDate || closeout.closeoutDate || armeniaDateString(), 14),
     "validUntil"
@@ -18137,9 +18134,7 @@ function createClinicWellnessSubsequentRenewalQuoteHandoff(db, user, followingRe
     validUntil,
     lines: buildPilotSubsequentRenewalQuoteLines(closeout)
   });
-  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, {
-    note: String(body.note || "Release the subsequent monthly renewal quote after owner review.").trim()
-  });
+  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, { note: approvalNote });
   const approval = approvalResult.approval;
   const now = new Date().toISOString();
   const note = String(body.note || "").trim().slice(0, 500);
@@ -20993,6 +20988,7 @@ function createClinicWellnessContinuationRenewalQuoteHandoff(db, user, subsequen
     throw err;
   }
 
+  const approvalNote = normalizeCrmQuoteReleaseApprovalNoteForHandoff(body, "Release the continuation monthly renewal quote after owner review.");
   const validUntil = normalizeIsoDate(
     body.validUntil || addDays(closeout.continuationRenewalDueDate || closeout.closeoutDate || armeniaDateString(), 14),
     "validUntil"
@@ -21004,9 +21000,7 @@ function createClinicWellnessContinuationRenewalQuoteHandoff(db, user, subsequen
     validUntil,
     lines: buildPilotContinuationRenewalQuoteLines(closeout)
   });
-  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, {
-    note: String(body.note || "Release the continuation monthly renewal quote after owner review.").trim()
-  });
+  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, { note: approvalNote });
   const approval = approvalResult.approval;
   const now = new Date().toISOString();
   const note = String(body.note || "").trim().slice(0, 500);
@@ -24372,6 +24366,7 @@ function createClinicWellnessOngoingRenewalQuoteHandoff(db, user, continuationRe
     throw err;
   }
 
+  const approvalNote = normalizeCrmQuoteReleaseApprovalNoteForHandoff(body, "Release the ongoing monthly renewal quote after owner review.");
   const validUntil = normalizeIsoDate(
     body.validUntil || addDays(closeout.ongoingRenewalDueDate || closeout.closeoutDate || armeniaDateString(), 14),
     "validUntil"
@@ -24383,9 +24378,7 @@ function createClinicWellnessOngoingRenewalQuoteHandoff(db, user, continuationRe
     validUntil,
     lines: buildPilotOngoingRenewalQuoteLines(closeout)
   });
-  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, {
-    note: String(body.note || "Release the ongoing monthly renewal quote after owner review.").trim()
-  });
+  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, { note: approvalNote });
   const approval = approvalResult.approval;
   const now = new Date().toISOString();
   const note = String(body.note || "").trim().slice(0, 500);
@@ -27689,6 +27682,7 @@ function createClinicWellnessNextOngoingRenewalQuoteHandoff(db, user, ongoingRen
     throw err;
   }
 
+  const approvalNote = normalizeCrmQuoteReleaseApprovalNoteForHandoff(body, "Release the next ongoing monthly renewal quote after owner review.");
   const validUntil = normalizeIsoDate(
     body.validUntil || addDays(closeout.nextOngoingRenewalDueDate || closeout.closeoutDate || armeniaDateString(), 14),
     "validUntil"
@@ -27700,9 +27694,7 @@ function createClinicWellnessNextOngoingRenewalQuoteHandoff(db, user, ongoingRen
     validUntil,
     lines: buildPilotNextOngoingRenewalQuoteLines(closeout)
   });
-  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, {
-    note: String(body.note || "Release the next ongoing monthly renewal quote after owner review.").trim()
-  });
+  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, { note: approvalNote });
   const approval = approvalResult.approval;
   const now = new Date().toISOString();
   const note = String(body.note || "").trim().slice(0, 500);
@@ -31292,6 +31284,7 @@ function createClinicWellnessFollowingOngoingRenewalQuoteHandoff(db, user, nextO
     throw err;
   }
 
+  const approvalNote = normalizeCrmQuoteReleaseApprovalNoteForHandoff(body, "Release the following ongoing monthly renewal quote after owner review.");
   const validUntil = normalizeIsoDate(
     body.validUntil || addDays(closeout.followingOngoingRenewalDueDate || closeout.closeoutDate || armeniaDateString(), 14),
     "validUntil"
@@ -31303,9 +31296,7 @@ function createClinicWellnessFollowingOngoingRenewalQuoteHandoff(db, user, nextO
     validUntil,
     lines: buildPilotFollowingOngoingRenewalQuoteLines(closeout)
   });
-  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, {
-    note: String(body.note || "Release the following ongoing monthly renewal quote after owner review.").trim()
-  });
+  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, { note: approvalNote });
   const approval = approvalResult.approval;
   const now = new Date().toISOString();
   const note = String(body.note || "").trim().slice(0, 500);
@@ -34443,6 +34434,7 @@ function createClinicWellnessSubsequentOngoingRenewalQuoteHandoff(db, user, foll
     throw err;
   }
 
+  const approvalNote = normalizeCrmQuoteReleaseApprovalNoteForHandoff(body, "Release the subsequent ongoing monthly renewal quote after owner review.");
   const validUntil = normalizeIsoDate(
     body.validUntil || addDays(closeout.subsequentOngoingRenewalDueDate || closeout.closeoutDate || armeniaDateString(), 14),
     "validUntil"
@@ -34454,9 +34446,7 @@ function createClinicWellnessSubsequentOngoingRenewalQuoteHandoff(db, user, foll
     validUntil,
     lines: buildPilotSubsequentOngoingRenewalQuoteLines(closeout)
   });
-  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, {
-    note: String(body.note || "Release the subsequent ongoing monthly renewal quote after owner review.").trim()
-  });
+  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, { note: approvalNote });
   const approval = approvalResult.approval;
   const now = new Date().toISOString();
   const note = String(body.note || "").trim().slice(0, 500);
@@ -37611,6 +37601,7 @@ function createClinicWellnessNextRecurringOngoingRenewalQuoteHandoff(db, user, s
     throw err;
   }
 
+  const approvalNote = normalizeCrmQuoteReleaseApprovalNoteForHandoff(body, "Release the next recurring ongoing monthly renewal quote after owner review.");
   const validUntil = normalizeIsoDate(
     body.validUntil || addDays(closeout.nextRecurringOngoingRenewalDueDate || closeout.closeoutDate || armeniaDateString(), 14),
     "validUntil"
@@ -37622,9 +37613,7 @@ function createClinicWellnessNextRecurringOngoingRenewalQuoteHandoff(db, user, s
     validUntil,
     lines: buildPilotNextRecurringOngoingRenewalQuoteLines(closeout)
   });
-  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, {
-    note: String(body.note || "Release the next recurring ongoing monthly renewal quote after owner review.").trim()
-  });
+  const approvalResult = requestQuoteReleaseApproval(db, user, quote.id, { note: approvalNote });
   const approval = approvalResult.approval;
   const now = new Date().toISOString();
   const note = String(body.note || "").trim().slice(0, 500);
@@ -46810,6 +46799,14 @@ function normalizeCrmQuoteReleaseApprovalInput(body) {
   };
 }
 
+function normalizeCrmQuoteReleaseApprovalNoteForHandoff(body, fallback) {
+  const input = body === undefined ? {} : body;
+  if (!isPlainObject(input)) {
+    throwInvalidCrmQuoteMetadata();
+  }
+  return normalizeCrmQuoteText(input, "note", { fallback, minLength: 0, maxLength: 1000 });
+}
+
 function throwInvalidCrmQuoteMetadata(message = "Quote requires safe metadata") {
   const err = new Error(message);
   err.statusCode = 400;
@@ -47413,6 +47410,7 @@ async function acceptPublicQuote(db, publicQuote, body, evidence = {}) {
   const forwardedIp = String(headers["x-forwarded-for"] || headers["x-real-ip"] || "").split(",")[0].trim();
   const quote = publicQuote.quote;
   const orgId = publicQuote.organization.id;
+  const acceptanceInput = normalizePublicQuoteAcceptanceInput(body);
   const existingAcceptance = getQuoteAcceptanceByQuote(db, orgId, quote.id);
   if (existingAcceptance) {
     return {
@@ -47431,17 +47429,9 @@ async function acceptPublicQuote(db, publicQuote, body, evidence = {}) {
     throw err;
   }
 
-  const signerName = String(body.signerName || "").trim();
-  const signerEmail = String(body.signerEmail || "").trim();
-  if (signerName.length < 2 || !signerEmail.includes("@")) {
-    const err = new Error("Signer name and email are required");
-    err.statusCode = 400;
-    throw err;
-  }
-
   const now = new Date().toISOString();
-  const acceptedAt = /^\d{4}-\d{2}-\d{2}$/.test(body.acceptedAt || "")
-    ? `${body.acceptedAt}T12:00:00.000Z`
+  const acceptedAt = acceptanceInput.acceptedAt
+    ? `${acceptanceInput.acceptedAt}T12:00:00.000Z`
     : now;
   const acceptanceId = randomId("quote-acceptance");
   db.prepare(`
@@ -47456,8 +47446,8 @@ async function acceptPublicQuote(db, publicQuote, body, evidence = {}) {
     quote.id,
     quote.customerId,
     quote.dealId,
-    signerName,
-    signerEmail,
+    acceptanceInput.signerName,
+    acceptanceInput.signerEmail,
     acceptedAt,
     (directIp || forwardedIp).slice(0, 64),
     String(headers["user-agent"] || ""),
@@ -47476,7 +47466,7 @@ async function acceptPublicQuote(db, publicQuote, body, evidence = {}) {
     subjectId: quote.id,
     customerId: quote.customerId,
     status: "accepted",
-    payload: { quoteNumber: quote.number, signerName, signerEmail, total: quote.total }
+    payload: { quoteNumber: quote.number, signerName: acceptanceInput.signerName, signerEmail: acceptanceInput.signerEmail, total: quote.total }
   });
   emitSuiteEvent(db, {
     orgId,
@@ -47487,7 +47477,7 @@ async function acceptPublicQuote(db, publicQuote, body, evidence = {}) {
     status: "won",
     payload: { quoteId: quote.id, total: quote.total, approvalId: approval.id }
   });
-  audit(db, orgId, null, "crm.quote.accepted", { quoteId: quote.id, dealId: quote.dealId, signerEmail });
+  audit(db, orgId, null, "crm.quote.accepted", { quoteId: quote.id, dealId: quote.dealId, signerEmail: acceptanceInput.signerEmail });
 
   const acceptedQuote = getQuote(db, orgId, quote.id);
   const wonDeal = getDeal(db, orgId, quote.dealId);
@@ -47514,6 +47504,61 @@ async function acceptPublicQuote(db, publicQuote, body, evidence = {}) {
     approval: releasedApproval,
     events: getRecentSuiteEvents(db, orgId, 8, quote.customerId)
   };
+}
+
+function normalizePublicQuoteAcceptanceInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidPublicQuoteAcceptanceMetadata();
+  }
+  return {
+    signerName: normalizePublicQuoteAcceptanceText(body, "signerName", { required: true, minLength: 2, maxLength: 160 }),
+    signerEmail: normalizePublicQuoteAcceptanceEmail(body),
+    acceptedAt: normalizePublicQuoteAcceptanceDate(body, "acceptedAt")
+  };
+}
+
+function normalizePublicQuoteAcceptanceText(body, field, options = {}) {
+  const { required = false, minLength = 0, maxLength = 160 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidPublicQuoteAcceptanceMetadata("Signer name and email are required");
+    return "";
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidPublicQuoteAcceptanceMetadata();
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidPublicQuoteAcceptanceMetadata("Signer name and email are required");
+  }
+  return text;
+}
+
+function normalizePublicQuoteAcceptanceEmail(body) {
+  const email = normalizePublicQuoteAcceptanceText(body, "signerEmail", { required: true, minLength: 3, maxLength: 160 }).toLowerCase();
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+    throwInvalidPublicQuoteAcceptanceMetadata("Signer name and email are required");
+  }
+  return email;
+}
+
+function normalizePublicQuoteAcceptanceDate(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidPublicQuoteAcceptanceMetadata();
+  }
+  const text = value.trim();
+  if (!isExactIsoDate(text)) {
+    throwInvalidPublicQuoteAcceptanceMetadata();
+  }
+  return text;
+}
+
+function throwInvalidPublicQuoteAcceptanceMetadata(message = "Quote acceptance requires safe metadata") {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
 }
 
 function ensureQuoteFinanceApproval(db, orgId, quote, acceptedAt) {

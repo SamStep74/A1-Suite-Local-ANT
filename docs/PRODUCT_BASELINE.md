@@ -2189,3 +2189,13 @@ Status: shipped in the local prototype on 2026-05-28.
 - Quote-release approval requests now reject malformed request bodies and approval notes before creating workflow approvals or release-request evidence, while still allowing omitted notes for normal release requests.
 - Rejected malformed quote requests return `400`, keep submitted payload secrets out of error bodies, leave quotes, quote lines, workflow approvals, suite events, and audit events unchanged, and valid draft quote creation, release approval, public acceptance, and webhooks remain unchanged.
 - Verification for the checkpoint: focused CRM quote tests = 4 pass; `test/api.test.js` = 202 pass; `npm test` = 400 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 204 - Public Quote Acceptance Metadata Guard
+
+- Public quote acceptance now rejects missing or non-plain-object request bodies before mutating quote acceptance, deal, finance approval, suite-event, audit, or webhook state.
+- Submitted signer names, signer emails, and optional acceptance dates must be structurally safe before they can become public acceptance, Customer 360, Docs & Sign, finance handoff, or webhook evidence.
+- Signer emails must keep their email shape, signer names must meet bounded text limits, and accepted-at dates remain optional but must be exact ISO calendar dates when supplied.
+- Malformed repeat acceptances are rejected before idempotent acceptance responses, preserving the existing acceptance row and event counts instead of treating unsafe follow-up evidence as valid.
+- Internal pilot quote handoffs now prevalidate quote-release approval notes before creating CRM quote drafts, preventing malformed approval notes from orphaning quote/quote-line rows without workflow approval or handoff evidence.
+- Rejected malformed public acceptance and pilot quote-handoff requests return `400`, keep submitted payload secrets out of error bodies, leave quote/deal state, quote acceptances, quote drafts, quote lines, finance approvals, workflow approvals, suite events, audit events, and webhook deliveries unchanged, and valid acceptance, omitted accepted-at fallback, public quote rate limiting, trusted-proxy acceptance evidence, signed quote packets, quote/deal webhooks, and pilot quote handoff remain unchanged.
+- Verification for the checkpoint: focused public quote acceptance/Docs tests = 5 pass; public quote rate-limit/evidence tests = 11 pass; `test/api.test.js` = 203 pass; `npm test` = 401 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
