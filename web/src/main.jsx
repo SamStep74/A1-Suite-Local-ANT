@@ -85,6 +85,18 @@ async function api(path, options = {}) {
   return data;
 }
 
+const SUITE_APP_IDS = ["crm", "finance", "copilot", "desk", "campaigns", "projects", "people", "docs", "analytics", "flow"];
+
+function appIdFromLocation(pathname = window.location.pathname) {
+  const match = String(pathname || "").match(/^\/app\/([^/?#]+)/);
+  const appId = match ? decodeURIComponent(match[1]) : "";
+  return SUITE_APP_IDS.includes(appId) ? appId : "crm";
+}
+
+function appRoute(appId) {
+  return `/app/${encodeURIComponent(appId)}`;
+}
+
 function App() {
   const [session, setSession] = useState(null);
   const [suite, setSuite] = useState(null);
@@ -200,8 +212,23 @@ function App() {
   const [adminSessions, setAdminSessions] = useState(null);
   const [adminAuditExports, setAdminAuditExports] = useState([]);
   const [productionReadiness, setProductionReadiness] = useState(null);
-  const [selectedApp, setSelectedApp] = useState("crm");
+  const [selectedApp, setSelectedApp] = useState(() => appIdFromLocation());
   const [loading, setLoading] = useState(true);
+
+  useEffect(() => {
+    const handlePopState = () => setSelectedApp(appIdFromLocation());
+    window.addEventListener("popstate", handlePopState);
+    return () => window.removeEventListener("popstate", handlePopState);
+  }, []);
+
+  function selectApp(appId) {
+    const nextAppId = SUITE_APP_IDS.includes(appId) ? appId : "crm";
+    setSelectedApp(nextAppId);
+    const nextRoute = appRoute(nextAppId);
+    if (window.location.pathname !== nextRoute) {
+      window.history.pushState({ selectedApp: nextAppId }, "", nextRoute);
+    }
+  }
 
   async function load() {
     setLoading(true);
@@ -209,6 +236,7 @@ function App() {
       const data = await api("/api/suite");
       setSession(data.user);
       setSuite(data);
+      setSelectedApp(current => (data.apps || []).some(app => app.id === current) ? current : (data.apps?.[0]?.id || "crm"));
       const firstCustomer = await loadOr(null, () => api("/api/customer-360/cust-nare"));
       setCustomer360(firstCustomer);
       const roleDashboardData = await loadOr(null, () => api("/api/analytics/role-dashboard"));
@@ -834,7 +862,7 @@ function App() {
       adminAuditExports={adminAuditExports}
       productionReadiness={productionReadiness}
       selectedApp={selectedApp}
-      onSelectApp={setSelectedApp}
+      onSelectApp={selectApp}
       onSuiteEvents={events => setSuite(current => current ? { ...current, events } : current)}
       onAuditEvents={setAudit}
       onReload={load}
@@ -993,11 +1021,24 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     pilotNextRecurringOngoingRenewalCloseouts,
   } = pilot;
   const selected = suite.apps.find(app => app.id === selectedApp) || suite.apps[0];
+  function openApp(appId) {
+    onSelectApp(appId);
+    window.requestAnimationFrame(() => {
+      const target = document.getElementById(`suite-app-${appId}`) || document.querySelector(".workspace");
+      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+    });
+  }
   const [actionState, setActionState] = useState("");
   // Shared sink for failed mutations: any handler's catch can push the server's error message
   // here, and the workspace renders ONE dismissable banner — so a failed create/bill/sign/run
   // is never silently swallowed. (Read-only loadOr fetches still degrade to empty panels.)
   const [actionError, setActionError] = useState("");
+  useEffect(() => {
+    if (!selected?.id || window.location.pathname !== appRoute(selected.id)) return;
+    window.requestAnimationFrame(() => {
+      document.getElementById(`suite-app-${selected.id}`)?.scrollIntoView({ block: "start" });
+    });
+  }, [selected?.id]);
   function reportActionError(err) {
     const message = (err && err.message) ? String(err.message) : "Գործողությունը չհաջողվեց";
     setActionError(message);
@@ -3713,7 +3754,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
             <button
               key={app.id}
               className={app.id === selected?.id ? "active" : ""}
-              onClick={() => onSelectApp(app.id)}
+              onClick={() => openApp(app.id)}
               title={app.description}
             >
               <span className="nav-icon">{app.name.slice(0, 1)}</span>
@@ -3747,7 +3788,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
         </section>
 
         <section className="control-row">
-          <SelectedApp app={selected} />
+          <SelectedApp app={selected} onOpen={openApp} />
           <WorkflowStrip workflows={suite.workflows} />
         </section>
 
@@ -3772,24 +3813,28 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
         <ProductionReadinessPanel data={productionReadiness} />
 
         <section className="content-grid">
-          <Customer360
-            data={customer360}
-            actionState={actionState}
-            onAskLegal={askLegalGuidance}
-            onRecordPromise={recordPaymentPromise}
-            onSendReminder={sendCollectionReminder}
-            onRecordPayment={recordCollectionPayment}
-            onImportBankTransaction={importBankTransaction}
-            onReconcileBankTransaction={reconcileBankTransaction}
-            onGenerateBrief={suite.user.role === "Owner" ? generateCustomerBrief : null}
-          />
-          <CopilotPanel
-            customers={(serviceConsole && serviceConsole.customers) || []}
-            docs={docs}
-            people={people}
-            onAsk={askCopilot}
-            actionState={actionState}
-          />
+          <div id="suite-app-crm" className="suite-app-anchor">
+            <Customer360
+              data={customer360}
+              actionState={actionState}
+              onAskLegal={askLegalGuidance}
+              onRecordPromise={recordPaymentPromise}
+              onSendReminder={sendCollectionReminder}
+              onRecordPayment={recordCollectionPayment}
+              onImportBankTransaction={importBankTransaction}
+              onReconcileBankTransaction={reconcileBankTransaction}
+              onGenerateBrief={suite.user.role === "Owner" ? generateCustomerBrief : null}
+            />
+          </div>
+          <div id="suite-app-copilot" className="suite-app-anchor">
+            <CopilotPanel
+              customers={(serviceConsole && serviceConsole.customers) || []}
+              docs={docs}
+              people={people}
+              onAsk={askCopilot}
+              actionState={actionState}
+            />
+          </div>
           {crmLeadData && (
             <LeadPipeline
               data={crmLeadData}
@@ -3798,24 +3843,32 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               onConvertLead={convertHotLead}
             />
           )}
-          {campaignPerformance && <CampaignRoiPanel data={campaignPerformance} />}
+          {campaignPerformance && (
+            <div id="suite-app-campaigns" className="suite-app-anchor">
+              <CampaignRoiPanel data={campaignPerformance} />
+            </div>
+          )}
           {semanticMetrics && (
-            <SemanticMetricsPanel
-              data={semanticMetrics}
-              snapshots={semanticSnapshots}
-              reports={analyticsReports}
-              userRole={suite.user.role}
-              actionState={actionState}
-              onCaptureSnapshot={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? captureSemanticSnapshot : null}
-              onCreateReport={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? createAnalyticsReport : null}
-            />
+            <div id="suite-app-analytics" className="suite-app-anchor">
+              <SemanticMetricsPanel
+                data={semanticMetrics}
+                snapshots={semanticSnapshots}
+                reports={analyticsReports}
+                userRole={suite.user.role}
+                actionState={actionState}
+                onCaptureSnapshot={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? captureSemanticSnapshot : null}
+                onCreateReport={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? createAnalyticsReport : null}
+              />
+            </div>
           )}
           {receivablesAging && (
-            <ReceivablesAgingPanel
-              data={receivablesAging}
-              actionState={actionState}
-              onGenerateInvoiceExplanation={["Owner", "Admin", "Accountant", "Salesperson"].includes(suite.user.role) ? generateInvoiceOverdueExplanation : null}
-            />
+            <div id="suite-app-finance" className="suite-app-anchor">
+              <ReceivablesAgingPanel
+                data={receivablesAging}
+                actionState={actionState}
+                onGenerateInvoiceExplanation={["Owner", "Admin", "Accountant", "Salesperson"].includes(suite.user.role) ? generateInvoiceOverdueExplanation : null}
+              />
+            </div>
           )}
           {finance && (
             <>
@@ -3839,7 +3892,9 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           )}
           {people && (
             <>
-              <PeopleRegistryPanel data={people} onRunPayroll={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? runEmployeePayroll : null} onUpdate={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? updateEmployee : null} onLoadHistory={async employeeId => (await api(`/api/people/employees/${employeeId}/payroll-runs`)).runs} actionState={actionState} />
+              <div id="suite-app-people" className="suite-app-anchor">
+                <PeopleRegistryPanel data={people} onRunPayroll={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? runEmployeePayroll : null} onUpdate={["Owner", "Admin", "Accountant"].includes(suite.user.role) ? updateEmployee : null} onLoadHistory={async employeeId => (await api(`/api/people/employees/${employeeId}/payroll-runs`)).runs} actionState={actionState} />
+              </div>
               {["Owner", "Admin", "Accountant"].includes(suite.user.role) && (
                 <PeopleEmployeeForm onCreate={createEmployee} actionState={actionState} />
               )}
@@ -3847,15 +3902,17 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           )}
           {docs && (
             <>
-              <DocsRegistryPanel
-                data={docs}
-                canWrite={["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role)}
-                onAddSigner={addDocSigner}
-                onSend={sendDocument}
-                onSign={signDocument}
-                onVoid={voidDocument}
-                actionState={actionState}
-              />
+              <div id="suite-app-docs" className="suite-app-anchor">
+                <DocsRegistryPanel
+                  data={docs}
+                  canWrite={["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role)}
+                  onAddSigner={addDocSigner}
+                  onSend={sendDocument}
+                  onSign={signDocument}
+                  onVoid={voidDocument}
+                  actionState={actionState}
+                />
+              </div>
               {["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role) && (
                 <DocsCreateForm customers={(serviceConsole && serviceConsole.customers) || []} templates={docs.templates || []} onCreate={createDocument} onGenerate={generateFromTemplate} actionState={actionState} />
               )}
@@ -3863,17 +3920,19 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           )}
           {projects && (
             <>
-              <ProjectsBoardPanel
-                data={projects}
-                canWrite={["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role)}
-                canBill={["Owner", "Admin", "Accountant"].includes(suite.user.role)}
-                onAddTask={addProjectTask}
-                onUpdateStatus={updateProjectStatus}
-                onLogTime={logProjectTime}
-                onBillTime={billProjectTime}
-                onLoadDetail={async projectId => (await api(`/api/projects/${projectId}`)).project}
-                actionState={actionState}
-              />
+              <div id="suite-app-projects" className="suite-app-anchor">
+                <ProjectsBoardPanel
+                  data={projects}
+                  canWrite={["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role)}
+                  canBill={["Owner", "Admin", "Accountant"].includes(suite.user.role)}
+                  onAddTask={addProjectTask}
+                  onUpdateStatus={updateProjectStatus}
+                  onLogTime={logProjectTime}
+                  onBillTime={billProjectTime}
+                  onLoadDetail={async projectId => (await api(`/api/projects/${projectId}`)).project}
+                  actionState={actionState}
+                />
+              </div>
               {["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role) && (
                 <ProjectCreateForm customers={(serviceConsole && serviceConsole.customers) || []} onCreate={createProject} actionState={actionState} />
               )}
@@ -3881,12 +3940,14 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           )}
           {forms && (
             <>
-              <FormsRegistryPanel
-                data={forms}
-                canWrite={["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role)}
-                onPublishToggle={toggleFormPublish}
-                actionState={actionState}
-              />
+              <div className="suite-app-anchor">
+                <FormsRegistryPanel
+                  data={forms}
+                  canWrite={["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role)}
+                  onPublishToggle={toggleFormPublish}
+                  actionState={actionState}
+                />
+              </div>
               {["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role) && (
                 <FormCreateForm onCreate={createForm} actionState={actionState} />
               )}
@@ -3919,35 +3980,39 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
             onCreateQuoteApproval={createQuoteApproval}
           />
           <EventStream events={suite.events || []} />
-          <ServiceConsole
-            data={serviceConsole}
-            actionState={actionState}
-            onEscalate={escalateServiceCase}
-            onResolve={resolveServiceCase}
-            onGenerateTicketSummary={["Owner", "Admin", "Operator", "Support", "Service Manager"].includes(suite.user.role) ? generateTicketSummary : null}
-          />
+          <div id="suite-app-desk" className="suite-app-anchor">
+            <ServiceConsole
+              data={serviceConsole}
+              actionState={actionState}
+              onEscalate={escalateServiceCase}
+              onResolve={resolveServiceCase}
+              onGenerateTicketSummary={["Owner", "Admin", "Operator", "Support", "Service Manager"].includes(suite.user.role) ? generateTicketSummary : null}
+            />
+          </div>
           {serviceConsole && (
             <>
               <CreateTicketForm customers={serviceConsole.customers} onCreate={createTicket} actionState={actionState} />
               <DeskTicketList data={serviceConsole} onUpdate={updateTicket} actionState={actionState} />
             </>
           )}
-          <ApprovalQueue
-            approvals={liveApprovals}
-            runs={serviceConsole?.runs || []}
-            rules={serviceConsole?.rules || []}
-            dryRuns={serviceConsole?.dryRuns || []}
-            testEvents={serviceConsole?.testEvents || []}
-            suggestions={serviceConsole?.workflowBuilderSuggestions || []}
-            actionState={actionState}
-            onExecute={approveAndExecute}
-            onDryRun={runOverdueWorkflowDryRun}
-            onTestEvent={runOverdueWorkflowTestEvent}
-            onToggleRule={toggleOverdueWorkflowRule}
-            onRollbackRule={rollbackWorkflowRule}
-            onRetryRun={retryWorkflowRun}
-            onGenerateSuggestion={["Owner", "Admin"].includes(suite.user.role) ? generateWorkflowBuilderSuggestion : null}
-          />
+          <div id="suite-app-flow" className="suite-app-anchor">
+            <ApprovalQueue
+              approvals={liveApprovals}
+              runs={serviceConsole?.runs || []}
+              rules={serviceConsole?.rules || []}
+              dryRuns={serviceConsole?.dryRuns || []}
+              testEvents={serviceConsole?.testEvents || []}
+              suggestions={serviceConsole?.workflowBuilderSuggestions || []}
+              actionState={actionState}
+              onExecute={approveAndExecute}
+              onDryRun={runOverdueWorkflowDryRun}
+              onTestEvent={runOverdueWorkflowTestEvent}
+              onToggleRule={toggleOverdueWorkflowRule}
+              onRollbackRule={rollbackWorkflowRule}
+              onRetryRun={retryWorkflowRun}
+              onGenerateSuggestion={["Owner", "Admin"].includes(suite.user.role) ? generateWorkflowBuilderSuggestion : null}
+            />
+          </div>
           <WebhookDeliveries deliveries={webhookDeliveries || []} />
           {pilotTemplateData && (
             <>
@@ -4755,7 +4820,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               onCreateBackupProof={createBackupProof}
             />
           )}
-          <SuiteMap apps={suite.apps} selected={selected?.id} onSelect={onSelectApp} />
+          <SuiteMap apps={suite.apps} selected={selected?.id} onSelect={openApp} />
           <Localization
             items={suite.localization}
             sources={suite.legalSources || []}
@@ -4799,7 +4864,7 @@ function Kpi({ item }) {
   );
 }
 
-function SelectedApp({ app }) {
+function SelectedApp({ app, onOpen }) {
   if (!app) return null;
   return (
     <article className="selected-app">
@@ -4808,7 +4873,15 @@ function SelectedApp({ app }) {
       <p>{app.description}</p>
       <div className="meta-row">
         <span>{app.maturity}</span>
-        <a href={app.route}>Բացել</a>
+        <a
+          href={app.route || appRoute(app.id)}
+          onClick={event => {
+            event.preventDefault();
+            onOpen?.(app.id);
+          }}
+        >
+          Բացել
+        </a>
       </div>
     </article>
   );

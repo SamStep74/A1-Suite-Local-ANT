@@ -1,6 +1,9 @@
 const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
+const fs = require("node:fs");
 const http = require("node:http");
+const os = require("node:os");
+const path = require("node:path");
 const test = require("node:test");
 const { buildApp } = require("../server/app");
 const { DEFAULT_EMAIL, DEFAULT_PASSWORD } = require("../server/db");
@@ -77,14 +80,50 @@ test("owner login loads organization, app launcher, localization, and audit", as
     const body = response.json();
     assert.equal(body.organization.currency, "AMD");
     assert.equal(body.organization.locale, "hy-AM");
-    assert.equal(body.apps.length, 9);
+    assert.equal(body.apps.length, 10);
     assert.ok(body.apps.some(app => app.id === "finance"));
+    assert.ok(body.apps.some(app => app.id === "copilot"));
     assert.ok(body.localization.some(item => item.key === "vat-20" && item.status === "review"));
 
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
     assert.equal(audit.statusCode, 200);
     assert.ok(audit.json().events.some(event => event.type === "auth.login"));
   });
+});
+
+test("existing suite databases receive the copilot launcher app on reopen", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "a1-suite-app-layer-"));
+  const dbPath = path.join(root, "suite.sqlite");
+  const first = buildApp({ dbPath });
+  await first.ready();
+  try {
+    const removed = first.db.prepare("DELETE FROM apps WHERE id = ?").run("copilot");
+    assert.equal(removed.changes, 1);
+  } finally {
+    await first.close();
+  }
+
+  const second = buildApp({ dbPath });
+  await second.ready();
+  try {
+    const row = second.db.prepare("SELECT id, priority FROM apps WHERE id = ?").get("copilot");
+    assert.equal(row.id, "copilot");
+    assert.equal(row.priority, 3);
+    const assignment = second.db.prepare(`
+      SELECT enabled FROM app_assignments
+      WHERE role = ? AND app_id = ?
+    `).get("Accountant", "copilot");
+    assert.equal(assignment.enabled, 1);
+
+    const cookie = await login(second);
+    const suite = await second.inject({ method: "GET", url: "/api/suite", headers: { cookie } });
+    assert.equal(suite.statusCode, 200, suite.body);
+    const appIds = suite.json().apps.map(app => app.id);
+    assert.equal(appIds[2], "copilot");
+  } finally {
+    await second.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
 });
 
 test("global audit feed is limited to audit reader roles", async () => {
@@ -138,11 +177,11 @@ test("role-based app entitlements hide finance from support users", async () => 
 test("expanded Armenia SaaS roles receive least-privilege app entitlements", async () => {
   await withApp(async app => {
     const roles = [
-      ["accountant@armosphera.local", "Accountant", ["finance", "docs", "analytics"]],
-      ["lawyer@armosphera.local", "Lawyer", ["docs", "analytics"]],
-      ["sales@armosphera.local", "Salesperson", ["crm", "campaigns", "docs", "analytics"]],
-      ["service.manager@armosphera.local", "Service Manager", ["crm", "desk", "docs", "analytics", "flow"]],
-      ["auditor@armosphera.local", "Auditor", ["docs", "analytics"]]
+      ["accountant@armosphera.local", "Accountant", ["finance", "copilot", "docs", "analytics"]],
+      ["lawyer@armosphera.local", "Lawyer", ["copilot", "docs", "analytics"]],
+      ["sales@armosphera.local", "Salesperson", ["crm", "copilot", "campaigns", "docs", "analytics"]],
+      ["service.manager@armosphera.local", "Service Manager", ["crm", "copilot", "desk", "docs", "analytics", "flow"]],
+      ["auditor@armosphera.local", "Auditor", ["copilot", "docs", "analytics"]]
     ];
 
     for (const [email, role, expectedApps] of roles) {

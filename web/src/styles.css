@@ -726,6 +726,11 @@ textarea {
   min-width: 0;
 }
 
+.suite-app-anchor {
+  min-width: 0;
+  scroll-margin-top: 18px;
+}
+
 .panel-head {
   display: flex;
   align-items: flex-start;

@@ -18,6 +18,7 @@ function openDatabase(dbPath) {
   ensurePilotPacketLayer(db);
   ensureSessionGovernanceLayer(db);
   seedIfEmpty(db);
+  ensureSuiteAppLayer(db);
   ensureRoleLayer(db);
   ensureProfileLayer(db);
   ensureServiceLayer(db);
@@ -6273,13 +6274,14 @@ function seedIfEmpty(db) {
   const apps = [
     ["crm", "Armosphera CRM", "Sales", "Customers, deals, quotes, inbox, tasks, and Armenian SMB pipelines.", "/app/crm", "partial-integration", 1],
     ["finance", "HayHashvapah Finance", "Finance", "Accounting, invoices, VAT, payroll, bank import, period locks, and Armenian legal RAG.", "/app/finance", "partial-integration", 2],
-    ["desk", "Armosphera Desk", "Service", "Tickets, SLA-lite, channels, support knowledge, and customer portal.", "/app/desk", "new", 3],
-    ["campaigns", "Campaigns & Forms", "Marketing", "Lead forms, segments, follow-up campaigns, consent, and unsubscribe.", "/app/campaigns", "new", 4],
-    ["projects", "Projects", "Operations", "Client projects, tasks, milestones, time entries, and delivery state.", "/app/projects", "new", 5],
-    ["people", "People", "HR", "Employee directory, onboarding, app access, leave-lite, and payroll handoff.", "/app/people", "new", 6],
-    ["docs", "Docs & Sign", "Documents", "Templates, contracts, signatures, signed archive, and customer documents.", "/app/docs", "new", 7],
-    ["analytics", "Analytics", "BI", "Cross-app dashboards, revenue, receivables, service, and automation KPIs.", "/app/analytics", "partial", 8],
-    ["flow", "Flow & Creator", "Automation", "Event bus, rules, custom fields, custom modules, and applets.", "/app/flow", "partial", 9]
+    ["copilot", "Legal & Accounting Copilot", "AI", "Armenian-first cited legal, accounting, payroll, month-close, privacy, and e-sign guidance.", "/app/copilot", "controlled-advisory", 3],
+    ["desk", "Armosphera Desk", "Service", "Tickets, SLA-lite, channels, support knowledge, and customer portal.", "/app/desk", "new", 4],
+    ["campaigns", "Campaigns & Forms", "Marketing", "Lead forms, segments, follow-up campaigns, consent, and unsubscribe.", "/app/campaigns", "new", 5],
+    ["projects", "Projects", "Operations", "Client projects, tasks, milestones, time entries, and delivery state.", "/app/projects", "new", 6],
+    ["people", "People", "HR", "Employee directory, onboarding, app access, leave-lite, and payroll handoff.", "/app/people", "new", 7],
+    ["docs", "Docs & Sign", "Documents", "Templates, contracts, signatures, signed archive, and customer documents.", "/app/docs", "new", 8],
+    ["analytics", "Analytics", "BI", "Cross-app dashboards, revenue, receivables, service, and automation KPIs.", "/app/analytics", "partial", 9],
+    ["flow", "Flow & Creator", "Automation", "Event bus, rules, custom fields, custom modules, and applets.", "/app/flow", "partial", 10]
   ];
   const insertApp = db.prepare("INSERT INTO apps (id, name, category, description, route, maturity, priority) VALUES (?, ?, ?, ?, ?, ?, ?)");
   for (const app of apps) insertApp.run(...app);
@@ -6432,6 +6434,42 @@ function ensureRoleLayer(db) {
     }
     for (const [role, appIds] of Object.entries(roleApps)) {
       for (const appId of appIds) insertAssignment.run(org.id, role, appId);
+    }
+  }
+}
+
+function ensureSuiteAppLayer(db) {
+  const apps = [
+    ["copilot", "Legal & Accounting Copilot", "AI", "Armenian-first cited legal, accounting, payroll, month-close, privacy, and e-sign guidance.", "/app/copilot", "controlled-advisory", 3]
+  ];
+  const insertApp = db.prepare(`
+    INSERT OR IGNORE INTO apps (id, name, category, description, route, maturity, priority)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const app of apps) insertApp.run(...app);
+  const appOrder = [
+    ["crm", 1],
+    ["finance", 2],
+    ["copilot", 3],
+    ["desk", 4],
+    ["campaigns", 5],
+    ["projects", 6],
+    ["people", 7],
+    ["docs", 8],
+    ["analytics", 9],
+    ["flow", 10]
+  ];
+  const updatePriority = db.prepare("UPDATE apps SET priority = ? WHERE id = ?");
+  for (const [appId, priority] of appOrder) updatePriority.run(priority, appId);
+
+  const orgs = db.prepare("SELECT id FROM organizations").all();
+  const insertAssignment = db.prepare(`
+    INSERT OR IGNORE INTO app_assignments (org_id, role, app_id, enabled)
+    VALUES (?, ?, ?, 1)
+  `);
+  for (const org of orgs) {
+    for (const role of ["Owner", "Admin", "Accountant", "Lawyer", "Salesperson", "Service Manager", "Auditor"]) {
+      insertAssignment.run(org.id, role, "copilot");
     }
   }
 }
