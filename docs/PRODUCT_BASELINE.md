@@ -1816,6 +1816,7 @@ Status: shipped in the local prototype on 2026-05-28.
 - Owner/Admin/Auditor still receive full timeline payload evidence for review and audit workflows.
 - Unoptioned internal event-feed reads now default to redacted payloads, so forgotten call-site options fail closed instead of exposing raw timeline payloads.
 - Added regression coverage proving Support cannot read quote acceptance signer email/name/total from customer event feeds, `/api/suite`, or a service-case mutation response, while Owner retains the full payload on explicitly full-access event reads.
+- Customer 360 intentionally fetches full timeline payloads before applying its own role policy, preserving Owner/Admin full-customer360 evidence while Support still receives redacted timeline payloads.
 
 ### Slice 159 - Forms Submission Detail Reader Guard
 
