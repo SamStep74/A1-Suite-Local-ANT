@@ -3858,21 +3858,7 @@ ${controls}
   app.post("/api/people/employees", async request => {
     const user = await app.auth(request);
     requirePeopleWriter(user);
-    const body = request.body || {};
-    const fullName = String(body.fullName || "").trim();
-    if (fullName.length < 2) { const e = new Error("Employee name is required"); e.statusCode = 400; throw e; }
-    const taxId = String(body.taxId || "").trim();
-    if (taxId && !/^\d{8}$/.test(taxId)) { const e = new Error("ՀՎՀՀ (tax id) must be 8 digits"); e.statusCode = 400; throw e; }
-    const grossSalary = Math.max(0, Math.round(Number(body.grossSalary) || 0));
-    const employmentStatus = normalizeChoice(body.employmentStatus, ["active", "on-leave", "terminated"], "active");
-    const hireDate = /^\d{4}-\d{2}-\d{2}$/.test(body.hireDate || "") ? body.hireDate : "";
-    const id = randomId("emp");
-    const now = new Date().toISOString();
-    db.prepare(`INSERT INTO people_employees (id, org_id, full_name, tax_id, position, department, gross_salary, employment_status, hire_date, email, created_by_user_id, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, user.org_id, fullName.slice(0, 160), taxId, String(body.position || "").slice(0, 120), String(body.department || "").slice(0, 120), grossSalary, employmentStatus, hireDate, String(body.email || "").slice(0, 160), user.id, now, now);
-    audit(db, user.org_id, user.id, "people.employee.created", { employeeId: id, fullName });
-    return { ok: true, employee: getEmployee(db, user.org_id, id) };
+    return createPeopleEmployee(db, user, request.body === undefined ? {} : request.body);
   });
 
   app.patch("/api/people/employees/:id", async request => {
@@ -3880,24 +3866,7 @@ ${controls}
     requirePeopleWriter(user);
     const employee = getEmployee(db, user.org_id, request.params.id);
     if (!employee) { const e = new Error("Employee not found"); e.statusCode = 404; throw e; }
-    const body = request.body || {};
-    const sets = [];
-    const values = [];
-    if (body.position !== undefined) { sets.push("position = ?"); values.push(String(body.position || "").slice(0, 120)); }
-    if (body.department !== undefined) { sets.push("department = ?"); values.push(String(body.department || "").slice(0, 120)); }
-    if (body.email !== undefined) { sets.push("email = ?"); values.push(String(body.email || "").slice(0, 160)); }
-    if (body.grossSalary !== undefined) { sets.push("gross_salary = ?"); values.push(Math.max(0, Math.round(Number(body.grossSalary) || 0))); }
-    if (body.employmentStatus !== undefined) {
-      const status = normalizeChoice(body.employmentStatus, ["active", "on-leave", "terminated"], "");
-      if (!status) { const e = new Error("Invalid employment status"); e.statusCode = 400; throw e; }
-      sets.push("employment_status = ?"); values.push(status);
-    }
-    if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
-    const now = new Date().toISOString();
-    sets.push("updated_at = ?"); values.push(now);
-    db.prepare(`UPDATE people_employees SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`).run(...values, user.org_id, employee.id);
-    audit(db, user.org_id, user.id, "people.employee.updated", { employeeId: employee.id });
-    return { ok: true, employee: getEmployee(db, user.org_id, employee.id) };
+    return updatePeopleEmployee(db, user, employee, request.body === undefined ? {} : request.body);
   });
 
   app.post("/api/people/employees/:id/run-payroll", async request => {
@@ -4635,6 +4604,209 @@ function requirePeopleWriter(user) {
     err.statusCode = 403;
     throw err;
   }
+}
+
+function createPeopleEmployee(db, user, body) {
+  const input = normalizePeopleEmployeeCreateBody(body);
+  const id = randomId("emp");
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO people_employees (
+      id, org_id, full_name, tax_id, position, department, gross_salary,
+      employment_status, hire_date, email, created_by_user_id, created_at,
+      updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    user.org_id,
+    input.fullName,
+    input.taxId,
+    input.position,
+    input.department,
+    input.grossSalary,
+    input.employmentStatus,
+    input.hireDate,
+    input.email,
+    user.id,
+    now,
+    now
+  );
+  audit(db, user.org_id, user.id, "people.employee.created", { employeeId: id, fullName: input.fullName });
+  return { ok: true, employee: getEmployee(db, user.org_id, id) };
+}
+
+function updatePeopleEmployee(db, user, employee, body) {
+  const input = normalizePeopleEmployeePatchBody(body);
+  const sets = [];
+  const values = [];
+  const setIfPresent = (field, column) => {
+    if (Object.prototype.hasOwnProperty.call(input, field)) {
+      sets.push(`${column} = ?`);
+      values.push(input[field]);
+    }
+  };
+  setIfPresent("position", "position");
+  setIfPresent("department", "department");
+  setIfPresent("email", "email");
+  setIfPresent("grossSalary", "gross_salary");
+  setIfPresent("employmentStatus", "employment_status");
+  if (sets.length === 0) {
+    const err = new Error("No updatable fields provided");
+    err.statusCode = 400;
+    throw err;
+  }
+  const now = new Date().toISOString();
+  sets.push("updated_at = ?");
+  values.push(now);
+  db.prepare(`UPDATE people_employees SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`)
+    .run(...values, user.org_id, employee.id);
+  audit(db, user.org_id, user.id, "people.employee.updated", { employeeId: employee.id });
+  return { ok: true, employee: getEmployee(db, user.org_id, employee.id) };
+}
+
+function normalizePeopleEmployeeCreateBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidPeopleEmployee();
+  }
+  const fullName = normalizePeopleEmployeeText(body, "fullName", { required: true, minLength: 2, maxLength: 160 });
+  const taxId = normalizePeopleEmployeeText(body, "taxId", { fallback: "", maxLength: 8 });
+  if (taxId && !/^\d{8}$/.test(taxId)) {
+    const err = new Error("ՀՎՀՀ (tax id) must be 8 digits");
+    err.statusCode = 400;
+    throw err;
+  }
+  return {
+    fullName,
+    taxId,
+    position: normalizePeopleEmployeeText(body, "position", { fallback: "", maxLength: 120 }),
+    department: normalizePeopleEmployeeText(body, "department", { fallback: "", maxLength: 120 }),
+    grossSalary: normalizePeopleEmployeeSalary(body, "grossSalary", { fallback: 0 }),
+    employmentStatus: normalizePeopleEmploymentStatus(body, "employmentStatus", { fallback: "active", required: false }),
+    hireDate: normalizePeopleEmployeeDate(body, "hireDate"),
+    email: normalizePeopleEmployeeText(body, "email", { fallback: "", maxLength: 160 })
+  };
+}
+
+function normalizePeopleEmployeePatchBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidPeopleEmployee();
+  }
+  const normalized = {};
+  const assignTextIfPresent = (field, maxLength) => {
+    if (Object.prototype.hasOwnProperty.call(body, field)) {
+      normalized[field] = normalizePeopleEmployeeText(body, field, { fallback: "", maxLength });
+    }
+  };
+  assignTextIfPresent("position", 120);
+  assignTextIfPresent("department", 120);
+  assignTextIfPresent("email", 160);
+  if (Object.prototype.hasOwnProperty.call(body, "grossSalary")) {
+    normalized.grossSalary = normalizePeopleEmployeeSalary(body, "grossSalary", { fallback: 0 });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "employmentStatus")) {
+    normalized.employmentStatus = normalizePeopleEmploymentStatus(body, "employmentStatus", { required: true });
+  }
+  return normalized;
+}
+
+function normalizePeopleEmployeeText(body, field, options = {}) {
+  const { fallback = "", required = false, minLength = 0, maxLength = 160 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidPeopleEmployee();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidPeopleEmployee();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidPeopleEmployee();
+  }
+  const text = value.trim();
+  if (text.length < minLength) {
+    throwInvalidPeopleEmployee();
+  }
+  if (text.length > maxLength) {
+    throwInvalidPeopleEmployee();
+  }
+  return text || fallback;
+}
+
+function normalizePeopleEmployeeSalary(body, field, options = {}) {
+  const { fallback = 0 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (value === null || Array.isArray(value) || typeof value === "object") {
+    throwInvalidPeopleEmployee();
+  }
+  let salary;
+  if (typeof value === "number") {
+    salary = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidPeopleEmployee();
+    }
+    const text = value.trim();
+    if (!/^-?\d+(?:\.\d+)?$/.test(text)) {
+      throwInvalidPeopleEmployee();
+    }
+    salary = Number(text);
+  } else {
+    throwInvalidPeopleEmployee();
+  }
+  if (!Number.isFinite(salary) || salary < 0) {
+    throwInvalidPeopleEmployee();
+  }
+  return Math.round(salary);
+}
+
+function normalizePeopleEmployeeDate(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return "";
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidPeopleEmployee();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidPeopleEmployee();
+  }
+  const date = value.trim();
+  if (!isExactIsoDate(date)) {
+    throwInvalidPeopleEmployee();
+  }
+  return date;
+}
+
+function normalizePeopleEmploymentStatus(body, field, options = {}) {
+  const { fallback = "", required = false } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidPeopleEmployee();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidPeopleEmployee();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidPeopleEmployee();
+  }
+  const status = value.trim();
+  if (!["active", "on-leave", "terminated"].includes(status)) {
+    const err = new Error("Invalid employment status");
+    err.statusCode = 400;
+    throw err;
+  }
+  return status;
+}
+
+function throwInvalidPeopleEmployee() {
+  const err = new Error("Invalid people employee");
+  err.statusCode = 400;
+  throw err;
 }
 
 function getEmployee(db, orgId, id) {
@@ -48658,9 +48830,13 @@ function persistPayrollRun(db, user, input) {
     err.statusCode = 409;
     throw err;
   }
+  validatePayrollRunConfigForGross(input.config, input.gross);
   // Explicit rate overrides are supported, but empty config still uses the effective-dated resolver.
   const config = input.config || resolvePayrollConfig(db, user.org_id, input.runDate);
   const calc = payroll.calculatePayroll(input.gross, { config });
+  if (calc.net < 0 || calc.totalDeductions > calc.gross) {
+    throwInvalidFinancePayrollRun();
+  }
   const id = randomId("payroll");
   const now = new Date().toISOString();
   db.prepare(`
@@ -48817,6 +48993,12 @@ function normalizeFinancePayrollRunConfig(body) {
   if (!isPlainObject(value)) {
     throwInvalidFinancePayrollRun();
   }
+  const allowedConfigKeys = new Set(["incomeTaxRate", "pension", "stampBrackets"]);
+  for (const key of Object.keys(value)) {
+    if (!allowedConfigKeys.has(key)) {
+      throwInvalidFinancePayrollRun();
+    }
+  }
   const normalized = {};
   if (Object.prototype.hasOwnProperty.call(value, "incomeTaxRate")) {
     normalized.incomeTaxRate = normalizePayrollRateValue(value.incomeTaxRate);
@@ -48825,10 +49007,21 @@ function normalizeFinancePayrollRunConfig(body) {
     if (!isPlainObject(value.pension)) {
       throwInvalidFinancePayrollRun();
     }
+    const allowedPensionKeys = new Set(["lowRate", "highRate", "threshold", "highOffset", "baseCap"]);
+    for (const key of Object.keys(value.pension)) {
+      if (!allowedPensionKeys.has(key)) {
+        throwInvalidFinancePayrollRun();
+      }
+    }
     normalized.pension = {};
-    for (const key of ["lowRate", "highRate", "threshold", "highOffset", "baseCap"]) {
+    for (const key of ["lowRate", "highRate"]) {
       if (Object.prototype.hasOwnProperty.call(value.pension, key)) {
         normalized.pension[key] = normalizePayrollRateValue(value.pension[key]);
+      }
+    }
+    for (const key of ["threshold", "highOffset", "baseCap"]) {
+      if (Object.prototype.hasOwnProperty.call(value.pension, key)) {
+        normalized.pension[key] = normalizePayrollMoneyValue(value.pension[key], { positive: key !== "highOffset" });
       }
     }
     if (Object.keys(normalized.pension).length === 0) {
@@ -48843,16 +49036,41 @@ function normalizeFinancePayrollRunConfig(body) {
       if (!isPlainObject(bracket)) {
         throwInvalidFinancePayrollRun();
       }
+      const keys = Object.keys(bracket);
+      if (!keys.includes("upTo") || !keys.includes("amount") || keys.some(key => !["upTo", "amount"].includes(key))) {
+        throwInvalidFinancePayrollRun();
+      }
       return {
-        upTo: normalizePayrollRateValue(bracket.upTo),
-        amount: normalizePayrollRateValue(bracket.amount)
+        upTo: normalizePayrollMoneyValue(bracket.upTo, { positive: true }),
+        amount: normalizePayrollMoneyValue(bracket.amount)
       };
     });
+    validatePayrollStampBrackets(normalized.stampBrackets);
   }
   return Object.keys(normalized).length > 0 ? normalized : null;
 }
 
 function normalizePayrollRateValue(value) {
+  const number = normalizePayrollNumericValue(value);
+  if (number > 1) {
+    throwInvalidFinancePayrollRun();
+  }
+  return number;
+}
+
+function normalizePayrollMoneyValue(value, options = {}) {
+  const { positive = false } = options;
+  const number = normalizePayrollNumericValue(value);
+  if (!Number.isSafeInteger(number)) {
+    throwInvalidFinancePayrollRun();
+  }
+  if (positive ? number <= 0 : number < 0) {
+    throwInvalidFinancePayrollRun();
+  }
+  return number;
+}
+
+function normalizePayrollNumericValue(value) {
   if (value === null || Array.isArray(value) || typeof value === "object") {
     throwInvalidFinancePayrollRun();
   }
@@ -48875,6 +49093,28 @@ function normalizePayrollRateValue(value) {
     throwInvalidFinancePayrollRun();
   }
   return number;
+}
+
+function validatePayrollStampBrackets(brackets) {
+  let previousUpTo = 0;
+  let previousAmount = 0;
+  for (const bracket of brackets) {
+    if (bracket.upTo <= previousUpTo || bracket.amount < previousAmount || bracket.amount > bracket.upTo) {
+      throwInvalidFinancePayrollRun();
+    }
+    previousUpTo = bracket.upTo;
+    previousAmount = bracket.amount;
+  }
+}
+
+function validatePayrollRunConfigForGross(config, gross) {
+  if (!config || !Array.isArray(config.stampBrackets)) {
+    return;
+  }
+  const last = config.stampBrackets[config.stampBrackets.length - 1];
+  if (!last || gross > last.upTo) {
+    throwInvalidFinancePayrollRun();
+  }
 }
 
 function rejectPresentFinancePayrollRunFields(body, fields) {

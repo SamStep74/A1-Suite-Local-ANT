@@ -2090,6 +2090,15 @@ Status: shipped in the local prototype on 2026-05-28.
 - Finance payroll runs and People-HR employee payroll runs now reject non-plain-object request bodies before mutating payroll, ledger, or audit state.
 - Submitted generic payroll gross amounts must be positive finite numbers or numeric strings, submitted payroll dates must be exact ISO calendar dates, and employee ids/names must be safe strings before they can become payroll or ledger evidence.
 - Employee-scoped payroll runs now reject submitted gross, employee id, or employee name overrides, preserving the employee registry as the source of truth for that workflow.
-- Optional payroll config overrides must be structured numeric objects instead of arrays, strings, or control-character text before they can affect payroll calculations.
+- Optional payroll config overrides must be structured, bounded numeric objects instead of arrays, strings, control-character text, unsafe money values, invalid stamp brackets, or rates above 1 before they can affect payroll calculations.
+- Post-calculation invariants reject negative-net or deductions-over-gross results before persistence, even if a future config path expands payroll override fields.
 - Rejected malformed payroll requests return `400`, keep submitted payload secrets out of error bodies, leave `payroll_runs`, `ledger_journal`, and `audit_events` unchanged, and do not leak malformed payroll evidence into payroll lists or ledger memos.
-- Verification for the checkpoint: focused payroll tests = 7 pass; `test/api.test.js` = 196 pass; `npm test` = 389 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+- Verification for the checkpoint: focused payroll/tax-rate tests = 9 pass; `test/api.test.js` = 196 pass; `npm test` = 389 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 193 - People-HR Employee Metadata Guard
+
+- People-HR employee creation and update now reject non-plain-object request bodies before mutating employee registry or audit state.
+- Submitted employee names, tax IDs, positions, departments, hire dates, email/contact text, salary values, and employment statuses must be structurally valid before they can become employee or audit evidence.
+- Salary values must be non-negative finite numbers or numeric strings, hire dates must be exact ISO calendar dates, and employment status must remain one of `active`, `on-leave`, or `terminated`.
+- Rejected malformed employee requests return `400`, keep submitted payload secrets out of error bodies, leave `people_employees` and `audit_events` unchanged, and do not leak malformed evidence into employee registry rows.
+- Verification for the checkpoint: focused People-HR/payroll/tax-rate tests = 13 pass; `test/api.test.js` = 196 pass; `npm test` = 390 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

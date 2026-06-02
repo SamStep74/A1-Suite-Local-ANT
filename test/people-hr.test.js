@@ -75,6 +75,193 @@ test("people-hr: registry CRUD, write-gate, and payroll seam (employee -> payrol
   } finally { await app.close(); }
 });
 
+test("people-hr: rejects malformed employee metadata before persistence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const employeeCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM people_employees
+    `).get().count;
+    const employeeSecretCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM people_employees
+      WHERE full_name LIKE ?
+        OR tax_id LIKE ?
+        OR position LIKE ?
+        OR department LIKE ?
+        OR hire_date LIKE ?
+        OR email LIKE ?
+        OR full_name = ?
+        OR position = ?
+        OR department = ?
+        OR email = ?
+    `).get(
+      "%secret-people-employee-%",
+      "%secret-people-employee-%",
+      "%secret-people-employee-%",
+      "%secret-people-employee-%",
+      "%secret-people-employee-%",
+      "%secret-people-employee-%",
+      "[object Object]",
+      "[object Object]",
+      "[object Object]",
+      "[object Object]"
+    ).count;
+    const createdAuditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("people.employee.created").count;
+    const updatedAuditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("people.employee.updated").count;
+    const getDavit = () => app.db.prepare(`
+      SELECT position, department, gross_salary AS grossSalary, employment_status AS employmentStatus, email
+      FROM people_employees
+      WHERE id = ?
+    `).get("emp-davit");
+
+    const employeeCountBefore = employeeCount();
+    const createdAuditCountBefore = createdAuditCount();
+    const updatedAuditCountBefore = updatedAuditCount();
+    const davitBefore = getDavit();
+    const baseCreate = {
+      fullName: "Նոր Աշխատակից",
+      taxId: "12345678",
+      position: "Developer",
+      department: "Engineering",
+      grossSalary: 800000,
+      hireDate: "2026-01-10",
+      email: "new.employee@armosphera.local"
+    };
+    const malformedCreates = [
+      { position: "secret-people-employee-missing-name-token" },
+      { ...baseCreate, fullName: { text: "Անի", token: "secret-people-employee-object-name-token" } },
+      { ...baseCreate, fullName: "Ա\nsecret-people-employee-control-name-token" },
+      { ...baseCreate, fullName: `${"N".repeat(161)}secret-people-employee-long-name-token` },
+      { ...baseCreate, taxId: { value: "12345678", token: "secret-people-employee-object-tax-token" } },
+      { ...baseCreate, taxId: "123\nsecret-people-employee-control-tax-token" },
+      { ...baseCreate, taxId: "123" },
+      { ...baseCreate, position: { text: "Developer", token: "secret-people-employee-object-position-token" } },
+      { ...baseCreate, position: "Developer\nsecret-people-employee-control-position-token" },
+      { ...baseCreate, position: `${"P".repeat(121)}secret-people-employee-long-position-token` },
+      { ...baseCreate, department: ["secret-people-employee-array-department-token"] },
+      { ...baseCreate, grossSalary: { value: 800000, token: "secret-people-employee-object-salary-token" } },
+      { ...baseCreate, grossSalary: ["800000"] },
+      { ...baseCreate, grossSalary: -1, fullName: "secret-people-employee-negative-salary-token" },
+      { ...baseCreate, grossSalary: "not-a-number-secret-people-employee-salary-token" },
+      { ...baseCreate, grossSalary: "800000\nsecret-people-employee-control-salary-token" },
+      { ...baseCreate, employmentStatus: { value: "active", token: "secret-people-employee-object-status-token" } },
+      { ...baseCreate, employmentStatus: "active\nsecret-people-employee-control-status-token" },
+      { ...baseCreate, employmentStatus: "ghost-secret-people-employee-status-token" },
+      { ...baseCreate, hireDate: ["2026-01-10"] },
+      { ...baseCreate, hireDate: "2026-02-30" },
+      { ...baseCreate, hireDate: "2026-01-10\nsecret-people-employee-control-date-token" },
+      { ...baseCreate, email: { value: "new.employee@armosphera.local", token: "secret-people-employee-object-email-token" } },
+      { ...baseCreate, email: "new.employee@armosphera.local\nsecret-people-employee-control-email-token" },
+      { ...baseCreate, email: `${"e".repeat(161)}secret-people-employee-long-email-token` },
+      ["secret-people-employee-array-body-token"]
+    ];
+
+    const rejectedMissingBody = await app.inject({
+      method: "POST",
+      url: "/api/people/employees",
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(rejectedMissingBody.statusCode, 400, rejectedMissingBody.body);
+
+    const rejectedNull = await app.inject({
+      method: "POST",
+      url: "/api/people/employees",
+      headers: { cookie: owner, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.strictEqual(rejectedNull.statusCode, 400, rejectedNull.body);
+
+    for (const payload of malformedCreates) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/people/employees",
+        headers: { cookie: owner },
+        payload
+      });
+      assert.strictEqual(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-people-employee-/);
+    }
+
+    const malformedPatches = [
+      { fullName: "secret-people-employee-ignored-name-token" },
+      { position: { text: "Lead", token: "secret-people-employee-patch-object-position-token" } },
+      { position: "Lead\nsecret-people-employee-patch-control-position-token" },
+      { position: `${"P".repeat(121)}secret-people-employee-patch-long-position-token` },
+      { department: ["secret-people-employee-patch-array-department-token"] },
+      { department: "Ops\nsecret-people-employee-patch-control-department-token" },
+      { email: { value: "davit@armosphera.local", token: "secret-people-employee-patch-object-email-token" } },
+      { email: "davit@armosphera.local\nsecret-people-employee-patch-control-email-token" },
+      { email: `${"m".repeat(161)}secret-people-employee-patch-long-email-token` },
+      { grossSalary: { value: 900000, token: "secret-people-employee-patch-object-salary-token" } },
+      { grossSalary: ["900000"] },
+      { grossSalary: -1 },
+      { grossSalary: "not-a-number-secret-people-employee-patch-salary-token" },
+      { grossSalary: "900000\nsecret-people-employee-patch-control-salary-token" },
+      { employmentStatus: { value: "active", token: "secret-people-employee-patch-object-status-token" } },
+      { employmentStatus: "active\nsecret-people-employee-patch-control-status-token" },
+      { employmentStatus: "ghost-secret-people-employee-patch-status-token" },
+      ["secret-people-employee-patch-array-body-token"]
+    ];
+
+    const rejectedPatchNull = await app.inject({
+      method: "PATCH",
+      url: "/api/people/employees/emp-davit",
+      headers: { cookie: owner, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.strictEqual(rejectedPatchNull.statusCode, 400, rejectedPatchNull.body);
+
+    for (const payload of malformedPatches) {
+      const rejected = await app.inject({
+        method: "PATCH",
+        url: "/api/people/employees/emp-davit",
+        headers: { cookie: owner },
+        payload
+      });
+      assert.strictEqual(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-people-employee-/);
+    }
+
+    assert.strictEqual(employeeCount(), employeeCountBefore);
+    assert.strictEqual(employeeSecretCount(), 0);
+    assert.strictEqual(createdAuditCount(), createdAuditCountBefore);
+    assert.strictEqual(updatedAuditCount(), updatedAuditCountBefore);
+    assert.deepStrictEqual(getDavit(), davitBefore);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/people/employees",
+      headers: { cookie: owner },
+      payload: { ...baseCreate, fullName: "Վավեր Աշխատակից", grossSalary: "810000" }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    assert.strictEqual(created.json().employee.fullName, "Վավեր Աշխատակից");
+    assert.strictEqual(created.json().employee.grossSalary, 810000);
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: "/api/people/employees/emp-davit",
+      headers: { cookie: owner },
+      payload: { position: "Senior Accountant", grossSalary: "920000", employmentStatus: "on-leave" }
+    });
+    assert.strictEqual(patched.statusCode, 200, patched.body);
+    assert.strictEqual(patched.json().employee.position, "Senior Accountant");
+    assert.strictEqual(patched.json().employee.grossSalary, 920000);
+    assert.strictEqual(patched.json().employee.employmentStatus, "on-leave");
+  } finally { await app.close(); }
+});
+
 test("people-hr: cross-org isolation — a foreign employee is invisible (404, not 403)", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

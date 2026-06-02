@@ -76,11 +76,13 @@ test("payroll run rejects malformed metadata before persistence", async () => {
       FROM audit_events
       WHERE type = ?
     `).get("people.payroll.run").count;
+    const totalAuditCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count;
 
     const payrollCountBefore = payrollCount();
     const ledgerCountBefore = ledgerCount();
     const financeAuditCountBefore = financeAuditCount();
     const peopleAuditCountBefore = peopleAuditCount();
+    const totalAuditCountBefore = totalAuditCount();
     const basePayload = {
       employeeName: "Անի",
       gross: 600000,
@@ -107,10 +109,17 @@ test("payroll run rejects malformed metadata before persistence", async () => {
       { ...basePayload, employeeId: "emp-mariam\nsecret-payroll-run-control-employee-token" },
       { ...basePayload, config: ["secret-payroll-run-array-config-token"] },
       { ...basePayload, config: { incomeTaxRate: ["0.2"] } },
+      { ...basePayload, config: { incomeTaxRate: 2 }, employeeName: "secret-payroll-run-rate-too-high-token" },
+      { ...basePayload, config: { incomeTaxRate: "999999999999999999999999" }, employeeName: "secret-payroll-run-rate-extreme-token" },
       { ...basePayload, config: { incomeTaxRate: "0.2\nsecret-payroll-run-control-config-token" } },
       { ...basePayload, config: { pension: ["secret-payroll-run-pension-config-token"] } },
       { ...basePayload, config: { pension: { lowRate: { value: 0.05 } } } },
+      { ...basePayload, config: { pension: { lowRate: 2 } }, employeeName: "secret-payroll-run-pension-rate-token" },
+      { ...basePayload, config: { pension: { threshold: 500000.5 } }, employeeName: "secret-payroll-run-fractional-threshold-token" },
       { ...basePayload, config: { stampBrackets: [{ upTo: 100000, amount: ["1500"] }] } },
+      { ...basePayload, config: { stampBrackets: [{ upTo: 100000, amount: 1500 }, { upTo: 50000, amount: 3000 }] } },
+      { ...basePayload, config: { stampBrackets: [{ upTo: 1000, amount: 2000 }] } },
+      { ...basePayload, config: { stampBrackets: [{ upTo: 100000, amount: 1500 }] }, employeeName: "secret-payroll-run-bracket-gap-token" },
       ["secret-payroll-run-array-body-token"]
     ];
 
@@ -177,6 +186,7 @@ test("payroll run rejects malformed metadata before persistence", async () => {
     assert.strictEqual(ledgerSecretCount(), 0);
     assert.strictEqual(financeAuditCount(), financeAuditCountBefore);
     assert.strictEqual(peopleAuditCount(), peopleAuditCountBefore);
+    assert.strictEqual(totalAuditCount(), totalAuditCountBefore);
 
     const financeRun = await app.inject({
       method: "POST",
