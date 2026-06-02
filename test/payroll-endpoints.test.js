@@ -32,6 +32,87 @@ test("payroll run computes net and posts a balanced ledger entry", async () => {
   } finally { await app.close(); }
 });
 
+test("payroll calculate rejects malformed preview metadata without persistence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const payrollCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM payroll_runs").get().count;
+    const ledgerCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM ledger_journal").get().count;
+    const auditCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count;
+    const payrollCountBefore = payrollCount();
+    const ledgerCountBefore = ledgerCount();
+    const auditCountBefore = auditCount();
+    const basePayload = { gross: 600000, asOf: "2026-05-15" };
+    const malformedRequests = [
+      { gross: ["600000"], asOf: "2026-05-15" },
+      { gross: { value: 600000, token: "secret-payroll-calc-object-gross-token" }, asOf: "2026-05-15" },
+      { gross: "600000\nsecret-payroll-calc-control-gross-token", asOf: "2026-05-15" },
+      { gross: "not-a-number-secret-payroll-calc-gross-token", asOf: "2026-05-15" },
+      { gross: 0, asOf: "2026-05-15" },
+      { gross: -1, asOf: "2026-05-15" },
+      { ...basePayload, asOf: ["2026-05-15"] },
+      { ...basePayload, asOf: "2026-05-15\nsecret-payroll-calc-control-date-token" },
+      { ...basePayload, asOf: "not-a-date-secret-payroll-calc-date-token" },
+      { ...basePayload, asOf: "2026-02-30" },
+      { ...basePayload, config: ["secret-payroll-calc-array-config-token"] },
+      { ...basePayload, config: { secret: "secret-payroll-calc-unknown-config-token" } },
+      { ...basePayload, config: { incomeTaxRate: 2 } },
+      { ...basePayload, config: { incomeTaxRate: "999999999999999999999999" } },
+      { ...basePayload, config: { pension: { highRate: 2 } } },
+      { ...basePayload, config: { pension: { baseCap: 500000.5 } } },
+      { ...basePayload, config: { stampBrackets: [{ upTo: 100000, amount: ["1500"] }] } },
+      { ...basePayload, config: { stampBrackets: [{ upTo: 100000, amount: 1500 }, { upTo: 50000, amount: 3000 }] } },
+      { ...basePayload, config: { stampBrackets: [{ upTo: 1000, amount: 2000 }] } },
+      { ...basePayload, config: { stampBrackets: [{ upTo: 100000, amount: 1500 }] } },
+      ["secret-payroll-calc-array-body-token"]
+    ];
+
+    const rejectedMissingBody = await app.inject({
+      method: "POST",
+      url: "/api/payroll/calculate",
+      headers: { cookie }
+    });
+    assert.strictEqual(rejectedMissingBody.statusCode, 400, rejectedMissingBody.body);
+
+    const rejectedNull = await app.inject({
+      method: "POST",
+      url: "/api/payroll/calculate",
+      headers: { cookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.strictEqual(rejectedNull.statusCode, 400, rejectedNull.body);
+
+    for (const payload of malformedRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/payroll/calculate",
+        headers: { cookie },
+        payload
+      });
+      assert.strictEqual(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-payroll-calc-/);
+    }
+
+    assert.strictEqual(payrollCount(), payrollCountBefore);
+    assert.strictEqual(ledgerCount(), ledgerCountBefore);
+    assert.strictEqual(auditCount(), auditCountBefore);
+
+    const valid = await app.inject({
+      method: "POST",
+      url: "/api/payroll/calculate",
+      headers: { cookie },
+      payload: { gross: "600000", asOf: "2026-05-15" }
+    });
+    assert.strictEqual(valid.statusCode, 200, valid.body);
+    assert.strictEqual(valid.json().payroll.gross, 600000);
+    assert.strictEqual(valid.json().payroll.net, 436500);
+    assert.strictEqual(payrollCount(), payrollCountBefore);
+    assert.strictEqual(ledgerCount(), ledgerCountBefore);
+    assert.strictEqual(auditCount(), auditCountBefore);
+  } finally { await app.close(); }
+});
+
 test("payroll run rejects malformed metadata before persistence", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

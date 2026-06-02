@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-02 · main after People-HR employee metadata and payroll config bounds guard · 65 tags · **390 tests (390 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-02 · main after payroll preview metadata guard · 66 tags · **391 tests (391 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 65 slices)
+### Hardening (production-readiness pass — 66 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -100,6 +100,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 63. **Finance opening balance metadata guard** rejects malformed opening-balance request bodies, dates, entries, balance-sheet account codes, and amounts before persistence, preventing object/array/control-character evidence from changing opening balances, ledger journal rows, or audit trails.
 64. **Payroll run metadata guard** rejects malformed finance and People-HR payroll run request bodies, gross amounts, dates, employee evidence, and payroll config overrides before persistence, preventing object/array/control-character evidence from entering payroll runs, ledger journal rows, or audit trails.
 65. **People-HR employee metadata and payroll config bounds guard** rejects malformed employee create/update request bodies, names, tax IDs, salaries, dates, status values, and contact fields before persistence, while also bounding payroll override rates, thresholds, and stamp brackets so impossible config evidence cannot enter payroll runs, employee registry rows, or audit trails.
+66. **Payroll preview metadata guard** rejects malformed payroll calculation preview request bodies, gross amounts, effective dates, and bounded config overrides before returning calculations, preventing invalid preview evidence while preserving no-persistence preview behavior.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -147,7 +148,10 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest People-HR employee metadata and payroll config bounds guard checkpoint: this checkpoint (`Reject malformed people employees and payroll configs`), pushed with this handoff.
+- Latest payroll preview metadata guard checkpoint: this checkpoint (`Reject malformed payroll previews`), pushed with this handoff.
+- Latest payroll preview metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test test/payroll-endpoints.test.js test/payroll-employee-fk.test.js test/payroll.test.js test/tax-rate-versioning.test.js` = 10 pass; `node --test test/api.test.js` = 196 pass, 0 fail; `npm test` = 391 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-payroll-preview-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/payroll-endpoints.test.js && git diff --check` = pass.
+- Previous People-HR employee metadata and payroll config bounds guard commit: `e12c87d` (`Reject malformed people employees and payroll configs`), already pushed before this payroll preview handoff.
+- Latest People-HR employee metadata and payroll config bounds guard checkpoint: `e12c87d` (`Reject malformed people employees and payroll configs`), pushed before this handoff.
 - Latest People-HR employee metadata and payroll config bounds guard verification from `~/dev/A1-Suite-Local`: focused `node --test test/people-hr.test.js test/payroll-endpoints.test.js test/payroll-employee-fk.test.js test/payroll.test.js test/tax-rate-versioning.test.js` = 13 pass; `node --test test/api.test.js` = 196 pass, 0 fail; `npm test` = 390 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-people-employee-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/people-hr.test.js && node --check test/payroll-endpoints.test.js && git diff --check` = pass.
 - Latest payroll config numeric-bound follow-up: this checkpoint also closes the explicit payroll config bypass after `3df62c3`, rejecting rates above 1, unsafe money values, invalid stamp brackets, and post-calculation negative-net/deductions-over-gross results before payroll, ledger, or audit persistence.
 - Previous payroll run metadata guard commit: `3df62c3` (`Reject malformed payroll runs`), already pushed before this People-HR employee handoff.

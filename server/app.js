@@ -3831,10 +3831,7 @@ ${controls}
 
   app.post("/api/payroll/calculate", async request => {
     const user = await app.auth(request);
-    const body = request.body || {};
-    // Preview at the rates in force on body.asOf (default today); explicit body.config overrides.
-    const config = body.config || resolvePayrollConfig(db, user.org_id, body.asOf);
-    return { payroll: payroll.calculatePayroll(body.gross, { config }) };
+    return calculateFinancePayrollPreview(db, user, request.body === undefined ? {} : request.body);
   });
 
   app.get("/api/payroll/runs", async request => {
@@ -48822,6 +48819,13 @@ function postPeopleEmployeePayrollRun(db, user, employee, body) {
   return { ok: true, run: result.run };
 }
 
+function calculateFinancePayrollPreview(db, user, body) {
+  const input = normalizeFinancePayrollCalculateBody(body);
+  return {
+    payroll: calculateValidatedPayroll(db, user.org_id, input.gross, input.config, input.asOf)
+  };
+}
+
 function persistPayrollRun(db, user, input) {
   const periodKey = input.runDate.slice(0, 7);
   const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
@@ -48830,13 +48834,7 @@ function persistPayrollRun(db, user, input) {
     err.statusCode = 409;
     throw err;
   }
-  validatePayrollRunConfigForGross(input.config, input.gross);
-  // Explicit rate overrides are supported, but empty config still uses the effective-dated resolver.
-  const config = input.config || resolvePayrollConfig(db, user.org_id, input.runDate);
-  const calc = payroll.calculatePayroll(input.gross, { config });
-  if (calc.net < 0 || calc.totalDeductions > calc.gross) {
-    throwInvalidFinancePayrollRun();
-  }
+  const calc = calculateValidatedPayroll(db, user.org_id, input.gross, input.config, input.runDate);
   const id = randomId("payroll");
   const now = new Date().toISOString();
   db.prepare(`
@@ -48886,6 +48884,28 @@ function persistPayrollRun(db, user, input) {
       runDate: input.runDate,
       periodKey
     }
+  };
+}
+
+function calculateValidatedPayroll(db, orgId, gross, configOverride, asOf) {
+  validatePayrollRunConfigForGross(configOverride, gross);
+  // Explicit rate overrides are supported, but empty config still uses the effective-dated resolver.
+  const config = configOverride || resolvePayrollConfig(db, orgId, asOf);
+  const calc = payroll.calculatePayroll(gross, { config });
+  if (calc.net < 0 || calc.totalDeductions > calc.gross) {
+    throwInvalidFinancePayrollRun();
+  }
+  return calc;
+}
+
+function normalizeFinancePayrollCalculateBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidFinancePayrollRun();
+  }
+  return {
+    gross: normalizeFinancePayrollRunAmount(body, "gross", { required: true }),
+    asOf: normalizeFinancePayrollRunDate(body, "asOf"),
+    config: normalizeFinancePayrollRunConfig(body)
   };
 }
 

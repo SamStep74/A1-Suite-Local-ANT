@@ -2102,3 +2102,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Salary values must be non-negative finite numbers or numeric strings, hire dates must be exact ISO calendar dates, and employment status must remain one of `active`, `on-leave`, or `terminated`.
 - Rejected malformed employee requests return `400`, keep submitted payload secrets out of error bodies, leave `people_employees` and `audit_events` unchanged, and do not leak malformed evidence into employee registry rows.
 - Verification for the checkpoint: focused People-HR/payroll/tax-rate tests = 13 pass; `test/api.test.js` = 196 pass; `npm test` = 390 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 194 - Payroll Preview Metadata Guard
+
+- Payroll calculation previews now reject non-plain-object request bodies before calculating payroll output.
+- Submitted preview gross amounts must be positive finite numbers or numeric strings, `asOf` dates must be exact ISO calendar dates, and optional config overrides must pass the same bounded numeric validation used by persisted payroll runs.
+- Invalid override configurations that would produce missing stamp coverage, out-of-range rates, unsafe money thresholds, negative net pay, or deductions above gross are rejected before a preview response is returned.
+- Rejected malformed preview requests return `400`, keep submitted payload secrets out of error bodies, leave `payroll_runs`, `ledger_journal`, and `audit_events` unchanged, and valid previews still do not persist rows.
+- Verification for the checkpoint: focused payroll/tax-rate tests = 10 pass; `test/api.test.js` = 196 pass; `npm test` = 391 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
