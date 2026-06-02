@@ -16782,6 +16782,84 @@ test("legal VAT question returns cited guidance and creates review approval", as
   });
 });
 
+test("legal question rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const counts = () => ({
+      questions: app.db.prepare("SELECT COUNT(*) AS count FROM legal_questions").get().count,
+      answers: app.db.prepare("SELECT COUNT(*) AS count FROM legal_answers").get().count,
+      answerSources: app.db.prepare("SELECT COUNT(*) AS count FROM legal_answer_sources").get().count,
+      approvals: app.db.prepare("SELECT COUNT(*) AS count FROM workflow_approvals WHERE action_key = ?")
+        .get("legal.answer.approve").count,
+      questionEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+        .get("legal.question.asked").count,
+      answerEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+        .get("legal.answer.generated").count,
+      approvalEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+        .get("workflow.approval.requested").count,
+      answerAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+        .get("legal.answer.generated").count
+    });
+    const before = counts();
+    const basePayload = {
+      customerId: "cust-nare",
+      topic: "vat",
+      question: "Can we send VAT wording for procurement approval on invoice HHV-1007?"
+    };
+    const malformedPayloads = [
+      { ...basePayload, customerId: { value: "cust-nare", token: "secret-legal-question-customer-token" } },
+      { ...basePayload, customerId: "cust-nare\nsecret-legal-question-customer-control-token" },
+      { ...basePayload, customerId: `${"c".repeat(121)}secret-legal-question-long-customer-token` },
+      { ...basePayload, topic: { value: "vat", token: "secret-legal-question-topic-token" } },
+      { ...basePayload, topic: "vat\nsecret-legal-question-topic-control-token" },
+      { ...basePayload, topic: `${"t".repeat(81)}secret-legal-question-long-topic-token` },
+      { ...basePayload, question: { text: "Can we send VAT wording?", token: "secret-legal-question-body-token" } },
+      { ...basePayload, question: "Can we\nsecret-legal-question-control-body-token" },
+      { ...basePayload, question: "short" },
+      { ...basePayload, question: `${"q".repeat(2001)}secret-legal-question-long-body-token` },
+      ["secret-legal-question-array-body-token"]
+    ];
+
+    const rejectedMissingBody = await app.inject({
+      method: "POST",
+      url: "/api/legal/questions",
+      headers: { cookie }
+    });
+    assert.equal(rejectedMissingBody.statusCode, 400, rejectedMissingBody.body);
+
+    const rejectedNull = await app.inject({
+      method: "POST",
+      url: "/api/legal/questions",
+      headers: { cookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
+
+    for (const payload of malformedPayloads) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/legal/questions",
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-legal-question-/);
+    }
+
+    assert.deepEqual(counts(), before);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/api/legal/questions",
+      headers: { cookie },
+      payload: basePayload
+    });
+    assert.equal(accepted.statusCode, 200, accepted.body);
+    assert.equal(accepted.json().question.customerId, "cust-nare");
+    assert.equal(accepted.json().question.topic, "vat");
+  });
+});
+
 test("legal source selection handles personal-data consent questions", async () => {
   await withApp(async app => {
     const cookie = await login(app);

@@ -45789,17 +45789,12 @@ function formatLegalSourceReview(row) {
 }
 
 function createLegalQuestion(db, user, body) {
-  const customerId = String(body.customerId || "").trim();
+  const input = normalizeLegalQuestionInput(body);
+  const { customerId, questionText } = input;
   assertCustomer(db, user.org_id, customerId);
-  const questionText = String(body.question || "").trim();
-  if (questionText.length < 8) {
-    const err = new Error("Legal question is required");
-    err.statusCode = 400;
-    throw err;
-  }
 
   const now = new Date().toISOString();
-  const topic = normalizeLegalTopic(body.topic, questionText);
+  const topic = normalizeLegalTopic(input.topic, questionText);
   const riskLevel = legalRiskLevel(topic, questionText);
   const selectedSources = selectLegalSources(db, user.org_id, topic, questionText);
   const reviewRequired = riskLevel === "legal";
@@ -45911,6 +45906,40 @@ function createLegalQuestion(db, user, body) {
     sources: getLegalAnswerSources(db, user.org_id, answerId),
     approval
   };
+}
+
+function normalizeLegalQuestionInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidLegalQuestionMetadata();
+  }
+  return {
+    customerId: normalizeLegalQuestionText(body, "customerId", { required: true, minLength: 1, maxLength: 120 }),
+    questionText: normalizeLegalQuestionText(body, "question", { required: true, minLength: 8, maxLength: 2000 }),
+    topic: normalizeLegalQuestionText(body, "topic", { fallback: "", maxLength: 80 })
+  };
+}
+
+function normalizeLegalQuestionText(body, field, options = {}) {
+  const { fallback = "", required = false, minLength = 0, maxLength = 2000 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidLegalQuestionMetadata();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidLegalQuestionMetadata();
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidLegalQuestionMetadata();
+  }
+  return text;
+}
+
+function throwInvalidLegalQuestionMetadata(message = "Legal question requires safe metadata") {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
 }
 
 function normalizeLegalTopic(topic, questionText) {

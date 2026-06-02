@@ -2207,3 +2207,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Collection reminder sends now reject malformed request bodies, channels, and provider evidence before creating delivery rows, moving promise/task status, or writing suite/audit records, while preserving the existing omitted-body fallback to the stored reminder channel and manual provider label.
 - Rejected malformed collection promise and reminder requests return `400`, keep submitted payload secrets out of error bodies, leave promise/delivery counts, task state, promise state, suite events, and audit events unchanged, and valid promise creation, idempotent reminders, payment fulfillment, and Armenian bank reconciliation remain unchanged.
 - Verification for the checkpoint: focused collection tests = 5 pass; `test/api.test.js` = 204 pass; `npm test` = 402 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 206 - Legal Question Metadata Guard
+
+- Legal question creation now rejects malformed request bodies before selecting sources, creating legal questions, generating answers, attaching citations, requesting workflow approval, or writing suite/audit records.
+- Submitted customer IDs, legal topics, and question text must be structurally safe before they can become Customer 360 legal evidence or cited-answer workflow evidence.
+- Question text remains required and bounded, topics remain optional but bounded, and object/array/control-character inputs are rejected instead of being coerced into question, topic, source-selection, approval, or audit evidence.
+- Rejected malformed legal-question requests return `400`, keep submitted payload secrets out of error bodies, leave legal question, answer, answer-source, workflow approval, suite-event, and audit counts unchanged, and valid VAT, personal-data source selection, legal approval, publication workflow, and legal source review remain unchanged.
+- Verification for the checkpoint: focused legal question/source tests = 9 pass; `test/api.test.js` = 205 pass; `npm test` = 403 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
