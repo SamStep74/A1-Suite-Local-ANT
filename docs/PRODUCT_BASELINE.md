@@ -1897,3 +1897,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Existing stored legacy enum drift is sanitized through the default planned/sandbox values when those fields are omitted.
 - Added regression coverage proving invalid `status: "ready"` and `environment: "prod"` writes do not rotate connector secret fingerprints, endpoint URLs, status, environment, list output, or audit evidence.
 - Verification for the checkpoint: focused integration connector tests = 4 pass; `test/api.test.js` = 177 pass; `npm test` = 365 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 169 - Integration Connector Scope Guard
+
+- Integration connector configuration now rejects malformed submitted `scopes` values instead of silently reusing previous scopes while still mutating the connector row.
+- Submitted scopes must be an array of non-empty safe strings; omitted scopes continue to preserve the existing connector scopes.
+- Rejected scope writes return `400` before mutation, leaving the existing endpoint URL, environment, status, scope list, secret fingerprint, and audit event count unchanged.
+- Added regression coverage proving string scopes and unsafe control-character scope items do not rotate connector secret fingerprints, endpoint URLs, environments, scope evidence, list output, or audit records.
+- Verification for the checkpoint: focused integration connector tests = 5 pass; `test/api.test.js` = 178 pass; `npm test` = 366 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

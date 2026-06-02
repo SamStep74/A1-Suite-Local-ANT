@@ -6712,7 +6712,7 @@ function configureIntegrationConnector(db, user, connectorKey, body) {
     throw err;
   }
   const endpointUrl = rawEndpointUrl;
-  const scopes = normalizeStringList(body.scopes, existing ? safeJson(existing.scopes) : []);
+  const scopes = normalizeIntegrationConnectorScopes(body, existing ? safeJson(existing.scopes) : []);
   const ownerRole = validateAssignableAppRole(db, user.org_id, body.ownerRole || existing?.owner_role || definition.ownerRole);
   const note = String(body.note || existing?.note || "").trim().slice(0, 500);
   const connectorId = existing?.id || randomId("integration-connector");
@@ -6789,6 +6789,33 @@ function normalizeIntegrationConnectorChoice(body, field, allowed, fallback) {
     throw err;
   }
   return normalizeChoice(fallback, allowed, allowed[0]);
+}
+
+function normalizeIntegrationConnectorScopes(body, fallback = []) {
+  if (!Object.prototype.hasOwnProperty.call(body, "scopes")) {
+    return Array.isArray(fallback) ? fallback : [];
+  }
+  if (!Array.isArray(body.scopes)) {
+    const err = new Error("Integration connector scopes must be an array");
+    err.statusCode = 400;
+    throw err;
+  }
+  const scopes = [];
+  for (const item of body.scopes) {
+    if (typeof item !== "string") {
+      const err = new Error("Integration connector scopes must be strings");
+      err.statusCode = 400;
+      throw err;
+    }
+    const scope = item.trim();
+    if (!scope || scope.length > 120 || /[\x00-\x1f\x7f]/.test(scope)) {
+      const err = new Error("Integration connector scopes must be non-empty safe strings");
+      err.statusCode = 400;
+      throw err;
+    }
+    scopes.push(scope);
+  }
+  return [...new Set(scopes)].slice(0, 50);
 }
 
 function runIntegrationConnectorHealthCheck(db, user, connectorKey, body) {

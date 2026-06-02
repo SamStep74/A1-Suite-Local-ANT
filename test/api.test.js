@@ -1038,6 +1038,90 @@ test("integration connector rejects invalid status and environment before mutati
   });
 });
 
+test("integration connector rejects malformed scopes before mutation", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const configured = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "sandbox",
+        endpointUrl: "https://graph.facebook.com/v20.0",
+        secret: "whsec-connector-scope-valid",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Valid connector scope baseline."
+      }
+    });
+    assert.equal(configured.statusCode, 200, configured.body);
+
+    const auditCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.configured").count;
+    const invalidType = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "production",
+        endpointUrl: "https://graph.facebook.com/v21.0",
+        secret: "whsec-connector-scope-invalid-type",
+        scopes: "messages.read",
+        ownerRole: "Admin",
+        note: "String scopes must not silently reuse previous scopes while mutating the connector."
+      }
+    });
+    assert.equal(invalidType.statusCode, 400, invalidType.body);
+    assert.match(invalidType.body, /scopes must be an array/);
+
+    const unsafeItem = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "production",
+        endpointUrl: "https://graph.facebook.com/v22.0",
+        secret: "whsec-connector-scope-unsafe-item",
+        scopes: ["messages.read", "messages.write\nadmin"],
+        ownerRole: "Admin",
+        note: "Unsafe scope item must not be stored as connector evidence."
+      }
+    });
+    assert.equal(unsafeItem.statusCode, 400, unsafeItem.body);
+    assert.match(unsafeItem.body, /scopes must be non-empty safe strings/);
+
+    const row = app.db.prepare(`
+      SELECT status, environment, endpoint_url, secret_fingerprint, scopes
+      FROM integration_connectors
+      WHERE connector_key = ?
+    `).get("whatsapp-business");
+    assert.equal(row.status, "connected");
+    assert.equal(row.environment, "sandbox");
+    assert.equal(row.endpoint_url, "https://graph.facebook.com/v20.0");
+    assert.equal(row.secret_fingerprint, sha256("whsec-connector-scope-valid").slice(0, 12));
+    assert.deepEqual(JSON.parse(row.scopes), ["messages.read", "messages.write", "contacts.read"]);
+    assert.equal(row.secret_fingerprint === sha256("whsec-connector-scope-invalid-type").slice(0, 12), false);
+    assert.equal(row.secret_fingerprint === sha256("whsec-connector-scope-unsafe-item").slice(0, 12), false);
+
+    const listed = await app.inject({ method: "GET", url: "/api/integrations/connectors", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    const connector = listed.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(connector.environment, "sandbox");
+    assert.equal(connector.endpointUrl, "https://graph.facebook.com/v20.0");
+    assert.deepEqual(connector.scopes, ["messages.read", "messages.write", "contacts.read"]);
+    assert.equal(JSON.stringify(listed.json()).includes("messages.write\\nadmin"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("whsec-connector-scope-invalid-type"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("whsec-connector-scope-unsafe-item"), false);
+
+    const auditCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.configured").count;
+    assert.equal(auditCountAfter, auditCountBefore);
+  });
+});
+
 test("integration connector rejects credentialed endpoint URLs before persistence", async () => {
   await withApp(async app => {
     const cookie = await login(app);
