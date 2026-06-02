@@ -43421,13 +43421,48 @@ function assertCustomer(db, orgId, customerId) {
   }
 }
 
-function createAiCustomerBrief(db, user, body) {
-  const customerId = String(body.customerId || "").trim();
-  if (!customerId) {
-    const err = new Error("customerId is required");
-    err.statusCode = 400;
-    throw err;
+function normalizeAiAdvisoryInput(body, idField, promptFallback, options = {}) {
+  const { promptRequired = false, promptMinLength = 0, promptMaxLength = 2000 } = options;
+  if (!isPlainObject(body)) {
+    throwInvalidAiAdvisoryMetadata();
   }
+  return {
+    id: normalizeAiAdvisoryText(body, idField, { required: true, minLength: 1, maxLength: 120 }),
+    prompt: normalizeAiAdvisoryText(body, "prompt", {
+      fallback: promptFallback,
+      required: promptRequired,
+      minLength: promptMinLength,
+      maxLength: promptMaxLength
+    })
+  };
+}
+
+function normalizeAiAdvisoryText(body, field, options = {}) {
+  const { fallback = "", required = false, minLength = 0, maxLength = 2000 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidAiAdvisoryMetadata();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidAiAdvisoryMetadata();
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidAiAdvisoryMetadata();
+  }
+  return text;
+}
+
+function throwInvalidAiAdvisoryMetadata(message = "AI advisory request requires safe metadata") {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
+}
+
+function createAiCustomerBrief(db, user, body) {
+  const input = normalizeAiAdvisoryInput(body, "customerId", "Generate Customer 360 brief");
+  const customerId = input.id;
   const customer = db.prepare("SELECT * FROM customers WHERE org_id = ? AND id = ?").get(user.org_id, customerId);
   if (!customer) {
     const err = new Error("Customer not found");
@@ -43435,7 +43470,7 @@ function createAiCustomerBrief(db, user, body) {
     throw err;
   }
 
-  const prompt = String(body.prompt || "Generate Customer 360 brief").trim();
+  const prompt = input.prompt;
   const context = buildAiCustomerBriefContext(db, user.org_id, customer);
   const recommendedNextActions = buildAiCustomerBriefActions(customer, context);
   const groundingSources = buildAiCustomerBriefGrounding(customer, context);
@@ -43621,12 +43656,8 @@ function formatAiCustomerBrief(row) {
 }
 
 function createAiDealRiskBrief(db, user, body) {
-  const dealId = String(body.dealId || "").trim();
-  if (!dealId) {
-    const err = new Error("dealId is required");
-    err.statusCode = 400;
-    throw err;
-  }
+  const input = normalizeAiAdvisoryInput(body, "dealId", "Generate deal risk brief");
+  const dealId = input.id;
   const deal = getCrmDeals(db, user.org_id).find(item => item.id === dealId);
   if (!deal) {
     const err = new Error("Deal not found");
@@ -43640,7 +43671,7 @@ function createAiDealRiskBrief(db, user, body) {
     throw err;
   }
 
-  const prompt = String(body.prompt || "Generate deal risk brief").trim();
+  const prompt = input.prompt;
   const context = buildAiDealRiskContext(db, user.org_id, deal, customer);
   const riskFactors = buildAiDealRiskFactors(deal, customer, context);
   const riskScore = calculateAiDealRiskScore(deal, customer, context);
@@ -43902,12 +43933,8 @@ function formatAiDealRiskBrief(row) {
 }
 
 function createAiInvoiceOverdueExplanation(db, user, body) {
-  const invoiceId = String(body.invoiceId || "").trim();
-  if (!invoiceId) {
-    const err = new Error("invoiceId is required");
-    err.statusCode = 400;
-    throw err;
-  }
+  const input = normalizeAiAdvisoryInput(body, "invoiceId", "Explain overdue invoice");
+  const invoiceId = input.id;
   const invoice = getInvoice(db, user.org_id, invoiceId);
   if (!invoice) {
     const err = new Error("Invoice not found");
@@ -43926,7 +43953,7 @@ function createAiInvoiceOverdueExplanation(db, user, body) {
     throw err;
   }
 
-  const prompt = String(body.prompt || "Explain overdue invoice").trim();
+  const prompt = input.prompt;
   const context = buildAiInvoiceOverdueContext(db, user.org_id, invoice, customer);
   const riskLevel = calculateAiInvoiceOverdueRiskLevel(invoice, context);
   const suggestedFollowUp = buildAiInvoiceSuggestedFollowUp(invoice, context, riskLevel);
@@ -44157,12 +44184,8 @@ function formatAiInvoiceOverdueExplanation(row) {
 }
 
 function createAiTicketSummary(db, user, body) {
-  const caseId = String(body.caseId || "").trim();
-  if (!caseId) {
-    const err = new Error("caseId is required");
-    err.statusCode = 400;
-    throw err;
-  }
+  const input = normalizeAiAdvisoryInput(body, "caseId", "Summarize ticket and recommend knowledge");
+  const caseId = input.id;
   const serviceCase = getServiceCase(db, user.org_id, caseId);
   if (!serviceCase) {
     const err = new Error("Service case not found");
@@ -44170,7 +44193,7 @@ function createAiTicketSummary(db, user, body) {
     throw err;
   }
 
-  const prompt = String(body.prompt || "Summarize ticket and recommend knowledge").trim();
+  const prompt = input.prompt;
   const context = buildAiTicketSummaryContext(db, user.org_id, serviceCase);
   const reviewRequired = serviceCase.priority === "high" || serviceCase.slaStatus === "at-risk" || context.knowledgeArticle.review !== "approved-template";
   const recommendedNextActions = buildAiTicketSummaryActions(serviceCase, context, reviewRequired);
@@ -44377,12 +44400,10 @@ function formatAiTicketSummary(row) {
 }
 
 function createAiWorkflowBuilderSuggestion(db, user, body) {
-  const prompt = String(body.prompt || "").trim();
-  if (prompt.length < 10) {
-    const err = new Error("Workflow prompt is required");
-    err.statusCode = 400;
-    throw err;
+  if (!isPlainObject(body)) {
+    throwInvalidAiAdvisoryMetadata();
   }
+  const prompt = normalizeAiAdvisoryText(body, "prompt", { required: true, minLength: 10, maxLength: 2000 });
 
   const context = buildAiWorkflowBuilderContext(db, user.org_id, prompt);
   const requiredApps = ["finance", "crm", "flow"];

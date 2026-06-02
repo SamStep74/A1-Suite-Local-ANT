@@ -2215,3 +2215,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Question text remains required and bounded, topics remain optional but bounded, and object/array/control-character inputs are rejected instead of being coerced into question, topic, source-selection, approval, or audit evidence.
 - Rejected malformed legal-question requests return `400`, keep submitted payload secrets out of error bodies, leave legal question, answer, answer-source, workflow approval, suite-event, and audit counts unchanged, and valid VAT, personal-data source selection, legal approval, publication workflow, and legal source review remain unchanged.
 - Verification for the checkpoint: focused legal question/source tests = 9 pass; `test/api.test.js` = 205 pass; `npm test` = 403 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 207 - AI Advisory Metadata Guard
+
+- AI advisory creation now rejects malformed request bodies before generating customer briefs, deal risk briefs, overdue invoice explanations, ticket summaries, or workflow builder suggestions.
+- Submitted customer, deal, invoice, case, and workflow prompt metadata must be structurally safe before it can become advisory, Customer 360, workflow-builder, suite-event, or audit evidence.
+- Advisory prompts preserve the existing defaults for customer, deal, invoice, and ticket summaries, while workflow-builder prompts remain required and all prompts are bounded and reject object/array/control-character input.
+- Rejected malformed AI advisory requests return `400`, keep submitted payload secrets out of error bodies, leave advisory table, suite-event, and audit counts unchanged, and valid customer, deal, invoice, ticket, and workflow-builder advisory generation remains unchanged.
+- Verification for the checkpoint: focused AI advisory tests = 6 pass; `test/api.test.js` = 206 pass; `npm test` = 404 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

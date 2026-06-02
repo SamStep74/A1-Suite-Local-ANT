@@ -16664,6 +16664,139 @@ test("accountant can generate grounded advisory overdue invoice explanation with
   });
 });
 
+test("AI advisory endpoints reject malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const ownerCookie = await login(app);
+    const salesCookie = await login(app, "sales@armosphera.local");
+    const accountantCookie = await login(app, "accountant@armosphera.local");
+    const supportCookie = await login(app, "support@armosphera.local");
+
+    const counts = () => ({
+      customerBriefs: app.db.prepare("SELECT COUNT(*) AS count FROM ai_customer_briefs").get().count,
+      dealRiskBriefs: app.db.prepare("SELECT COUNT(*) AS count FROM ai_deal_risk_briefs").get().count,
+      invoiceExplanations: app.db.prepare("SELECT COUNT(*) AS count FROM ai_invoice_overdue_explanations").get().count,
+      ticketSummaries: app.db.prepare("SELECT COUNT(*) AS count FROM ai_ticket_summaries").get().count,
+      workflowSuggestions: app.db.prepare("SELECT COUNT(*) AS count FROM ai_workflow_builder_suggestions").get().count,
+      customerBriefEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+        .get("ai.customer_brief.generated").count,
+      dealRiskEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+        .get("ai.deal_risk.generated").count,
+      invoiceEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+        .get("ai.invoice_overdue.generated").count,
+      ticketEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+        .get("ai.ticket_summary.generated").count,
+      workflowEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+        .get("ai.workflow_builder.suggested").count,
+      customerBriefAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+        .get("ai.customer_brief.generated").count,
+      dealRiskAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+        .get("ai.deal_risk.generated").count,
+      invoiceAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+        .get("ai.invoice_overdue.generated").count,
+      ticketAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+        .get("ai.ticket_summary.generated").count,
+      workflowAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+        .get("ai.workflow_builder.suggested").count
+    });
+    const before = counts();
+
+    const malformedRequests = [
+      {
+        url: "/api/ai/customer-briefs",
+        cookie: ownerCookie,
+        payloads: [
+          { customerId: { value: "cust-nare", token: "secret-ai-customer-id-token" } },
+          { customerId: "cust-nare\nsecret-ai-customer-control-token" },
+          { customerId: "cust-nare", prompt: { text: "Brief", token: "secret-ai-customer-prompt-token" } },
+          { customerId: "cust-nare", prompt: "Brief\nsecret-ai-customer-prompt-control-token" },
+          { customerId: "cust-nare", prompt: `${"x".repeat(2001)}secret-ai-customer-long-prompt-token` },
+          ["secret-ai-customer-array-body-token"]
+        ]
+      },
+      {
+        url: "/api/ai/deal-risk-briefs",
+        cookie: salesCookie,
+        payloads: [
+          { dealId: { value: "deal-nare-retainer", token: "secret-ai-deal-id-token" } },
+          { dealId: "deal-nare-retainer\nsecret-ai-deal-control-token" },
+          { dealId: "deal-nare-retainer", prompt: { text: "Risk", token: "secret-ai-deal-prompt-token" } },
+          { dealId: "deal-nare-retainer", prompt: `${"d".repeat(2001)}secret-ai-deal-long-prompt-token` }
+        ]
+      },
+      {
+        url: "/api/ai/invoice-overdue-explanations",
+        cookie: accountantCookie,
+        payloads: [
+          { invoiceId: { value: "inv-1007", token: "secret-ai-invoice-id-token" } },
+          { invoiceId: "inv-1007\nsecret-ai-invoice-control-token" },
+          { invoiceId: "inv-1007", prompt: { text: "Invoice", token: "secret-ai-invoice-prompt-token" } },
+          { invoiceId: "inv-1007", prompt: `${"i".repeat(2001)}secret-ai-invoice-long-prompt-token` }
+        ]
+      },
+      {
+        url: "/api/ai/ticket-summaries",
+        cookie: supportCookie,
+        payloads: [
+          { caseId: { value: "case-nare-vat", token: "secret-ai-ticket-id-token" } },
+          { caseId: "case-nare-vat\nsecret-ai-ticket-control-token" },
+          { caseId: "case-nare-vat", prompt: { text: "Ticket", token: "secret-ai-ticket-prompt-token" } },
+          { caseId: "case-nare-vat", prompt: `${"t".repeat(2001)}secret-ai-ticket-long-prompt-token` }
+        ]
+      },
+      {
+        url: "/api/ai/workflow-builder-suggestions",
+        cookie: ownerCookie,
+        payloads: [
+          { prompt: { text: "Build workflow", token: "secret-ai-workflow-prompt-token" } },
+          { prompt: "Build flow\nsecret-ai-workflow-control-token" },
+          { prompt: "short" },
+          { prompt: `${"w".repeat(2001)}secret-ai-workflow-long-prompt-token` },
+          ["secret-ai-workflow-array-body-token"]
+        ]
+      }
+    ];
+
+    for (const group of malformedRequests) {
+      const missing = await app.inject({
+        method: "POST",
+        url: group.url,
+        headers: { cookie: group.cookie }
+      });
+      assert.equal(missing.statusCode, 400, missing.body);
+
+      const rejectedNull = await app.inject({
+        method: "POST",
+        url: group.url,
+        headers: { cookie: group.cookie, "content-type": "application/json" },
+        payload: "null"
+      });
+      assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
+
+      for (const payload of group.payloads) {
+        const rejected = await app.inject({
+          method: "POST",
+          url: group.url,
+          headers: { cookie: group.cookie },
+          payload
+        });
+        assert.equal(rejected.statusCode, 400, rejected.body);
+        assert.doesNotMatch(rejected.body, /secret-ai-/);
+      }
+    }
+
+    assert.deepEqual(counts(), before);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/api/ai/customer-briefs",
+      headers: { cookie: ownerCookie },
+      payload: { customerId: "cust-nare" }
+    });
+    assert.equal(accepted.statusCode, 200, accepted.body);
+    assert.equal(accepted.json().brief.prompt, "Generate Customer 360 brief");
+  });
+});
+
 test("support customer 360 redacts tax, finance, privacy, and legal payload fields", async () => {
   await withApp(async app => {
     const ownerCookie = await login(app);
