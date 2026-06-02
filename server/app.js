@@ -6965,6 +6965,12 @@ function getLatestConnectorCheck(db, orgId, connectorKey) {
 function formatIntegrationConnector(row, definition, latestCheck = null) {
   const source = row || {};
   const secretFingerprint = source.secret_fingerprint || "";
+  const scopes = formatIntegrationConnectorStringList(source.scopes, [], { fallbackOnInvalid: false });
+  const capabilities = sanitizeIntegrationConnectorStringList(definition.capabilities);
+  const requiredScopes = sanitizeIntegrationConnectorStringList(definition.requiredScopes);
+  const currentMissingScopes = getIntegrationConnectorMissingScopes(scopes, requiredScopes);
+  const rawLastHealthStatus = source.last_health_status || latestCheck?.status || null;
+  const lastHealthStatus = rawLastHealthStatus === "ready" && currentMissingScopes.length ? "blocked" : rawLastHealthStatus;
   return {
     id: source.id || null,
     connectorKey: definition.connectorKey,
@@ -6975,15 +6981,16 @@ function formatIntegrationConnector(row, definition, latestCheck = null) {
     status: source.status || "planned",
     environment: source.environment || "sandbox",
     endpointUrl: formatIntegrationConnectorEndpointUrl(source.endpoint_url),
-    scopes: formatIntegrationConnectorStringList(source.scopes, [], { fallbackOnInvalid: false }),
-    capabilities: formatIntegrationConnectorStringList(source.capabilities, definition.capabilities, { fallbackOnInvalid: true }),
-    requiredScopes: formatIntegrationConnectorStringList(source.required_scopes, definition.requiredScopes, { fallbackOnInvalid: true }),
+    scopes,
+    capabilities,
+    requiredScopes,
+    currentMissingScopes,
     ownerRole: source.owner_role || definition.ownerRole,
     dataBoundary: source.data_boundary || definition.dataBoundary,
     rebuildPolicy: source.rebuild_policy || definition.rebuildPolicy,
     secretExcluded: Boolean(secretFingerprint),
     secretFingerprint,
-    lastHealthStatus: source.last_health_status || latestCheck?.status || null,
+    lastHealthStatus,
     lastHealthAt: source.last_health_at || latestCheck?.checkedAt || null,
     note: formatIntegrationConnectorEvidenceText(source.note, 500),
     updatedAt: source.updated_at || null,
@@ -7004,6 +7011,12 @@ function formatIntegrationConnectorCheck(row) {
     checkedByName: row.checked_by_name,
     checkedAt: row.checked_at
   };
+}
+
+function getIntegrationConnectorMissingScopes(scopes, requiredScopes) {
+  const grantedScopes = Array.isArray(scopes) ? scopes : [];
+  const required = Array.isArray(requiredScopes) ? requiredScopes : [];
+  return required.filter(scope => !grantedScopes.includes(scope));
 }
 
 function formatIntegrationConnectorStringList(value, fallback = [], options = {}) {
@@ -7082,7 +7095,7 @@ function buildClinicWellnessPilotTemplate(db, orgId) {
       connectorKey: connector.connectorKey,
       status: connector.status,
       lastHealthStatus: connector.lastHealthStatus || "not-checked",
-      missingScopes: connector.latestCheck?.missingScopes || []
+      missingScopes: connector.currentMissingScopes || connector.latestCheck?.missingScopes || []
     }));
   return {
     templateKey: CLINIC_WELLNESS_TEMPLATE_KEY,

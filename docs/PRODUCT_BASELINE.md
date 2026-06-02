@@ -1940,8 +1940,8 @@ Status: shipped in the local prototype on 2026-05-28.
 
 ### Slice 174 - Integration Connector Legacy Array Guard
 
-- Integration connector list and health-check flows now sanitize legacy malformed stored array fields before using them as scope, capability, or required-scope evidence.
-- Stored object-shaped, malformed, or mixed unsafe `scopes`, `capabilities`, or `required_scopes` values no longer leak object keys through connector inventory or collapse connector-contract defaults.
-- Health checks treat malformed stored scopes as missing and compare against sanitized required scopes, so legacy drift blocks readiness instead of trusting invalid evidence.
-- Added regression coverage proving object-shaped and malformed legacy arrays are hidden from list output, required scopes fall back to connector contract defaults, missing-scope checks block readiness, and object keys do not appear in health-check evidence.
+- Integration connector list and health-check flows now sanitize legacy malformed stored scope arrays before using them as granted-scope evidence.
+- Stored object-shaped, malformed, or mixed unsafe `scopes` values no longer leak object keys through connector inventory, while immutable `capabilities` and `required_scopes` are always rendered from connector definitions instead of tenant DB rows.
+- Health checks and connector list output treat malformed or stale stored scopes as missing and compare granted scopes against definition-pinned required scopes, so legacy drift blocks readiness instead of trusting invalid or stale evidence.
+- Added regression coverage proving object-shaped and malformed legacy arrays are hidden from list output, stale stored `ready` health is downgraded, clinic-template readiness surfaces current missing scopes, required scopes fall back to connector contract defaults, valid-but-stale contract arrays cannot override definitions, missing-scope checks block readiness, and object keys do not appear in health-check evidence.
 - Verification for the checkpoint: focused integration connector tests = 10 pass; `test/api.test.js` = 183 pass; `npm test` = 371 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

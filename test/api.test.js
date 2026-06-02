@@ -1525,6 +1525,19 @@ test("integration connector sanitizes legacy malformed array fields before healt
     });
     assert.equal(configured.statusCode, 200, configured.body);
 
+    const readyCheck = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/health-check",
+      headers: { cookie },
+      payload: {
+        sampleEvent: "baseline-ready-connector",
+        note: "Baseline ready health evidence before legacy array drift."
+      }
+    });
+    assert.equal(readyCheck.statusCode, 200, readyCheck.body);
+    assert.equal(readyCheck.json().check.status, "ready");
+    assert.deepEqual(readyCheck.json().check.missingScopes, []);
+
     const update = app.db.prepare(`
       UPDATE integration_connectors
       SET scopes = ?, capabilities = ?, required_scopes = ?
@@ -1543,6 +1556,9 @@ test("integration connector sanitizes legacy malformed array fields before healt
     assert.deepEqual(connector.scopes, []);
     assert.ok(connector.capabilities.includes("inbound-message-intake"));
     assert.deepEqual(connector.requiredScopes, ["messages.read", "messages.write"]);
+    assert.deepEqual(connector.currentMissingScopes, ["messages.read", "messages.write"]);
+    assert.equal(connector.lastHealthStatus, "blocked");
+    assert.equal(connector.latestCheck.status, "ready");
     assert.equal(JSON.stringify(listed.json()).includes("legacy.array.object"), false);
 
     const checked = await app.inject({
@@ -1597,6 +1613,57 @@ test("integration connector sanitizes legacy malformed array fields before healt
     const invalidRequiredScopeCheck = checkedAfterInvalidContract.json().check.checks.find(item => item.key === "required-scopes");
     assert.equal(invalidRequiredScopeCheck.status, "blocked");
     assert.equal(invalidRequiredScopeCheck.detail, "messages.write");
+
+    const staleContract = app.db.prepare(`
+      UPDATE integration_connectors
+      SET scopes = ?, capabilities = ?, required_scopes = ?, last_health_status = ?
+      WHERE connector_key = ?
+    `).run(
+      JSON.stringify(["messages.read"]),
+      JSON.stringify(["legacy.stale-capability"]),
+      JSON.stringify(["messages.read"]),
+      "ready",
+      "whatsapp-business"
+    );
+    assert.equal(staleContract.changes, 1);
+
+    const listedAfterStaleContract = await app.inject({ method: "GET", url: "/api/integrations/connectors", headers: { cookie } });
+    assert.equal(listedAfterStaleContract.statusCode, 200, listedAfterStaleContract.body);
+    const connectorAfterStaleContract = listedAfterStaleContract.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.deepEqual(connectorAfterStaleContract.scopes, ["messages.read"]);
+    assert.ok(connectorAfterStaleContract.capabilities.includes("inbound-message-intake"));
+    assert.equal(connectorAfterStaleContract.capabilities.includes("legacy.stale-capability"), false);
+    assert.deepEqual(connectorAfterStaleContract.requiredScopes, ["messages.read", "messages.write"]);
+    assert.deepEqual(connectorAfterStaleContract.currentMissingScopes, ["messages.write"]);
+    assert.equal(connectorAfterStaleContract.lastHealthStatus, "blocked");
+    assert.equal(JSON.stringify(listedAfterStaleContract.json()).includes("legacy.stale-capability"), false);
+
+    const templateAfterStaleContract = await app.inject({
+      method: "GET",
+      url: "/api/pilots/templates/clinic-wellness",
+      headers: { cookie }
+    });
+    assert.equal(templateAfterStaleContract.statusCode, 200, templateAfterStaleContract.body);
+    const whatsappTemplateStatus = templateAfterStaleContract.json().template.connectorStatuses.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(whatsappTemplateStatus.lastHealthStatus, "blocked");
+    assert.deepEqual(whatsappTemplateStatus.missingScopes, ["messages.write"]);
+
+    const checkedAfterStaleContract = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/health-check",
+      headers: { cookie },
+      payload: {
+        sampleEvent: "legacy-stale-required-scopes",
+        note: "Valid but stale stored contract arrays must not override connector definitions."
+      }
+    });
+    assert.equal(checkedAfterStaleContract.statusCode, 200, checkedAfterStaleContract.body);
+    assert.equal(checkedAfterStaleContract.json().check.status, "blocked");
+    assert.deepEqual(checkedAfterStaleContract.json().check.missingScopes, ["messages.write"]);
+    const staleRequiredScopeCheck = checkedAfterStaleContract.json().check.checks.find(item => item.key === "required-scopes");
+    assert.equal(staleRequiredScopeCheck.status, "blocked");
+    assert.equal(staleRequiredScopeCheck.detail, "messages.write");
+    assert.equal(JSON.stringify(checkedAfterStaleContract.json()).includes("legacy.stale-capability"), false);
   });
 });
 
