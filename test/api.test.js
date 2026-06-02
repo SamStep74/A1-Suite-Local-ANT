@@ -17057,6 +17057,103 @@ test("privacy request requires reviewed Armenian personal-data source", async ()
   });
 });
 
+test("privacy request rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const lawyerCookie = await login(app, "lawyer@armosphera.local");
+    const counts = () => ({
+      requests: app.db.prepare("SELECT COUNT(*) AS count FROM privacy_requests").get().count,
+      approvals: app.db.prepare("SELECT COUNT(*) AS count FROM workflow_approvals WHERE action_key = ?")
+        .get("privacy.request.approve").count,
+      requestEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+        .get("privacy.request.created").count,
+      approvalEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+        .get("workflow.approval.requested").count,
+      audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+        .get("privacy.request.created").count,
+      secrets: app.db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM privacy_requests
+        WHERE customer_id LIKE ?
+          OR requester_email LIKE ?
+          OR channel LIKE ?
+          OR note LIKE ?
+          OR note = ?
+      `).get(
+        "%secret-privacy-request-%",
+        "%secret-privacy-request-%",
+        "%secret-privacy-request-%",
+        "%secret-privacy-request-%",
+        "[object Object]"
+      ).count
+    });
+    const before = counts();
+    const basePayload = {
+      customerId: "cust-ani",
+      requestType: "export",
+      requesterEmail: "owner@anibeauty.am",
+      channel: "Telegram",
+      note: "Customer asks for her appointment and consent data export."
+    };
+    const malformedPayloads = [
+      ["secret-privacy-request-array-body-token"],
+      { ...basePayload, customerId: { value: "cust-ani", token: "secret-privacy-request-customer-object-token" } },
+      { ...basePayload, customerId: "cust-ani\nsecret-privacy-request-customer-control-token" },
+      { ...basePayload, customerId: `${"c".repeat(121)}secret-privacy-request-customer-long-token` },
+      { ...basePayload, requestType: ["export"], note: "secret-privacy-request-type-array-token" },
+      { ...basePayload, requestType: "archive", note: "secret-privacy-request-type-invalid-token" },
+      { ...basePayload, requesterEmail: { email: "owner@anibeauty.am", token: "secret-privacy-request-email-object-token" } },
+      { ...basePayload, requesterEmail: "not-an-email secret-privacy-request-email-invalid-token" },
+      { ...basePayload, requesterEmail: `owner@${"a".repeat(155)}.am` },
+      { ...basePayload, channel: { value: "Telegram", token: "secret-privacy-request-channel-object-token" } },
+      { ...basePayload, channel: "Signal" },
+      { ...basePayload, note: { text: "Export data", token: "secret-privacy-request-note-object-token" } },
+      { ...basePayload, note: "short" },
+      { ...basePayload, note: "Customer asks\nsecret-privacy-request-note-control-token" },
+      { ...basePayload, note: `${"n".repeat(1001)}secret-privacy-request-note-long-token` }
+    ];
+
+    const rejectedMissingBody = await app.inject({
+      method: "POST",
+      url: "/api/privacy/requests",
+      headers: { cookie }
+    });
+    assert.equal(rejectedMissingBody.statusCode, 400, rejectedMissingBody.body);
+
+    const rejectedNull = await app.inject({
+      method: "POST",
+      url: "/api/privacy/requests",
+      headers: { cookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
+
+    for (const payload of malformedPayloads) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/privacy/requests",
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-privacy-request-/);
+    }
+
+    assert.deepEqual(counts(), before);
+
+    await reviewPersonalDataSource(app, lawyerCookie);
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/api/privacy/requests",
+      headers: { cookie },
+      payload: basePayload
+    });
+    assert.equal(accepted.statusCode, 200, accepted.body);
+    assert.equal(accepted.json().request.customerId, "cust-ani");
+    assert.equal(accepted.json().request.requestType, "export");
+  });
+});
+
 test("approved privacy request creates idempotent customer data export packet", async () => {
   await withApp(async app => {
     const cookie = await login(app);
@@ -19280,6 +19377,7 @@ test("analytics snapshot and report packets reject malformed note metadata befor
       { reportType: ["accountant"], periodKey: "2026-05", format: "csv", note: "secret-analytics-report-array-type-token" },
       { reportType: "accountant", periodKey: ["2026-05"], format: "csv", note: "secret-analytics-report-array-period-token" },
       { reportType: "accountant", periodKey: "2026-13", format: "csv", note: "secret-analytics-report-invalid-period-token" },
+      { reportType: "accountant", periodKey: "2026-05", format: "pdf", note: "secret-analytics-report-invalid-format-token" },
       { reportType: "accountant", periodKey: "2026-05", format: ["csv"], note: "secret-analytics-report-array-format-token" },
       { reportType: "accountant", periodKey: "2026-05", format: "csv", note: ["secret-analytics-report-array-note-token"] },
       { reportType: "accountant", periodKey: "2026-05", format: "csv", note: { token: "secret-analytics-report-object-note-token" } },

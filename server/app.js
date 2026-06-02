@@ -2998,7 +2998,7 @@ function registerApi(app, db, options = {}) {
 
   app.post("/api/privacy/requests", async request => {
     const user = await app.auth(request);
-    const result = createPrivacyRequest(db, user, request.body || {});
+    const result = createPrivacyRequest(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.request.customerId) };
   });
 
@@ -42611,7 +42611,8 @@ function normalizeAnalyticsChoice(body, field, allowed, fallback) {
     throwInvalidAnalyticsMetadata();
   }
   const text = value.trim();
-  return allowed.includes(text) ? text : "";
+  if (!allowed.includes(text)) throwInvalidAnalyticsMetadata();
+  return text;
 }
 
 function normalizeAnalyticsNote(body, field) {
@@ -47587,19 +47588,10 @@ function formatSignaturePacket(row, options = {}) {
 }
 
 function createPrivacyRequest(db, user, body) {
-  const customerId = String(body.customerId || "").trim();
+  const input = normalizePrivacyRequestBody(body);
+  const { customerId, requestType, requesterEmail, channel, note } = input;
   assertCustomer(db, user.org_id, customerId);
   const legalSource = requireProfessionalLegalSource(db, user.org_id, "law-personal-data", "PERSONAL_DATA_SOURCE_REVIEW_REQUIRED");
-
-  const requestType = normalizeChoice(body.requestType, ["export", "delete"], "");
-  const requesterEmail = String(body.requesterEmail || "").trim();
-  const channel = normalizeChoice(body.channel, ["WhatsApp", "Telegram", "Email", "Phone", "Manual"], "Manual");
-  const note = String(body.note || "").trim();
-  if (!requestType || !requesterEmail.includes("@") || note.length < 6) {
-    const err = new Error("Privacy request requires type, requester email, and note");
-    err.statusCode = 400;
-    throw err;
-  }
 
   const now = new Date().toISOString();
   const requestId = randomId("privacy-req");
@@ -49002,6 +48994,61 @@ function executePrivacyDeletionAssessmentApproval(db, user, approval, request, n
     assessment: getPrivacyRetentionAssessment(db, user.org_id, assessment.id),
     approval: getWorkflowApproval(db, user.org_id, approval.id)
   };
+}
+
+function normalizePrivacyRequestBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidPrivacyRequest();
+  }
+  const customerId = normalizePrivacyMetadataText(body, "customerId", { required: true, minLength: 1, maxLength: 120 });
+  const requestType = normalizePrivacyMetadataChoice(body, "requestType", ["export", "delete"], { required: true });
+  const requesterEmail = normalizePrivacyMetadataText(body, "requesterEmail", { required: true, minLength: 3, maxLength: 160 });
+  if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(requesterEmail)) {
+    throwInvalidPrivacyRequest();
+  }
+  const channel = normalizePrivacyMetadataChoice(body, "channel", ["WhatsApp", "Telegram", "Email", "Phone", "Manual"], { fallback: "Manual" });
+  const note = normalizePrivacyMetadataText(body, "note", { required: true, minLength: 6, maxLength: 1000 });
+  return { customerId, requestType, requesterEmail, channel, note };
+}
+
+function normalizePrivacyMetadataChoice(body, field, allowed, options = {}) {
+  const { fallback = "", required = false } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidPrivacyRequest();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidPrivacyRequest();
+  }
+  const text = value.trim();
+  if (!allowed.includes(text)) {
+    throwInvalidPrivacyRequest();
+  }
+  return text;
+}
+
+function normalizePrivacyMetadataText(body, field, options = {}) {
+  const { required = false, minLength = 0, maxLength = 1000 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidPrivacyRequest();
+    return "";
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidPrivacyRequest();
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidPrivacyRequest();
+  }
+  return text;
+}
+
+function throwInvalidPrivacyRequest() {
+  const err = new Error("Privacy request requires safe metadata");
+  err.statusCode = 400;
+  throw err;
 }
 
 function getPrivacyRequestFromApproval(db, user, approval) {

@@ -2266,3 +2266,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted optional snapshot report dates, report period keys, formats, and notes still preserve the existing defaults.
 - Rejected malformed analytics requests return `400`, keep submitted payload secrets out of error bodies, leave `analytics_metric_snapshots`, `analytics_report_packets`, analytics suite events, and analytics audit events unchanged, and valid snapshot/report creation remains unchanged.
 - Verification for the checkpoint: focused analytics tests = 4 pass; `test/api.test.js` = 208 pass; `npm test` = 409 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 213 - Privacy Request Metadata Guard
+
+- Privacy personal-data requests now reject non-plain-object request bodies before resolving reviewed legal sources or mutating privacy/workflow evidence.
+- Submitted customer IDs, request types, requester emails, request channels, and notes must be structurally safe before they can become privacy request, approval, suite-event, or audit evidence.
+- Customer IDs and notes must be bounded safe strings, request types and channels must stay inside their existing enums, requester emails must be bounded valid email-shaped strings, and arrays, objects, control-character text, invalid selectors, or overlong values are rejected instead of coerced.
+- Omitted optional channels still preserve the existing `Manual` default, while customer IDs, request types, requester emails, and notes remain required.
+- Rejected malformed privacy requests return `400`, keep submitted payload secrets out of error bodies, leave `privacy_requests`, privacy workflow approvals, privacy suite events, and privacy audit events unchanged, and valid reviewed-source export/delete requests remain unchanged.
+- Verification for the checkpoint: focused privacy tests = 5 pass; `test/api.test.js` = 209 pass; `npm test` = 410 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
