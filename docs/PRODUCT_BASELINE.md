@@ -636,6 +636,7 @@ Status: shipped in the local prototype on 2026-05-27.
 - Added `/api/integrations/connectors`, `/api/integrations/connectors/:key/configure`, and `/api/integrations/connectors/:key/health-check`.
 - Connector contracts define provider, category, auth type, required scopes, capabilities, owner role, data boundary, and rebuild policy so commodity products remain external integrations.
 - Owner/Admin can configure and health-check connectors; Auditor can read connector evidence; non-admin operational roles are rejected.
+- Connector owner roles must be real tenant roles or the explicit system Admin role, so readiness/remediation evidence cannot be assigned to unreachable roles.
 - Connector secrets are never returned by API or backups; only SHA-256 fingerprints and `secretExcluded=true` are exposed.
 - Health checks produce ready/blocked evidence from endpoint URL, secret boundary, connected status, provider boundary, and missing required scopes.
 - Added connector configuration and readiness checks to tenant backup scope.
@@ -1872,3 +1873,19 @@ Status: shipped in the local prototype on 2026-05-28.
 - The assignment update regression now proves Support can be explicitly disabled from an assigned app and loses the app from `/api/suite` after the boolean `false` update.
 - Added regression coverage proving a string `"false"` toggle is rejected before mutation, omitted `enabled` still writes an explicit enabled assignment, Support visibility changes in `/api/suite` match each boolean update, and rejected writes emit no assignment audit entry.
 - Verification for the checkpoint: focused app-assignment tests = 4 pass; `test/api.test.js` = 173 pass; `npm test` = 361 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 166 - Webhook Enabled-Value Guard
+
+- Owner webhook endpoint creation now accepts only omitted or boolean `enabled` values; omitted still means enabled, while strings such as `"false"` are rejected instead of becoming active outbound endpoints.
+- Explicit boolean `false` remains supported and persists disabled endpoints as `enabled = 0`, with list responses preserving `enabled: false`.
+- Rejected enabled-value writes return `400`, keep the rejected endpoint out of `webhook_endpoints` and endpoint lists, do not leak the submitted secret in the error body, and create no `webhook.endpoint.created` audit event.
+- Added regression coverage for disabled endpoint persistence/listing and non-boolean enabled rejection before persistence.
+- Verification for the checkpoint: focused webhook endpoint tests = 3 pass; `test/api.test.js` = 175 pass; `npm test` = 363 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 167 - Integration Connector Owner-Role Guard
+
+- Integration connector configuration now validates `ownerRole` through the same tenant role contract used by app assignments.
+- Unknown connector owner roles return `400` before mutation, leaving the existing endpoint URL, environment, secret fingerprint, owner role, and audit event count unchanged.
+- This keeps Integration Hub readiness and clinic-pilot remediation evidence assigned only to reachable tenant roles or the explicit system Admin role.
+- Added regression coverage proving a `Ghost Role` connector write is rejected, does not rotate the connector secret fingerprint, does not change environment or endpoint URL, does not appear in connector inventory, and emits no extra `integration.connector.configured` audit event.
+- Verification for the checkpoint: focused integration connector tests = 3 pass; `test/api.test.js` = 176 pass; `npm test` = 364 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

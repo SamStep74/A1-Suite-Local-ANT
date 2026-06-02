@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-02 · main after webhook enabled-value guard · 38 tags · **363 tests (363 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-02 · main after connector owner-role guard · 39 tags · **364 tests (364 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 38 slices)
+### Hardening (production-readiness pass — 39 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -73,6 +73,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 36. **App-assignment role guard** rejects Owner app-assignment writes to unknown roles, prevents legacy invalid assignment rows from authorizing themselves, filters invalid roles from live assignment inventory, and reports enabled stale roles as `invalidAssignmentRoles` in access-review evidence instead of silently trusting or hiding them.
 37. **App-assignment enabled-value guard** rejects non-boolean assignment toggles before mutation, so string values like `"false"` cannot be treated as truthy access grants and rejected writes produce no assignment audit event.
 38. **Webhook enabled-value guard** preserves explicit disabled webhook endpoints while rejecting non-boolean endpoint toggles before persistence, so string values like `"false"` cannot silently create active outbound endpoints or audit records.
+39. **Integration connector owner-role guard** rejects connector configuration writes with unknown owner roles before mutation, keeping Integration Hub readiness and remediation ownership evidence tied to real tenant roles.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -120,8 +121,11 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest webhook enabled-value guard checkpoint: this checkpoint (`Reject non-boolean webhook enabled toggles`), pushed with this handoff.
-- Latest webhook enabled-value guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "webhook endpoint" test/api.test.js` = 3 pass; `npm test` = 363 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-webhook-enabled-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
+- Latest connector owner-role guard checkpoint: this checkpoint (`Reject unknown connector owner roles`), pushed with this handoff.
+- Latest connector owner-role guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "integration connector" test/api.test.js` = 3 pass; `node --test test/api.test.js` = 176 pass, 0 fail; `npm test` = 364 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-connector-owner-role-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
+- Latest webhook enabled-value guard code commit: `60cad09` (`Reject non-boolean webhook enabled toggles`), pushed with this handoff.
+- Latest webhook enabled-value guard baseline entry: this checkpoint records Product Baseline Slice 166.
+- Latest webhook enabled-value guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "webhook endpoint" test/api.test.js` = 3 pass; `node --test test/api.test.js` = 175 pass, 0 fail; `npm test` = 363 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-webhook-enabled-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass; disabled endpoint regression also proves quote events create no outbound request and no delivery row.
 - Latest app-assignment default-enable contract test commit: `dabaa1e` (`test: cover default app assignment enable`), pushed with this handoff.
 - Latest app-assignment default-enable handoff checkpoint: this checkpoint (`docs: fix app assignment default coverage handoff`), pushed with this handoff.
 - Latest app-assignment default-enable contract verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "app assignment" test/api.test.js` = 4 pass; `node --test test/api.test.js` = 173 pass, 0 fail; `npm test` = 361 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-assignment-default-enabled-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check test/api.test.js && git diff --check` = pass.

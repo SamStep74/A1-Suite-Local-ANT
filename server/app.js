@@ -6711,7 +6711,7 @@ function configureIntegrationConnector(db, user, connectorKey, body) {
   }
   const endpointUrl = rawEndpointUrl;
   const scopes = normalizeStringList(body.scopes, existing ? safeJson(existing.scopes) : []);
-  const ownerRole = String(body.ownerRole || existing?.owner_role || definition.ownerRole).trim().slice(0, 80) || definition.ownerRole;
+  const ownerRole = validateAssignableAppRole(db, user.org_id, body.ownerRole || existing?.owner_role || definition.ownerRole);
   const note = String(body.note || existing?.note || "").trim().slice(0, 500);
   const connectorId = existing?.id || randomId("integration-connector");
   db.prepare(`

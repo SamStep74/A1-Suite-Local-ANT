@@ -894,6 +894,68 @@ test("owner can configure integration connector contracts without rebuilding com
   });
 });
 
+test("integration connector rejects unknown owner roles before mutation", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const configured = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "sandbox",
+        endpointUrl: "https://graph.facebook.com/v20.0",
+        secret: "whsec-owner-role-valid",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Valid connector owner role before invalid-role rejection."
+      }
+    });
+    assert.equal(configured.statusCode, 200, configured.body);
+    assert.equal(configured.json().connector.ownerRole, "Admin");
+
+    const auditCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.configured").count;
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "production",
+        endpointUrl: "https://graph.facebook.com/v21.0",
+        secret: "whsec-owner-role-invalid",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Ghost Role",
+        note: "Invalid connector role must not become readiness ownership evidence."
+      }
+    });
+    assert.equal(rejected.statusCode, 400, rejected.body);
+    assert.match(rejected.body, /Unknown role/);
+
+    const row = app.db.prepare(`
+      SELECT owner_role, endpoint_url, secret_fingerprint, environment
+      FROM integration_connectors
+      WHERE connector_key = ?
+    `).get("whatsapp-business");
+    assert.equal(row.owner_role, "Admin");
+    assert.equal(row.endpoint_url, "https://graph.facebook.com/v20.0");
+    assert.equal(row.environment, "sandbox");
+    assert.equal(row.secret_fingerprint, sha256("whsec-owner-role-valid").slice(0, 12));
+    assert.equal(row.secret_fingerprint === sha256("whsec-owner-role-invalid").slice(0, 12), false);
+
+    const listed = await app.inject({ method: "GET", url: "/api/integrations/connectors", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    const connector = listed.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(connector.ownerRole, "Admin");
+    assert.equal(JSON.stringify(listed.json()).includes("Ghost Role"), false);
+
+    const auditCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("integration.connector.configured").count;
+    assert.equal(auditCountAfter, auditCountBefore);
+  });
+});
+
 test("integration connector rejects credentialed endpoint URLs before persistence", async () => {
   await withApp(async app => {
     const cookie = await login(app);
@@ -16564,33 +16626,52 @@ test("webhook endpoint rejects credentialed URLs before persistence", async () =
 });
 
 test("webhook endpoint preserves explicit disabled toggle", async () => {
-  await withApp(async app => {
-    const cookie = await login(app);
-    const created = await app.inject({
-      method: "POST",
-      url: "/api/integrations/webhooks",
-      headers: { cookie },
-      payload: {
-        name: "Disabled connector",
-        url: "https://example.com/disabled-webhook",
-        secret: "whsec-disabled-test",
-        events: ["deal_won"],
-        enabled: false
-      }
+  await withWebhookReceiver(async receiver => {
+    await withApp(async app => {
+      const cookie = await login(app);
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/integrations/webhooks",
+        headers: { cookie },
+        payload: {
+          name: "Disabled connector",
+          url: receiver.url,
+          secret: "whsec-disabled-test",
+          events: ["quote_accepted", "deal_won"],
+          enabled: false
+        }
+      });
+      assert.equal(created.statusCode, 200, created.body);
+      assert.equal(created.json().endpoint.enabled, false);
+
+      const row = app.db.prepare(`
+        SELECT enabled
+        FROM webhook_endpoints
+        WHERE org_id = ? AND id = ?
+      `).get("org-armosphera-demo", created.json().endpoint.id);
+      assert.equal(row.enabled, 0);
+
+      const listed = await app.inject({ method: "GET", url: "/api/integrations/webhooks", headers: { cookie } });
+      assert.equal(listed.statusCode, 200, listed.body);
+      assert.ok(listed.json().endpoints.some(endpoint => endpoint.id === created.json().endpoint.id && endpoint.enabled === false));
+
+      const accepted = await app.inject({
+        method: "POST",
+        url: "/api/public/quotes/public-quote-ani-inbox-token/accept",
+        remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
+        payload: {
+          signerName: "Ani Owner",
+          signerEmail: "owner@anibeauty.am",
+          acceptedAt: "2026-05-26"
+        }
+      });
+      assert.equal(accepted.statusCode, 200, accepted.body);
+      assert.equal(receiver.requests.length, 0);
+
+      const deliveries = await app.inject({ method: "GET", url: "/api/integrations/webhook-deliveries", headers: { cookie } });
+      assert.equal(deliveries.statusCode, 200, deliveries.body);
+      assert.equal(deliveries.json().deliveries.length, 0);
     });
-    assert.equal(created.statusCode, 200, created.body);
-    assert.equal(created.json().endpoint.enabled, false);
-
-    const row = app.db.prepare(`
-      SELECT enabled
-      FROM webhook_endpoints
-      WHERE org_id = ? AND id = ?
-    `).get("org-armosphera-demo", created.json().endpoint.id);
-    assert.equal(row.enabled, 0);
-
-    const listed = await app.inject({ method: "GET", url: "/api/integrations/webhooks", headers: { cookie } });
-    assert.equal(listed.statusCode, 200, listed.body);
-    assert.ok(listed.json().endpoints.some(endpoint => endpoint.id === created.json().endpoint.id && endpoint.enabled === false));
   });
 });
 
