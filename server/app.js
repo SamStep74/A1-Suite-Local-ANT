@@ -3797,24 +3797,7 @@ ${controls}
   app.post("/api/finance/bills", async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
-    const body = request.body || {};
-    const subtotal = Math.round(Number(body.subtotal) || 0);
-    const vat = Math.round(Number(body.vat) || 0);
-    if (subtotal <= 0) { const e = new Error("Bill subtotal is required"); e.statusCode = 400; throw e; }
-    const total = subtotal + vat;
-    const billDate = /^\d{4}-\d{2}-\d{2}$/.test(body.billDate || "") ? body.billDate : new Date().toISOString().slice(0, 10);
-    const dueDate = /^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : billDate;
-    const periodKey = billDate.slice(0, 7);
-    const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
-    if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
-    const id = randomId("bill");
-    const now = new Date().toISOString();
-    db.prepare(`INSERT INTO bills (id, org_id, supplier, description, subtotal, vat, total, currency, bill_date, due_date, status, period_key, created_by_user_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'AMD', ?, ?, 'open', ?, ?, ?)`)
-      .run(id, user.org_id, String(body.supplier || "").slice(0, 160), String(body.description || "").slice(0, 200), subtotal, vat, total, billDate, dueDate, periodKey, user.id, now);
-    ledger.postBillPosted(db, user.org_id, { id, supplier: body.supplier, subtotal, vat, total, date: billDate, period_key: periodKey });
-    audit(db, user.org_id, user.id, "finance.bill.created", { billId: id, total, vat });
-    return { bill: { id, supplier: body.supplier || "", subtotal, vat, total, billDate, dueDate, periodKey, status: "open" } };
+    return createFinanceBill(db, user, request.body === undefined ? {} : request.body);
   });
 
   app.post("/api/finance/bills/:id/pay", async request => {
@@ -48275,6 +48258,163 @@ function normalizeFinanceExpenseText(body, field, options = {}) {
 
 function throwInvalidFinanceExpense() {
   const err = new Error("Invalid finance expense");
+  err.statusCode = 400;
+  throw err;
+}
+
+function createFinanceBill(db, user, body) {
+  const input = normalizeFinanceBillBody(body);
+  const total = input.subtotal + input.vat;
+  const periodKey = input.billDate.slice(0, 7);
+  const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
+  if (period && period.status === "closed") {
+    const err = new Error("PERIOD_LOCKED");
+    err.statusCode = 409;
+    throw err;
+  }
+  const id = randomId("bill");
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO bills (
+      id, org_id, supplier, description, subtotal, vat, total, currency,
+      bill_date, due_date, status, period_key, created_by_user_id, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'AMD', ?, ?, 'open', ?, ?, ?)
+  `).run(
+    id,
+    user.org_id,
+    input.supplier,
+    input.description,
+    input.subtotal,
+    input.vat,
+    total,
+    input.billDate,
+    input.dueDate,
+    periodKey,
+    user.id,
+    now
+  );
+  ledger.postBillPosted(db, user.org_id, {
+    id,
+    supplier: input.supplier,
+    subtotal: input.subtotal,
+    vat: input.vat,
+    total,
+    date: input.billDate,
+    period_key: periodKey
+  });
+  audit(db, user.org_id, user.id, "finance.bill.created", { billId: id, total, vat: input.vat });
+  return {
+    bill: {
+      id,
+      supplier: input.supplier,
+      subtotal: input.subtotal,
+      vat: input.vat,
+      total,
+      billDate: input.billDate,
+      dueDate: input.dueDate,
+      periodKey,
+      status: "open"
+    }
+  };
+}
+
+function normalizeFinanceBillBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidFinanceBill();
+  }
+  const billDate = normalizeFinanceBillDate(body, "billDate");
+  return {
+    subtotal: normalizeFinanceBillAmount(body, "subtotal", { required: true }),
+    vat: normalizeFinanceBillAmount(body, "vat", { fallback: 0 }),
+    billDate,
+    dueDate: normalizeFinanceBillDate(body, "dueDate", { fallback: billDate }),
+    supplier: normalizeFinanceBillText(body, "supplier", { fallback: "", maxLength: 160 }),
+    description: normalizeFinanceBillText(body, "description", { fallback: "", maxLength: 200 })
+  };
+}
+
+function normalizeFinanceBillAmount(body, field, options = {}) {
+  const { required = false, fallback = 0 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidFinanceBill();
+    return fallback;
+  }
+  if (value === null || Array.isArray(value) || typeof value === "object") {
+    throwInvalidFinanceBill();
+  }
+  let amount;
+  if (typeof value === "number") {
+    amount = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidFinanceBill();
+    }
+    const text = value.trim();
+    if (!/^-?\d+(?:\.\d+)?$/.test(text)) {
+      throwInvalidFinanceBill();
+    }
+    amount = Number(text);
+  } else {
+    throwInvalidFinanceBill();
+  }
+  if (!Number.isFinite(amount)) {
+    throwInvalidFinanceBill();
+  }
+  if (amount < 0) {
+    throwInvalidFinanceBill();
+  }
+  const rounded = Math.round(amount);
+  if (required ? rounded <= 0 : rounded < 0) {
+    throwInvalidFinanceBill();
+  }
+  return rounded;
+}
+
+function normalizeFinanceBillDate(body, field, options = {}) {
+  const { fallback = new Date().toISOString().slice(0, 10) } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinanceBill();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceBill();
+  }
+  const date = value.trim();
+  if (!isExactIsoDate(date)) {
+    throwInvalidFinanceBill();
+  }
+  return date;
+}
+
+function normalizeFinanceBillText(body, field, options = {}) {
+  const { fallback = "", maxLength = 200 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinanceBill();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceBill();
+  }
+  const text = value.trim();
+  if (!text) {
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidFinanceBill();
+  }
+  return text;
+}
+
+function throwInvalidFinanceBill() {
+  const err = new Error("Invalid finance bill");
   err.statusCode = 400;
   throw err;
 }

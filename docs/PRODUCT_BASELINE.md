@@ -2059,3 +2059,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted and blank optional VAT/date/text fields still use the current fallback behavior: zero VAT, today's date, and blank description/vendor.
 - Rejected malformed expense requests return `400`, keep submitted payload secrets out of error bodies, leave `expenses`, `ledger_journal`, and `audit_events` unchanged, and do not leak malformed expense evidence into finance reports.
 - Verification for the checkpoint: focused finance report/expense tests = 2 pass; focused signature packet/evidence tests = 4 pass; `test/api.test.js` = 196 pass; `npm test` = 385 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 189 - Finance Bill Metadata Guard
+
+- Supplier bill creation now rejects non-plain-object request bodies before mutating bill or ledger state.
+- Submitted bill subtotals must be positive finite numbers or numeric strings; submitted VAT amounts must be non-negative finite numbers or numeric strings.
+- Submitted bill dates, due dates, suppliers, and descriptions must be safe strings without control characters before they can become bill, ledger, payables, or audit evidence.
+- Omitted and blank optional VAT/date/text fields still use the current fallback behavior: zero VAT, today's date, due date equal to bill date, and blank supplier/description.
+- Rejected malformed bill requests return `400`, keep submitted payload secrets out of error bodies, leave `bills`, `ledger_journal`, and `audit_events` unchanged, and do not leak malformed bill evidence into payables reports.
+- Verification for the checkpoint: focused payables tests = 3 pass; `test/api.test.js` = 196 pass; `npm test` = 386 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

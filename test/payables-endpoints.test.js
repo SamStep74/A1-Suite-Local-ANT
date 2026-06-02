@@ -32,3 +32,124 @@ test("bill create + pay flows through the ledger and AP report", async () => {
     assert.strictEqual(ap2.json().totalOutstanding, 0);
   } finally { await app.close(); }
 });
+
+test("bill creation rejects malformed metadata before persistence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const orgId = app.db.prepare("SELECT id FROM organizations LIMIT 1").get().id;
+    const openPeriod = app.db.prepare("SELECT period_key FROM finance_periods WHERE org_id = ? AND status='open' LIMIT 1").get(orgId).period_key;
+    const billCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM bills
+    `).get().count;
+    const billSecretCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM bills
+      WHERE supplier LIKE ?
+        OR description LIKE ?
+        OR bill_date LIKE ?
+        OR due_date LIKE ?
+        OR supplier = ?
+        OR description = ?
+    `).get(
+      "%secret-bill-%",
+      "%secret-bill-%",
+      "%secret-bill-%",
+      "%secret-bill-%",
+      "[object Object]",
+      "[object Object]"
+    ).count;
+    const ledgerCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM ledger_journal
+    `).get().count;
+    const ledgerSecretCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM ledger_journal
+      WHERE memo LIKE ?
+        OR memo = ?
+    `).get("%secret-bill-%", "Bill [object Object]").count;
+    const auditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("finance.bill.created").count;
+
+    const billCountBefore = billCount();
+    const ledgerCountBefore = ledgerCount();
+    const auditCountBefore = auditCount();
+    const basePayload = {
+      supplier: "Acme",
+      description: "Cloud hosting",
+      subtotal: 500,
+      vat: 100,
+      billDate: `${openPeriod}-05`,
+      dueDate: `${openPeriod}-10`
+    };
+    const malformedRequests = [
+      null,
+      { ...basePayload, subtotal: ["500"], supplier: "secret-bill-array-subtotal-token" },
+      { ...basePayload, subtotal: { value: 500, token: "secret-bill-object-subtotal-token" } },
+      { ...basePayload, subtotal: "500\nsecret-bill-control-subtotal-token" },
+      { ...basePayload, vat: ["100"], supplier: "secret-bill-array-vat-token" },
+      { ...basePayload, vat: { value: 100, token: "secret-bill-object-vat-token" } },
+      { ...basePayload, vat: -1, supplier: "secret-bill-negative-vat-token" },
+      { ...basePayload, vat: "-0.1", supplier: "secret-bill-fractional-negative-vat-token" },
+      { ...basePayload, billDate: [`${openPeriod}-05`], supplier: "secret-bill-array-bill-date-token" },
+      { ...basePayload, billDate: `${openPeriod}-05\nsecret-bill-control-bill-date-token` },
+      { ...basePayload, billDate: "not-a-date-secret-bill-date-token" },
+      { ...basePayload, billDate: "2026-02-30", supplier: "secret-bill-impossible-bill-date-token" },
+      { ...basePayload, dueDate: [`${openPeriod}-10`], supplier: "secret-bill-array-due-date-token" },
+      { ...basePayload, dueDate: `${openPeriod}-10\nsecret-bill-control-due-date-token` },
+      { ...basePayload, dueDate: "not-a-date-secret-bill-due-date-token" },
+      { ...basePayload, dueDate: "2026-02-30", supplier: "secret-bill-impossible-due-date-token" },
+      { ...basePayload, supplier: { text: "Acme", token: "secret-bill-object-supplier-token" } },
+      { ...basePayload, supplier: "Acme\nsecret-bill-control-supplier-token" },
+      { ...basePayload, supplier: `${"S".repeat(161)}secret-bill-long-supplier-token` },
+      { ...basePayload, description: { text: "Cloud hosting", token: "secret-bill-object-description-token" } },
+      { ...basePayload, description: "Cloud hosting\nsecret-bill-control-description-token" },
+      { ...basePayload, description: `${"D".repeat(201)}secret-bill-long-description-token` },
+      ["secret-bill-array-body-token"]
+    ];
+
+    for (const payload of malformedRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/finance/bills",
+        headers: { cookie },
+        payload
+      });
+      assert.strictEqual(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-bill-/);
+    }
+
+    assert.strictEqual(billCount(), billCountBefore);
+    assert.strictEqual(billSecretCount(), 0);
+    assert.strictEqual(ledgerCount(), ledgerCountBefore);
+    assert.strictEqual(ledgerSecretCount(), 0);
+    assert.strictEqual(auditCount(), auditCountBefore);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/finance/bills",
+      headers: { cookie },
+      payload: {
+        supplier: "Acme",
+        description: "Guarded cloud hosting",
+        subtotal: "500",
+        vat: "100",
+        billDate: `${openPeriod}-06`,
+        dueDate: `${openPeriod}-11`
+      }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    assert.strictEqual(created.json().bill.supplier, "Acme");
+    assert.strictEqual(created.json().bill.subtotal, 500);
+    assert.strictEqual(created.json().bill.vat, 100);
+    assert.strictEqual(created.json().bill.total, 600);
+    assert.strictEqual(created.json().bill.billDate, `${openPeriod}-06`);
+    assert.strictEqual(created.json().bill.dueDate, `${openPeriod}-11`);
+  } finally { await app.close(); }
+});

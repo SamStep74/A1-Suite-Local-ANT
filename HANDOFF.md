@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-02 · main after finance expense metadata guard · 60 tags · **385 tests (385 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-02 · main after finance bill metadata guard · 61 tags · **386 tests (386 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 60 slices)
+### Hardening (production-readiness pass — 61 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -95,6 +95,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 58. **SRC export metadata guard** rejects malformed SRC export request bodies, period keys, and notes before persistence, preventing object/array/control-character export evidence from entering SRC packets, source keys, suite events, or audit trails.
 59. **Signature packet metadata guard** rejects malformed accepted-quote signature packet request bodies, quote IDs, and notes before persistence, preventing object/array/control-character evidence from entering Docs signature packets, source keys, suite events, or audit trails.
 60. **Finance expense metadata guard** rejects malformed expense posting request bodies, amounts, dates, descriptions, and vendors before persistence, preventing object/array/control-character evidence from entering expenses, ledger journal memos, or audit trails.
+61. **Finance bill metadata guard** rejects malformed supplier bill request bodies, amounts, dates, suppliers, and descriptions before persistence, preventing object/array/control-character evidence from entering bills, ledger journal memos, or audit trails.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -142,7 +143,10 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest finance expense metadata guard checkpoint: this checkpoint (`Reject malformed signature packets and expenses`), pushed with this handoff.
+- Latest finance bill metadata guard checkpoint: this checkpoint (`Reject malformed finance bills`), pushed with this handoff.
+- Latest finance bill metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test test/payables-endpoints.test.js test/payables-idempotency.test.js` = 3 pass; `node --test test/api.test.js` = 196 pass, 0 fail; `npm test` = 386 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-bill-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/payables-endpoints.test.js && git diff --check` = pass.
+- Previous finance expense metadata guard commit: `b832039` (`Reject malformed signature packets and expenses`), already pushed before this bill handoff.
+- Latest finance expense metadata guard checkpoint: `b832039` (`Reject malformed signature packets and expenses`), pushed before this handoff.
 - Latest finance expense metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test test/finance-reports.test.js` = 2 pass; focused `node --test --test-name-pattern "signature evidence packet|evidence packet list" test/api.test.js` = 4 pass; `node --test test/api.test.js` = 196 pass, 0 fail; `npm test` = 385 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-expense-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && node --check test/finance-reports.test.js && git diff --check` = pass.
 - Latest signature packet metadata guard checkpoint: this checkpoint (`Reject malformed signature packets and expenses`), pushed with this handoff.
 - Latest signature packet metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "signature evidence packet|evidence packet list" test/api.test.js` = 4 pass; `node --test test/api.test.js` = 196 pass, 0 fail; `npm test` = 385 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-expense-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && node --check test/finance-reports.test.js && git diff --check` = pass.
