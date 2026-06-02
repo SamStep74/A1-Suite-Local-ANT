@@ -259,7 +259,7 @@ test("app assignment rejects unknown roles before mutating access-review evidenc
     app.db.prepare(`
       INSERT INTO app_assignments (org_id, role, app_id, enabled)
       VALUES (?, ?, ?, ?)
-    `).run("org-armosphera-demo", "Ghost Role", "finance", 0);
+    `).run("org-armosphera-demo", "Ghost Role", "finance", 1);
 
     const rejected = await app.inject({
       method: "POST",
@@ -275,7 +275,7 @@ test("app assignment rejects unknown roles before mutating access-review evidenc
       FROM app_assignments
       WHERE org_id = ? AND role = ?
     `).get("org-armosphera-demo", "Ghost Role");
-    assert.equal(stored.enabled, 0);
+    assert.equal(stored.enabled, 1);
 
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
     assert.equal(audit.statusCode, 200, audit.body);
@@ -294,6 +294,8 @@ test("app assignment rejects unknown roles before mutating access-review evidenc
     assert.equal(created.json().review.payload.roles.some(role => role.role === "Ghost Role"), false);
     assert.equal(created.json().review.payload.appMatrix.some(app => app.roles.includes("Ghost Role")), false);
     assert.equal(created.json().review.payload.orphanedAssignmentRoles.includes("Ghost Role"), false);
+    assert.deepEqual(created.json().review.payload.invalidAssignmentRoles, ["Ghost Role"]);
+    assert.ok(created.json().review.payload.findings.includes("invalid-app-assignment-roles-detected"));
   });
 });
 

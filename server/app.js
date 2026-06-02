@@ -40586,6 +40586,7 @@ function buildAccessReviewPayload(db, orgId, reviewPeriod, createdAt) {
   const assignableRoles = getAssignableAppRoleSet(db, orgId);
   const roles = getAccessReviewRoles(db, orgId, users, assignableRoles);
   const appMatrix = getAccessReviewAppMatrix(db, orgId, assignableRoles);
+  const invalidAssignmentRoles = getInvalidAssignmentRoles(db, orgId, assignableRoles);
   const orphanedAssignmentRoles = roles
     .filter(role => role.users.length === 0 && role.apps.length > 0)
     .map(role => role.role);
@@ -40598,6 +40599,7 @@ function buildAccessReviewPayload(db, orgId, reviewPeriod, createdAt) {
   const findings = [
     "mfa-ready-admin-path-required",
     orphanedAssignmentRoles.includes("Admin") ? "admin-role-has-no-seeded-user" : "",
+    invalidAssignmentRoles.length ? "invalid-app-assignment-roles-detected" : "",
     roles.some(role => role.role === "Auditor") ? "auditor-readonly-access-review-enabled" : "",
     "least-privilege-expanded-roles-seeded"
   ].filter(Boolean);
@@ -40614,6 +40616,7 @@ function buildAccessReviewPayload(db, orgId, reviewPeriod, createdAt) {
     appMatrix,
     privilegedUsers,
     orphanedAssignmentRoles,
+    invalidAssignmentRoles,
     sensitiveAppRoles,
     controls: [
       "least-privilege-app-entitlements",
@@ -40628,6 +40631,17 @@ function buildAccessReviewPayload(db, orgId, reviewPeriod, createdAt) {
       accessReviews: db.prepare("SELECT COUNT(*) AS count FROM access_review_packets WHERE org_id = ?").get(orgId).count
     }
   };
+}
+
+function getInvalidAssignmentRoles(db, orgId, assignableRoles = getAssignableAppRoleSet(db, orgId)) {
+  return db.prepare(`
+    SELECT DISTINCT role
+    FROM app_assignments
+    WHERE org_id = ? AND enabled = 1
+    ORDER BY role
+  `).all(orgId)
+    .map(row => row.role)
+    .filter(role => !assignableRoles.has(role));
 }
 
 function getAccessReviewRoles(db, orgId, users, assignableRoles = getAssignableAppRoleSet(db, orgId)) {
