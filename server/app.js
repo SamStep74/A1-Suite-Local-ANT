@@ -6698,10 +6698,7 @@ function configureIntegrationConnector(db, user, connectorKey, body) {
   }
   const existing = db.prepare("SELECT * FROM integration_connectors WHERE org_id = ? AND connector_key = ?").get(user.org_id, definition.connectorKey);
   const now = new Date().toISOString();
-  const secret = String(body.secret || "").trim();
-  const secretHash = secret
-    ? crypto.createHash("sha256").update(secret).digest("hex")
-    : existing?.secret_hash || "";
+  const secretHash = normalizeIntegrationConnectorSecretHash(body, existing?.secret_hash || "");
   const secretFingerprint = secretHash ? secretHash.slice(0, 12) : "";
   const status = normalizeIntegrationConnectorChoice(body, "status", INTEGRATION_CONNECTOR_STATUSES, existing?.status || "planned");
   const environment = normalizeIntegrationConnectorChoice(body, "environment", INTEGRATION_CONNECTOR_ENVIRONMENTS, existing?.environment || "sandbox");
@@ -6816,6 +6813,25 @@ function normalizeIntegrationConnectorScopes(body, fallback = []) {
     scopes.push(scope);
   }
   return [...new Set(scopes)].slice(0, 50);
+}
+
+function normalizeIntegrationConnectorSecretHash(body, fallbackHash = "") {
+  if (!Object.prototype.hasOwnProperty.call(body, "secret")) {
+    return fallbackHash;
+  }
+  if (typeof body.secret !== "string") {
+    const err = new Error("Integration connector secret must be a string");
+    err.statusCode = 400;
+    throw err;
+  }
+  const secret = body.secret.trim();
+  if (!secret) return fallbackHash;
+  if (secret.length > 4096 || /[\x00-\x1f\x7f]/.test(secret)) {
+    const err = new Error("Integration connector secret must be a safe string");
+    err.statusCode = 400;
+    throw err;
+  }
+  return crypto.createHash("sha256").update(secret).digest("hex");
 }
 
 function normalizeIntegrationConnectorEvidenceText(body, field, fallback = "", limit = 500) {

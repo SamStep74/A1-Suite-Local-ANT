@@ -1913,3 +1913,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Rejected evidence-text writes return `400` before mutation, leaving connector endpoint URL, environment, note, secret fingerprint, last health status, health-check count, and audit event count unchanged.
 - Added regression coverage proving object notes and multiline sample events do not become `[object Object]`, raw control-character readiness evidence, rotated secrets, or extra audit records.
 - Verification for the checkpoint: focused integration connector tests = 6 pass; `test/api.test.js` = 179 pass; `npm test` = 367 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 171 - Integration Connector Secret Guard
+
+- Integration connector configuration now validates submitted `secret` values before hashing them into connector credential fingerprints.
+- Omitted and blank submitted secrets continue to preserve the existing fingerprint; non-empty submitted secrets must be strings without control characters.
+- Rejected secret writes return `400` before mutation, leaving endpoint URL, environment, owner role, note, scopes, secret hash/fingerprint, and audit event count unchanged.
+- Added regression coverage proving object secrets and multiline secrets do not become `[object Object]`-derived fingerprints, malformed credential hashes, list output, or extra configuration audit records.
+- Verification for the checkpoint: focused integration connector tests = 7 pass; `test/api.test.js` = 180 pass; `npm test` = 368 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
