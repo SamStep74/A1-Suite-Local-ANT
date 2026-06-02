@@ -2163,3 +2163,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted optional tax, segment, source, channel, estimated value, and consent fields still preserve the existing defaults used by manual lead capture and public form lead handoff.
 - Rejected malformed CRM lead requests return `400`, keep submitted payload secrets out of error bodies, leave `crm_leads`, `suite_events`, and `audit_events` unchanged, and valid lead capture plus Forms-created leads remain unchanged.
 - Verification for the checkpoint: focused CRM/Form tests = 5 pass; focused Forms/page/isolation tests = 17 pass; `test/api.test.js` = 199 pass; `npm test` = 397 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 201 - CRM Lead Conversion Metadata Guard
+
+- CRM lead conversion now rejects non-plain-object request bodies before mutating customer, deal, profile, activity, suite-event, or audit state.
+- Submitted forecast categories, deal titles, and next-step text must be structurally safe before they can become conversion, pipeline, or Customer 360 evidence.
+- Forecast categories must remain in the CRM forecast enum, deal titles and next steps reject object/array/control-character/overlong input, and omitted fields still preserve the existing hot-lead/default-title/default-next-step behavior.
+- Rejected malformed conversion requests return `400`, keep submitted payload secrets out of error bodies, leave `customers`, `customer_profiles`, `customer_profile_sources`, `deals`, conversion activities, suite events, audit events, and lead conversion pointers unchanged.
+- Verification for the checkpoint: focused CRM conversion tests = 4 pass; `test/api.test.js` = 200 pass; `npm test` = 398 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

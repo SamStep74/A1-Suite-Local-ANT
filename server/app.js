@@ -2121,7 +2121,7 @@ function registerApi(app, db, options = {}) {
   app.post("/api/crm/leads/:id/convert", async request => {
     const user = await app.auth(request);
     requireCrmEditor(user);
-    return { ok: true, ...convertCrmLead(db, user, request.params.id, request.body || {}) };
+    return { ok: true, ...convertCrmLead(db, user, request.params.id, request.body) };
   });
 
   app.post("/api/crm/deals/:id/forecast", async request => {
@@ -42973,9 +42973,8 @@ function convertCrmLead(db, user, leadId, body) {
   const customerId = randomId("cust");
   const dealId = randomId("deal");
   const activityId = randomId("crm-activity");
-  const forecastCategory = normalizeChoice(body.forecastCategory, ["pipeline", "best_case", "commit"], lead.rating === "hot" ? "commit" : "pipeline");
-  const dealTitle = String(body.dealTitle || `${lead.companyName} onboarding package`).trim();
-  const nextStep = String(body.nextStep || lead.nextAction).trim();
+  const conversionInput = normalizeCrmLeadConversionInput(body, lead);
+  const { forecastCategory, dealTitle, nextStep } = conversionInput;
   const probability = forecastCategory === "commit" ? 75 : forecastCategory === "best_case" ? 55 : 35;
 
   db.prepare(`
@@ -43097,6 +43096,66 @@ function convertCrmLead(db, user, leadId, body) {
     deal: db.prepare("SELECT * FROM deals WHERE org_id = ? AND id = ?").get(user.org_id, dealId),
     activity: getCrmActivity(db, user.org_id, activityId)
   };
+}
+
+function normalizeCrmLeadConversionInput(body, lead) {
+  const input = body === undefined ? {} : body;
+  if (!isPlainObject(input)) {
+    throwInvalidCrmLeadConversionMetadata();
+  }
+  const defaultForecastCategory = lead.rating === "hot" ? "commit" : "pipeline";
+  return {
+    forecastCategory: normalizeCrmLeadConversionChoice(input, "forecastCategory", ["pipeline", "best_case", "commit"], defaultForecastCategory),
+    dealTitle: normalizeCrmLeadConversionText(input, "dealTitle", {
+      fallback: `${lead.companyName} onboarding package`,
+      minLength: 2,
+      maxLength: 200
+    }),
+    nextStep: normalizeCrmLeadConversionText(input, "nextStep", {
+      fallback: lead.nextAction,
+      minLength: 2,
+      maxLength: 500
+    })
+  };
+}
+
+function normalizeCrmLeadConversionChoice(body, field, choices, fallback) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return fallback;
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmLeadConversionMetadata();
+  }
+  const text = value.trim();
+  if (!choices.includes(text)) {
+    throwInvalidCrmLeadConversionMetadata();
+  }
+  return text;
+}
+
+function normalizeCrmLeadConversionText(body, field, options = {}) {
+  const { fallback = "", minLength = 0, maxLength = 500 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    const text = String(fallback || "").trim();
+    if (text.length < minLength || text.length > maxLength || /[\x00-\x1f\x7f]/.test(text)) {
+      throwInvalidCrmLeadConversionMetadata();
+    }
+    return text;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmLeadConversionMetadata();
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidCrmLeadConversionMetadata();
+  }
+  return text;
+}
+
+function throwInvalidCrmLeadConversionMetadata() {
+  const err = new Error("Lead conversion requires safe metadata");
+  err.statusCode = 400;
+  throw err;
 }
 
 function getCrmLeadConversionActivity(db, orgId, leadId) {

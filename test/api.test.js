@@ -16036,6 +16036,94 @@ test("CRM lead API rejects malformed metadata before persistence", async () => {
   });
 });
 
+test("CRM lead conversion rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app, "sales@armosphera.local");
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/crm/leads",
+      headers: { cookie },
+      payload: {
+        companyName: "Conversion Guard Clinic",
+        contactName: "Nare Convert",
+        email: "conversion-guard@example.am",
+        phone: "+374 91 404040",
+        taxId: "02666001",
+        segment: "Clinic",
+        source: "Instagram",
+        channel: "WhatsApp",
+        interest: "HayHashvapah invoice handoff and patient retention conversion",
+        estimatedValue: 1800000,
+        consentStatus: "marketing-consent-recorded"
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const lead = created.json().lead;
+    const counts = () => ({
+      customers: app.db.prepare("SELECT COUNT(*) AS count FROM customers").get().count,
+      profiles: app.db.prepare("SELECT COUNT(*) AS count FROM customer_profiles").get().count,
+      profileSources: app.db.prepare("SELECT COUNT(*) AS count FROM customer_profile_sources").get().count,
+      deals: app.db.prepare("SELECT COUNT(*) AS count FROM deals").get().count,
+      conversionActivities: app.db.prepare("SELECT COUNT(*) AS count FROM crm_activities WHERE kind = ?").get("conversion").count,
+      suiteEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.lead.converted").count,
+      auditEvents: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("crm.lead.converted").count
+    });
+    const leadRow = () => app.db.prepare(`
+      SELECT status, converted_customer_id AS convertedCustomerId, converted_deal_id AS convertedDealId
+      FROM crm_leads
+      WHERE id = ?
+    `).get(lead.id);
+    const before = counts();
+    const malformedPayloads = [
+      { dealTitle: { value: "Object title", token: "secret-crm-convert-object-title-token" } },
+      { dealTitle: "Conversion\nsecret-crm-convert-control-title-token" },
+      { dealTitle: `${"T".repeat(201)}secret-crm-convert-long-title-token` },
+      { nextStep: ["Send quote"], payloadSecret: "secret-crm-convert-array-next-step-token" },
+      { nextStep: "Send quote\nsecret-crm-convert-control-next-step-token" },
+      { nextStep: `${"N".repeat(501)}secret-crm-convert-long-next-step-token` },
+      { forecastCategory: { value: "commit", token: "secret-crm-convert-object-forecast-token" } },
+      { forecastCategory: "commit\nsecret-crm-convert-control-forecast-token" },
+      { forecastCategory: "closed_won-secret-crm-convert-invalid-forecast-token" },
+      ["secret-crm-convert-array-body-token"]
+    ];
+
+    const rejectedNull = await app.inject({
+      method: "POST",
+      url: `/api/crm/leads/${lead.id}/convert`,
+      headers: { cookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
+
+    for (const payload of malformedPayloads) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: `/api/crm/leads/${lead.id}/convert`,
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-crm-convert-/);
+    }
+
+    assert.deepEqual(counts(), before);
+    const unchangedLead = leadRow();
+    assert.equal(unchangedLead.status, lead.status);
+    assert.equal(unchangedLead.convertedCustomerId, null);
+    assert.equal(unchangedLead.convertedDealId, null);
+
+    const converted = await app.inject({
+      method: "POST",
+      url: `/api/crm/leads/${lead.id}/convert`,
+      headers: { cookie }
+    });
+    assert.equal(converted.statusCode, 200, converted.body);
+    assert.equal(converted.json().deal.title, "Conversion Guard Clinic onboarding package");
+    assert.equal(converted.json().deal.next_step, "Prepare Armenian quote package and confirm HayHashvapah billing details");
+    assert.equal(converted.json().activity.forecastCategory, "commit");
+  });
+});
+
 test("auditor cannot create CRM leads", async () => {
   await withApp(async app => {
     const cookie = await login(app, "auditor@armosphera.local");
