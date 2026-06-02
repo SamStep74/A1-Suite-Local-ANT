@@ -2,9 +2,9 @@
 # A1 Suite — Инструкция установки и переноса
 # A1 Suite — Տեղադրման և տեղափոխման հրահանգներ
 
-**Repository:** `SamStep74/A1-Suite-Local`
-**Primary server base:** Mac Studio MQH63LL/A
-**Target use case:** A1 Suite / A1 HayHashvapah / A1 CRM for Armenian businesses, with local-first and online private-server deployment options.
+**Repository:** `SamStep74/A1-Suite-Local`  
+**Primary server base:** Mac Studio MQH63LL/A  
+**Target use case:** A1 Suite / A1 HayHashvapah / A1 CRM for Armenian businesses, with local-first and online private-server deployment options.  
 **Document version:** 2026-06-01
 
 ---
@@ -1249,3 +1249,4 @@ Restore test կատարվում է ամեն ամիս։
 Secrets չեն commit արվում GitHub-ում։
 Outbound network-ը մնում է անջատված, եթե explicit անհրաժեշտություն չկա։
 ```
+
