@@ -119,7 +119,8 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest app-assignment default-enable contract checkpoint: this checkpoint (`test: cover app assignment default enable contract`), pushed with this handoff.
+- Latest app-assignment default-enable contract test commit: `dabaa1e` (`test: cover default app assignment enable`), pushed with this handoff.
+- Latest app-assignment default-enable handoff checkpoint: this checkpoint (`docs: fix app assignment default coverage handoff`), pushed with this handoff.
 - Latest app-assignment default-enable contract verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "app assignment" test/api.test.js` = 4 pass; `node --test test/api.test.js` = 173 pass, 0 fail; `npm test` = 361 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-assignment-default-enabled-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check test/api.test.js && git diff --check` = pass.
 - Latest app-assignment enabled-value guard commit: `5b2dd4f` (`Reject non-boolean app assignment toggles`), pushed with this handoff.
 - Latest app-assignment role guard commit: `76e99ff` (`Report invalid app assignment roles`), pushed with this handoff.
