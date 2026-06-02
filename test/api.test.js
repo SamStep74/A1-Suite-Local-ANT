@@ -759,6 +759,66 @@ test("integration connector rejects credentialed endpoint URLs before persistenc
 
     const persistedAfterLong = app.db.prepare("SELECT COUNT(*) AS count FROM integration_connectors WHERE endpoint_url LIKE ? OR secret_fingerprint = ?").get("%api-userapi-user%", sha256("whsec-connector-long-credentialed").slice(0, 12));
     assert.equal(persistedAfterLong.count, 0);
+
+    const configured = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "sandbox",
+        endpointUrl: "https://graph.facebook.com/v20.0",
+        secret: "whsec-connector-valid",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        note: "Valid connector endpoint before legacy unsafe-row simulation."
+      }
+    });
+    assert.equal(configured.statusCode, 200, configured.body);
+    const configuredConnectorId = configured.json().connector.id;
+    assert.ok(configuredConnectorId);
+
+    const legacyCredentialedUrl = "https://legacy-user:legacy-token@graph.facebook.com/v20.0";
+    const legacyCredentialedUpdate = app.db.prepare("UPDATE integration_connectors SET endpoint_url = ? WHERE id = ?").run(legacyCredentialedUrl, configuredConnectorId);
+    assert.equal(legacyCredentialedUpdate.changes, 1);
+    const listedAfterLegacyCredentialed = await app.inject({ method: "GET", url: "/api/integrations/connectors", headers: { cookie } });
+    assert.equal(listedAfterLegacyCredentialed.statusCode, 200, listedAfterLegacyCredentialed.body);
+    const connectorAfterLegacyCredentialed = listedAfterLegacyCredentialed.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(connectorAfterLegacyCredentialed.endpointUrl, "");
+    assert.equal(JSON.stringify(listedAfterLegacyCredentialed.json()).includes("legacy-token"), false);
+
+    const legacyCredentialedHealth = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/health-check",
+      headers: { cookie },
+      payload: { note: "Unsafe legacy connector endpoint should not be echoed." }
+    });
+    assert.equal(legacyCredentialedHealth.statusCode, 200, legacyCredentialedHealth.body);
+    const legacyCredentialedEndpointCheck = legacyCredentialedHealth.json().check.checks.find(item => item.key === "endpoint-url");
+    assert.equal(legacyCredentialedEndpointCheck.status, "blocked");
+    assert.equal(legacyCredentialedEndpointCheck.detail, "missing endpoint URL");
+    assert.equal(JSON.stringify(legacyCredentialedHealth.json()).includes("legacy-token"), false);
+
+    const legacyTruncatedCredentialFragment = `https://${"api-user".repeat(40)}`.slice(0, 260);
+    assert.equal(legacyTruncatedCredentialFragment.length, 260);
+    const legacyFragmentUpdate = app.db.prepare("UPDATE integration_connectors SET endpoint_url = ? WHERE id = ?").run(legacyTruncatedCredentialFragment, configuredConnectorId);
+    assert.equal(legacyFragmentUpdate.changes, 1);
+    const listedAfterLegacyFragment = await app.inject({ method: "GET", url: "/api/integrations/connectors", headers: { cookie } });
+    assert.equal(listedAfterLegacyFragment.statusCode, 200, listedAfterLegacyFragment.body);
+    const connectorAfterLegacyFragment = listedAfterLegacyFragment.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(connectorAfterLegacyFragment.endpointUrl, "");
+    assert.equal(JSON.stringify(listedAfterLegacyFragment.json()).includes("api-userapi-user"), false);
+
+    const legacyFragmentHealth = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/health-check",
+      headers: { cookie },
+      payload: { note: "Legacy truncated connector endpoint should not be echoed." }
+    });
+    assert.equal(legacyFragmentHealth.statusCode, 200, legacyFragmentHealth.body);
+    const legacyFragmentEndpointCheck = legacyFragmentHealth.json().check.checks.find(item => item.key === "endpoint-url");
+    assert.equal(legacyFragmentEndpointCheck.status, "blocked");
+    assert.equal(legacyFragmentEndpointCheck.detail, "missing endpoint URL");
+    assert.equal(JSON.stringify(legacyFragmentHealth.json()).includes("api-userapi-user"), false);
   });
 });
 

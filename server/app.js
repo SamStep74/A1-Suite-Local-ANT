@@ -6622,6 +6622,23 @@ const INTEGRATION_CONNECTOR_DEFINITIONS = [
   }
 ];
 
+const INTEGRATION_CONNECTOR_ENDPOINT_URL_LIMIT = 260;
+
+function isSafeIntegrationConnectorEndpointUrl(value) {
+  const endpointUrl = String(value || "").trim();
+  return Boolean(
+    endpointUrl
+    && endpointUrl.length < INTEGRATION_CONNECTOR_ENDPOINT_URL_LIMIT
+    && isValidHttpUrl(endpointUrl)
+    && !hasSourceUrlCredentials(endpointUrl)
+  );
+}
+
+function formatIntegrationConnectorEndpointUrl(value) {
+  const endpointUrl = String(value || "").trim();
+  return isSafeIntegrationConnectorEndpointUrl(endpointUrl) ? endpointUrl : "";
+}
+
 function getIntegrationConnectors(db, orgId) {
   const rows = db.prepare("SELECT * FROM integration_connectors WHERE org_id = ?").all(orgId);
   const byKey = new Map(rows.map(row => [row.connector_key, row]));
@@ -6652,12 +6669,12 @@ function configureIntegrationConnector(db, user, connectorKey, body) {
   const status = normalizeChoice(body.status, ["planned", "connected", "paused", "error"], existing?.status || "planned");
   const environment = normalizeChoice(body.environment, ["sandbox", "production", "test"], existing?.environment || "sandbox");
   const rawEndpointUrl = String(body.endpointUrl || existing?.endpoint_url || "").trim();
-  if (rawEndpointUrl && (!isValidHttpUrl(rawEndpointUrl) || hasSourceUrlCredentials(rawEndpointUrl))) {
-    const err = new Error("Integration connector endpoint URL must be HTTP(S) and must not include credentials");
+  if (rawEndpointUrl && !isSafeIntegrationConnectorEndpointUrl(rawEndpointUrl)) {
+    const err = new Error("Integration connector endpoint URL must be HTTP(S), under 260 characters, and must not include credentials");
     err.statusCode = 400;
     throw err;
   }
-  const endpointUrl = rawEndpointUrl.slice(0, 260);
+  const endpointUrl = rawEndpointUrl;
   const scopes = normalizeStringList(body.scopes, existing ? safeJson(existing.scopes) : []);
   const ownerRole = String(body.ownerRole || existing?.owner_role || definition.ownerRole).trim().slice(0, 80) || definition.ownerRole;
   const note = String(body.note || existing?.note || "").trim().slice(0, 500);
@@ -6822,7 +6839,7 @@ function formatIntegrationConnector(row, definition, latestCheck = null) {
     authType: source.auth_type || definition.authType,
     status: source.status || "planned",
     environment: source.environment || "sandbox",
-    endpointUrl: source.endpoint_url || "",
+    endpointUrl: formatIntegrationConnectorEndpointUrl(source.endpoint_url),
     scopes: source.scopes ? safeJson(source.scopes) : [],
     capabilities: source.capabilities ? safeJson(source.capabilities) : definition.capabilities,
     requiredScopes: source.required_scopes ? safeJson(source.required_scopes) : definition.requiredScopes,
