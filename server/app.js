@@ -3458,14 +3458,16 @@ ${controls}
   app.post("/api/workflow/rules/:id/state", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const result = updateAutomationRuleState(db, user, request.params.id, request.body || {});
+    const body = request.body === undefined ? {} : request.body;
+    const result = updateAutomationRuleState(db, user, request.params.id, body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8) };
   });
 
   app.post("/api/workflow/rules/:id/rollback", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const result = rollbackAutomationRuleVersion(db, user, request.params.id, request.body || {});
+    const body = request.body === undefined ? {} : request.body;
+    const result = rollbackAutomationRuleVersion(db, user, request.params.id, body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8) };
   });
 
@@ -48845,6 +48847,9 @@ function getAutomationRule(db, orgId, ruleId) {
 }
 
 function updateAutomationRuleState(db, user, ruleId, body) {
+  if (!isPlainObject(body)) {
+    throwInvalidWorkflowRuleChange();
+  }
   const rule = getAutomationRule(db, user.org_id, ruleId);
   if (!rule) {
     const err = new Error("Workflow rule not found");
@@ -48856,12 +48861,11 @@ function updateAutomationRuleState(db, user, ruleId, body) {
     err.statusCode = 400;
     throw err;
   }
-  const reason = String(body.reason || "").trim();
-  if (reason.length < 12) {
-    const err = new Error("State change reason is required");
-    err.statusCode = 400;
-    throw err;
-  }
+  const reason = normalizeWorkflowRuleChangeText(body, "reason", {
+    minLength: 12,
+    maxLength: 500,
+    shortMessage: "State change reason is required"
+  });
 
   const now = new Date().toISOString();
   const nextVersion = (rule.currentVersion || 1) + 1;
@@ -48926,6 +48930,9 @@ function updateAutomationRuleState(db, user, ruleId, body) {
 }
 
 function rollbackAutomationRuleVersion(db, user, ruleId, body) {
+  if (!isPlainObject(body)) {
+    throwInvalidWorkflowRuleChange();
+  }
   const rule = getAutomationRule(db, user.org_id, ruleId);
   if (!rule) {
     const err = new Error("Workflow rule not found");
@@ -48933,7 +48940,7 @@ function rollbackAutomationRuleVersion(db, user, ruleId, body) {
     throw err;
   }
 
-  const requestedVersion = Number(body.versionNumber || body.targetVersionNumber || Math.max(1, (rule.currentVersion || 1) - 1));
+  const requestedVersion = normalizeWorkflowRollbackVersion(body, rule);
   if (!Number.isInteger(requestedVersion) || requestedVersion < 1) {
     const err = new Error("versionNumber must be a positive integer");
     err.statusCode = 400;
@@ -48951,12 +48958,11 @@ function rollbackAutomationRuleVersion(db, user, ruleId, body) {
     err.statusCode = 404;
     throw err;
   }
-  const reason = String(body.reason || "").trim();
-  if (reason.length < 12) {
-    const err = new Error("Rollback reason is required");
-    err.statusCode = 400;
-    throw err;
-  }
+  const reason = normalizeWorkflowRuleChangeText(body, "reason", {
+    minLength: 12,
+    maxLength: 500,
+    shortMessage: "Rollback reason is required"
+  });
 
   const now = new Date().toISOString();
   const nextVersion = rule.currentVersion + 1;
@@ -49028,6 +49034,60 @@ function rollbackAutomationRuleVersion(db, user, ruleId, body) {
     targetVersion,
     version: getAutomationRuleVersion(db, user.org_id, versionId)
   };
+}
+
+function normalizeWorkflowRuleChangeText(body, field, options = {}) {
+  const {
+    minLength = 1,
+    maxLength = 500,
+    shortMessage = "Workflow rule change reason is required"
+  } = options;
+  const hasField = Object.prototype.hasOwnProperty.call(body, field);
+  const value = hasField ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    throwWorkflowRuleChangeError(shortMessage);
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidWorkflowRuleChange();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidWorkflowRuleChange();
+  }
+  const text = value.trim();
+  if (text.length < minLength) {
+    throwWorkflowRuleChangeError(shortMessage);
+  }
+  if (text.length > maxLength) {
+    throwInvalidWorkflowRuleChange();
+  }
+  return text;
+}
+
+function normalizeWorkflowRollbackVersion(body, rule) {
+  const hasVersionNumber = Object.prototype.hasOwnProperty.call(body, "versionNumber");
+  const hasTargetVersionNumber = Object.prototype.hasOwnProperty.call(body, "targetVersionNumber");
+  if (hasVersionNumber) return normalizeWorkflowRollbackVersionValue(body.versionNumber);
+  if (hasTargetVersionNumber) return normalizeWorkflowRollbackVersionValue(body.targetVersionNumber);
+  return Math.max(1, (rule.currentVersion || 1) - 1);
+}
+
+function normalizeWorkflowRollbackVersionValue(value) {
+  if (typeof value !== "number" || !Number.isInteger(value) || value < 1) {
+    const err = new Error("versionNumber must be a positive integer");
+    err.statusCode = 400;
+    throw err;
+  }
+  return value;
+}
+
+function throwWorkflowRuleChangeError(message) {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
+}
+
+function throwInvalidWorkflowRuleChange() {
+  throwWorkflowRuleChangeError("Invalid workflow rule change");
 }
 
 function createWorkflowDryRun(db, user, ruleId, body) {

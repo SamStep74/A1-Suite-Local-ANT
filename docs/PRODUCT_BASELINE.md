@@ -1986,3 +1986,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Control-character notes and array-shaped request bodies are rejected instead of becoming dry-run evidence.
 - Rejected malformed workflow dry-runs return `400`, keep submitted payload secrets out of error bodies, leave `workflow_dry_runs`, `suite_events`, and `audit_events` unchanged, and do not leak `[object Object]` evidence into dry-run lists.
 - Verification for the checkpoint: focused workflow dry-run tests = 2 pass; `test/api.test.js` = 188 pass; `npm test` = 376 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 180 - Workflow Rule Change Metadata Guard
+
+- Workflow rule state and rollback writes now reject non-plain-object request bodies before mutating automation rules.
+- State and rollback reasons must be safe strings with enough review context before they can become rule-version, suite-event, or audit evidence.
+- Rollback `versionNumber` / `targetVersionNumber` values must be actual positive integers; strings and arrays are rejected instead of being numerically coerced.
+- Rejected malformed state and rollback requests return `400`, keep submitted payload secrets out of error bodies, leave `automation_rule_versions`, `suite_events`, and `audit_events` unchanged, and do not leak `[object Object]` evidence into rule-version lists.
+- Verification for the checkpoint: focused workflow rule/rollback tests = 3 pass; `test/api.test.js` = 189 pass; `npm test` = 377 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

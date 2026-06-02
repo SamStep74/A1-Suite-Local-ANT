@@ -19027,8 +19027,8 @@ test("workflow dry-run rejects malformed metadata before persistence", async () 
     const nullBody = await app.inject({
       method: "POST",
       url: "/api/workflow/rules/rule-overdue-task/dry-run",
-      headers: { cookie },
-      payload: null
+      headers: { cookie, "content-type": "application/json" },
+      payload: "null"
     });
     assert.equal(nullBody.statusCode, 400, nullBody.body);
 
@@ -19648,6 +19648,142 @@ test("owner can rollback workflow rule to an earlier version with audit evidence
       && event.details.restoredFromVersionNumber === 2
       && event.details.previousVersionNumber === 3
     )));
+  });
+});
+
+test("workflow rule state and rollback reject malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const ownerCookie = await login(app);
+    const versionCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM automation_rule_versions WHERE rule_id = ?")
+      .get("rule-overdue-task").count;
+    const suiteRuleEventCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type LIKE ?")
+      .get("workflow.rule.%").count;
+    const auditRuleEventCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type LIKE ?")
+      .get("workflow.rule.%").count;
+
+    const versionCountBeforeState = versionCount();
+    const suiteEventCountBeforeState = suiteRuleEventCount();
+    const auditCountBeforeState = auditRuleEventCount();
+
+    const malformedStateRequests = [
+      {
+        enabled: false,
+        reason: { text: "Object reasons must not become state evidence.", token: "secret-workflow-state-object-token" }
+      },
+      {
+        enabled: false,
+        reason: "Pause automation\nwith a control character.",
+        token: "secret-workflow-state-control-token"
+      },
+      {
+        enabled: false,
+        reason: null,
+        token: "secret-workflow-state-null-token"
+      },
+      ["enabled", false, "secret-workflow-state-array-token"]
+    ];
+
+    for (const payload of malformedStateRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/workflow/rules/rule-overdue-task/state",
+        headers: { cookie: ownerCookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-workflow-state-/);
+    }
+
+    assert.equal(versionCount(), versionCountBeforeState);
+    assert.equal(suiteRuleEventCount(), suiteEventCountBeforeState);
+    assert.equal(auditRuleEventCount(), auditCountBeforeState);
+
+    const stateRules = await app.inject({ method: "GET", url: "/api/workflow/rules", headers: { cookie: ownerCookie } });
+    assert.equal(stateRules.statusCode, 200, stateRules.body);
+    assert.ok(stateRules.json().rules.some(rule => (
+      rule.id === "rule-overdue-task"
+      && rule.enabled === true
+      && rule.currentVersion === 1
+    )));
+    const stateVersions = await app.inject({ method: "GET", url: "/api/workflow/rules/rule-overdue-task/versions", headers: { cookie: ownerCookie } });
+    assert.equal(stateVersions.statusCode, 200, stateVersions.body);
+    assert.doesNotMatch(stateVersions.body, /\[object Object\]|secret-workflow-state-/);
+
+    const disabled = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/state",
+      headers: { cookie: ownerCookie },
+      payload: {
+        enabled: false,
+        reason: "Pause collection automation before malformed rollback attempts."
+      }
+    });
+    assert.equal(disabled.statusCode, 200, disabled.body);
+
+    const enabled = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/state",
+      headers: { cookie: ownerCookie },
+      payload: {
+        enabled: true,
+        reason: "Resume collection automation before malformed rollback attempts."
+      }
+    });
+    assert.equal(enabled.statusCode, 200, enabled.body);
+    assert.equal(enabled.json().rule.currentVersion, 3);
+
+    const versionCountBeforeRollback = versionCount();
+    const suiteEventCountBeforeRollback = suiteRuleEventCount();
+    const auditCountBeforeRollback = auditRuleEventCount();
+
+    const malformedRollbackRequests = [
+      {
+        versionNumber: ["2"],
+        reason: "Array version selectors must not rollback workflow rules.",
+        token: "secret-workflow-rollback-array-version-token"
+      },
+      {
+        targetVersionNumber: "2",
+        reason: "String target versions must not rollback workflow rules.",
+        token: "secret-workflow-rollback-string-version-token"
+      },
+      {
+        versionNumber: 2,
+        reason: { text: "Object reasons must not become rollback evidence.", token: "secret-workflow-rollback-object-reason-token" }
+      },
+      {
+        versionNumber: 2,
+        reason: "Rollback reason\nwith a control character.",
+        token: "secret-workflow-rollback-control-token"
+      },
+      null
+    ];
+
+    for (const payload of malformedRollbackRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/workflow/rules/rule-overdue-task/rollback",
+        headers: { cookie: ownerCookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-workflow-rollback-/);
+    }
+
+    assert.equal(versionCount(), versionCountBeforeRollback);
+    assert.equal(suiteRuleEventCount(), suiteEventCountBeforeRollback);
+    assert.equal(auditRuleEventCount(), auditCountBeforeRollback);
+
+    const rollbackRules = await app.inject({ method: "GET", url: "/api/workflow/rules", headers: { cookie: ownerCookie } });
+    assert.equal(rollbackRules.statusCode, 200, rollbackRules.body);
+    assert.ok(rollbackRules.json().rules.some(rule => (
+      rule.id === "rule-overdue-task"
+      && rule.enabled === true
+      && rule.currentVersion === 3
+    )));
+    const rollbackVersions = await app.inject({ method: "GET", url: "/api/workflow/rules/rule-overdue-task/versions", headers: { cookie: ownerCookie } });
+    assert.equal(rollbackVersions.statusCode, 200, rollbackVersions.body);
+    assert.doesNotMatch(rollbackVersions.body, /\[object Object\]|secret-workflow-rollback-/);
   });
 });
 
