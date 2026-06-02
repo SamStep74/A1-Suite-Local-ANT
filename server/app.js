@@ -3846,32 +3846,7 @@ ${controls}
   app.post("/api/payroll/run", async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
-    const body = request.body || {};
-    const runDate = /^\d{4}-\d{2}-\d{2}$/.test(body.runDate || "") ? body.runDate : new Date().toISOString().slice(0, 10);
-    // Use the rates in force on the run date (an explicit body.config still overrides), so
-    // recomputing a historical payroll applies the law that applied then, not today's.
-    const calc = payroll.calculatePayroll(body.gross, { config: body.config || resolvePayrollConfig(db, user.org_id, runDate) });
-    const periodKey = runDate.slice(0, 7);
-    const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
-    if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
-    // Optionally link to a known employee. An explicit-but-unknown id is rejected (rather than
-    // silently storing an unlinked run); omitting it keeps the free-text employeeName path.
-    let employeeId = null;
-    let employeeName = String(body.employeeName || "").slice(0, 160);
-    if (body.employeeId) {
-      const employee = getEmployee(db, user.org_id, body.employeeId);
-      if (!employee) { const e = new Error("Unknown employeeId"); e.statusCode = 400; throw e; }
-      employeeId = employee.id;
-      if (!employeeName) employeeName = employee.fullName.slice(0, 160);
-    }
-    const id = randomId("payroll");
-    const now = new Date().toISOString();
-    db.prepare(`INSERT INTO payroll_runs (id, org_id, employee_id, employee_name, gross, income_tax, pension, stamp_duty, total_deductions, net, run_date, period_key, created_by_user_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, user.org_id, employeeId, employeeName, calc.gross, calc.incomeTax, calc.pension, calc.stampDuty, calc.totalDeductions, calc.net, runDate, periodKey, user.id, now);
-    ledger.postPayrollRun(db, user.org_id, { id, employeeName, gross: calc.gross, net: calc.net, totalDeductions: calc.totalDeductions, date: runDate, period_key: periodKey });
-    audit(db, user.org_id, user.id, "finance.payroll.run", { payrollRunId: id, employeeId, gross: calc.gross, net: calc.net });
-    return { run: { id, employeeId, employeeName, ...calc, runDate, periodKey } };
+    return postFinancePayrollRun(db, user, request.body === undefined ? {} : request.body);
   });
 
   app.get("/api/people/employees", async request => {
@@ -3931,20 +3906,7 @@ ${controls}
     const employee = getEmployee(db, user.org_id, request.params.id);
     if (!employee) { const e = new Error("Employee not found"); e.statusCode = 404; throw e; }
     if (employee.employmentStatus === "terminated") { const e = new Error("Cannot run payroll for a terminated employee"); e.statusCode = 409; throw e; }
-    const body = request.body || {};
-    const runDate = /^\d{4}-\d{2}-\d{2}$/.test(body.runDate || "") ? body.runDate : new Date().toISOString().slice(0, 10);
-    const calc = payroll.calculatePayroll(employee.grossSalary, { config: body.config || resolvePayrollConfig(db, user.org_id, runDate) });
-    const periodKey = runDate.slice(0, 7);
-    const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
-    if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
-    const id = randomId("payroll");
-    const now = new Date().toISOString();
-    db.prepare(`INSERT INTO payroll_runs (id, org_id, employee_id, employee_name, gross, income_tax, pension, stamp_duty, total_deductions, net, run_date, period_key, created_by_user_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, user.org_id, employee.id, employee.fullName.slice(0, 160), calc.gross, calc.incomeTax, calc.pension, calc.stampDuty, calc.totalDeductions, calc.net, runDate, periodKey, user.id, now);
-    ledger.postPayrollRun(db, user.org_id, { id, employeeName: employee.fullName, gross: calc.gross, net: calc.net, totalDeductions: calc.totalDeductions, date: runDate, period_key: periodKey });
-    audit(db, user.org_id, user.id, "people.payroll.run", { payrollRunId: id, employeeId: employee.id, gross: calc.gross, net: calc.net });
-    return { ok: true, run: { id, employeeId: employee.id, employeeName: employee.fullName, ...calc, runDate, periodKey } };
+    return postPeopleEmployeePayrollRun(db, user, employee, request.body === undefined ? {} : request.body);
   });
 
   app.get("/api/people/employees/:id/payroll-runs", async request => {
@@ -48646,6 +48608,285 @@ function normalizeFinanceOpeningBalanceAmount(entry) {
 
 function throwInvalidFinanceOpeningBalances() {
   const err = new Error("Invalid finance opening balances");
+  err.statusCode = 400;
+  throw err;
+}
+
+function postFinancePayrollRun(db, user, body) {
+  const input = normalizeFinancePayrollRunBody(body, { requireGross: true, allowEmployeeFields: true });
+  let employeeId = null;
+  let employeeName = input.employeeName;
+  if (input.employeeId) {
+    const employee = getEmployee(db, user.org_id, input.employeeId);
+    if (!employee) {
+      const err = new Error("Unknown employeeId");
+      err.statusCode = 400;
+      throw err;
+    }
+    employeeId = employee.id;
+    if (!employeeName) employeeName = employee.fullName.slice(0, 160);
+  }
+  const result = persistPayrollRun(db, user, {
+    gross: input.gross,
+    runDate: input.runDate,
+    config: input.config,
+    employeeId,
+    employeeName,
+    auditType: "finance.payroll.run"
+  });
+  return { run: result.run };
+}
+
+function postPeopleEmployeePayrollRun(db, user, employee, body) {
+  const input = normalizeFinancePayrollRunBody(body, { requireGross: false, allowEmployeeFields: false });
+  const result = persistPayrollRun(db, user, {
+    gross: employee.grossSalary,
+    runDate: input.runDate,
+    config: input.config,
+    employeeId: employee.id,
+    employeeName: employee.fullName.slice(0, 160),
+    auditType: "people.payroll.run"
+  });
+  return { ok: true, run: result.run };
+}
+
+function persistPayrollRun(db, user, input) {
+  const periodKey = input.runDate.slice(0, 7);
+  const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
+  if (period && period.status === "closed") {
+    const err = new Error("PERIOD_LOCKED");
+    err.statusCode = 409;
+    throw err;
+  }
+  // Explicit rate overrides are supported, but empty config still uses the effective-dated resolver.
+  const config = input.config || resolvePayrollConfig(db, user.org_id, input.runDate);
+  const calc = payroll.calculatePayroll(input.gross, { config });
+  const id = randomId("payroll");
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO payroll_runs (
+      id, org_id, employee_id, employee_name, gross, income_tax, pension,
+      stamp_duty, total_deductions, net, run_date, period_key,
+      created_by_user_id, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    id,
+    user.org_id,
+    input.employeeId,
+    input.employeeName,
+    calc.gross,
+    calc.incomeTax,
+    calc.pension,
+    calc.stampDuty,
+    calc.totalDeductions,
+    calc.net,
+    input.runDate,
+    periodKey,
+    user.id,
+    now
+  );
+  ledger.postPayrollRun(db, user.org_id, {
+    id,
+    employeeName: input.employeeName,
+    gross: calc.gross,
+    net: calc.net,
+    totalDeductions: calc.totalDeductions,
+    date: input.runDate,
+    period_key: periodKey
+  });
+  audit(db, user.org_id, user.id, input.auditType, {
+    payrollRunId: id,
+    employeeId: input.employeeId,
+    gross: calc.gross,
+    net: calc.net
+  });
+  return {
+    run: {
+      id,
+      employeeId: input.employeeId,
+      employeeName: input.employeeName,
+      ...calc,
+      runDate: input.runDate,
+      periodKey
+    }
+  };
+}
+
+function normalizeFinancePayrollRunBody(body, options = {}) {
+  if (!isPlainObject(body)) {
+    throwInvalidFinancePayrollRun();
+  }
+  const { requireGross = true, allowEmployeeFields = true } = options;
+  const normalized = {
+    runDate: normalizeFinancePayrollRunDate(body, "runDate"),
+    config: normalizeFinancePayrollRunConfig(body)
+  };
+  if (requireGross) {
+    normalized.gross = normalizeFinancePayrollRunAmount(body, "gross", { required: true });
+  }
+  if (allowEmployeeFields) {
+    normalized.employeeId = normalizeFinancePayrollRunText(body, "employeeId", { fallback: "", maxLength: 120 });
+    normalized.employeeName = normalizeFinancePayrollRunText(body, "employeeName", { fallback: "", maxLength: 160 });
+  } else {
+    rejectPresentFinancePayrollRunFields(body, ["gross", "employeeId", "employeeName"]);
+  }
+  return normalized;
+}
+
+function normalizeFinancePayrollRunAmount(body, field, options = {}) {
+  const { required = false, fallback = 0 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidFinancePayrollRun();
+    return fallback;
+  }
+  if (value === null || Array.isArray(value) || typeof value === "object") {
+    throwInvalidFinancePayrollRun();
+  }
+  let amount;
+  if (typeof value === "number") {
+    amount = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidFinancePayrollRun();
+    }
+    const text = value.trim();
+    if (!/^-?\d+(?:\.\d+)?$/.test(text)) {
+      throwInvalidFinancePayrollRun();
+    }
+    amount = Number(text);
+  } else {
+    throwInvalidFinancePayrollRun();
+  }
+  if (!Number.isFinite(amount) || amount < 0) {
+    throwInvalidFinancePayrollRun();
+  }
+  const rounded = Math.round(amount);
+  if (required ? rounded <= 0 : rounded < 0) {
+    throwInvalidFinancePayrollRun();
+  }
+  return rounded;
+}
+
+function normalizeFinancePayrollRunDate(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return new Date().toISOString().slice(0, 10);
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinancePayrollRun();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinancePayrollRun();
+  }
+  const date = value.trim();
+  if (!isExactIsoDate(date)) {
+    throwInvalidFinancePayrollRun();
+  }
+  return date;
+}
+
+function normalizeFinancePayrollRunText(body, field, options = {}) {
+  const { fallback = "", maxLength = 160 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinancePayrollRun();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinancePayrollRun();
+  }
+  const text = value.trim();
+  if (!text) {
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidFinancePayrollRun();
+  }
+  return text;
+}
+
+function normalizeFinancePayrollRunConfig(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "config") ? body.config : undefined;
+  if (value === undefined || value === null) {
+    return null;
+  }
+  if (!isPlainObject(value)) {
+    throwInvalidFinancePayrollRun();
+  }
+  const normalized = {};
+  if (Object.prototype.hasOwnProperty.call(value, "incomeTaxRate")) {
+    normalized.incomeTaxRate = normalizePayrollRateValue(value.incomeTaxRate);
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "pension")) {
+    if (!isPlainObject(value.pension)) {
+      throwInvalidFinancePayrollRun();
+    }
+    normalized.pension = {};
+    for (const key of ["lowRate", "highRate", "threshold", "highOffset", "baseCap"]) {
+      if (Object.prototype.hasOwnProperty.call(value.pension, key)) {
+        normalized.pension[key] = normalizePayrollRateValue(value.pension[key]);
+      }
+    }
+    if (Object.keys(normalized.pension).length === 0) {
+      delete normalized.pension;
+    }
+  }
+  if (Object.prototype.hasOwnProperty.call(value, "stampBrackets")) {
+    if (!Array.isArray(value.stampBrackets) || value.stampBrackets.length === 0 || value.stampBrackets.length > 20) {
+      throwInvalidFinancePayrollRun();
+    }
+    normalized.stampBrackets = value.stampBrackets.map(bracket => {
+      if (!isPlainObject(bracket)) {
+        throwInvalidFinancePayrollRun();
+      }
+      return {
+        upTo: normalizePayrollRateValue(bracket.upTo),
+        amount: normalizePayrollRateValue(bracket.amount)
+      };
+    });
+  }
+  return Object.keys(normalized).length > 0 ? normalized : null;
+}
+
+function normalizePayrollRateValue(value) {
+  if (value === null || Array.isArray(value) || typeof value === "object") {
+    throwInvalidFinancePayrollRun();
+  }
+  let number;
+  if (typeof value === "number") {
+    number = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidFinancePayrollRun();
+    }
+    const text = value.trim();
+    if (!/^\d+(?:\.\d+)?$/.test(text)) {
+      throwInvalidFinancePayrollRun();
+    }
+    number = Number(text);
+  } else {
+    throwInvalidFinancePayrollRun();
+  }
+  if (!Number.isFinite(number) || number < 0) {
+    throwInvalidFinancePayrollRun();
+  }
+  return number;
+}
+
+function rejectPresentFinancePayrollRunFields(body, fields) {
+  for (const field of fields) {
+    if (Object.prototype.hasOwnProperty.call(body, field)) {
+      throwInvalidFinancePayrollRun();
+    }
+  }
+}
+
+function throwInvalidFinancePayrollRun() {
+  const err = new Error("Invalid finance payroll run");
   err.statusCode = 400;
   throw err;
 }

@@ -2084,3 +2084,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Amount `0` still clears an account's opening balance, preserving the current correction workflow, while negative or fractional-to-zero amounts are rejected before they can silently clear balances.
 - Rejected malformed opening balance requests return `400`, keep submitted payload secrets out of error bodies, leave existing opening balance rows and `audit_events` unchanged, and do not leak malformed evidence into ledger rows.
 - Verification for the checkpoint: focused opening balance tests = 10 pass; `test/api.test.js` = 196 pass; `npm test` = 388 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 192 - Payroll Run Metadata Guard
+
+- Finance payroll runs and People-HR employee payroll runs now reject non-plain-object request bodies before mutating payroll, ledger, or audit state.
+- Submitted generic payroll gross amounts must be positive finite numbers or numeric strings, submitted payroll dates must be exact ISO calendar dates, and employee ids/names must be safe strings before they can become payroll or ledger evidence.
+- Employee-scoped payroll runs now reject submitted gross, employee id, or employee name overrides, preserving the employee registry as the source of truth for that workflow.
+- Optional payroll config overrides must be structured numeric objects instead of arrays, strings, or control-character text before they can affect payroll calculations.
+- Rejected malformed payroll requests return `400`, keep submitted payload secrets out of error bodies, leave `payroll_runs`, `ledger_journal`, and `audit_events` unchanged, and do not leak malformed payroll evidence into payroll lists or ledger memos.
+- Verification for the checkpoint: focused payroll tests = 7 pass; `test/api.test.js` = 196 pass; `npm test` = 389 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
