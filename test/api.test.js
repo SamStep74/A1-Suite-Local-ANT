@@ -20189,6 +20189,110 @@ test("Armenian bank transaction import reconciles collection promise payment", a
   });
 });
 
+test("bank transaction import rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const transactionCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM finance_bank_transactions
+    `).get().count;
+    const transactionSecretCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM finance_bank_transactions
+      WHERE bank_name LIKE ?
+        OR account_number LIKE ?
+        OR currency LIKE ?
+        OR description LIKE ?
+        OR reference LIKE ?
+        OR source_key LIKE ?
+        OR bank_name = ?
+        OR account_number = ?
+        OR currency = ?
+        OR description = ?
+        OR reference = ?
+    `).get(
+      "%secret-bank-import-%",
+      "%secret-bank-import-%",
+      "%secret-bank-import-%",
+      "%secret-bank-import-%",
+      "%secret-bank-import-%",
+      "%secret-bank-import-%",
+      "[object Object]",
+      "[object Object]",
+      "[object Object]",
+      "[object Object]",
+      "[object Object]"
+    ).count;
+    const suiteImportEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE event_type = ?
+    `).get("finance.bank_transaction.imported").count;
+    const auditImportEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("finance.bank_transaction.imported").count;
+
+    const transactionCountBefore = transactionCount();
+    const suiteEventCountBefore = suiteImportEventCount();
+    const auditCountBefore = auditImportEventCount();
+    const basePayload = {
+      bankName: "Ameriabank",
+      accountNumber: "AM00 0000 0000 0000 0000",
+      transactionDate: "2026-05-31",
+      amount: 960000,
+      direction: "credit",
+      description: "Payment for HHV-1007 from Nare Medical Center",
+      reference: "AMERIA-HHV-1007"
+    };
+    const malformedRequests = [
+      { ...basePayload, amount: ["960000"], reference: "secret-bank-import-array-amount-token" },
+      { ...basePayload, amount: { value: 960000, token: "secret-bank-import-object-amount-token" } },
+      { ...basePayload, amount: "960000\nsecret-bank-import-control-amount-token" },
+      { ...basePayload, transactionDate: ["2026-05-31"], reference: "secret-bank-import-array-date-token" },
+      { ...basePayload, transactionDate: "not-a-date-secret-bank-import-date-token" },
+      { ...basePayload, direction: ["credit"], reference: "secret-bank-import-array-direction-token" },
+      { ...basePayload, direction: "credit\nsecret-bank-import-control-direction-token" },
+      { ...basePayload, bankName: { text: "Ameriabank", token: "secret-bank-import-object-bank-token" } },
+      { ...basePayload, bankName: "Ameriabank\nsecret-bank-import-control-bank-token" },
+      { ...basePayload, accountNumber: { text: "AM00", token: "secret-bank-import-object-account-token" } },
+      { ...basePayload, currency: { text: "AMD", token: "secret-bank-import-object-currency-token" } },
+      { ...basePayload, description: { text: "Payment HHV-1007", token: "secret-bank-import-object-description-token" } },
+      { ...basePayload, reference: { text: "AMERIA-HHV-1007", token: "secret-bank-import-object-reference-token" } },
+      { ...basePayload, reference: `${"R".repeat(161)}secret-bank-import-long-reference-token` },
+      ["secret-bank-import-array-body-token"]
+    ];
+
+    for (const payload of malformedRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/finance/bank-transactions",
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-bank-import-/);
+    }
+
+    assert.equal(transactionCount(), transactionCountBefore);
+    assert.equal(transactionSecretCount(), 0);
+    assert.equal(suiteImportEventCount(), suiteEventCountBefore);
+    assert.equal(auditImportEventCount(), auditCountBefore);
+
+    const imported = await app.inject({
+      method: "POST",
+      url: "/api/finance/bank-transactions",
+      headers: { cookie },
+      payload: basePayload
+    });
+    assert.equal(imported.statusCode, 200, imported.body);
+    assert.equal(imported.json().transaction.reference, "AMERIA-HHV-1007");
+    assert.equal(imported.json().transaction.status, "matched");
+    assert.equal(imported.json().match.invoiceId, "inv-1007");
+  });
+});
+
 test("finance period guardrails expose open Armenian accounting period", async () => {
   await withApp(async app => {
     const cookie = await login(app);

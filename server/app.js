@@ -3397,7 +3397,7 @@ ${controls}
   app.post("/api/finance/bank-transactions", async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
-    const result = createFinanceBankTransaction(db, user, request.body || {});
+    const result = createFinanceBankTransaction(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.transaction.customerId) };
   });
 
@@ -48620,31 +48620,102 @@ async function reconcileFinanceBankTransaction(db, user, transactionId) {
 }
 
 function normalizeBankTransactionInput(body) {
-  const amount = Math.round(Number(body.amount || 0));
-  if (!Number.isFinite(amount) || amount <= 0) {
-    const err = new Error("Bank transaction amount is required");
-    err.statusCode = 400;
-    throw err;
+  if (!isPlainObject(body)) {
+    throwInvalidBankTransactionImport();
   }
-  const transactionDate = normalizeIsoDate(body.transactionDate, "transactionDate");
-  const direction = normalizeChoice(body.direction, ["credit", "debit"], "");
-  if (!direction) {
-    const err = new Error("Bank transaction direction is required");
-    err.statusCode = 400;
-    throw err;
-  }
-  const bankName = String(body.bankName || "Unknown bank").trim().slice(0, 120) || "Unknown bank";
-  const reference = String(body.reference || `${bankName}-${transactionDate}-${amount}`).trim().slice(0, 160);
+  const amount = normalizeBankTransactionAmount(body);
+  const transactionDate = normalizeBankTransactionDate(body);
+  const direction = normalizeBankTransactionChoice(body, "direction", ["credit", "debit"]);
+  const bankName = normalizeBankTransactionText(body, "bankName", { fallback: "Unknown bank", maxLength: 60 });
+  const reference = normalizeBankTransactionText(body, "reference", { fallback: `${bankName}-${transactionDate}-${amount}`, maxLength: 160 });
   return {
     bankName,
-    accountNumber: String(body.accountNumber || "").trim().slice(0, 80),
+    accountNumber: normalizeBankTransactionText(body, "accountNumber", { fallback: "", maxLength: 80 }),
     transactionDate,
     amount,
-    currency: String(body.currency || "AMD").trim().slice(0, 8) || "AMD",
+    currency: normalizeBankTransactionText(body, "currency", { fallback: "AMD", maxLength: 8 }),
     direction,
-    description: String(body.description || "").trim().slice(0, 500),
+    description: normalizeBankTransactionText(body, "description", { fallback: "", maxLength: 500 }),
     reference
   };
+}
+
+function normalizeBankTransactionAmount(body) {
+  const hasAmount = Object.prototype.hasOwnProperty.call(body, "amount");
+  const value = hasAmount ? body.amount : undefined;
+  if (value === undefined || value === "" || value === null) {
+    throwInvalidBankTransactionImport();
+  }
+  if (typeof value === "string" && /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidBankTransactionImport();
+  }
+  if (typeof value !== "number" && typeof value !== "string") {
+    throwInvalidBankTransactionImport();
+  }
+  const amount = Math.round(Number(typeof value === "string" ? value.trim() : value));
+  if (!Number.isFinite(amount) || amount <= 0) {
+    throwInvalidBankTransactionImport();
+  }
+  return amount;
+}
+
+function normalizeBankTransactionDate(body) {
+  const hasDate = Object.prototype.hasOwnProperty.call(body, "transactionDate");
+  const value = hasDate ? body.transactionDate : undefined;
+  if (value === undefined || value === "" || value === null || typeof value !== "string") {
+    throwInvalidBankTransactionImport();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidBankTransactionImport();
+  }
+  const date = value.trim();
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || Number.isNaN(Date.parse(`${date}T00:00:00.000Z`))) {
+    throwInvalidBankTransactionImport();
+  }
+  return date;
+}
+
+function normalizeBankTransactionChoice(body, field, allowed) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "" || value === null || typeof value !== "string") {
+    throwInvalidBankTransactionImport();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidBankTransactionImport();
+  }
+  const text = value.trim();
+  if (!allowed.includes(text)) {
+    throwInvalidBankTransactionImport();
+  }
+  return text;
+}
+
+function normalizeBankTransactionText(body, field, options = {}) {
+  const { fallback = "", maxLength = 160 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidBankTransactionImport();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidBankTransactionImport();
+  }
+  const text = value.trim();
+  if (!text) {
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidBankTransactionImport();
+  }
+  return text;
+}
+
+function throwInvalidBankTransactionImport() {
+  const err = new Error("Invalid bank transaction import");
+  err.statusCode = 400;
+  throw err;
 }
 
 function findBankTransactionMatch(db, orgId, input) {

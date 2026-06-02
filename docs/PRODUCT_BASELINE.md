@@ -2026,3 +2026,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted and blank optional receipt fields still use the current fallback behavior: today's date, `bank-transfer`, and `<invoice-number>-<paid-date>`.
 - Rejected malformed receipt requests return `400`, keep submitted payload secrets out of error bodies, leave `finance_payments`, invoice status, `ledger_journal`, `suite_events`, `audit_events`, and `webhook_deliveries` unchanged, and do not leak malformed payment evidence into receivables.
 - Verification for the checkpoint: focused draft invoice/payment receipt/webhook tests = 19 pass; `test/api.test.js` = 193 pass; `npm test` = 381 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 185 - Bank Transaction Import Metadata Guard
+
+- Bank transaction import now rejects non-plain-object request bodies before mutating imported bank transaction, match, event, audit, or downstream reconciliation state.
+- Submitted bank import amounts must be positive finite numbers or numeric strings; `transactionDate`, `direction`, bank name, account number, currency, description, and reference must be safe strings without control characters before they can become source-key or match evidence.
+- Omitted and blank optional bank import text fields still use the current fallback behavior: `Unknown bank`, `AMD`, blank account/description, and `<bank-name>-<date>-<amount>` references.
+- Rejected malformed bank import requests return `400`, keep submitted payload secrets out of error bodies, leave `finance_bank_transactions`, `suite_events`, and `audit_events` unchanged, and do not leak malformed bank evidence into Customer 360 or reconciliation.
+- Verification for the checkpoint: focused bank transaction/payment receipt tests = 6 pass; `test/api.test.js` = 194 pass; `npm test` = 382 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-02 · main after payment receipt metadata guard · 56 tags · **381 tests (381 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-02 · main after bank transaction import metadata guard · 57 tags · **382 tests (382 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 56 slices)
+### Hardening (production-readiness pass — 57 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -91,6 +91,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 54. **Finance period close metadata guard** rejects malformed finance period close request bodies and close reasons before persistence, preventing array/object/control-character evidence from entering period locks, suite events, or audit trails.
 55. **Draft invoice posting metadata guard** rejects malformed draft invoice post request bodies and official invoice numbers before persistence, preventing object/array/control-character invoice evidence from entering receivables, links, ledger, suite events, or audit trails.
 56. **Payment receipt metadata guard** rejects malformed payment receipt request bodies, amounts, dates, methods, and references before persistence, preventing object/array/control-character payment evidence from entering payments, invoices, ledger, suite events, audit trails, collection fulfillment, or webhooks.
+57. **Bank transaction import metadata guard** rejects malformed Armenian bank import request bodies, amounts, dates, directions, and text fields before persistence, preventing object/array/control-character bank evidence from entering bank transactions, source keys, match evidence, suite events, audit trails, or downstream reconciliation.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -138,7 +139,10 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest payment receipt metadata guard checkpoint: this checkpoint (`Reject malformed payment receipts`), pushed with this handoff.
+- Latest bank transaction import metadata guard checkpoint: this checkpoint (`Reject malformed bank transaction imports`), pushed with this handoff.
+- Latest bank transaction import metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "bank transaction|payment receipt" test/api.test.js` = 6 pass; `node --test test/api.test.js` = 194 pass, 0 fail; `npm test` = 382 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-bank-import-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
+- Previous payment receipt metadata guard commit: `25a86e7` (`Reject malformed payment receipts`), already pushed before this bank import handoff.
+- Latest payment receipt metadata guard checkpoint: `25a86e7` (`Reject malformed payment receipts`), pushed before this handoff.
 - Latest payment receipt metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "draft invoice|payment receipt|invoice paid webhook" test/api.test.js` = 19 pass; `node --test test/api.test.js` = 193 pass, 0 fail; `npm test` = 381 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-payment-receipt-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
 - Previous draft invoice posting metadata guard commit: `f0e9182` (`Reject malformed draft invoice posts`), already pushed before this payment receipt handoff.
 - Latest draft invoice posting metadata guard checkpoint: `f0e9182` (`Reject malformed draft invoice posts`), pushed before this handoff.
