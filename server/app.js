@@ -4088,7 +4088,7 @@ ${controls}
     const user = await app.auth(request);
     requireSessionAdmin(user);
     const currentToken = request.cookies.sid || bearerToken(request.headers.authorization);
-    const session = revokeSessionByPublicId(db, user, request.params.id, request.body || {}, currentToken);
+    const session = revokeSessionByPublicId(db, user, request.params.id, request.body === undefined ? {} : request.body, currentToken);
     if (session.current) reply.clearCookie("sid", { path: "/" });
     return { ok: true, session, summary: getSessionInventory(db, user.org_id, currentToken).summary };
   });
@@ -4472,7 +4472,7 @@ function revokeSessionByPublicId(db, user, sessionId, body, currentToken = "") {
     err.statusCode = 404;
     throw err;
   }
-  const reason = String(body.reason || "Administrative revocation").trim().slice(0, 240) || "Administrative revocation";
+  const reason = normalizeSessionRevokeBody(body).reason;
   if (!row.revoked_at) {
     const revokedAt = new Date().toISOString();
     db.prepare(`
@@ -4490,6 +4490,30 @@ function revokeSessionByPublicId(db, user, sessionId, body, currentToken = "") {
   }
   const updated = getOrgSessionRows(db, user.org_id).find(session => publicSessionId(session.token) === publicId);
   return formatSessionRecord(updated, currentToken);
+}
+
+function normalizeSessionRevokeBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidSessionRevokeRequest();
+  }
+  const value = Object.prototype.hasOwnProperty.call(body, "reason") ? body.reason : undefined;
+  if (value === undefined || value === "") {
+    return { reason: "Administrative revocation" };
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidSessionRevokeRequest();
+  }
+  const reason = value.trim();
+  if (!reason || reason.length > 240) {
+    throwInvalidSessionRevokeRequest();
+  }
+  return { reason };
+}
+
+function throwInvalidSessionRevokeRequest() {
+  const err = new Error("Session revoke request requires safe metadata");
+  err.statusCode = 400;
+  throw err;
 }
 
 function getOrgSessionRows(db, orgId) {

@@ -728,6 +728,80 @@ test("owner can inspect and revoke active sessions without exposing tokens", asy
   });
 });
 
+test("admin session revoke rejects malformed metadata before mutation", async () => {
+  await withApp(async app => {
+    const ownerCookie = await login(app);
+    const supportLogin = await app.inject({
+      method: "POST",
+      url: "/api/login",
+      headers: { "user-agent": "Support tablet" },
+      payload: { email: "support@armosphera.local", password: DEFAULT_PASSWORD }
+    });
+    assert.equal(supportLogin.statusCode, 200, supportLogin.body);
+    const listed = await app.inject({
+      method: "GET",
+      url: "/api/admin/sessions",
+      headers: { cookie: ownerCookie }
+    });
+    assert.equal(listed.statusCode, 200, listed.body);
+    const supportSession = listed.json().sessions.find(session => session.email === "support@armosphera.local");
+    assert.ok(supportSession);
+    const revokeAuditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("admin.session.revoked").count;
+    const sessionRow = () => app.db.prepare(`
+      SELECT revoked_at AS revokedAt, revoked_reason AS revokedReason
+      FROM sessions
+      WHERE user_id = ?
+    `).get("user-support");
+    const beforeAudit = revokeAuditCount();
+    const malformedPayloads = [
+      ["secret-session-revoke-array-body-token"],
+      { reason: { text: "Device lost", token: "secret-session-revoke-object-reason-token" } },
+      { reason: ["secret-session-revoke-array-reason-token"] },
+      { reason: "Device lost\nsecret-session-revoke-control-reason-token" },
+      { reason: `${"r".repeat(241)}secret-session-revoke-long-reason-token` }
+    ];
+
+    const rejectedNull = await app.inject({
+      method: "POST",
+      url: `/api/admin/sessions/${supportSession.sessionId}/revoke`,
+      headers: { cookie: ownerCookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
+    assert.doesNotMatch(rejectedNull.body, /secret-session-revoke-/);
+    assert.equal(sessionRow().revokedAt, null);
+    assert.equal(revokeAuditCount(), beforeAudit);
+
+    for (const payload of malformedPayloads) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: `/api/admin/sessions/${supportSession.sessionId}/revoke`,
+        headers: { cookie: ownerCookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-session-revoke-/);
+      assert.equal(sessionRow().revokedAt, null);
+      assert.equal(revokeAuditCount(), beforeAudit);
+    }
+
+    const valid = await app.inject({
+      method: "POST",
+      url: `/api/admin/sessions/${supportSession.sessionId}/revoke`,
+      headers: { cookie: ownerCookie },
+      payload: {}
+    });
+    assert.equal(valid.statusCode, 200, valid.body);
+    assert.equal(valid.json().session.revokedReason, "Administrative revocation");
+    assert.equal(sessionRow().revokedReason, "Administrative revocation");
+    assert.equal(revokeAuditCount(), beforeAudit + 1);
+  });
+});
+
 test("owner can create tamper-evident audit export packet for auditor review", async () => {
   await withApp(async app => {
     const ownerCookie = await login(app);

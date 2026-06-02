@@ -2284,3 +2284,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted `enabled` still preserves the existing explicit-enable behavior for valid plain-object assignment bodies.
 - Rejected malformed app-assignment requests return `400`, keep submitted payload secrets out of error bodies, leave `app_assignments` and assignment audit events unchanged, and valid enable/disable plus unknown-role rejection behavior remains unchanged.
 - Verification for the checkpoint: focused app-assignment tests = 5 pass; `test/api.test.js` = 210 pass; `npm test` = 411 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 215 - Session Revoke Metadata Guard
+
+- Admin session revocation now rejects non-plain-object request bodies before revoking a target session or writing revocation audit evidence.
+- Submitted revocation reasons must be structurally safe before they can become session inventory or audit evidence.
+- Reasons must be bounded single-line strings when present, and arrays, objects, explicit JSON null bodies, control-character text, or overlong values are rejected instead of coerced.
+- Omitted reasons still preserve the existing `Administrative revocation` default for valid plain-object revoke bodies.
+- Rejected malformed session-revoke requests return `400`, keep submitted payload secrets out of error bodies, leave the target session active, leave `revoked_reason` empty, and write no `admin.session.revoked` audit event; valid revocation and Auditor read-only behavior remain unchanged.
+- Verification for the checkpoint: focused session-admin tests = 3 pass; `test/api.test.js` = 211 pass; `npm test` = 412 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
