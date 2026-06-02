@@ -2,11 +2,11 @@ import React, { useMemo, useState } from "react";
 import { formatSourceDate, getSourceLink } from "./copilot-source.js";
 
 const INTENTS = [
-  ["vat", "ԱԱՀ / SRC"],
-  ["payroll", "Աշխատավարձ"],
-  ["personal-data", "Անձնական տվյալներ"],
-  ["esign", "Է-ստորագրություն"],
-  ["month-close", "Ամսվա փակում"]
+  ["vat", "ԱԱՀ / SRC", "finance", "Կարո՞ղ ենք պատրաստել 2026-05 ԱԱՀ/SRC ներքին ուղեցույց այս հաճախորդի համար:"],
+  ["payroll", "Աշխատավարձ", "finance", "Նախադիտիր աշխատավարձի պահումները առանց գրանցում կատարելու:"],
+  ["personal-data", "Անձնական տվյալներ", "crm", "Ինչպե՞ս պատրաստել անձնական տվյալների հարցումը առանց ավտոմատ ջնջման:"],
+  ["esign", "Է-ստորագրություն", "docs", "Ստուգիր էլեկտրոնային ստորագրության ապացույցի շղթան այս փաստաթղթի համար:"],
+  ["month-close", "Ամսվա փակում", "finance", "Նախադիտիր ամսվա փակման ռիսկերը առանց ժամանակաշրջանը փակելու:"]
 ];
 
 const REVIEW_ROLE_LABELS = {
@@ -19,9 +19,12 @@ const REVIEW_ROLE_LABELS = {
 
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 
-export function CopilotPanel({ customers, docs, people, onAsk, actionState }) {
-  const [intent, setIntent] = useState("vat");
-  const [question, setQuestion] = useState("Կարո՞ղ ենք պատրաստել 2026-05 ԱԱՀ/SRC ներքին ուղեցույց այս հաճախորդի համար:");
+export function CopilotPanel({ customers, docs, people, appIds = [], onAsk, actionState }) {
+  const assignedApps = useMemo(() => new Set(appIds), [appIds]);
+  const allowedIntents = useMemo(() => INTENTS.filter(([, , requiredApp]) => assignedApps.has(requiredApp)), [assignedApps]);
+  const fallbackIntent = allowedIntents[0] || INTENTS[0];
+  const [intent, setIntent] = useState(fallbackIntent[0]);
+  const [question, setQuestion] = useState(fallbackIntent[3]);
   const [customerId, setCustomerId] = useState("cust-nare");
   const [periodKey, setPeriodKey] = useState("2026-05");
   const [employeeId, setEmployeeId] = useState("");
@@ -33,6 +36,11 @@ export function CopilotPanel({ customers, docs, people, onAsk, actionState }) {
   const employees = (people && people.employees) || [];
   const documents = (docs && docs.documents) || [];
   const customerOptions = useMemo(() => customers || [], [customers]);
+  React.useEffect(() => {
+    if (allowedIntents.some(([key]) => key === intent)) return;
+    setIntent(fallbackIntent[0]);
+    setQuestion(fallbackIntent[3]);
+  }, [allowedIntents, fallbackIntent, intent]);
 
   async function ask() {
     if (question.trim().length < 8 || !onAsk) return;
@@ -65,8 +73,18 @@ export function CopilotPanel({ customers, docs, people, onAsk, actionState }) {
 
       <div className="copilot-controls">
         <div className="segmented">
-          {INTENTS.map(([key, label]) => (
-            <button key={key} type="button" className={intent === key ? "active" : ""} onClick={() => setIntent(key)}>{label}</button>
+          {allowedIntents.map(([key, label, , defaultQuestion]) => (
+            <button
+              key={key}
+              type="button"
+              className={intent === key ? "active" : ""}
+              onClick={() => {
+                setIntent(key);
+                setQuestion(defaultQuestion);
+              }}
+            >
+              {label}
+            </button>
           ))}
         </div>
         <textarea value={question} onChange={event => setQuestion(event.target.value)} rows={3} />

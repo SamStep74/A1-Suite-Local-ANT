@@ -1021,11 +1021,13 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     pilotNextRecurringOngoingRenewalCloseouts,
   } = pilot;
   const selected = suite.apps.find(app => app.id === selectedApp) || suite.apps[0];
+  const assignedAppIds = suite.apps.map(app => app.id);
+  const canUseCopilot = assignedAppIds.includes("copilot");
   function openApp(appId) {
     onSelectApp(appId);
     window.requestAnimationFrame(() => {
       const target = document.getElementById(`suite-app-${appId}`) || document.querySelector(".workspace");
-      target?.scrollIntoView({ behavior: "smooth", block: "start" });
+      target?.scrollIntoView({ behavior: "auto", block: "start" });
     });
   }
   const [actionState, setActionState] = useState("");
@@ -3826,15 +3828,18 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               onGenerateBrief={suite.user.role === "Owner" ? generateCustomerBrief : null}
             />
           </div>
+          {canUseCopilot && (
           <div id="suite-app-copilot" className="suite-app-anchor">
             <CopilotPanel
               customers={(serviceConsole && serviceConsole.customers) || []}
               docs={docs}
               people={people}
+              appIds={assignedAppIds}
               onAsk={askCopilot}
               actionState={actionState}
             />
           </div>
+          )}
           {crmLeadData && (
             <LeadPipeline
               data={crmLeadData}
@@ -3862,7 +3867,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
             </div>
           )}
           {receivablesAging && (
-            <div id="suite-app-finance" className="suite-app-anchor">
+            <div className="suite-app-anchor">
               <ReceivablesAgingPanel
                 data={receivablesAging}
                 actionState={actionState}
@@ -3872,7 +3877,9 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           )}
           {finance && (
             <>
-              <FinanceTrialBalancePanel data={finance.trialBalance} />
+              <div id="suite-app-finance" className="suite-app-anchor">
+                <FinanceTrialBalancePanel data={finance.trialBalance} />
+              </div>
               <FinanceStatementsPanel data={finance.statements} />
               <FinanceVatPanel data={finance.vat} />
               <FinanceTaxRatesPanel data={finance.taxRates} />
