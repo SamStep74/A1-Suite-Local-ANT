@@ -1828,6 +1828,8 @@ Status: shipped in the local prototype on 2026-05-28.
 ### Slice 160 - Integration Connector Credential Guard
 
 - Integration connector configuration now rejects endpoint URLs containing username/password userinfo before the connector row is inserted or updated.
+- Endpoint URLs are validated on the raw trimmed value before the persisted 260-character limit is applied, so long credentialed URLs cannot hide userinfo past truncation.
 - The rejection path uses a sanitized `400` response that does not echo the full credentialed URL or password material.
 - Failed connector configuration leaves list responses, secret fingerprints, and persisted connector rows unchanged, so credentialed endpoints cannot leak through connector inventory or backup-scoped connector data.
-- Added regression coverage for WhatsApp Business configuration proving the raw credentialed URL and submitted secret fingerprint are absent after rejection.
+- Legacy unsafe endpoint values already present in storage are hidden from connector list and health-check responses; the health check reports a missing endpoint instead of echoing stored credentials or truncated credential fragments.
+- Added regression coverage for WhatsApp Business configuration proving raw and long credentialed URLs plus submitted secret fingerprints are absent after rejection, and legacy stored unsafe endpoint URLs are not surfaced by list or health-check APIs.
