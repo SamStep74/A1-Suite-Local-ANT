@@ -2002,3 +2002,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Submitted decision notes must be safe strings up to 500 characters without control characters before they can become suite-event payload evidence.
 - Rejected malformed approval decisions return `400`, keep submitted payload secrets out of error bodies, leave `workflow_approvals`, `suite_events`, and `audit_events` unchanged, and do not leak malformed note evidence into approval event payloads.
 - Verification for the checkpoint: focused workflow approval tests = 3 pass; `test/api.test.js` = 190 pass; `npm test` = 378 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 182 - Finance Period Close Metadata Guard
+
+- Finance period close now rejects non-plain-object request bodies before mutating period-lock state.
+- Submitted close reasons must be safe strings up to 500 characters without control characters before they can become `finance_periods.reason` or `finance.period.closed` payload evidence.
+- Omitted and blank close reasons still use the explicit `Closed by owner` fallback, preserving the existing no-body close behavior.
+- Rejected malformed close requests return `400`, keep submitted payload secrets out of error bodies, leave `finance_periods`, `suite_events`, and `audit_events` unchanged, and do not leak malformed close reasons into finance period lists.
+- Verification for the checkpoint: focused finance period tests = 6 pass; `test/api.test.js` = 191 pass; `npm test` = 379 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

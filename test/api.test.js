@@ -20205,6 +20205,93 @@ test("finance period guardrails expose open Armenian accounting period", async (
   });
 });
 
+test("finance period close rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const periodState = () => app.db.prepare(`
+      SELECT status, reason, closed_at AS closedAt, closed_by_user_id AS closedByUserId
+      FROM finance_periods
+      WHERE period_key = ?
+    `).get("2026-05");
+    const suiteCloseEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE event_type = ?
+    `).get("finance.period.closed").count;
+    const auditCloseEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("finance.period.closed").count;
+
+    const beforePeriod = periodState();
+    assert.equal(beforePeriod.status, "open");
+    assert.equal(beforePeriod.closedAt, null);
+    assert.equal(beforePeriod.closedByUserId, null);
+    const suiteEventCountBefore = suiteCloseEventCount();
+    const auditCountBefore = auditCloseEventCount();
+    const malformedRequests = [
+      {
+        reason: ["Period submitted"],
+        token: "secret-finance-period-close-array-reason-token"
+      },
+      {
+        reason: { text: "Object reasons must not become close evidence.", token: "secret-finance-period-close-object-reason-token" }
+      },
+      {
+        reason: "Close reason\nwith a control character.",
+        token: "secret-finance-period-close-control-token"
+      },
+      {
+        reason: `${"A".repeat(501)}secret-finance-period-close-long-token`
+      },
+      {
+        reason: null,
+        token: "secret-finance-period-close-null-reason-token"
+      },
+      ["closed"]
+    ];
+
+    for (const payload of malformedRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/finance/periods/2026-05/close",
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-finance-period-close-/);
+    }
+
+    const afterRejectedPeriod = periodState();
+    assert.equal(afterRejectedPeriod.status, beforePeriod.status);
+    assert.equal(afterRejectedPeriod.reason, beforePeriod.reason);
+    assert.equal(afterRejectedPeriod.closedAt, beforePeriod.closedAt);
+    assert.equal(afterRejectedPeriod.closedByUserId, beforePeriod.closedByUserId);
+    assert.equal(suiteCloseEventCount(), suiteEventCountBefore);
+    assert.equal(auditCloseEventCount(), auditCountBefore);
+
+    const closed = await app.inject({
+      method: "POST",
+      url: "/api/finance/periods/2026-05/close",
+      headers: { cookie },
+      payload: { reason: "Owner closed period after malformed close checks" }
+    });
+    assert.equal(closed.statusCode, 200, closed.body);
+    assert.equal(closed.json().period.status, "closed");
+    assert.equal(closed.json().period.reason, "Owner closed period after malformed close checks");
+
+    const closeEvent = app.db.prepare(`
+      SELECT payload
+      FROM suite_events
+      WHERE event_type = ?
+      ORDER BY created_at DESC
+      LIMIT 1
+    `).get("finance.period.closed");
+    assert.equal(JSON.parse(closeEvent.payload).reason, "Owner closed period after malformed close checks");
+  });
+});
+
 test("SRC export requires reviewed VAT legal source before packet creation", async () => {
   await withApp(async app => {
     const cookie = await login(app);

@@ -3305,6 +3305,7 @@ ${controls}
   app.post("/api/finance/periods/:periodKey/close", async request => {
     const user = await app.auth(request);
     requireOwner(user);
+    const { reason } = normalizeFinancePeriodCloseBody(request.body === undefined ? {} : request.body);
     const period = getFinancePeriod(db, user.org_id, request.params.periodKey);
     if (!period) {
       const err = new Error("Finance period not found");
@@ -3312,12 +3313,11 @@ ${controls}
       throw err;
     }
     const now = new Date().toISOString();
-    const reason = String((request.body || {}).reason || "Closed by owner").trim();
     db.prepare(`
       UPDATE finance_periods
       SET status = ?, closed_at = ?, closed_by_user_id = ?, reason = ?, updated_at = ?
       WHERE org_id = ? AND period_key = ?
-    `).run("closed", now, user.id, reason || "Closed by owner", now, user.org_id, period.periodKey);
+    `).run("closed", now, user.id, reason, now, user.org_id, period.periodKey);
     emitSuiteEvent(db, {
       orgId: user.org_id,
       actorUserId: user.id,
@@ -3325,7 +3325,7 @@ ${controls}
       subjectType: "finance_period",
       subjectId: period.id,
       status: "closed",
-      payload: { periodKey: period.periodKey, reason: reason || "Closed by owner" }
+      payload: { periodKey: period.periodKey, reason }
     });
     audit(db, user.org_id, user.id, "finance.period.closed", { periodKey: period.periodKey });
     return { ok: true, period: getFinancePeriod(db, user.org_id, period.periodKey) };
@@ -50359,6 +50359,44 @@ function formatFinancePeriod(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function normalizeFinancePeriodCloseBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidFinancePeriodClose();
+  }
+  return {
+    reason: normalizeFinancePeriodCloseText(body, "reason", { fallback: "Closed by owner", maxLength: 500 })
+  };
+}
+
+function normalizeFinancePeriodCloseText(body, field, options = {}) {
+  const { fallback = "", maxLength = 500 } = options;
+  const hasField = Object.prototype.hasOwnProperty.call(body, field);
+  const value = hasField ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinancePeriodClose();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinancePeriodClose();
+  }
+  const text = value.trim();
+  if (!text) {
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidFinancePeriodClose();
+  }
+  return text;
+}
+
+function throwInvalidFinancePeriodClose() {
+  const err = new Error("Invalid finance period close");
+  err.statusCode = 400;
+  throw err;
 }
 
 function getFinanceDraftInvoices(db, orgId, customerId = "") {
