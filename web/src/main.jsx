@@ -99,6 +99,19 @@ function normalizeSuiteAppId(appId, assignedApps = null) {
   return "crm";
 }
 
+function normalizeSuiteAppIds(appIds = []) {
+  const normalized = [];
+  const seen = new Set();
+  for (const appId of appIds || []) {
+    const normalizedAppId = normalizeSuiteAppId(appId);
+    if (normalizedAppId && !seen.has(normalizedAppId)) {
+      seen.add(normalizedAppId);
+      normalized.push(normalizedAppId);
+    }
+  }
+  return normalized;
+}
+
 function appIdFromLocation(pathname = window.location.pathname) {
   const match = String(pathname || "").match(/^\/app\/([^/?#]+)/);
   const appId = match ? decodeURIComponent(match[1]) : "";
@@ -224,6 +237,7 @@ function App() {
   const [adminSessions, setAdminSessions] = useState(null);
   const [adminAuditExports, setAdminAuditExports] = useState([]);
   const [productionReadiness, setProductionReadiness] = useState(null);
+  const [assignedAppIds, setAssignedAppIds] = useState([]);
   const [selectedApp, setSelectedApp] = useState(() => appIdFromLocation());
   const [loading, setLoading] = useState(true);
 
@@ -234,7 +248,7 @@ function App() {
   }, []);
 
   function selectApp(appId) {
-    const nextAppId = SUITE_APP_IDS.includes(appId) ? appId : "crm";
+    const nextAppId = normalizeSuiteAppId(appId, assignedAppIds);
     setSelectedApp(nextAppId);
     const nextRoute = appRoute(nextAppId);
     if (window.location.pathname !== nextRoute) {
@@ -248,9 +262,10 @@ function App() {
       const data = await api("/api/suite");
       setSession(data.user);
       setSuite(data);
-      const assignedAppIds = (data.apps || []).map(app => app.id);
-      const requestedAppId = normalizeSuiteAppId(appIdFromLocation(), assignedAppIds);
-      const nextSelectedApp = assignedAppIds.includes(requestedAppId) ? requestedAppId : (assignedAppIds[0] || "crm");
+      const normalizedAssignedAppIds = normalizeSuiteAppIds((data.apps || []).map(app => app.id));
+      setAssignedAppIds(normalizedAssignedAppIds);
+      const requestedAppId = normalizeSuiteAppId(appIdFromLocation(), normalizedAssignedAppIds);
+      const nextSelectedApp = normalizedAssignedAppIds.includes(requestedAppId) ? requestedAppId : (normalizedAssignedAppIds[0] || "crm");
       setSelectedApp(nextSelectedApp);
       if (window.location.pathname !== appRoute(nextSelectedApp)) {
         window.history.replaceState({ selectedApp: nextSelectedApp }, "", appRoute(nextSelectedApp));
@@ -282,9 +297,9 @@ function App() {
         setCrmQuotes(null);
         setCrmActivities(null);
       }
-      const assignedApps = new Set((data.apps || []).map(app => app.id));
+      const assignedApps = new Set(normalizedAssignedAppIds);
       const hasCampaigns = assignedApps.has("campaigns");
-      const hasForms = assignedApps.has("forms");
+      const hasForms = hasCampaigns || assignedApps.has("forms");
       if (hasCampaigns) {
         const campaignData = await loadOr(null, () => api("/api/campaigns/performance"));
         setCampaignPerformance(campaignData);
@@ -1045,12 +1060,14 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     pilotNextRecurringOngoingRenewalCloseouts,
   } = pilot;
   const selected = suite.apps.find(app => app.id === selectedApp) || suite.apps[0];
-  const assignedAppIds = suite.apps.map(app => app.id);
+  const assignedAppIds = useMemo(() => normalizeSuiteAppIds(suite.apps.map(app => app.id)), [suite.apps]);
+  const selectedAppId = normalizeSuiteAppId(selected?.id || "", assignedAppIds);
   const canUseCopilot = assignedAppIds.includes("copilot");
   function openApp(appId) {
-    onSelectApp(appId);
+    const nextAppId = normalizeSuiteAppId(appId, assignedAppIds);
+    onSelectApp(nextAppId);
     window.requestAnimationFrame(() => {
-      const target = document.getElementById(`suite-app-${appId}`) || document.querySelector(".workspace");
+      const target = document.getElementById(`suite-app-${nextAppId}`) || document.querySelector(".workspace");
       target?.scrollIntoView({ behavior: "auto", block: "start" });
     });
   }
@@ -1060,11 +1077,11 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
   // is never silently swallowed. (Read-only loadOr fetches still degrade to empty panels.)
   const [actionError, setActionError] = useState("");
   useEffect(() => {
-    if (!selected?.id || window.location.pathname !== appRoute(selected.id)) return;
+    if (!selectedAppId || window.location.pathname !== appRoute(selectedAppId)) return;
     window.requestAnimationFrame(() => {
-      document.getElementById(`suite-app-${selected.id}`)?.scrollIntoView({ block: "start" });
+      document.getElementById(`suite-app-${selectedAppId}`)?.scrollIntoView({ block: "start" });
     });
-  }, [selected?.id]);
+  }, [selectedAppId]);
   function reportActionError(err) {
     const message = (err && err.message) ? String(err.message) : "Գործողությունը չհաջողվեց";
     setActionError(message);
@@ -3779,7 +3796,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           {suite.apps.map(app => (
             <button
               key={app.id}
-              className={app.id === selected?.id ? "active" : ""}
+              className={normalizeSuiteAppId(app.id, assignedAppIds) === selectedAppId ? "active" : ""}
               onClick={() => openApp(app.id)}
               title={app.description}
             >
