@@ -2169,7 +2169,7 @@ function registerApi(app, db, options = {}) {
   app.post("/api/docs/signature-packets", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const result = createSignaturePacket(db, user, request.body || {});
+    const result = createSignaturePacket(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.packet.customerId) };
   });
 
@@ -3779,23 +3779,7 @@ ${controls}
   app.post("/api/finance/expenses", async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
-    const body = request.body || {};
-    const subtotal = Math.round(Number(body.subtotal) || 0);
-    const vat = Math.round(Number(body.vat) || 0);
-    if (subtotal <= 0) { const e = new Error("Expense subtotal is required"); e.statusCode = 400; throw e; }
-    const total = subtotal + vat;
-    const incurredOn = /^\d{4}-\d{2}-\d{2}$/.test(body.incurredOn || "") ? body.incurredOn : new Date().toISOString().slice(0, 10);
-    const periodKey = incurredOn.slice(0, 7);
-    const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
-    if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
-    const id = randomId("expense");
-    const now = new Date().toISOString();
-    db.prepare(`INSERT INTO expenses (id, org_id, description, vendor, subtotal, vat, total, currency, incurred_on, period_key, created_by_user_id, created_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, 'AMD', ?, ?, ?, ?)`)
-      .run(id, user.org_id, String(body.description || "").slice(0, 200), String(body.vendor || "").slice(0, 120), subtotal, vat, total, incurredOn, periodKey, user.id, now);
-    ledger.postExpensePosted(db, user.org_id, { id, description: body.description, subtotal, vat, total, date: incurredOn, period_key: periodKey });
-    audit(db, user.org_id, user.id, "finance.expense.created", { expenseId: id, total, vat });
-    return { expense: { id, subtotal, vat, total, incurredOn, periodKey } };
+    return createFinanceExpense(db, user, request.body === undefined ? {} : request.body);
   });
 
   app.get("/api/finance/bills", async request => {
@@ -45990,7 +45974,10 @@ function formatQuoteAcceptance(row) {
 }
 
 function createSignaturePacket(db, user, body) {
-  const quoteId = String(body.quoteId || "").trim();
+  if (!isPlainObject(body)) {
+    throwInvalidSignaturePacket();
+  }
+  const quoteId = normalizeSignaturePacketText(body, "quoteId", { required: true, maxLength: 120 });
   const quote = quoteId ? getQuote(db, user.org_id, quoteId) : null;
   if (!quote) {
     const err = new Error("Quote not found");
@@ -46013,6 +46000,7 @@ function createSignaturePacket(db, user, body) {
   }
 
   const sourceKey = `signature-packet:${quote.id}`;
+  const note = normalizeSignaturePacketText(body, "note", { fallback: "", maxLength: 500 });
   const existing = getSignaturePacketBySourceKey(db, user.org_id, sourceKey);
   if (existing) return { idempotent: true, packet: existing };
 
@@ -46054,7 +46042,7 @@ function createSignaturePacket(db, user, body) {
       userAgent: acceptance.userAgent
     },
     legalSource: legalSourcePayload(legalSource),
-    note: String(body.note || "").trim(),
+    note,
     disclaimer: "Prepared as an Armenian e-signature evidence handoff; not a qualified signature service."
   };
   const checksum = crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
@@ -46093,6 +46081,44 @@ function createSignaturePacket(db, user, body) {
   audit(db, user.org_id, user.id, "docs.signature_packet.created", { packetId, quoteId: quote.id, acceptanceId: acceptance.id });
 
   return { idempotent: false, packet: getSignaturePacket(db, user.org_id, packetId) };
+}
+
+function normalizeSignaturePacketText(body, field, options = {}) {
+  const { required = false, fallback = "", maxLength = 160 } = options;
+  const hasField = Object.prototype.hasOwnProperty.call(body, field);
+  const value = hasField ? body[field] : undefined;
+  if (value === undefined) {
+    if (required) throwInvalidSignaturePacket();
+    return fallback;
+  }
+  if (value === null) {
+    throwInvalidSignaturePacket();
+  }
+  if (value === "") {
+    if (required) throwInvalidSignaturePacket();
+    return fallback;
+  }
+  if (typeof value !== "string") {
+    throwInvalidSignaturePacket();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidSignaturePacket();
+  }
+  const text = value.trim();
+  if (!text) {
+    if (required) throwInvalidSignaturePacket();
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidSignaturePacket();
+  }
+  return text;
+}
+
+function throwInvalidSignaturePacket() {
+  const err = new Error("Invalid signature packet");
+  err.statusCode = 400;
+  throw err;
 }
 
 function getSignaturePackets(db, orgId, customerId = "", options = {}) {
@@ -48101,6 +48127,156 @@ function resolveServiceCase(db, user, serviceCase, body) {
 
 function getServiceManagerUser(db, orgId) {
   return db.prepare("SELECT id, name, email, role FROM users WHERE org_id = ? AND role = 'Service Manager' ORDER BY created_at ASC LIMIT 1").get(orgId);
+}
+
+function createFinanceExpense(db, user, body) {
+  const input = normalizeFinanceExpenseBody(body);
+  const total = input.subtotal + input.vat;
+  const periodKey = input.incurredOn.slice(0, 7);
+  const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
+  if (period && period.status === "closed") {
+    const err = new Error("PERIOD_LOCKED");
+    err.statusCode = 409;
+    throw err;
+  }
+  const id = randomId("expense");
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO expenses (
+      id, org_id, description, vendor, subtotal, vat, total, currency,
+      incurred_on, period_key, created_by_user_id, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, 'AMD', ?, ?, ?, ?)
+  `).run(
+    id,
+    user.org_id,
+    input.description,
+    input.vendor,
+    input.subtotal,
+    input.vat,
+    total,
+    input.incurredOn,
+    periodKey,
+    user.id,
+    now
+  );
+  ledger.postExpensePosted(db, user.org_id, {
+    id,
+    description: input.description,
+    subtotal: input.subtotal,
+    vat: input.vat,
+    total,
+    date: input.incurredOn,
+    period_key: periodKey
+  });
+  audit(db, user.org_id, user.id, "finance.expense.created", { expenseId: id, total, vat: input.vat });
+  return { expense: { id, subtotal: input.subtotal, vat: input.vat, total, incurredOn: input.incurredOn, periodKey } };
+}
+
+function normalizeFinanceExpenseBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidFinanceExpense();
+  }
+  return {
+    subtotal: normalizeFinanceExpenseAmount(body, "subtotal", { required: true }),
+    vat: normalizeFinanceExpenseAmount(body, "vat", { fallback: 0 }),
+    incurredOn: normalizeFinanceExpenseDate(body, "incurredOn"),
+    description: normalizeFinanceExpenseText(body, "description", { fallback: "", maxLength: 200 }),
+    vendor: normalizeFinanceExpenseText(body, "vendor", { fallback: "", maxLength: 120 })
+  };
+}
+
+function normalizeFinanceExpenseAmount(body, field, options = {}) {
+  const { required = false, fallback = 0 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidFinanceExpense();
+    return fallback;
+  }
+  if (value === null || Array.isArray(value) || typeof value === "object") {
+    throwInvalidFinanceExpense();
+  }
+  let amount;
+  if (typeof value === "number") {
+    amount = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidFinanceExpense();
+    }
+    const text = value.trim();
+    if (!/^-?\d+(?:\.\d+)?$/.test(text)) {
+      throwInvalidFinanceExpense();
+    }
+    amount = Number(text);
+  } else {
+    throwInvalidFinanceExpense();
+  }
+  if (!Number.isFinite(amount)) {
+    throwInvalidFinanceExpense();
+  }
+  const rounded = Math.round(amount);
+  if (required ? rounded <= 0 : rounded < 0) {
+    throwInvalidFinanceExpense();
+  }
+  return rounded;
+}
+
+function normalizeFinanceExpenseDate(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return new Date().toISOString().slice(0, 10);
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinanceExpense();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceExpense();
+  }
+  const date = value.trim();
+  if (!isExactIsoDate(date)) {
+    throwInvalidFinanceExpense();
+  }
+  return date;
+}
+
+function isExactIsoDate(date) {
+  const match = /^(\d{4})-(\d{2})-(\d{2})$/.exec(date);
+  if (!match) return false;
+  const year = Number(match[1]);
+  const month = Number(match[2]);
+  const day = Number(match[3]);
+  const parsed = new Date(Date.UTC(year, month - 1, day));
+  return parsed.getUTCFullYear() === year
+    && parsed.getUTCMonth() === month - 1
+    && parsed.getUTCDate() === day;
+}
+
+function normalizeFinanceExpenseText(body, field, options = {}) {
+  const { fallback = "", maxLength = 200 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinanceExpense();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceExpense();
+  }
+  const text = value.trim();
+  if (!text) {
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidFinanceExpense();
+  }
+  return text;
+}
+
+function throwInvalidFinanceExpense() {
+  const err = new Error("Invalid finance expense");
+  err.statusCode = 400;
+  throw err;
 }
 
 function createDraftInvoiceFromApproval(db, user, approval, now) {

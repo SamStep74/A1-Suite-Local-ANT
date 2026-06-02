@@ -2042,3 +2042,20 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted and blank optional notes still use the current blank-note fallback, preserving existing export behavior for valid requests.
 - Rejected malformed SRC export requests return `400`, keep submitted payload secrets out of error bodies, leave `finance_src_exports`, `suite_events`, and `audit_events` unchanged, and do not leak malformed export evidence into stored packets.
 - Verification for the checkpoint: focused SRC export/finance tests = 14 pass; `test/api.test.js` = 195 pass; `npm test` = 383 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 187 - Signature Packet Metadata Guard
+
+- Accepted-quote signature packet creation now rejects non-plain-object request bodies before building Docs & Sign evidence packets.
+- Submitted `quoteId` values must be safe strings, and submitted notes must be safe strings without control characters before they can become packet, checksum, source-key, suite-event, or audit evidence.
+- Omitted and blank optional notes still use the current blank-note fallback, preserving existing valid signature-packet behavior.
+- Rejected malformed signature packet requests return `400`, keep submitted payload secrets out of error bodies, leave `docs_signature_packets`, `suite_events`, and `audit_events` unchanged, and do not leak malformed signature evidence into packet lists.
+- Verification for the checkpoint: focused signature packet/evidence tests = 4 pass; `test/api.test.js` = 196 pass; `npm test` = 385 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 188 - Finance Expense Metadata Guard
+
+- Expense posting now rejects non-plain-object request bodies before mutating expense or ledger state.
+- Submitted expense subtotals must be positive finite numbers or numeric strings; submitted VAT amounts must be non-negative finite numbers or numeric strings.
+- Submitted incurred dates, descriptions, and vendors must be safe strings without control characters before they can become expense, ledger, or audit evidence.
+- Omitted and blank optional VAT/date/text fields still use the current fallback behavior: zero VAT, today's date, and blank description/vendor.
+- Rejected malformed expense requests return `400`, keep submitted payload secrets out of error bodies, leave `expenses`, `ledger_journal`, and `audit_events` unchanged, and do not leak malformed expense evidence into finance reports.
+- Verification for the checkpoint: focused finance report/expense tests = 2 pass; focused signature packet/evidence tests = 4 pass; `test/api.test.js` = 196 pass; `npm test` = 385 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

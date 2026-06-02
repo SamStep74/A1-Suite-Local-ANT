@@ -17206,6 +17206,116 @@ test("owner can create idempotent signature evidence packet for accepted quote",
   });
 });
 
+test("signature evidence packet rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const accepted = await acceptAniQuote(app);
+    assert.equal(accepted.statusCode, 200, accepted.body);
+    const cookie = await login(app);
+    const lawyerCookie = await login(app, "lawyer@armosphera.local");
+    await reviewEsignSource(app, lawyerCookie);
+
+    const packetCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM docs_signature_packets
+    `).get().count;
+    const packetSecretCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM docs_signature_packets
+      WHERE note LIKE ?
+        OR source_key LIKE ?
+        OR payload LIKE ?
+        OR note = ?
+    `).get(
+      "%secret-signature-packet-%",
+      "%secret-signature-packet-%",
+      "%secret-signature-packet-%",
+      "[object Object]"
+    ).count;
+    const suiteEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE event_type = ?
+    `).get("docs.signature_packet.created").count;
+    const auditEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("docs.signature_packet.created").count;
+
+    const packetCountBefore = packetCount();
+    const suiteEventCountBefore = suiteEventCount();
+    const auditCountBefore = auditEventCount();
+    const malformedRequests = [
+      null,
+      ["secret-signature-packet-array-body-token"],
+      { quoteId: null, note: "secret-signature-packet-null-quote-token" },
+      { quoteId: ["quote-ani-inbox"], note: "secret-signature-packet-array-quote-token" },
+      { quoteId: { id: "quote-ani-inbox", token: "secret-signature-packet-object-quote-token" } },
+      { quoteId: "quote-ani-inbox\nsecret-signature-packet-control-quote-token" },
+      { quoteId: `${"Q".repeat(121)}secret-signature-packet-long-quote-token` },
+      { quoteId: "quote-ani-inbox", note: null },
+      { quoteId: "quote-ani-inbox", note: ["Archive evidence"] },
+      { quoteId: "quote-ani-inbox", note: { text: "Archive evidence", token: "secret-signature-packet-object-note-token" } },
+      { quoteId: "quote-ani-inbox", note: "Signature packet\nsecret-signature-packet-control-note-token" },
+      { quoteId: "quote-ani-inbox", note: `${"N".repeat(501)}secret-signature-packet-long-note-token` }
+    ];
+
+    for (const payload of malformedRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/docs/signature-packets",
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-signature-packet-/);
+      assert.equal(rejected.body.includes("[object Object]"), false);
+    }
+
+    assert.equal(packetCount(), packetCountBefore);
+    assert.equal(packetSecretCount(), 0);
+    assert.equal(suiteEventCount(), suiteEventCountBefore);
+    assert.equal(auditEventCount(), auditCountBefore);
+
+    const listed = await app.inject({ method: "GET", url: "/api/docs/signature-packets?customerId=cust-ani", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    assert.equal(listed.body.includes("[object Object]"), false);
+    assert.equal(listed.body.includes("secret-signature-packet-"), false);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/docs/signature-packets",
+      headers: { cookie },
+      payload: {
+        quoteId: "quote-ani-inbox",
+        note: "Archive accepted quote evidence after malformed metadata guard"
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    assert.equal(created.json().packet.quoteId, "quote-ani-inbox");
+    assert.equal(created.json().packet.note, "Archive accepted quote evidence after malformed metadata guard");
+
+    const packetCountAfterValidCreate = packetCount();
+    const suiteEventCountAfterValidCreate = suiteEventCount();
+    const auditCountAfterValidCreate = auditEventCount();
+    const duplicateMalformedNote = await app.inject({
+      method: "POST",
+      url: "/api/docs/signature-packets",
+      headers: { cookie },
+      payload: {
+        quoteId: "quote-ani-inbox",
+        note: { text: "Duplicate evidence", token: "secret-signature-packet-duplicate-note-token" }
+      }
+    });
+    assert.equal(duplicateMalformedNote.statusCode, 400, duplicateMalformedNote.body);
+    assert.doesNotMatch(duplicateMalformedNote.body, /secret-signature-packet-/);
+    assert.equal(packetCount(), packetCountAfterValidCreate);
+    assert.equal(suiteEventCount(), suiteEventCountAfterValidCreate);
+    assert.equal(auditEventCount(), auditCountAfterValidCreate);
+    assert.equal(packetSecretCount(), 0);
+  });
+});
+
 test("evidence packet list endpoints hide payloads from unsupported roles", async () => {
   await withApp(async app => {
     const accepted = await acceptAniQuote(app);
