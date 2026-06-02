@@ -19630,6 +19630,119 @@ test("creating a service case appends customer timeline and audit records", asyn
   });
 });
 
+test("service case mutations reject malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const ownerCookie = await login(app);
+    const managerCookie = await login(app, "service.manager@armosphera.local");
+    const count = table => app.db.prepare(`SELECT COUNT(*) AS count FROM ${table}`).get().count;
+    const serviceEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE event_type IN ('service.case.created', 'service.reply.recorded', 'service.case.updated', 'service.case.escalated', 'service.case.resolved')
+    `).get().count;
+    const serviceAuditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type IN ('service.case.created', 'service.reply.recorded', 'service.case.updated', 'service.case.escalated', 'service.case.resolved')
+    `).get().count;
+    const before = {
+      cases: count("service_cases"),
+      messages: count("case_messages"),
+      escalations: count("service_case_escalations"),
+      resolutions: count("service_case_resolutions"),
+      events: serviceEventCount(),
+      audits: serviceAuditCount()
+    };
+    const malformedRequests = [
+      { method: "POST", url: "/api/service/cases", cookie: ownerCookie, payload: [] },
+      { method: "POST", url: "/api/service/cases", cookie: ownerCookie, payload: { customerId: { id: "cust-ani" }, subject: "secret-service-case-customer-object" } },
+      { method: "POST", url: "/api/service/cases", cookie: ownerCookie, payload: { customerId: "cust-ani", subject: "secret-service-case-subject\u0000", priority: "high", channel: "Email" } },
+      { method: "POST", url: "/api/service/cases", cookie: ownerCookie, payload: { customerId: "cust-ani", subject: "Client asks for package support", priority: ["high"], channel: "Email" } },
+      { method: "POST", url: "/api/service/cases", cookie: ownerCookie, payload: { customerId: "cust-ani", subject: "Client asks for package support", priority: "high", channel: { value: "Email" } } },
+      { method: "POST", url: "/api/service/cases/case-nare-vat/replies", cookie: ownerCookie, payload: { body: { text: "secret-service-reply-object" } } },
+      { method: "POST", url: "/api/service/cases/case-nare-vat/replies", cookie: ownerCookie, payload: { body: "secret-service-reply-control\u0000" } },
+      { method: "PATCH", url: "/api/service/cases/case-nare-vat", cookie: ownerCookie, payload: { status: ["closed"] } },
+      { method: "PATCH", url: "/api/service/cases/case-nare-vat", cookie: ownerCookie, payload: { priority: "urgent" } },
+      { method: "PATCH", url: "/api/service/cases/case-nare-vat", cookie: ownerCookie, payload: { ownerUserId: { id: "user-owner" } } },
+      { method: "POST", url: "/api/service/cases/case-nare-vat/escalate", cookie: managerCookie, payload: null },
+      { method: "POST", url: "/api/service/cases/case-nare-vat/escalate", cookie: managerCookie, payload: { severity: { value: "sla-risk" }, reason: "secret-service-escalation-severity-object" } },
+      { method: "POST", url: "/api/service/cases/case-nare-vat/escalate", cookie: managerCookie, payload: { severity: "sla-risk", reason: "secret-service-escalation-control\u0000" } },
+      { method: "POST", url: "/api/service/cases/case-nare-vat/resolve", cookie: ownerCookie, payload: { resolutionCode: ["customer-confirmed"], summary: "secret-service-resolution-code-array" } },
+      { method: "POST", url: "/api/service/cases/case-nare-vat/resolve", cookie: ownerCookie, payload: { resolutionCode: "customer-confirmed", summary: { text: "secret-service-resolution-summary-object" } } },
+      { method: "POST", url: "/api/service/cases/case-nare-vat/resolve", cookie: ownerCookie, payload: { resolutionCode: "customer-confirmed", summary: "Customer confirmed support closure with enough detail.", satisfactionScore: { value: 5 } } },
+      { method: "POST", url: "/api/service/cases/case-nare-vat/resolve", cookie: ownerCookie, payload: { resolutionCode: "customer-confirmed", summary: "Customer confirmed support closure with enough detail.", satisfactionScore: "5e0" } },
+      { method: "POST", url: "/api/service/cases/case-nare-vat/resolve", cookie: ownerCookie, payload: { resolutionCode: "customer-confirmed", summary: "Customer confirmed support closure with enough detail.", customerConfirmedAt: { at: "2026-05-26T18:30:00.000Z" } } }
+    ];
+
+    for (const request of malformedRequests) {
+      const rejected = await app.inject({
+        method: request.method,
+        url: request.url,
+        headers: { cookie: request.cookie },
+        payload: request.payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-service-/);
+    }
+
+    assert.equal(count("service_cases"), before.cases);
+    assert.equal(count("case_messages"), before.messages);
+    assert.equal(count("service_case_escalations"), before.escalations);
+    assert.equal(count("service_case_resolutions"), before.resolutions);
+    assert.equal(serviceEventCount(), before.events);
+    assert.equal(serviceAuditCount(), before.audits);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/service/cases",
+      headers: { cookie: ownerCookie },
+      payload: {
+        customerId: "cust-ani",
+        subject: "Client asks for clean metadata support",
+        priority: "high",
+        channel: "Telegram"
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const caseId = created.json().case.id;
+
+    const replied = await app.inject({
+      method: "POST",
+      url: `/api/service/cases/${caseId}/replies`,
+      headers: { cookie: ownerCookie },
+      payload: { body: "Human-approved reply after malformed service metadata checks." }
+    });
+    assert.equal(replied.statusCode, 200, replied.body);
+    assert.equal(replied.json().case.status, "waiting-customer");
+
+    const escalated = await app.inject({
+      method: "POST",
+      url: `/api/service/cases/${caseId}/escalate`,
+      headers: { cookie: managerCookie },
+      payload: {
+        severity: "customer-risk",
+        reason: "Customer risk requires supervisor ownership after metadata checks"
+      }
+    });
+    assert.equal(escalated.statusCode, 200, escalated.body);
+
+    const resolved = await app.inject({
+      method: "POST",
+      url: `/api/service/cases/${caseId}/resolve`,
+      headers: { cookie: managerCookie },
+      payload: {
+        resolutionCode: "customer-confirmed",
+        summary: "Customer confirmed that the supervised support case can be closed after the metadata checks.",
+        satisfactionScore: 5,
+        customerConfirmedAt: "2026-05-26T18:30:00.000Z"
+      }
+    });
+    assert.equal(resolved.statusCode, 200, resolved.body);
+    assert.equal(resolved.json().case.status, "closed");
+    assert.equal(resolved.json().resolution.satisfactionScore, 5);
+  });
+});
+
 test("owner approval decision updates workflow queue and emits governed event", async () => {
   await withApp(async app => {
     const cookie = await login(app);

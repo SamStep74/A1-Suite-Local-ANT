@@ -2985,10 +2985,10 @@ function registerApi(app, db, options = {}) {
 
   app.post("/api/service/cases", async request => {
     const user = await app.auth(request);
-    const body = request.body || {};
-    const customerId = String(body.customerId || "").trim();
+    const input = normalizeServiceCaseCreateInput(request.body === undefined ? {} : request.body);
+    const customerId = input.customerId;
     assertCustomer(db, user.org_id, customerId);
-    const subject = String(body.subject || "").trim();
+    const subject = input.subject;
     if (subject.length < 4) {
       const err = new Error("Subject is required");
       err.statusCode = 400;
@@ -2997,8 +2997,8 @@ function registerApi(app, db, options = {}) {
     const now = new Date().toISOString();
     const caseId = randomId("case");
     const caseNumber = `AO-CASE-${Date.now().toString().slice(-6)}`;
-    const priority = normalizeChoice(body.priority, ["low", "medium", "high"], "medium");
-    const channel = normalizeChoice(body.channel, ["WhatsApp", "Telegram", "Email", "Phone", "Manual"], "Manual");
+    const priority = input.priority;
+    const channel = input.channel;
     const slaDueAt = new Date(Date.now() + (priority === "high" ? 4 : 24) * 60 * 60 * 1000).toISOString();
     db.prepare(`
       INSERT INTO service_cases (
@@ -3052,7 +3052,7 @@ function registerApi(app, db, options = {}) {
       err.statusCode = 404;
       throw err;
     }
-    const result = escalateServiceCase(db, user, serviceCase, request.body || {});
+    const result = escalateServiceCase(db, user, serviceCase, request.body === undefined ? {} : request.body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, serviceCase.customerId) };
   });
 
@@ -3065,7 +3065,7 @@ function registerApi(app, db, options = {}) {
       throw err;
     }
     if (serviceCase.status === "escalated") requireServiceSupervisor(user);
-    const result = resolveServiceCase(db, user, serviceCase, request.body || {});
+    const result = resolveServiceCase(db, user, serviceCase, request.body === undefined ? {} : request.body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, serviceCase.customerId) };
   });
 
@@ -3077,7 +3077,8 @@ function registerApi(app, db, options = {}) {
       err.statusCode = 404;
       throw err;
     }
-    const body = String((request.body || {}).body || "").trim();
+    const input = normalizeServiceReplyInput(request.body === undefined ? {} : request.body);
+    const body = input.body;
     if (body.length < 3) {
       const err = new Error("Reply body is required");
       err.statusCode = 400;
@@ -3112,21 +3113,17 @@ function registerApi(app, db, options = {}) {
     // (resolve already guards this) must also gate generic field changes, so a
     // non-supervisor can't silently de-escalate via PATCH { status }.
     if (serviceCase.status === "escalated") requireServiceSupervisor(user);
-    const body = request.body || {};
+    const body = normalizeServiceCaseUpdateInput(request.body === undefined ? {} : request.body);
     const sets = [];
     const values = [];
-    if (body.status !== undefined) {
-      const status = normalizeChoice(body.status, ["open", "in-progress", "waiting-customer", "resolved", "closed"], "");
-      if (!status) { const err = new Error("Invalid status"); err.statusCode = 400; throw err; }
-      sets.push("status = ?"); values.push(status);
+    if (Object.prototype.hasOwnProperty.call(body, "status")) {
+      sets.push("status = ?"); values.push(body.status);
     }
-    if (body.priority !== undefined) {
-      const priority = normalizeChoice(body.priority, ["low", "medium", "high"], "");
-      if (!priority) { const err = new Error("Invalid priority"); err.statusCode = 400; throw err; }
-      sets.push("priority = ?"); values.push(priority);
+    if (Object.prototype.hasOwnProperty.call(body, "priority")) {
+      sets.push("priority = ?"); values.push(body.priority);
     }
-    if (body.ownerUserId !== undefined) {
-      const ownerUserId = String(body.ownerUserId || "");
+    if (Object.prototype.hasOwnProperty.call(body, "ownerUserId")) {
+      const ownerUserId = body.ownerUserId;
       const owner = db.prepare("SELECT id FROM users WHERE org_id = ? AND id = ?").get(user.org_id, ownerUserId);
       if (!owner) { const err = new Error("Owner must be a user in this organization"); err.statusCode = 400; throw err; }
       sets.push("owner_user_id = ?"); values.push(ownerUserId);
@@ -43421,6 +43418,137 @@ function assertCustomer(db, orgId, customerId) {
   }
 }
 
+function normalizeServiceCaseCreateInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidServiceMetadata();
+  }
+  return {
+    customerId: normalizeServiceText(body, "customerId", { required: true, minLength: 1, maxLength: 120 }),
+    subject: normalizeServiceText(body, "subject", { required: true, minLength: 4, maxLength: 240 }),
+    priority: normalizeServiceChoice(body, "priority", ["low", "medium", "high"], "medium"),
+    channel: normalizeServiceChoice(body, "channel", ["WhatsApp", "Telegram", "Email", "Phone", "Manual"], "Manual")
+  };
+}
+
+function normalizeServiceReplyInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidServiceMetadata();
+  }
+  return {
+    body: normalizeServiceText(body, "body", { required: true, minLength: 3, maxLength: 4000 })
+  };
+}
+
+function normalizeServiceCaseUpdateInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidServiceMetadata();
+  }
+  const input = {};
+  if (Object.prototype.hasOwnProperty.call(body, "status")) {
+    input.status = normalizeServiceChoice(body, "status", ["open", "in-progress", "waiting-customer", "resolved", "closed"], "");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "priority")) {
+    input.priority = normalizeServiceChoice(body, "priority", ["low", "medium", "high"], "");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "ownerUserId")) {
+    input.ownerUserId = normalizeServiceText(body, "ownerUserId", { required: true, minLength: 1, maxLength: 120 });
+  }
+  return input;
+}
+
+function normalizeServiceEscalationInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidServiceMetadata();
+  }
+  return {
+    severity: normalizeServiceChoice(body, "severity", ["sla-risk", "customer-risk", "finance-risk"], "sla-risk"),
+    reason: normalizeServiceText(body, "reason", { required: true, minLength: 12, maxLength: 1000 })
+  };
+}
+
+function normalizeServiceResolutionInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidServiceMetadata();
+  }
+  return {
+    resolutionCode: normalizeServiceChoice(body, "resolutionCode", [
+      "answered-with-tax-review",
+      "customer-confirmed",
+      "no-action-needed",
+      "converted-to-change-request"
+    ], "customer-confirmed"),
+    summary: normalizeServiceText(body, "summary", { required: true, minLength: 20, maxLength: 2000 }),
+    satisfactionScore: normalizeServiceSatisfactionScore(body),
+    customerConfirmedAt: normalizeServiceTimestamp(body, "customerConfirmedAt", new Date().toISOString())
+  };
+}
+
+function normalizeServiceText(body, field, options = {}) {
+  const { fallback = "", required = false, minLength = 0, maxLength = 2000 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidServiceMetadata();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidServiceMetadata();
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidServiceMetadata();
+  }
+  return text;
+}
+
+function normalizeServiceChoice(body, field, choices, fallback) {
+  const hasValue = Object.prototype.hasOwnProperty.call(body, field);
+  if (!hasValue || body[field] === "") return fallback;
+  const text = normalizeServiceText(body, field, { required: true, minLength: 1, maxLength: 80 });
+  if (!choices.includes(text)) {
+    throwInvalidServiceMetadata();
+  }
+  return text;
+}
+
+function normalizeServiceSatisfactionScore(body) {
+  if (!Object.prototype.hasOwnProperty.call(body, "satisfactionScore") || body.satisfactionScore === null || body.satisfactionScore === "") {
+    return null;
+  }
+  const value = body.satisfactionScore;
+  if (typeof value === "string" && /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidServiceMetadata();
+  }
+  if (typeof value !== "number" && typeof value !== "string") {
+    throwInvalidServiceMetadata();
+  }
+  if (typeof value === "string" && !/^[1-5]$/.test(value.trim())) {
+    throwInvalidServiceMetadata();
+  }
+  const score = Number(value);
+  if (!Number.isInteger(score) || score < 1 || score > 5) {
+    throwInvalidServiceMetadata();
+  }
+  return score;
+}
+
+function normalizeServiceTimestamp(body, field, fallback) {
+  if (!Object.prototype.hasOwnProperty.call(body, field) || body[field] === "") {
+    return fallback;
+  }
+  const text = normalizeServiceText(body, field, { required: true, minLength: 10, maxLength: 40 });
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) {
+    throwInvalidServiceMetadata();
+  }
+  return text;
+}
+
+function throwInvalidServiceMetadata(message = "Service request requires safe metadata") {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
+}
+
 function normalizeAiAdvisoryInput(body, idField, promptFallback, options = {}) {
   const { promptRequired = false, promptMinLength = 0, promptMaxLength = 2000 } = options;
   if (!isPlainObject(body)) {
@@ -49076,8 +49204,9 @@ function escalateServiceCase(db, user, serviceCase, body) {
     };
   }
 
-  const severity = normalizeChoice(body.severity, ["sla-risk", "customer-risk", "finance-risk"], "sla-risk");
-  const reason = String(body.reason || "").trim();
+  const input = normalizeServiceEscalationInput(body);
+  const severity = input.severity;
+  const reason = input.reason;
   if (reason.length < 12) {
     const err = new Error("Escalation reason is required");
     err.statusCode = 400;
@@ -49170,28 +49299,22 @@ function resolveServiceCase(db, user, serviceCase, body) {
     err.statusCode = 409;
     throw err;
   }
-  const resolutionCode = normalizeChoice(body.resolutionCode, [
-    "answered-with-tax-review",
-    "customer-confirmed",
-    "no-action-needed",
-    "converted-to-change-request"
-  ], "customer-confirmed");
-  const summary = String(body.summary || "").trim();
+  const input = normalizeServiceResolutionInput(body);
+  const resolutionCode = input.resolutionCode;
+  const summary = input.summary;
   if (summary.length < 20) {
     const err = new Error("Resolution summary is required");
     err.statusCode = 400;
     throw err;
   }
-  const satisfactionScore = body.satisfactionScore === undefined || body.satisfactionScore === null || body.satisfactionScore === ""
-    ? null
-    : Number(body.satisfactionScore);
+  const satisfactionScore = input.satisfactionScore;
   if (satisfactionScore !== null && (!Number.isInteger(satisfactionScore) || satisfactionScore < 1 || satisfactionScore > 5)) {
     const err = new Error("Satisfaction score must be 1-5");
     err.statusCode = 400;
     throw err;
   }
   const now = new Date().toISOString();
-  const customerConfirmedAt = String(body.customerConfirmedAt || now).trim();
+  const customerConfirmedAt = input.customerConfirmedAt;
   const escalation = getOpenServiceEscalationForCase(db, user.org_id, serviceCase.id);
   const resolutionId = randomId("svc-resolution");
   const payload = {
