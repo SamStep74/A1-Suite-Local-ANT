@@ -43435,7 +43435,7 @@ function normalizeServiceReplyInput(body) {
     throwInvalidServiceMetadata();
   }
   return {
-    body: normalizeServiceText(body, "body", { required: true, minLength: 3, maxLength: 4000 })
+    body: normalizeServiceText(body, "body", { required: true, minLength: 3, maxLength: 4000, allowMultiline: true })
   };
 }
 
@@ -43462,7 +43462,7 @@ function normalizeServiceEscalationInput(body) {
   }
   return {
     severity: normalizeServiceChoice(body, "severity", ["sla-risk", "customer-risk", "finance-risk"], "sla-risk"),
-    reason: normalizeServiceText(body, "reason", { required: true, minLength: 12, maxLength: 1000 })
+    reason: normalizeServiceText(body, "reason", { required: true, minLength: 12, maxLength: 1000, allowMultiline: true })
   };
 }
 
@@ -43477,20 +43477,21 @@ function normalizeServiceResolutionInput(body) {
       "no-action-needed",
       "converted-to-change-request"
     ], "customer-confirmed"),
-    summary: normalizeServiceText(body, "summary", { required: true, minLength: 20, maxLength: 2000 }),
+    summary: normalizeServiceText(body, "summary", { required: true, minLength: 20, maxLength: 2000, allowMultiline: true }),
     satisfactionScore: normalizeServiceSatisfactionScore(body),
     customerConfirmedAt: normalizeServiceTimestamp(body, "customerConfirmedAt", new Date().toISOString())
   };
 }
 
 function normalizeServiceText(body, field, options = {}) {
-  const { fallback = "", required = false, minLength = 0, maxLength = 2000 } = options;
+  const { fallback = "", required = false, minLength = 0, maxLength = 2000, allowMultiline = false } = options;
   const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
   if (value === undefined || value === "") {
     if (required) throwInvalidServiceMetadata();
     return fallback;
   }
-  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+  const unsafePattern = allowMultiline ? /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/ : /[\x00-\x1f\x7f]/;
+  if (value === null || typeof value !== "string" || unsafePattern.test(value)) {
     throwInvalidServiceMetadata();
   }
   const text = value.trim();

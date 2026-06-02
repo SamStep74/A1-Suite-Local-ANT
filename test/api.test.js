@@ -19710,7 +19710,7 @@ test("service case mutations reject malformed metadata before persistence", asyn
       method: "POST",
       url: `/api/service/cases/${caseId}/replies`,
       headers: { cookie: ownerCookie },
-      payload: { body: "Human-approved reply after malformed service metadata checks." }
+      payload: { body: "Human-approved reply after malformed service metadata checks.\nIncludes a second line for customer-visible next steps." }
     });
     assert.equal(replied.statusCode, 200, replied.body);
     assert.equal(replied.json().case.status, "waiting-customer");
@@ -19721,7 +19721,7 @@ test("service case mutations reject malformed metadata before persistence", asyn
       headers: { cookie: managerCookie },
       payload: {
         severity: "customer-risk",
-        reason: "Customer risk requires supervisor ownership after metadata checks"
+        reason: "Customer risk requires supervisor ownership after metadata checks.\nSecond line preserves the internal handoff context."
       }
     });
     assert.equal(escalated.statusCode, 200, escalated.body);
@@ -19732,7 +19732,7 @@ test("service case mutations reject malformed metadata before persistence", asyn
       headers: { cookie: managerCookie },
       payload: {
         resolutionCode: "customer-confirmed",
-        summary: "Customer confirmed that the supervised support case can be closed after the metadata checks.",
+        summary: "Customer confirmed that the supervised support case can be closed after the metadata checks.\nSecond line records the final support note.",
         satisfactionScore: 5,
         customerConfirmedAt: "2026-05-26T18:30:00.000Z"
       }
