@@ -194,6 +194,45 @@ test("expanded Armenia SaaS roles receive least-privilege app entitlements", asy
   });
 });
 
+test("dashboard launcher source wiring covers every seeded login role app", async () => {
+  const dashboardSource = fs.readFileSync(path.join(__dirname, "..", "web", "src", "main.jsx"), "utf8");
+  const routeListMatch = dashboardSource.match(/const SUITE_APP_IDS = \[([^\]]+)\]/);
+  assert.ok(routeListMatch, "dashboard route allowlist is missing");
+  const routeIds = new Set([...routeListMatch[1].matchAll(/"([^"]+)"/g)].map(match => match[1]));
+
+  await withApp(async app => {
+    const loginEmails = app.db.prepare(`
+      SELECT email
+      FROM users
+      ORDER BY role, email
+    `).all().map(user => user.email);
+    assert.deepEqual(new Set(loginEmails), new Set([
+      DEFAULT_EMAIL,
+      "operator@armosphera.local",
+      "support@armosphera.local",
+      "accountant@armosphera.local",
+      "lawyer@armosphera.local",
+      "sales@armosphera.local",
+      "service.manager@armosphera.local",
+      "auditor@armosphera.local"
+    ]));
+
+    for (const email of loginEmails) {
+      const cookie = await login(app, email);
+      const response = await app.inject({ method: "GET", url: "/api/suite", headers: { cookie } });
+      assert.equal(response.statusCode, 200, response.body);
+      for (const suiteApp of response.json().apps) {
+        assert.equal(suiteApp.route, `/app/${suiteApp.id}`, `${email} app ${suiteApp.id} route`);
+        assert.ok(routeIds.has(suiteApp.id), `${email} app ${suiteApp.id} is missing from SUITE_APP_IDS`);
+        assert.ok(
+          dashboardSource.includes(`id="suite-app-${suiteApp.id}"`),
+          `${email} app ${suiteApp.id} is missing a dashboard anchor`
+        );
+      }
+    }
+  });
+});
+
 test("owner can update app assignment and audit the change", async () => {
   await withApp(async app => {
     const cookie = await login(app);
