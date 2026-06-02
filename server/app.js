@@ -2703,6 +2703,89 @@ function registerApi(app, db, options = {}) {
     return minutes;
   }
 
+  function normalizeProjectBillTimeBody(body, nowIso) {
+    body = normalizeProjectRequestBody(body);
+    const issueDate = normalizeProjectDate(body, "issueDate", nowIso.slice(0, 10));
+    return {
+      hourlyRate: normalizeProjectBillingAmount(body, "hourlyRate", { required: true, error: "A positive hourlyRate is required" }),
+      issueDate,
+      periodKey: normalizeProjectPeriodKey(body, "periodKey", issueDate.slice(0, 7)),
+      dueDays: normalizeProjectBillingDueDays(body, "dueDays", 14)
+    };
+  }
+
+  function normalizeProjectBillingAmount(body, field, options = {}) {
+    const { required = false, fallback = 0, min = 1, max = 1000000000, error = "Project request requires safe metadata" } = options;
+    const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+    if (value === undefined || value === "") {
+      if (required) throwInvalidProjectMetadata(error);
+      return fallback;
+    }
+    if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
+      throwInvalidProjectMetadata(error);
+    }
+    let amount;
+    if (typeof value === "number") {
+      amount = value;
+    } else if (typeof value === "string") {
+      if (/[\x00-\x1f\x7f]/.test(value)) {
+        throwInvalidProjectMetadata(error);
+      }
+      const text = value.trim();
+      if (!/^\d+(?:\.0+)?$/.test(text)) {
+        throwInvalidProjectMetadata(error);
+      }
+      amount = Number(text);
+    } else {
+      throwInvalidProjectMetadata(error);
+    }
+    if (!Number.isSafeInteger(amount) || amount < min || amount > max) {
+      throwInvalidProjectMetadata(error);
+    }
+    return amount;
+  }
+
+  function normalizeProjectPeriodKey(body, field, fallback) {
+    const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+    if (value === undefined || value === "") return fallback;
+    if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidProjectMetadata();
+    }
+    const periodKey = value.trim();
+    const match = /^(\d{4})-(\d{2})$/.exec(periodKey);
+    if (!match) throwInvalidProjectMetadata();
+    const month = Number(match[2]);
+    if (month < 1 || month > 12) throwInvalidProjectMetadata();
+    return periodKey;
+  }
+
+  function normalizeProjectBillingDueDays(body, field, fallback) {
+    const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+    if (value === undefined || value === "") return fallback;
+    if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
+      throwInvalidProjectMetadata();
+    }
+    let days;
+    if (typeof value === "number") {
+      days = value;
+    } else if (typeof value === "string") {
+      if (/[\x00-\x1f\x7f]/.test(value)) {
+        throwInvalidProjectMetadata();
+      }
+      const text = value.trim();
+      if (!/^\d+$/.test(text)) {
+        throwInvalidProjectMetadata();
+      }
+      days = Number(text);
+    } else {
+      throwInvalidProjectMetadata();
+    }
+    if (!Number.isSafeInteger(days) || days < 1 || days > 3650) {
+      throwInvalidProjectMetadata();
+    }
+    return days;
+  }
+
   function throwInvalidProjectMetadata(message = "Project request requires safe metadata") {
     const err = new Error(message);
     err.statusCode = 400;
@@ -2737,12 +2820,9 @@ function registerApi(app, db, options = {}) {
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
     if (!project.customerId) { const e = new Error("Project has no customer to invoice"); e.statusCode = 400; throw e; }
     assertCustomer(db, user.org_id, project.customerId);
-    const body = request.body || {};
-    const hourlyRate = Math.round(Number(body.hourlyRate) || 0);
-    if (!(hourlyRate > 0)) { const e = new Error("A positive hourlyRate is required"); e.statusCode = 400; throw e; }
     const now = new Date().toISOString();
-    const issueDate = /^\d{4}-\d{2}-\d{2}$/.test(body.issueDate || "") ? body.issueDate : now.slice(0, 10);
-    const periodKey = String(body.periodKey || issueDate.slice(0, 7)).trim();
+    const billingInput = normalizeProjectBillTimeBody(request.body === undefined ? {} : request.body, now);
+    const { hourlyRate, issueDate, periodKey, dueDays } = billingInput;
     // Idempotent per (project, period): a prior bill for this period returns the same
     // invoice — checked BEFORE the unbilled-time guard, since after the first bill there is
     // no unbilled time left (re-running must not 400).
@@ -2765,7 +2845,7 @@ function registerApi(app, db, options = {}) {
     const { subtotal, vat } = splitVatInclusive(total, vatRate);
     const draftId = randomId("draft-inv");
     const number = `DRAFT-PRJ-${project.id.replace(/^proj-/, "").toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 18)}-${periodKey.replace("-", "")}`;
-    const dueDate = addDays(issueDate, Number(body.dueDays || 14));
+    const dueDate = addDays(issueDate, dueDays);
     let result;
     db.exec("BEGIN");
     try {

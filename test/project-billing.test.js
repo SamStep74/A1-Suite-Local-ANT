@@ -67,6 +67,129 @@ test("project-billing: unbilled time → posted invoice → ledger; entries mark
   } finally { await app.close(); }
 });
 
+test("project-billing: rejects malformed bill-time metadata before persistence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const proj = await createBillableProject(app, owner);
+    const orgId = app.db.prepare("SELECT org_id FROM users WHERE email = ?").get(DEFAULT_EMAIL).org_id;
+    const draftInvoiceCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM finance_draft_invoices
+      WHERE org_id = ?
+        AND source_key LIKE ?
+    `).get(orgId, `project-time:${proj}:%`).count;
+    const invoiceCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM invoices WHERE org_id = ?").get(orgId).count;
+    const ledgerCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM ledger_journal WHERE org_id = ?").get(orgId).count;
+    const billedEntryCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM project_time_entries
+      WHERE org_id = ?
+        AND project_id = ?
+        AND billed_invoice_id IS NOT NULL
+    `).get(orgId, proj).count;
+    const billedAuditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE org_id = ?
+        AND type = ?
+    `).get(orgId, "projects.time.billed").count;
+
+    const snapshot = {
+      draftInvoices: draftInvoiceCount(),
+      invoices: invoiceCount(),
+      ledger: ledgerCount(),
+      billedEntries: billedEntryCount(),
+      auditEvents: billedAuditCount()
+    };
+    const malformedRequests = [
+      ["secret-project-billing-array-body-token"],
+      {
+        hourlyRate: [10000],
+        issueDate: "2026-05-15",
+        token: "secret-project-billing-array-rate-token"
+      },
+      {
+        hourlyRate: { value: 10000, token: "secret-project-billing-object-rate-token" },
+        issueDate: "2026-05-15"
+      },
+      {
+        hourlyRate: "10000\nsecret-project-billing-control-rate-token",
+        issueDate: "2026-05-15"
+      },
+      {
+        hourlyRate: 10000,
+        issueDate: { date: "2026-05-15", token: "secret-project-billing-object-date-token" }
+      },
+      {
+        hourlyRate: 10000,
+        issueDate: "2026-02-31",
+        token: "secret-project-billing-invalid-date-token"
+      },
+      {
+        hourlyRate: 10000,
+        issueDate: "2026-05-15",
+        periodKey: ["2026-05"],
+        token: "secret-project-billing-array-period-token"
+      },
+      {
+        hourlyRate: 10000,
+        issueDate: "2026-05-15",
+        periodKey: "2026-13",
+        token: "secret-project-billing-invalid-period-token"
+      },
+      {
+        hourlyRate: 10000,
+        issueDate: "2026-05-15",
+        dueDays: { days: 14, token: "secret-project-billing-object-due-token" }
+      },
+      {
+        hourlyRate: 10000,
+        issueDate: "2026-05-15",
+        dueDays: [14],
+        token: "secret-project-billing-array-due-token"
+      },
+      {
+        hourlyRate: 10000,
+        issueDate: "2026-05-15",
+        dueDays: "14\nsecret-project-billing-control-due-token"
+      }
+    ];
+
+    for (const payload of malformedRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: `/api/projects/${proj}/bill-time`,
+        headers: { cookie: owner },
+        payload
+      });
+      assert.strictEqual(rejected.statusCode, 400, rejected.body);
+      assert.ok(!rejected.body.includes("secret-project-billing"), "rejected payload secret is not reflected");
+      assert.deepStrictEqual({
+        draftInvoices: draftInvoiceCount(),
+        invoices: invoiceCount(),
+        ledger: ledgerCount(),
+        billedEntries: billedEntryCount(),
+        auditEvents: billedAuditCount()
+      }, snapshot, "malformed bill-time payload did not mutate billing state");
+    }
+
+    const billed = await app.inject({
+      method: "POST",
+      url: `/api/projects/${proj}/bill-time`,
+      headers: { cookie: owner },
+      payload: { hourlyRate: 10000, issueDate: "2026-05-15", periodKey: "2026-05", dueDays: 14 }
+    });
+    assert.strictEqual(billed.statusCode, 200, billed.body);
+    assert.strictEqual(billed.json().idempotent, false);
+    assert.strictEqual(billed.json().billedMinutes, 180);
+    assert.strictEqual(draftInvoiceCount(), snapshot.draftInvoices + 1);
+    assert.strictEqual(billedEntryCount(), 2);
+    assert.strictEqual(billedAuditCount(), snapshot.auditEvents + 1);
+  } finally { await app.close(); }
+});
+
 test("project-billing: cannot bill into a closed finance period (409 PERIOD_LOCKED)", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

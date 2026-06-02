@@ -2239,3 +2239,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Choice fields remain limited to their existing enums, single-line metadata rejects object/array/control-character/overlong input, multiline reply/escalation/resolution narrative text remains valid, satisfaction scores must be bounded 1-5 values, and duplicate escalation/resolution calls keep their existing idempotent behavior.
 - Rejected malformed service requests return `400`, keep submitted payload secrets out of error bodies, leave service case/message/escalation/resolution rows plus service suite-event and audit counts unchanged, and valid case creation, replies, supervisor escalation, resolution, and PATCH reassignment remain unchanged.
 - Verification for the checkpoint: focused service metadata tests = 5 pass; dedicated `test/service-cases.test.js` = 2 pass; `test/api.test.js` = 207 pass; `npm test` = 406 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 210 - Project Billing Metadata Guard
+
+- Project bill-time requests now reject non-plain-object request bodies before computing the project-period idempotency key or mutating finance state.
+- Submitted hourly rates, issue dates, period keys, and due-day values must be structurally safe before they can become invoice, ledger, billed-time, or audit evidence.
+- Hourly rates must be positive safe whole AMD amounts, issue dates must be exact ISO calendar dates, period keys must be valid `YYYY-MM` months, and due-day values must be bounded positive whole days instead of arrays, objects, control-character strings, or coercible malformed values.
+- Omitted optional issue dates, period keys, and due-day values still preserve the existing defaults, while `hourlyRate` remains required for billing.
+- Rejected malformed bill-time requests return `400`, keep submitted payload secrets out of error bodies, leave `finance_draft_invoices`, `invoices`, `ledger_journal`, `project_time_entries.billed_invoice_id`, and `audit_events` unchanged, and valid project time billing plus idempotent rebilling remain unchanged.
+- Verification for the checkpoint: focused `test/project-billing.test.js` = 4 pass; `test/api.test.js` = 207 pass; `npm test` = 407 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
