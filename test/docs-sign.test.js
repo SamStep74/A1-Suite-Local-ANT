@@ -200,6 +200,168 @@ test("docs-sign: duplicate signer name on one document is rejected (409) — una
   } finally { await app.close(); }
 });
 
+test("docs-sign: malformed document metadata is rejected before persistence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/docs/documents",
+      headers: { cookie: owner },
+      payload: {
+        title: "Metadata guarded agreement",
+        body: "Line one\nLine two",
+        docType: "agreement"
+      }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    const docId = created.json().document.id;
+    assert.strictEqual(created.json().document.body, "Line one\nLine two");
+
+    const signer = await app.inject({
+      method: "POST",
+      url: `/api/docs/documents/${docId}/signers`,
+      headers: { cookie: owner },
+      payload: { signerName: "Մետատվյալ Ստորագրող", signerEmail: "signer@armosphera.local" }
+    });
+    assert.strictEqual(signer.statusCode, 200, signer.body);
+    const signerId = signer.json().document.signers[0].id;
+
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/docs/documents/${docId}/send`,
+      headers: { cookie: owner },
+      payload: {}
+    });
+    assert.strictEqual(sent.statusCode, 200, sent.body);
+
+    const voidDraft = await app.inject({
+      method: "POST",
+      url: "/api/docs/documents",
+      headers: { cookie: owner },
+      payload: { title: "Void metadata guard draft" }
+    });
+    assert.strictEqual(voidDraft.statusCode, 200, voidDraft.body);
+    const voidDocId = voidDraft.json().document.id;
+
+    const counts = () => ({
+      documents: app.db.prepare("SELECT COUNT(*) AS count FROM documents WHERE org_id = ?").get("org-armosphera-demo").count,
+      signers: app.db.prepare("SELECT COUNT(*) AS count FROM document_signers WHERE org_id = ?").get("org-armosphera-demo").count,
+      signedSigners: app.db.prepare("SELECT COUNT(*) AS count FROM document_signers WHERE org_id = ? AND status = ?").get("org-armosphera-demo", "signed").count,
+      voidedDocuments: app.db.prepare("SELECT COUNT(*) AS count FROM documents WHERE org_id = ? AND status = ?").get("org-armosphera-demo", "voided").count,
+      suiteEvents: app.db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM suite_events
+        WHERE org_id = ?
+          AND event_type IN (?, ?, ?)
+      `).get("org-armosphera-demo", "docs.document.sent", "docs.document.signed", "docs.document.voided").count,
+      auditEvents: app.db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM audit_events
+        WHERE org_id = ?
+          AND type IN (?, ?, ?, ?, ?, ?)
+      `).get(
+        "org-armosphera-demo",
+        "docs.document.created",
+        "docs.document.updated",
+        "docs.signer.added",
+        "docs.document.signed",
+        "docs.document.sealed",
+        "docs.document.voided"
+      ).count
+    });
+    const before = counts();
+
+    const rejectedNull = async url => {
+      const response = await app.inject({
+        method: url.method,
+        url: url.path,
+        headers: { cookie: owner, "content-type": "application/json" },
+        payload: "null"
+      });
+      assert.strictEqual(response.statusCode, 400, response.body);
+      assert.doesNotMatch(response.body, /secret-docs-metadata-/);
+    };
+    const rejected = async (method, url, payload) => {
+      const response = await app.inject({ method, url, headers: { cookie: owner }, payload });
+      assert.strictEqual(response.statusCode, 400, response.body);
+      assert.doesNotMatch(response.body, /secret-docs-metadata-/);
+    };
+
+    const createUrl = "/api/docs/documents";
+    const patchUrl = `/api/docs/documents/${voidDocId}`;
+    const signerUrl = `/api/docs/documents/${voidDocId}/signers`;
+    const signUrl = `/api/docs/documents/${docId}/sign`;
+    const voidUrl = `/api/docs/documents/${voidDocId}/void`;
+
+    await rejectedNull({ method: "POST", path: createUrl });
+    await rejectedNull({ method: "PATCH", path: patchUrl });
+    await rejectedNull({ method: "POST", path: signerUrl });
+    await rejectedNull({ method: "POST", path: signUrl });
+    await rejectedNull({ method: "POST", path: voidUrl });
+
+    await rejected("POST", createUrl, ["secret-docs-metadata-create-array-token"]);
+    await rejected("POST", createUrl, { title: { value: "Agreement", token: "secret-docs-metadata-title-object-token" } });
+    await rejected("POST", createUrl, { title: "Agreement\nsecret-docs-metadata-title-control-token" });
+    await rejected("POST", createUrl, { title: `${"T".repeat(201)}secret-docs-metadata-title-long-token` });
+    await rejected("POST", createUrl, { title: "Valid agreement", body: { value: "Terms", token: "secret-docs-metadata-body-object-token" } });
+    await rejected("POST", createUrl, { title: "Valid agreement", body: "Terms\u0000secret-docs-metadata-body-control-token" });
+    await rejected("POST", createUrl, { title: "Valid agreement", docType: ["agreement"] });
+    await rejected("POST", createUrl, { title: "Valid agreement", docType: "ghost-secret-docs-metadata-type-token" });
+    await rejected("POST", createUrl, { title: "Valid agreement", customerId: { value: "cust-nare", token: "secret-docs-metadata-customer-object-token" } });
+
+    await rejected("PATCH", patchUrl, ["secret-docs-metadata-patch-array-token"]);
+    await rejected("PATCH", patchUrl, { title: { value: "Patch", token: "secret-docs-metadata-patch-title-object-token" } });
+    await rejected("PATCH", patchUrl, { body: "Patch\u0000secret-docs-metadata-patch-body-control-token" });
+    await rejected("PATCH", patchUrl, { docType: "bad-secret-docs-metadata-patch-type-token" });
+
+    await rejected("POST", signerUrl, ["secret-docs-metadata-signer-array-token"]);
+    await rejected("POST", signerUrl, { signerName: { value: "Signer", token: "secret-docs-metadata-signer-name-object-token" } });
+    await rejected("POST", signerUrl, { signerName: "Signer\nsecret-docs-metadata-signer-control-token" });
+    await rejected("POST", signerUrl, { signerName: "Signer", signerEmail: { value: "signer@example.com", token: "secret-docs-metadata-email-object-token" } });
+    await rejected("POST", signerUrl, { signerName: "Signer", signerUserId: ["user-operator"] });
+
+    await rejected("POST", signUrl, ["secret-docs-metadata-sign-array-token"]);
+    await rejected("POST", signUrl, { signerId: { value: signerId, token: "secret-docs-metadata-signer-id-object-token" } });
+    await rejected("POST", signUrl, { signerId: `${signerId}\nsecret-docs-metadata-signer-id-control-token` });
+
+    await rejected("POST", voidUrl, ["secret-docs-metadata-void-array-token"]);
+    await rejected("POST", voidUrl, { reason: { value: "Superseded", token: "secret-docs-metadata-void-reason-object-token" } });
+    await rejected("POST", voidUrl, { reason: "Superseded\nsecret-docs-metadata-void-reason-control-token" });
+    await rejected("POST", voidUrl, { reason: `${"R".repeat(501)}secret-docs-metadata-void-reason-long-token` });
+
+    assert.deepStrictEqual(counts(), before);
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: patchUrl,
+      headers: { cookie: owner },
+      payload: { title: "Void metadata guard draft patched", body: "Valid patched body", docType: "policy" }
+    });
+    assert.strictEqual(patched.statusCode, 200, patched.body);
+    assert.strictEqual(patched.json().document.docType, "policy");
+
+    const signed = await app.inject({
+      method: "POST",
+      url: signUrl,
+      headers: { cookie: owner },
+      payload: { signerId }
+    });
+    assert.strictEqual(signed.statusCode, 200, signed.body);
+    assert.strictEqual(signed.json().document.status, "signed");
+
+    const voided = await app.inject({
+      method: "POST",
+      url: voidUrl,
+      headers: { cookie: owner },
+      payload: { reason: "Superseded by guarded metadata test" }
+    });
+    assert.strictEqual(voided.statusCode, 200, voided.body);
+    assert.strictEqual(voided.json().document.status, "voided");
+  } finally { await app.close(); }
+});
+
 test("docs-sign: cross-org isolation — a foreign document is invisible (404)", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

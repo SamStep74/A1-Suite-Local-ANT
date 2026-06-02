@@ -2203,17 +2203,14 @@ function registerApi(app, db, options = {}) {
   app.post("/api/docs/documents", async request => {
     const user = await app.auth(request);
     requireDocsWriter(user);
-    const body = request.body || {};
-    const title = String(body.title || "").trim();
-    if (title.length < 3) { const e = new Error("Document title is required"); e.statusCode = 400; throw e; }
-    const docType = normalizeChoice(body.docType, ["agreement", "nda", "contract", "offer", "policy", "other"], "agreement");
-    const customerId = String(body.customerId || "").trim();
+    const input = normalizeDocsDocumentCreateBody(request.body === undefined ? {} : request.body);
+    const { title, body, docType, customerId } = input;
     if (customerId) assertCustomer(db, user.org_id, customerId);
     const id = randomId("doc");
     const now = new Date().toISOString();
     db.prepare(`INSERT INTO documents (id, org_id, title, body, doc_type, status, customer_id, sealed_checksum, sealed_at, created_by_user_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, 'draft', ?, '', '', ?, ?, ?)`)
-      .run(id, user.org_id, title.slice(0, 200), String(body.body || "").slice(0, 20000), docType, customerId || null, user.id, now, now);
+      .run(id, user.org_id, title, body, docType, customerId || null, user.id, now, now);
     audit(db, user.org_id, user.id, "docs.document.created", { documentId: id, title });
     return { ok: true, document: getDocument(db, user.org_id, id) };
   });
@@ -2224,19 +2221,17 @@ function registerApi(app, db, options = {}) {
     const document = getDocument(db, user.org_id, request.params.id);
     if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
     if (document.status !== "draft") { const e = new Error("Only draft documents can be edited"); e.statusCode = 409; throw e; }
-    const body = request.body || {};
+    const input = normalizeDocsDocumentUpdateBody(request.body === undefined ? {} : request.body);
     const sets = [];
     const values = [];
-    if (body.title !== undefined) {
-      const title = String(body.title || "").trim();
-      if (title.length < 3) { const e = new Error("Document title is required"); e.statusCode = 400; throw e; }
-      sets.push("title = ?"); values.push(title.slice(0, 200));
+    if (input.title !== undefined) {
+      sets.push("title = ?"); values.push(input.title);
     }
-    if (body.body !== undefined) { sets.push("body = ?"); values.push(String(body.body || "").slice(0, 20000)); }
-    if (body.docType !== undefined) {
-      const docType = normalizeChoice(body.docType, ["agreement", "nda", "contract", "offer", "policy", "other"], "");
-      if (!docType) { const e = new Error("Invalid document type"); e.statusCode = 400; throw e; }
-      sets.push("doc_type = ?"); values.push(docType);
+    if (input.body !== undefined) {
+      sets.push("body = ?"); values.push(input.body);
+    }
+    if (input.docType !== undefined) {
+      sets.push("doc_type = ?"); values.push(input.docType);
     }
     if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
     const now = new Date().toISOString();
@@ -2252,9 +2247,8 @@ function registerApi(app, db, options = {}) {
     const document = getDocument(db, user.org_id, request.params.id);
     if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
     if (document.status !== "draft") { const e = new Error("Signers can only be added while the document is a draft"); e.statusCode = 409; throw e; }
-    const body = request.body || {};
-    const signerName = String(body.signerName || "").trim();
-    if (signerName.length < 2) { const e = new Error("Signer name is required"); e.statusCode = 400; throw e; }
+    const input = normalizeDocsSignerBody(request.body === undefined ? {} : request.body);
+    const { signerName, signerEmail, signerUserId: requestedSignerUserId } = input;
     // A sealed consent chain must be unambiguous: reject a second signer with the same name
     // (case- and whitespace-insensitive) on this document. Same name on other documents is fine.
     const normalizedName = signerName.toLowerCase();
@@ -2263,8 +2257,8 @@ function registerApi(app, db, options = {}) {
       const e = new Error("A signer with this name already exists on the document"); e.statusCode = 409; throw e;
     }
     let signerUserId = null;
-    if (body.signerUserId) {
-      const u = db.prepare("SELECT id FROM users WHERE org_id = ? AND id = ?").get(user.org_id, String(body.signerUserId));
+    if (requestedSignerUserId) {
+      const u = db.prepare("SELECT id FROM users WHERE org_id = ? AND id = ?").get(user.org_id, requestedSignerUserId);
       if (!u) { const e = new Error("Signer must be a user in this organization"); e.statusCode = 400; throw e; }
       signerUserId = u.id;
     }
@@ -2273,7 +2267,7 @@ function registerApi(app, db, options = {}) {
     const now = new Date().toISOString();
     db.prepare(`INSERT INTO document_signers (id, org_id, document_id, signer_name, signer_email, signer_user_id, sign_order, status, signed_at, ip_address, user_agent, checksum, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, 'pending', '', '', '', '', ?)`)
-      .run(id, user.org_id, document.id, signerName.slice(0, 160), String(body.signerEmail || "").slice(0, 160), signerUserId, nextOrder, now);
+      .run(id, user.org_id, document.id, signerName, signerEmail, signerUserId, nextOrder, now);
     audit(db, user.org_id, user.id, "docs.signer.added", { documentId: document.id, signerId: id });
     return { ok: true, document: getDocument(db, user.org_id, document.id) };
   });
@@ -2298,8 +2292,7 @@ function registerApi(app, db, options = {}) {
     const document = getDocument(db, user.org_id, request.params.id);
     if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
     if (document.status !== "out-for-signature") { const e = new Error("Document is not out for signature"); e.statusCode = 409; throw e; }
-    const body = request.body || {};
-    const signerId = String(body.signerId || "").trim();
+    const { signerId } = normalizeDocsSignBody(request.body === undefined ? {} : request.body);
     const signer = document.signers.find(s => s.id === signerId);
     if (!signer) { const e = new Error("Signer not found on this document"); e.statusCode = 404; throw e; }
     if (signer.status === "signed") { const e = new Error("Signer has already signed"); e.statusCode = 409; throw e; }
@@ -2348,9 +2341,10 @@ function registerApi(app, db, options = {}) {
     const document = getDocument(db, user.org_id, request.params.id);
     if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
     if (document.status === "signed" || document.status === "voided") { const e = new Error("A signed or voided document cannot be voided"); e.statusCode = 409; throw e; }
+    const { reason } = normalizeDocsVoidBody(request.body === undefined ? {} : request.body);
     const now = new Date().toISOString();
     db.prepare("UPDATE documents SET status = 'voided', updated_at = ? WHERE org_id = ? AND id = ?").run(now, user.org_id, document.id);
-    emitSuiteEvent(db, { orgId: user.org_id, actorUserId: user.id, eventType: "docs.document.voided", subjectType: "document", subjectId: document.id, customerId: document.customerId || "", status: "voided", payload: { reason: String((request.body || {}).reason || "").slice(0, 500) } });
+    emitSuiteEvent(db, { orgId: user.org_id, actorUserId: user.id, eventType: "docs.document.voided", subjectType: "document", subjectId: document.id, customerId: document.customerId || "", status: "voided", payload: { reason } });
     audit(db, user.org_id, user.id, "docs.document.voided", { documentId: document.id });
     return { ok: true, document: getDocument(db, user.org_id, document.id) };
   });
@@ -2442,19 +2436,21 @@ function registerApi(app, db, options = {}) {
   app.post("/api/projects", async request => {
     const user = await app.auth(request);
     requireProjectsWriter(user);
-    const body = request.body || {};
-    const name = String(body.name || "").trim();
-    if (name.length < 3) { const e = new Error("Project name is required"); e.statusCode = 400; throw e; }
-    const status = normalizeChoice(body.status, PROJECT_STATUSES, "planning");
-    const customerId = String(body.customerId || "").trim();
+    const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
+    const name = normalizeProjectText(body, "name", { required: true, minLength: 3, maxLength: 200, error: "Project name is required" });
+    const status = normalizeProjectEnum(body, "status", PROJECT_STATUSES, "planning", "Invalid project status");
+    const customerId = normalizeProjectText(body, "customerId", { fallback: "", maxLength: 160 });
     if (customerId) assertCustomer(db, user.org_id, customerId);
-    const dealId = String(body.dealId || "").trim();
+    const dealId = normalizeProjectText(body, "dealId", { fallback: "", maxLength: 160 });
     if (dealId && !getDeal(db, user.org_id, dealId)) { const e = new Error("Linked deal not found"); e.statusCode = 400; throw e; }
+    const description = normalizeProjectText(body, "description", { fallback: "", maxLength: 4000 });
+    const startDate = normalizeProjectDate(body, "startDate", "");
+    const dueDate = normalizeProjectDate(body, "dueDate", "");
     const id = randomId("proj");
     const now = new Date().toISOString();
     db.prepare(`INSERT INTO projects (id, org_id, name, description, status, customer_id, deal_id, start_date, due_date, created_by_user_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, user.org_id, name.slice(0, 200), String(body.description || "").slice(0, 4000), status, customerId || null, dealId || null, /^\d{4}-\d{2}-\d{2}$/.test(body.startDate || "") ? body.startDate : "", /^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : "", user.id, now, now);
+      .run(id, user.org_id, name, description, status, customerId || null, dealId || null, startDate, dueDate, user.id, now, now);
     audit(db, user.org_id, user.id, "projects.project.created", { projectId: id, name });
     return { ok: true, project: getProject(db, user.org_id, id) };
   });
@@ -2464,21 +2460,17 @@ function registerApi(app, db, options = {}) {
     requireProjectsWriter(user);
     const project = getProject(db, user.org_id, request.params.id);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
-    const body = request.body || {};
+    const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
     const sets = [];
     const values = [];
     if (body.name !== undefined) {
-      const name = String(body.name || "").trim();
-      if (name.length < 3) { const e = new Error("Project name is required"); e.statusCode = 400; throw e; }
-      sets.push("name = ?"); values.push(name.slice(0, 200));
+      sets.push("name = ?"); values.push(normalizeProjectText(body, "name", { required: true, minLength: 3, maxLength: 200, error: "Project name is required" }));
     }
-    if (body.description !== undefined) { sets.push("description = ?"); values.push(String(body.description || "").slice(0, 4000)); }
+    if (body.description !== undefined) { sets.push("description = ?"); values.push(normalizeProjectText(body, "description", { fallback: "", maxLength: 4000 })); }
     if (body.status !== undefined) {
-      const status = normalizeChoice(body.status, PROJECT_STATUSES, "");
-      if (!status) { const e = new Error("Invalid project status"); e.statusCode = 400; throw e; }
-      sets.push("status = ?"); values.push(status);
+      sets.push("status = ?"); values.push(normalizeProjectEnum(body, "status", PROJECT_STATUSES, "", "Invalid project status"));
     }
-    if (body.dueDate !== undefined) { sets.push("due_date = ?"); values.push(/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : ""); }
+    if (body.dueDate !== undefined) { sets.push("due_date = ?"); values.push(normalizeProjectDate(body, "dueDate", "")); }
     if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
     const now = new Date().toISOString();
     sets.push("updated_at = ?"); values.push(now);
@@ -2492,21 +2484,22 @@ function registerApi(app, db, options = {}) {
     requireProjectsWriter(user);
     const project = getProject(db, user.org_id, request.params.id);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
-    const body = request.body || {};
-    const title = String(body.title || "").trim();
-    if (title.length < 2) { const e = new Error("Task title is required"); e.statusCode = 400; throw e; }
+    const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
+    const title = normalizeProjectText(body, "title", { required: true, minLength: 2, maxLength: 200, error: "Task title is required" });
     let assigneeEmployeeId = null;
-    if (body.assigneeEmployeeId) {
-      const emp = getEmployee(db, user.org_id, body.assigneeEmployeeId);
+    const submittedAssigneeEmployeeId = normalizeProjectText(body, "assigneeEmployeeId", { fallback: "", maxLength: 160 });
+    if (submittedAssigneeEmployeeId) {
+      const emp = getEmployee(db, user.org_id, submittedAssigneeEmployeeId);
       if (!emp) { const e = new Error("Assignee must be an employee in this organization"); e.statusCode = 400; throw e; }
       assigneeEmployeeId = emp.id;
     }
-    const status = normalizeChoice(body.status, TASK_STATUSES, "todo");
+    const status = normalizeProjectEnum(body, "status", TASK_STATUSES, "todo", "Invalid task status");
+    const dueDate = normalizeProjectDate(body, "dueDate", "");
     const id = randomId("ptask");
     const now = new Date().toISOString();
     db.prepare(`INSERT INTO project_tasks (id, org_id, project_id, title, status, assignee_employee_id, due_date, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, user.org_id, project.id, title.slice(0, 200), status, assigneeEmployeeId, /^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : "", now, now);
+      .run(id, user.org_id, project.id, title, status, assigneeEmployeeId, dueDate, now, now);
     audit(db, user.org_id, user.id, "projects.task.created", { projectId: project.id, taskId: id });
     return { ok: true, project: getProject(db, user.org_id, project.id) };
   });
@@ -2518,29 +2511,26 @@ function registerApi(app, db, options = {}) {
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
     const task = db.prepare("SELECT id FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(user.org_id, project.id, String(request.params.taskId || ""));
     if (!task) { const e = new Error("Task not found"); e.statusCode = 404; throw e; }
-    const body = request.body || {};
+    const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
     const sets = [];
     const values = [];
     if (body.title !== undefined) {
-      const title = String(body.title || "").trim();
-      if (title.length < 2) { const e = new Error("Task title is required"); e.statusCode = 400; throw e; }
-      sets.push("title = ?"); values.push(title.slice(0, 200));
+      sets.push("title = ?"); values.push(normalizeProjectText(body, "title", { required: true, minLength: 2, maxLength: 200, error: "Task title is required" }));
     }
     if (body.status !== undefined) {
-      const status = normalizeChoice(body.status, TASK_STATUSES, "");
-      if (!status) { const e = new Error("Invalid task status"); e.statusCode = 400; throw e; }
-      sets.push("status = ?"); values.push(status);
+      sets.push("status = ?"); values.push(normalizeProjectEnum(body, "status", TASK_STATUSES, "", "Invalid task status"));
     }
     if (body.assigneeEmployeeId !== undefined) {
       let assigneeEmployeeId = null;
-      if (body.assigneeEmployeeId) {
-        const emp = getEmployee(db, user.org_id, body.assigneeEmployeeId);
+      const submittedAssigneeEmployeeId = normalizeProjectText(body, "assigneeEmployeeId", { fallback: "", maxLength: 160 });
+      if (submittedAssigneeEmployeeId) {
+        const emp = getEmployee(db, user.org_id, submittedAssigneeEmployeeId);
         if (!emp) { const e = new Error("Assignee must be an employee in this organization"); e.statusCode = 400; throw e; }
         assigneeEmployeeId = emp.id;
       }
       sets.push("assignee_employee_id = ?"); values.push(assigneeEmployeeId);
     }
-    if (body.dueDate !== undefined) { sets.push("due_date = ?"); values.push(/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : ""); }
+    if (body.dueDate !== undefined) { sets.push("due_date = ?"); values.push(normalizeProjectDate(body, "dueDate", "")); }
     if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
     const now = new Date().toISOString();
     sets.push("updated_at = ?"); values.push(now);
@@ -2554,14 +2544,14 @@ function registerApi(app, db, options = {}) {
     requireProjectsWriter(user);
     const project = getProject(db, user.org_id, request.params.id);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
-    const body = request.body || {};
-    const title = String(body.title || "").trim();
-    if (title.length < 2) { const e = new Error("Milestone title is required"); e.statusCode = 400; throw e; }
+    const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
+    const title = normalizeProjectText(body, "title", { required: true, minLength: 2, maxLength: 200, error: "Milestone title is required" });
+    const dueDate = normalizeProjectDate(body, "dueDate", "");
     const id = randomId("pms");
     const now = new Date().toISOString();
     db.prepare(`INSERT INTO project_milestones (id, org_id, project_id, title, due_date, reached, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, 0, ?, ?)`)
-      .run(id, user.org_id, project.id, title.slice(0, 200), /^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : "", now, now);
+      .run(id, user.org_id, project.id, title, dueDate, now, now);
     audit(db, user.org_id, user.id, "projects.milestone.created", { projectId: project.id, milestoneId: id });
     return { ok: true, project: getProject(db, user.org_id, project.id) };
   });
@@ -2573,16 +2563,14 @@ function registerApi(app, db, options = {}) {
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
     const milestone = db.prepare("SELECT id FROM project_milestones WHERE org_id = ? AND project_id = ? AND id = ?").get(user.org_id, project.id, String(request.params.milestoneId || ""));
     if (!milestone) { const e = new Error("Milestone not found"); e.statusCode = 404; throw e; }
-    const body = request.body || {};
+    const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
     const sets = [];
     const values = [];
     if (body.title !== undefined) {
-      const title = String(body.title || "").trim();
-      if (title.length < 2) { const e = new Error("Milestone title is required"); e.statusCode = 400; throw e; }
-      sets.push("title = ?"); values.push(title.slice(0, 200));
+      sets.push("title = ?"); values.push(normalizeProjectText(body, "title", { required: true, minLength: 2, maxLength: 200, error: "Milestone title is required" }));
     }
-    if (body.reached !== undefined) { sets.push("reached = ?"); values.push(body.reached ? 1 : 0); }
-    if (body.dueDate !== undefined) { sets.push("due_date = ?"); values.push(/^\d{4}-\d{2}-\d{2}$/.test(body.dueDate || "") ? body.dueDate : ""); }
+    if (body.reached !== undefined) { sets.push("reached = ?"); values.push(normalizeProjectBoolean(body, "reached") ? 1 : 0); }
+    if (body.dueDate !== undefined) { sets.push("due_date = ?"); values.push(normalizeProjectDate(body, "dueDate", "")); }
     if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
     const now = new Date().toISOString();
     sets.push("updated_at = ?"); values.push(now);
@@ -2596,24 +2584,129 @@ function registerApi(app, db, options = {}) {
     requireProjectsWriter(user);
     const project = getProject(db, user.org_id, request.params.id);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
-    const body = request.body || {};
-    const minutes = Math.round(Number(body.minutes) || 0);
+    const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
+    const minutes = normalizeProjectMinutes(body, "minutes");
     if (!(minutes > 0)) { const e = new Error("Minutes must be a positive number"); e.statusCode = 400; throw e; }
     let taskId = null;
-    if (body.taskId) {
-      const t = db.prepare("SELECT id FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(user.org_id, project.id, String(body.taskId));
+    const submittedTaskId = normalizeProjectText(body, "taskId", { fallback: "", maxLength: 160 });
+    if (submittedTaskId) {
+      const t = db.prepare("SELECT id FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(user.org_id, project.id, submittedTaskId);
       if (!t) { const e = new Error("Time entry task must belong to this project"); e.statusCode = 400; throw e; }
       taskId = t.id;
     }
     const id = randomId("pte");
     const now = new Date().toISOString();
-    const entryDate = /^\d{4}-\d{2}-\d{2}$/.test(body.entryDate || "") ? body.entryDate : now.slice(0, 10);
+    const entryDate = normalizeProjectDate(body, "entryDate", now.slice(0, 10));
+    const note = normalizeProjectText(body, "note", { fallback: "", maxLength: 1000 });
     db.prepare(`INSERT INTO project_time_entries (id, org_id, project_id, task_id, minutes, entry_date, note, logged_by_user_id, created_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, user.org_id, project.id, taskId, minutes, entryDate, String(body.note || "").slice(0, 1000), user.id, now);
+      .run(id, user.org_id, project.id, taskId, minutes, entryDate, note, user.id, now);
     audit(db, user.org_id, user.id, "projects.time.logged", { projectId: project.id, timeEntryId: id, minutes });
     return { ok: true, project: getProject(db, user.org_id, project.id) };
   });
+
+  function normalizeProjectRequestBody(body) {
+    if (!isPlainObject(body)) {
+      throwInvalidProjectMetadata();
+    }
+    return body;
+  }
+
+  function normalizeProjectText(body, field, options = {}) {
+    const { fallback = "", required = false, minLength = 0, maxLength = 200, error = "Project request requires safe metadata" } = options;
+    const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+    if (value === undefined || value === "") {
+      if (required) throwInvalidProjectMetadata(error);
+      const text = String(fallback || "").trim();
+      if (text.length < minLength || text.length > maxLength || /[\x00-\x1f\x7f]/.test(text)) {
+        throwInvalidProjectMetadata(error);
+      }
+      return text;
+    }
+    if (value === null || typeof value !== "string") {
+      throwInvalidProjectMetadata();
+    }
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidProjectMetadata();
+    }
+    const text = value.trim();
+    if (text.length < minLength || text.length > maxLength) {
+      throwInvalidProjectMetadata(error);
+    }
+    return text;
+  }
+
+  function normalizeProjectEnum(body, field, allowed, fallback, error) {
+    const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+    if (value === undefined) return fallback;
+    if (value === "") {
+      if (fallback) return fallback;
+      throwInvalidProjectMetadata(error);
+    }
+    if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidProjectMetadata(error);
+    }
+    const status = normalizeChoice(value, allowed, "");
+    if (!status) throwInvalidProjectMetadata(error);
+    return status;
+  }
+
+  function normalizeProjectDate(body, field, fallback) {
+    const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+    if (value === undefined || value === "") return fallback;
+    if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidProjectMetadata();
+    }
+    const date = value.trim();
+    if (!isExactIsoDate(date)) {
+      throwInvalidProjectMetadata();
+    }
+    return date;
+  }
+
+  function normalizeProjectBoolean(body, field) {
+    const value = body[field];
+    if (typeof value !== "boolean") {
+      throwInvalidProjectMetadata();
+    }
+    return value;
+  }
+
+  function normalizeProjectMinutes(body, field) {
+    const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+    if (value === undefined || value === "") return 0;
+    if (value === null || Array.isArray(value) || typeof value === "object") {
+      throwInvalidProjectMetadata();
+    }
+    if (typeof value === "string" && /[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidProjectMetadata();
+    }
+    let minutes;
+    if (typeof value === "number") {
+      if (!Number.isInteger(value)) {
+        throwInvalidProjectMetadata("Minutes must be a positive number");
+      }
+      minutes = value;
+    } else if (typeof value === "string") {
+      const text = value.trim();
+      if (!/^\d+$/.test(text)) {
+        throwInvalidProjectMetadata("Minutes must be a positive number");
+      }
+      minutes = Number(text);
+    } else {
+      throwInvalidProjectMetadata();
+    }
+    if (!Number.isSafeInteger(minutes) || !(minutes > 0) || minutes > 100000) {
+      throwInvalidProjectMetadata("Minutes must be a positive number");
+    }
+    return minutes;
+  }
+
+  function throwInvalidProjectMetadata(message = "Project request requires safe metadata") {
+    const err = new Error(message);
+    err.statusCode = 400;
+    throw err;
+  }
 
   // Billing seam: preview the unbilled time on a project (minutes → hours → amount at a rate).
   app.get("/api/projects/:id/billing-preview", async request => {
@@ -5008,6 +5101,127 @@ function getDocument(db, orgId, id) {
   if (!doc) return null;
   doc.signers = getDocumentSigners(db, orgId, doc.id);
   return doc;
+}
+
+const DOC_TYPES = ["agreement", "nda", "contract", "offer", "policy", "other"];
+
+function normalizeDocsDocumentCreateBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidDocsMetadataRequest();
+  }
+  const title = normalizeDocsMetadataText(body, "title", { required: true, minLength: 3, maxLength: 200 });
+  const documentBody = normalizeDocsMetadataText(body, "body", { fallback: "", maxLength: 20000, allowMultiline: true, trim: false });
+  const docType = normalizeDocsDocType(body, { fallback: "agreement" });
+  const customerId = normalizeDocsMetadataText(body, "customerId", { fallback: "", maxLength: 120 });
+  return { title, body: documentBody, docType, customerId };
+}
+
+function normalizeDocsDocumentUpdateBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidDocsMetadataRequest();
+  }
+  const input = {};
+  if (Object.prototype.hasOwnProperty.call(body, "title")) {
+    input.title = normalizeDocsMetadataText(body, "title", { required: true, minLength: 3, maxLength: 200 });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "body")) {
+    input.body = normalizeDocsMetadataText(body, "body", { fallback: "", maxLength: 20000, allowMultiline: true, trim: false });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "docType")) {
+    input.docType = normalizeDocsDocType(body, { required: true });
+  }
+  return input;
+}
+
+function normalizeDocsSignerBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidDocsMetadataRequest();
+  }
+  return {
+    signerName: normalizeDocsMetadataText(body, "signerName", { required: true, minLength: 2, maxLength: 160 }),
+    signerEmail: normalizeDocsMetadataText(body, "signerEmail", { fallback: "", maxLength: 160 }),
+    signerUserId: normalizeDocsMetadataText(body, "signerUserId", { fallback: "", maxLength: 120 })
+  };
+}
+
+function normalizeDocsSignBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidDocsMetadataRequest();
+  }
+  return {
+    signerId: normalizeDocsMetadataText(body, "signerId", { required: true, minLength: 1, maxLength: 120 })
+  };
+}
+
+function normalizeDocsVoidBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidDocsMetadataRequest();
+  }
+  return {
+    reason: normalizeDocsMetadataText(body, "reason", { fallback: "", maxLength: 500 })
+  };
+}
+
+function normalizeDocsDocType(body, options = {}) {
+  const { fallback = "", required = false } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, "docType") ? body.docType : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidDocsMetadataRequest();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidDocsMetadataRequest();
+  }
+  const docType = value.trim();
+  if (!DOC_TYPES.includes(docType)) {
+    throwInvalidDocsMetadataRequest();
+  }
+  return docType;
+}
+
+function normalizeDocsMetadataText(body, field, options = {}) {
+  const {
+    fallback = "",
+    required = false,
+    minLength = 0,
+    maxLength = 20000,
+    allowMultiline = false,
+    trim = true
+  } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidDocsMetadataRequest();
+    const text = String(fallback || "");
+    const normalized = trim ? text.trim() : text;
+    if (!isSafeDocsMetadataText(normalized, { allowMultiline }) || normalized.length < minLength || normalized.length > maxLength) {
+      throwInvalidDocsMetadataRequest();
+    }
+    return normalized;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidDocsMetadataRequest();
+  }
+  if (!isSafeDocsMetadataText(value, { allowMultiline })) {
+    throwInvalidDocsMetadataRequest();
+  }
+  const text = trim ? value.trim() : value;
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidDocsMetadataRequest();
+  }
+  return text;
+}
+
+function isSafeDocsMetadataText(value, options = {}) {
+  const { allowMultiline = false } = options;
+  return allowMultiline
+    ? !/[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/.test(value)
+    : !/[\x00-\x1f\x7f]/.test(value);
+}
+
+function throwInvalidDocsMetadataRequest() {
+  const err = new Error("Docs request requires safe metadata");
+  err.statusCode = 400;
+  throw err;
 }
 
 function requireProjectsWriter(user) {

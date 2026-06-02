@@ -84,6 +84,181 @@ test("projects: full hierarchy — project + task + milestone + time entry with 
   } finally { await app.close(); }
 });
 
+test("projects: rejects malformed metadata before persistence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const counts = () => ({
+      projects: app.db.prepare("SELECT COUNT(*) AS count FROM projects WHERE org_id = ?").get("org-armosphera-demo").count,
+      tasks: app.db.prepare("SELECT COUNT(*) AS count FROM project_tasks WHERE org_id = ?").get("org-armosphera-demo").count,
+      milestones: app.db.prepare("SELECT COUNT(*) AS count FROM project_milestones WHERE org_id = ?").get("org-armosphera-demo").count,
+      timeEntries: app.db.prepare("SELECT COUNT(*) AS count FROM project_time_entries WHERE org_id = ?").get("org-armosphera-demo").count,
+      audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type LIKE ?").get("org-armosphera-demo", "projects.%").count
+    });
+    const expectRejected = async (method, url, payload) => {
+      const response = await app.inject({ method, url, headers: { cookie: owner }, payload });
+      assert.strictEqual(response.statusCode, 400, response.body);
+      assert.doesNotMatch(response.body, /secret-projects-/);
+    };
+
+    const beforeProjectRejects = counts();
+    for (const payload of [
+      ["secret-projects-array-body-token"],
+      { name: { value: "Project", token: "secret-projects-object-name-token" } },
+      { name: `${"P".repeat(201)}secret-projects-long-name-token` },
+      { name: "Valid project", description: "Bad\nsecret-projects-control-description-token" },
+      { name: "Valid project", description: `${"D".repeat(4001)}secret-projects-long-description-token` },
+      { name: "Valid project", status: { value: "active", token: "secret-projects-object-status-token" } },
+      { name: "Valid project", status: "ghost-secret-projects-status-token" },
+      { name: "Valid project", customerId: ["cust-ani", "secret-projects-customer-array-token"] },
+      { name: "Valid project", dealId: { value: "deal-ani-inbox", token: "secret-projects-object-deal-token" } },
+      { name: "Valid project", startDate: "2026-02-30" },
+      { name: "Valid project", dueDate: "2026-06-01\nsecret-projects-control-due-token" }
+    ]) {
+      await expectRejected("POST", "/api/projects", payload);
+    }
+    assert.deepStrictEqual(counts(), beforeProjectRejects);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie: owner },
+      payload: { name: "Governed project metadata", status: "active", dueDate: "2026-08-01" }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    const projectId = created.json().project.id;
+    const afterProjectCreate = counts();
+
+    for (const payload of [
+      ["secret-projects-array-patch-token"],
+      { name: { value: "Renamed project", token: "secret-projects-object-patch-name-token" } },
+      { description: "Bad\nsecret-projects-control-patch-description-token" },
+      { status: "ghost-secret-projects-patch-status-token" },
+      { status: "" },
+      { dueDate: "2026-02-30" }
+    ]) {
+      await expectRejected("PATCH", `/api/projects/${projectId}`, payload);
+    }
+    assert.deepStrictEqual(counts(), afterProjectCreate);
+
+    const clearedProject = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${projectId}`,
+      headers: { cookie: owner },
+      payload: { description: "", dueDate: "" }
+    });
+    assert.strictEqual(clearedProject.statusCode, 200, clearedProject.body);
+    assert.strictEqual(clearedProject.json().project.description, "");
+    assert.strictEqual(clearedProject.json().project.dueDate, "");
+
+    const task = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks`,
+      headers: { cookie: owner },
+      payload: { title: "Valid task", status: "todo", dueDate: "2026-07-01" }
+    });
+    assert.strictEqual(task.statusCode, 200, task.body);
+    const taskId = task.json().project.tasks[0].id;
+    const afterTaskCreate = counts();
+
+    for (const payload of [
+      ["secret-projects-task-array-token"],
+      { title: { value: "Task", token: "secret-projects-object-task-title-token" } },
+      { title: `${"T".repeat(201)}secret-projects-long-task-title-token` },
+      { title: "Valid task", status: "ghost-secret-projects-task-status-token" },
+      { title: "Valid task", assigneeEmployeeId: { value: "emp-davit", token: "secret-projects-object-assignee-token" } },
+      { title: "Valid task", dueDate: "2026-02-30" }
+    ]) {
+      await expectRejected("POST", `/api/projects/${projectId}/tasks`, payload);
+    }
+    for (const payload of [
+      ["secret-projects-task-patch-array-token"],
+      { title: "Bad\nsecret-projects-control-task-title-token" },
+      { status: { value: "done", token: "secret-projects-object-task-status-token" } },
+      { status: "" },
+      { assigneeEmployeeId: ["emp-davit", "secret-projects-task-assignee-array-token"] },
+      { dueDate: "2026-02-30" }
+    ]) {
+      await expectRejected("PATCH", `/api/projects/${projectId}/tasks/${taskId}`, payload);
+    }
+    assert.deepStrictEqual(counts(), afterTaskCreate);
+
+    const clearedTask = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${projectId}/tasks/${taskId}`,
+      headers: { cookie: owner },
+      payload: { assigneeEmployeeId: "", dueDate: "" }
+    });
+    assert.strictEqual(clearedTask.statusCode, 200, clearedTask.body);
+    assert.strictEqual(clearedTask.json().project.tasks[0].assigneeEmployeeId, null);
+    assert.strictEqual(clearedTask.json().project.tasks[0].dueDate, "");
+
+    const milestone = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/milestones`,
+      headers: { cookie: owner },
+      payload: { title: "Valid milestone", dueDate: "2026-07-10" }
+    });
+    assert.strictEqual(milestone.statusCode, 200, milestone.body);
+    const milestoneId = milestone.json().project.milestones[0].id;
+    const afterMilestoneCreate = counts();
+
+    for (const payload of [
+      ["secret-projects-milestone-array-token"],
+      { title: { value: "Milestone", token: "secret-projects-object-milestone-title-token" } },
+      { title: `${"M".repeat(201)}secret-projects-long-milestone-title-token` },
+      { title: "Valid milestone", dueDate: "2026-02-30" }
+    ]) {
+      await expectRejected("POST", `/api/projects/${projectId}/milestones`, payload);
+    }
+    for (const payload of [
+      ["secret-projects-milestone-patch-array-token"],
+      { title: "Bad\nsecret-projects-control-milestone-title-token" },
+      { reached: "false" },
+      { dueDate: "2026-02-30" }
+    ]) {
+      await expectRejected("PATCH", `/api/projects/${projectId}/milestones/${milestoneId}`, payload);
+    }
+    assert.deepStrictEqual(counts(), afterMilestoneCreate);
+
+    const clearedMilestone = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${projectId}/milestones/${milestoneId}`,
+      headers: { cookie: owner },
+      payload: { dueDate: "" }
+    });
+    assert.strictEqual(clearedMilestone.statusCode, 200, clearedMilestone.body);
+    assert.strictEqual(clearedMilestone.json().project.milestones[0].dueDate, "");
+
+    const afterValidChildren = counts();
+    for (const payload of [
+      ["secret-projects-time-array-token"],
+      { minutes: { value: 30, token: "secret-projects-object-minutes-token" } },
+      { minutes: "NaN-secret-projects-minutes-token" },
+      { minutes: 0.5 },
+      { minutes: "44.6" },
+      { minutes: 100001 },
+      { minutes: 30, taskId: { value: taskId, token: "secret-projects-object-task-token" } },
+      { minutes: 30, entryDate: "2026-02-30" },
+      { minutes: 30, note: "Bad\nsecret-projects-control-time-note-token" },
+      { minutes: 30, note: `${"N".repeat(1001)}secret-projects-long-time-note-token` }
+    ]) {
+      await expectRejected("POST", `/api/projects/${projectId}/time-entries`, payload);
+    }
+    assert.deepStrictEqual(counts(), afterValidChildren);
+
+    const time = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/time-entries`,
+      headers: { cookie: owner },
+      payload: { minutes: "45", taskId, note: "Valid metadata after rejects", entryDate: "2026-06-02" }
+    });
+    assert.strictEqual(time.statusCode, 200, time.body);
+    assert.strictEqual(time.json().project.totalMinutes, 45);
+  } finally { await app.close(); }
+});
+
 test("projects: write-gate (Auditor 403) and cross-org isolation (404)", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

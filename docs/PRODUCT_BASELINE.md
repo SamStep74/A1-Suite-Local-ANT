@@ -2126,3 +2126,21 @@ Status: shipped in the local prototype on 2026-05-28.
 - Audit export period bounds must be exact ISO dates or canonical UTC timestamps, access review periods must be `YYYY-Qn` or a real `YYYY-MM`, and malformed values are rejected before packet creation.
 - Rejected malformed admin evidence requests return `400`, keep submitted payload secrets out of error bodies, leave `audit_export_packets`, `access_review_packets`, `tenant_backup_packets`, `suite_events`, and `audit_events` unchanged, and valid packet creation remains unchanged.
 - Verification for the checkpoint: focused admin/legal/production-readiness tests = 9 pass; `test/api.test.js` = 198 pass; `npm test` = 393 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 197 - Docs & Sign Metadata Guard
+
+- Docs & Sign document, signer, signing, and void writes now reject non-plain-object request bodies before mutating document or signature state.
+- Submitted document titles, bodies, document types, customer IDs, signer names/emails/user IDs, signing signer IDs, and void reasons must be structurally safe before they can become document, signature, suite-event, or audit evidence.
+- Document types must remain in the Docs lifecycle enum, document bodies may keep ordinary multiline text, and IDs/reasons/contact metadata reject object, array, overlong, or control-character input before persistence.
+- Omitted optional fields still preserve the existing fallback behavior, including blank document bodies, blank signer emails/user IDs, default `agreement` document type, and blank void reasons.
+- Rejected malformed Docs & Sign requests return `400`, keep submitted payload secrets out of error bodies, leave `documents`, `document_signers`, `suite_events`, and `audit_events` unchanged, and valid document patching, signing, and voiding remain unchanged.
+- Verification for the checkpoint: focused Docs/Sign/templates/export tests = 17 pass; `test/api.test.js` = 198 pass; `npm test` = 395 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 198 - Project Metadata Guard
+
+- Project, task, milestone, and time-entry writes now reject non-plain-object request bodies before mutating delivery tracking state.
+- Submitted project names/descriptions, task and milestone titles, optional IDs, notes, statuses, due dates, start dates, entry dates, milestone reached flags, and time-entry minutes must be structurally safe before they can become project or audit evidence.
+- Project and task statuses must stay in their lifecycle enums, dates must be exact ISO calendar dates, milestone `reached` must be a real boolean, and time-entry minutes must be finite positive whole-minute values.
+- Omitted optional fields still preserve the existing fallback behavior, including blank optional dates/IDs/text and today's fallback date for time entries.
+- Rejected malformed project requests return `400`, keep submitted payload secrets out of error bodies, leave `projects`, `project_tasks`, `project_milestones`, `project_time_entries`, and `audit_events` unchanged, and valid project hierarchy writes remain unchanged.
+- Verification for the checkpoint: focused Projects/billing tests = 7 pass; `test/api.test.js` = 198 pass; `npm test` = 395 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
