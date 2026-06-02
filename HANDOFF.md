@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-02 · main after public quote acceptance metadata guard and quote-handoff note prevalidation · 76 tags · **401 tests (401 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-02 · main after collection promise and reminder metadata guard · 77 tags · **402 tests (402 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 76 slices)
+### Hardening (production-readiness pass — 77 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -111,6 +111,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 74. **CRM deal forecast metadata guard and conversion default-title bound** rejects malformed deal forecast request bodies, categories, dates, and manager notes before persistence, preserves existing forecast rows on rejected updates, and keeps generated lead-conversion deal titles within the valid title limit for max-length company names.
 75. **CRM quote metadata guard** rejects malformed quote creation and quote-release approval request bodies, IDs, titles, dates, line descriptions, quantities, prices, and approval notes before persistence, preventing object/array/control-character evidence from entering quotes, quote lines, workflow approvals, suite events, or audit trails.
 76. **Public quote acceptance metadata guard and quote-handoff note prevalidation** rejects malformed public quote acceptance request bodies, signer names/emails, optional acceptance dates, and internal pilot quote-handoff approval notes before persistence, preventing object/array/control-character evidence from accepting quotes, winning deals, creating finance approvals, sending webhooks, preserving unsafe repeat-acceptance evidence, or orphaning pilot quote drafts.
+77. **Collection promise and reminder metadata guard** rejects malformed CRM collection promise and reminder request bodies, promised amounts/dates, reminder channels, notes, and provider evidence before persistence, preventing object/array/control-character evidence from scheduling payment promises, moving CRM tasks, sending reminders, or writing suite/audit records.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -158,7 +159,9 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest public quote acceptance metadata guard and quote-handoff note prevalidation checkpoint: this checkpoint (`Reject malformed public quote acceptances`), pushed with this handoff.
+- Latest collection promise and reminder metadata guard checkpoint: this checkpoint (`Reject malformed collection metadata`), pushed with this handoff.
+- Latest collection promise and reminder metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "collection promise|collection task records|scheduled collection promise|HayHashvapah payment fulfills|bank transaction import reconciles" test/api.test.js` = 5 pass; `node --test test/api.test.js` = 204 pass, 0 fail; `npm test` = 402 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-collection-metadata-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
+- Previous public quote acceptance metadata guard and quote-handoff note prevalidation checkpoint: `b174112` (`Reject malformed public quote acceptances`), pushed before this handoff.
 - Latest public quote acceptance metadata guard and quote-handoff note prevalidation verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "public quote acceptance|signature evidence packet requires|owner can create idempotent signature evidence packet|quote acceptance delivers signed quote" test/api.test.js` = 5 pass; public quote rate-limit/evidence `node --test test/public-quote-ratelimit.test.js` = 11 pass; `node --test test/api.test.js` = 203 pass, 0 fail; `npm test` = 401 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-public-quote-acceptance-metadata-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
 - Previous CRM quote metadata guard checkpoint: `77f88b1` (`Reject malformed CRM quotes`), pushed before this handoff.
 - Latest CRM quote metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "draft CRM quote|CRM quote creation|public quote acceptance marks deal won|public quote endpoint exposes" test/api.test.js` = 4 pass; `node --test test/api.test.js` = 202 pass, 0 fail; `npm test` = 400 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-crm-quote-metadata-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.

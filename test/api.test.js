@@ -20860,6 +20860,167 @@ test("collection task records payment promise and reminder evidence", async () =
   });
 });
 
+test("collection promise and reminder reject malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+
+    const decision = await app.inject({
+      method: "POST",
+      url: "/api/workflow/approvals/approval-overdue-nare/decision",
+      headers: { cookie },
+      payload: { decision: "approved", note: "Execute collection task" }
+    });
+    assert.equal(decision.statusCode, 200, decision.body);
+
+    const executed = await app.inject({
+      method: "POST",
+      url: "/api/workflow/approvals/approval-overdue-nare/execute",
+      headers: { cookie }
+    });
+    assert.equal(executed.statusCode, 200, executed.body);
+    const task = executed.json().task;
+
+    const counts = () => ({
+      promises: app.db.prepare("SELECT COUNT(*) AS count FROM crm_collection_promises").get().count,
+      deliveries: app.db.prepare("SELECT COUNT(*) AS count FROM crm_collection_reminder_deliveries").get().count,
+      promiseEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+        .get("crm.collection_promise.recorded").count,
+      reminderEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+        .get("crm.collection_reminder.sent").count,
+      promiseAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+        .get("crm.collection_promise.recorded").count,
+      reminderAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+        .get("crm.collection_reminder.sent").count
+    });
+    const taskRow = () => app.db.prepare("SELECT status, due_date AS dueDate, updated_at AS updatedAt FROM crm_tasks WHERE id = ?")
+      .get(task.id);
+
+    const countsBeforePromise = counts();
+    const taskBeforePromise = taskRow();
+    const malformedPromises = [
+      {
+        promisedAmount: { value: 960000, token: "secret-collection-promise-amount-token" },
+        promisedOn: "2026-05-30",
+        reminderChannel: "WhatsApp"
+      },
+      {
+        promisedAmount: "960000\nsecret-collection-promise-control-amount-token",
+        promisedOn: "2026-05-30",
+        reminderChannel: "WhatsApp"
+      },
+      {
+        promisedAmount: 960000,
+        promisedOn: { date: "2026-05-30", token: "secret-collection-promise-date-token" },
+        reminderChannel: "WhatsApp"
+      },
+      {
+        promisedAmount: 960000,
+        promisedOn: "2026-02-31",
+        reminderChannel: "WhatsApp",
+        note: "secret-collection-promise-invalid-date-token"
+      },
+      {
+        promisedAmount: 960000,
+        promisedOn: "2026-05-30",
+        reminderChannel: { channel: "WhatsApp", token: "secret-collection-promise-channel-token" }
+      },
+      {
+        promisedAmount: 960000,
+        promisedOn: "2026-05-30",
+        reminderChannel: "WhatsApp\nsecret-collection-promise-channel-control-token"
+      },
+      {
+        promisedAmount: 960000,
+        promisedOn: "2026-05-30",
+        reminderChannel: "Signal",
+        note: "secret-collection-promise-invalid-channel-token"
+      },
+      {
+        promisedAmount: 960000,
+        promisedOn: "2026-05-30",
+        reminderChannel: "WhatsApp",
+        note: { text: "Object notes must not become promise evidence.", token: "secret-collection-promise-note-token" }
+      },
+      {
+        promisedAmount: 960000,
+        promisedOn: "2026-05-30",
+        reminderChannel: "WhatsApp",
+        note: `${"x".repeat(501)}secret-collection-promise-long-note-token`
+      },
+      null,
+      []
+    ];
+
+    for (const payload of malformedPromises) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: `/api/crm/tasks/${task.id}/payment-promise`,
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-collection-promise-/);
+    }
+    assert.deepEqual(counts(), countsBeforePromise);
+    assert.deepEqual(taskRow(), taskBeforePromise);
+
+    const promised = await app.inject({
+      method: "POST",
+      url: `/api/crm/tasks/${task.id}/payment-promise`,
+      headers: { cookie },
+      payload: {
+        promisedAmount: 960000,
+        promisedOn: "2026-05-30",
+        reminderChannel: "WhatsApp"
+      }
+    });
+    assert.equal(promised.statusCode, 200, promised.body);
+    const promise = promised.json().promise;
+
+    const countsBeforeReminder = counts();
+    const promiseRow = () => app.db.prepare("SELECT status, updated_at AS updatedAt FROM crm_collection_promises WHERE id = ?")
+      .get(promise.id);
+    const promiseBeforeReminder = promiseRow();
+    const taskBeforeReminder = taskRow();
+    const malformedReminders = [
+      { channel: { value: "WhatsApp", token: "secret-collection-reminder-channel-token" } },
+      { channel: "WhatsApp\nsecret-collection-reminder-channel-control-token" },
+      { channel: "Signal", provider: "secret-collection-reminder-invalid-channel-token" },
+      { provider: { value: "Sandbox", token: "secret-collection-reminder-provider-token" } },
+      { provider: "Sandbox\nsecret-collection-reminder-provider-control-token" },
+      { provider: `${"x".repeat(81)}secret-collection-reminder-long-provider-token` },
+      { rawPayload: "null" },
+      []
+    ];
+
+    for (const malformed of malformedReminders) {
+      const payload = Object.prototype.hasOwnProperty.call(malformed, "rawPayload") ? malformed.rawPayload : malformed;
+      const rejected = await app.inject({
+        method: "POST",
+        url: `/api/crm/collection-promises/${promise.id}/send-reminder`,
+        headers: Object.prototype.hasOwnProperty.call(malformed, "rawPayload")
+          ? { cookie, "content-type": "application/json" }
+          : { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-collection-reminder-/);
+    }
+    assert.deepEqual(counts(), countsBeforeReminder);
+    assert.deepEqual(promiseRow(), promiseBeforeReminder);
+    assert.deepEqual(taskRow(), taskBeforeReminder);
+
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/crm/collection-promises/${promise.id}/send-reminder`,
+      headers: { cookie }
+    });
+    assert.equal(sent.statusCode, 200, sent.body);
+    assert.equal(sent.json().delivery.channel, "WhatsApp");
+    assert.equal(sent.json().delivery.provider, "WhatsApp manual evidence");
+  });
+});
+
 test("scheduled collection promise sends idempotent Armenian reminder evidence", async () => {
   await withApp(async app => {
     const cookie = await login(app);

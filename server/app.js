@@ -2150,13 +2150,13 @@ function registerApi(app, db, options = {}) {
   app.post("/api/crm/collection-promises/:id/send-reminder", async request => {
     const user = await app.auth(request);
     requireCollectionEditor(user);
-    return sendCollectionReminder(db, user, request.params.id, request.body || {});
+    return sendCollectionReminder(db, user, request.params.id, request.body === undefined ? {} : request.body);
   });
 
   app.post("/api/crm/tasks/:id/payment-promise", async request => {
     const user = await app.auth(request);
     requireCollectionEditor(user);
-    return createCollectionPromiseForTask(db, user, request.params.id, request.body || {});
+    return createCollectionPromiseForTask(db, user, request.params.id, request.body === undefined ? {} : request.body);
   });
 
   app.get("/api/docs/signature-packets", async request => {
@@ -52047,6 +52047,120 @@ function getCrmTaskBySource(db, orgId, sourceKey) {
   return row ? formatCrmTask(row) : null;
 }
 
+const COLLECTION_REMINDER_CHANNELS = ["WhatsApp", "Telegram", "Email", "Phone", "Manual"];
+
+function normalizeCollectionPromiseBody(body, invoice) {
+  if (!isPlainObject(body)) {
+    throwInvalidCollectionMetadata();
+  }
+  return {
+    promisedAmount: normalizeCollectionAmount(body, "promisedAmount", invoice),
+    promisedOn: normalizeCollectionDate(body, "promisedOn", { required: true }),
+    reminderChannel: normalizeCollectionChannel(body, "reminderChannel", { required: true }),
+    note: normalizeCollectionText(body, "note", { fallback: "", maxLength: 500 })
+  };
+}
+
+function normalizeCollectionReminderBody(body, promise) {
+  if (!isPlainObject(body)) {
+    throwInvalidCollectionMetadata();
+  }
+  const channel = normalizeCollectionChannel(body, "channel", { fallback: promise.reminderChannel });
+  return {
+    channel,
+    provider: normalizeCollectionText(body, "provider", { fallback: `${channel} manual evidence`, maxLength: 80 })
+  };
+}
+
+function normalizeCollectionAmount(body, field, invoice) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "" || value === null || Array.isArray(value) || typeof value === "object") {
+    throwInvalidCollectionMetadata("Promised amount must be positive and not exceed the invoice total");
+  }
+  let amount;
+  if (typeof value === "number") {
+    amount = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidCollectionMetadata();
+    }
+    const text = value.trim();
+    if (!/^\d+(?:\.0+)?$/.test(text)) {
+      throwInvalidCollectionMetadata("Promised amount must be positive and not exceed the invoice total");
+    }
+    amount = Number(text);
+  } else {
+    throwInvalidCollectionMetadata();
+  }
+  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > invoice.total) {
+    throwInvalidCollectionMetadata("Promised amount must be positive and not exceed the invoice total");
+  }
+  return amount;
+}
+
+function normalizeCollectionDate(body, field, options = {}) {
+  const { required = false, fallback = "" } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidCollectionMetadata();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCollectionMetadata();
+  }
+  const date = value.trim();
+  if (!isExactIsoDate(date)) {
+    throwInvalidCollectionMetadata();
+  }
+  return date;
+}
+
+function normalizeCollectionChannel(body, field, options = {}) {
+  const { required = false, fallback = "" } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required && !fallback) throwInvalidCollectionMetadata();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCollectionMetadata();
+  }
+  const channel = value.trim();
+  if (!channel) {
+    if (required && !fallback) throwInvalidCollectionMetadata();
+    return fallback;
+  }
+  if (!COLLECTION_REMINDER_CHANNELS.includes(channel)) {
+    throwInvalidCollectionMetadata();
+  }
+  return channel;
+}
+
+function normalizeCollectionText(body, field, options = {}) {
+  const { fallback = "", maxLength = 500 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCollectionMetadata();
+  }
+  const text = value.trim();
+  if (!text) {
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidCollectionMetadata();
+  }
+  return text;
+}
+
+function throwInvalidCollectionMetadata(message = "Collection request requires safe metadata") {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
+}
+
 function createCollectionPromiseForTask(db, user, taskId, body) {
   const task = getCrmTask(db, user.org_id, taskId);
   if (!task) {
@@ -52065,19 +52179,8 @@ function createCollectionPromiseForTask(db, user, taskId, body) {
     err.statusCode = 422;
     throw err;
   }
-  const promisedAmount = Number(body.promisedAmount || 0);
-  if (!Number.isInteger(promisedAmount) || promisedAmount <= 0 || promisedAmount > invoice.total) {
-    const err = new Error("Promised amount must be positive and not exceed the invoice total");
-    err.statusCode = 400;
-    throw err;
-  }
-  const promisedOn = normalizeIsoDate(body.promisedOn, "promisedOn");
-  const reminderChannel = normalizeChoice(body.reminderChannel, ["WhatsApp", "Telegram", "Email", "Phone", "Manual"], "");
-  if (!reminderChannel) {
-    const err = new Error("Reminder channel is required");
-    err.statusCode = 400;
-    throw err;
-  }
+  const input = normalizeCollectionPromiseBody(body, invoice);
+  const { promisedAmount, promisedOn, reminderChannel, note } = input;
   const sourceKey = `task:${task.id}:promise:${promisedOn}:${promisedAmount}`;
   const existing = getCollectionPromiseBySource(db, user.org_id, sourceKey);
   if (existing) {
@@ -52088,7 +52191,6 @@ function createCollectionPromiseForTask(db, user, taskId, body) {
   const promiseId = randomId("promise");
   const reminderAt = `${promisedOn}T09:00:00+04:00`;
   const messageHy = buildCollectionMessageHy(invoice, promisedAmount, promisedOn);
-  const note = String(body.note || "").trim();
   db.prepare(`
     INSERT INTO crm_collection_promises (
       id, org_id, customer_id, invoice_id, task_id, status, promised_amount,
@@ -52152,8 +52254,7 @@ function sendCollectionReminder(db, user, promiseId, body) {
     err.statusCode = 422;
     throw err;
   }
-  const channel = normalizeChoice(body.channel || promise.reminderChannel, ["WhatsApp", "Telegram", "Email", "Phone", "Manual"], promise.reminderChannel);
-  const provider = String(body.provider || `${channel} manual evidence`).trim().slice(0, 80) || `${channel} manual evidence`;
+  const { channel, provider } = normalizeCollectionReminderBody(body, promise);
   const sourceKey = `promise:${promise.id}:reminder:${channel}`;
   const existing = getCollectionReminderDeliveryBySource(db, user.org_id, sourceKey);
   if (existing) {

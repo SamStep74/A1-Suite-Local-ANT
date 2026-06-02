@@ -2199,3 +2199,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Internal pilot quote handoffs now prevalidate quote-release approval notes before creating CRM quote drafts, preventing malformed approval notes from orphaning quote/quote-line rows without workflow approval or handoff evidence.
 - Rejected malformed public acceptance and pilot quote-handoff requests return `400`, keep submitted payload secrets out of error bodies, leave quote/deal state, quote acceptances, quote drafts, quote lines, finance approvals, workflow approvals, suite events, audit events, and webhook deliveries unchanged, and valid acceptance, omitted accepted-at fallback, public quote rate limiting, trusted-proxy acceptance evidence, signed quote packets, quote/deal webhooks, and pilot quote handoff remain unchanged.
 - Verification for the checkpoint: focused public quote acceptance/Docs tests = 5 pass; public quote rate-limit/evidence tests = 11 pass; `test/api.test.js` = 203 pass; `npm test` = 401 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 205 - Collection Promise And Reminder Metadata Guard
+
+- CRM collection promise creation now rejects malformed request bodies before computing source keys, creating payment promises, moving collection tasks, or writing suite/audit records.
+- Submitted promised amounts, promised-on dates, reminder channels, and notes must be structurally safe before they can become Customer 360 collection evidence.
+- Collection reminder sends now reject malformed request bodies, channels, and provider evidence before creating delivery rows, moving promise/task status, or writing suite/audit records, while preserving the existing omitted-body fallback to the stored reminder channel and manual provider label.
+- Rejected malformed collection promise and reminder requests return `400`, keep submitted payload secrets out of error bodies, leave promise/delivery counts, task state, promise state, suite events, and audit events unchanged, and valid promise creation, idempotent reminders, payment fulfillment, and Armenian bank reconciliation remain unchanged.
+- Verification for the checkpoint: focused collection tests = 5 pass; `test/api.test.js` = 204 pass; `npm test` = 402 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
