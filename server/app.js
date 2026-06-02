@@ -44158,6 +44158,7 @@ function createCopilotQuestion(db, user, body) {
     throw err;
   }
   const intent = copilot.normalizeIntent(body.intent, question);
+  requireAppAccess(db, user, "copilot");
   requireAppAccess(db, user, copilot.requiredAppForIntent(intent));
   const customer = getCopilotCustomer(db, user.org_id, body.customerId);
   const context = buildCopilotContext(db, user, intent, body, customer);

@@ -46,6 +46,48 @@ test("copilot endpoint is auth-gated", async () => {
   }
 });
 
+test("copilot app entitlement is required before intent-specific access", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+
+    const supportCookie = await login(app, "support@armosphera.local", DEFAULT_PASSWORD);
+    const supportSuite = await app.inject({ method: "GET", url: "/api/suite", headers: { cookie: supportCookie } });
+    assert.strictEqual(supportSuite.statusCode, 200, supportSuite.body);
+    assert.strictEqual(supportSuite.json().apps.some(app => app.id === "copilot"), false);
+    const supportPersonalData = await app.inject({
+      method: "POST",
+      url: "/api/copilot/questions",
+      headers: { cookie: supportCookie },
+      payload: { intent: "personal-data", customerId: "cust-nare", question: "Բացատրեք անձնական տվյալների հարցման ընթացքը:" }
+    });
+    assert.strictEqual(supportPersonalData.statusCode, 403);
+
+    const lawyerCookie = await login(app, "lawyer@armosphera.local", DEFAULT_PASSWORD);
+    const lawyerSuite = await app.inject({ method: "GET", url: "/api/suite", headers: { cookie: lawyerCookie } });
+    assert.strictEqual(lawyerSuite.statusCode, 200, lawyerSuite.body);
+    assert.strictEqual(lawyerSuite.json().apps.some(app => app.id === "copilot"), true);
+    const lawyerVat = await app.inject({
+      method: "POST",
+      url: "/api/copilot/questions",
+      headers: { cookie: lawyerCookie },
+      payload: { intent: "vat", customerId: "cust-nare", periodKey: "2026-05", question: "Բացատրեք ԱԱՀ պատրաստությունը:" }
+    });
+    assert.strictEqual(lawyerVat.statusCode, 403);
+
+    const lawyerEsign = await app.inject({
+      method: "POST",
+      url: "/api/copilot/questions",
+      headers: { cookie: lawyerCookie },
+      payload: { intent: "esign", documentId: "doc-anahit-nda", question: "Ստուգեք էլեկտրոնային ստորագրության ապացույցը:" }
+    });
+    assert.strictEqual(lawyerEsign.statusCode, 200, lawyerEsign.body);
+    assert.strictEqual(lawyerEsign.json().copilot.intent, "esign");
+  } finally {
+    await app.close();
+  }
+});
+
 test("VAT copilot returns cited legal/accounting guidance without creating SRC export", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -369,6 +411,35 @@ test("copilot enforces app access for finance intents", async () => {
       method: "POST",
       url: "/api/copilot/questions",
       headers: { cookie: supportCookie },
+      payload: { intent: "vat", customerId: "cust-nare", periodKey: "2026-05", question: "Բացատրեք ԱԱՀ պատրաստությունը:" }
+    });
+    assert.strictEqual(res.statusCode, 403);
+  } finally {
+    await app.close();
+  }
+});
+
+test("copilot requires the Copilot app assignment even when the intent app is enabled", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    app.db.prepare(`
+      UPDATE app_assignments
+      SET enabled = 0
+      WHERE role = ? AND app_id = ?
+    `).run("Accountant", "copilot");
+
+    const accountantCookie = await login(app, "accountant@armosphera.local", DEFAULT_PASSWORD);
+    const suite = await app.inject({ method: "GET", url: "/api/suite", headers: { cookie: accountantCookie } });
+    assert.strictEqual(suite.statusCode, 200, suite.body);
+    const apps = suite.json().apps.map(item => item.id);
+    assert.ok(apps.includes("finance"));
+    assert.ok(!apps.includes("copilot"));
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/copilot/questions",
+      headers: { cookie: accountantCookie },
       payload: { intent: "vat", customerId: "cust-nare", periodKey: "2026-05", question: "Բացատրեք ԱԱՀ պատրաստությունը:" }
     });
     assert.strictEqual(res.statusCode, 403);
