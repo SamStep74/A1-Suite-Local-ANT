@@ -245,6 +245,22 @@ test("docs-sign: malformed document metadata is rejected before persistence", as
     assert.strictEqual(voidDraft.statusCode, 200, voidDraft.body);
     const voidDocId = voidDraft.json().document.id;
 
+    const sendDraft = await app.inject({
+      method: "POST",
+      url: "/api/docs/documents",
+      headers: { cookie: owner },
+      payload: { title: "Send metadata guard draft" }
+    });
+    assert.strictEqual(sendDraft.statusCode, 200, sendDraft.body);
+    const sendDocId = sendDraft.json().document.id;
+    const sendSigner = await app.inject({
+      method: "POST",
+      url: `/api/docs/documents/${sendDocId}/signers`,
+      headers: { cookie: owner },
+      payload: { signerName: "Ուղարկման Պահակ", signerEmail: "send-guard@armosphera.local" }
+    });
+    assert.strictEqual(sendSigner.statusCode, 200, sendSigner.body);
+
     const counts = () => ({
       documents: app.db.prepare("SELECT COUNT(*) AS count FROM documents WHERE org_id = ?").get("org-armosphera-demo").count,
       signers: app.db.prepare("SELECT COUNT(*) AS count FROM document_signers WHERE org_id = ?").get("org-armosphera-demo").count,
@@ -260,17 +276,20 @@ test("docs-sign: malformed document metadata is rejected before persistence", as
         SELECT COUNT(*) AS count
         FROM audit_events
         WHERE org_id = ?
-          AND type IN (?, ?, ?, ?, ?, ?)
+          AND type IN (?, ?, ?, ?, ?, ?, ?)
       `).get(
         "org-armosphera-demo",
         "docs.document.created",
         "docs.document.updated",
         "docs.signer.added",
+        "docs.document.sent",
         "docs.document.signed",
         "docs.document.sealed",
         "docs.document.voided"
       ).count
     });
+    const getDocumentStatus = id =>
+      app.db.prepare("SELECT status FROM documents WHERE org_id = ? AND id = ?").get("org-armosphera-demo", id).status;
     const before = counts();
 
     const rejectedNull = async url => {
@@ -292,12 +311,14 @@ test("docs-sign: malformed document metadata is rejected before persistence", as
     const createUrl = "/api/docs/documents";
     const patchUrl = `/api/docs/documents/${voidDocId}`;
     const signerUrl = `/api/docs/documents/${voidDocId}/signers`;
+    const sendUrl = `/api/docs/documents/${sendDocId}/send`;
     const signUrl = `/api/docs/documents/${docId}/sign`;
     const voidUrl = `/api/docs/documents/${voidDocId}/void`;
 
     await rejectedNull({ method: "POST", path: createUrl });
     await rejectedNull({ method: "PATCH", path: patchUrl });
     await rejectedNull({ method: "POST", path: signerUrl });
+    await rejectedNull({ method: "POST", path: sendUrl });
     await rejectedNull({ method: "POST", path: signUrl });
     await rejectedNull({ method: "POST", path: voidUrl });
 
@@ -322,6 +343,9 @@ test("docs-sign: malformed document metadata is rejected before persistence", as
     await rejected("POST", signerUrl, { signerName: "Signer", signerEmail: { value: "signer@example.com", token: "secret-docs-metadata-email-object-token" } });
     await rejected("POST", signerUrl, { signerName: "Signer", signerUserId: ["user-operator"] });
 
+    await rejected("POST", sendUrl, ["secret-docs-metadata-send-array-token"]);
+    await rejected("POST", sendUrl, { note: "secret-docs-metadata-send-extra-token" });
+
     await rejected("POST", signUrl, ["secret-docs-metadata-sign-array-token"]);
     await rejected("POST", signUrl, { signerId: { value: signerId, token: "secret-docs-metadata-signer-id-object-token" } });
     await rejected("POST", signUrl, { signerId: `${signerId}\nsecret-docs-metadata-signer-id-control-token` });
@@ -332,6 +356,7 @@ test("docs-sign: malformed document metadata is rejected before persistence", as
     await rejected("POST", voidUrl, { reason: `${"R".repeat(501)}secret-docs-metadata-void-reason-long-token` });
 
     assert.deepStrictEqual(counts(), before);
+    assert.strictEqual(getDocumentStatus(sendDocId), "draft");
 
     const patched = await app.inject({
       method: "PATCH",

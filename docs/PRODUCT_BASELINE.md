@@ -2144,3 +2144,13 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted optional fields still preserve the existing fallback behavior, including blank optional dates/IDs/text and today's fallback date for time entries.
 - Rejected malformed project requests return `400`, keep submitted payload secrets out of error bodies, leave `projects`, `project_tasks`, `project_milestones`, `project_time_entries`, and `audit_events` unchanged, and valid project hierarchy writes remain unchanged.
 - Verification for the checkpoint: focused Projects/billing tests = 7 pass; `test/api.test.js` = 198 pass; `npm test` = 395 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 199 - Forms Metadata Guard And Docs Send Body Follow-Up
+
+- Forms definition create/update and public submit now reject non-plain-object request bodies before mutating form, submission, lead, or audit state.
+- Submitted form titles, descriptions, statuses, field arrays, field keys, labels, field types, required flags, and declared public values must be structurally safe before they can become form or submission evidence.
+- Field keys must be simple stable identifiers for public HTML controls, field types must remain in the supported renderer set, required flags must be real booleans, and public submit values must be strings without unsafe control characters.
+- Undeclared public submit keys remain ignored, preserving the existing public key-whitelist contract while rejecting malformed declared values before persistence.
+- Docs & Sign send now rejects null, array, or non-empty object request bodies before a draft can move to out-for-signature.
+- Rejected malformed Forms and Docs send requests return `400`, keep submitted payload secrets out of error bodies, leave `forms`, `form_submissions`, `crm_leads`, `documents.status`, and `audit_events` unchanged, and valid form authoring, public submission, and document sending remain unchanged.
+- Verification for the checkpoint: focused Forms/page/isolation tests = 17 pass; focused Docs/Sign/templates/export tests = 17 pass; `test/api.test.js` = 198 pass; `npm test` = 396 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

@@ -103,6 +103,142 @@ test("forms: write-gate (Auditor 403), key-whitelisting, and required-field enfo
   } finally { await app.close(); }
 });
 
+test("forms: rejects malformed metadata before persistence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const counts = () => ({
+      forms: app.db.prepare("SELECT COUNT(*) AS count FROM forms WHERE org_id = ?").get("org-armosphera-demo").count,
+      submissions: app.db.prepare("SELECT COUNT(*) AS count FROM form_submissions WHERE org_id = ?").get("org-armosphera-demo").count,
+      leads: app.db.prepare("SELECT COUNT(*) AS count FROM crm_leads WHERE org_id = ?").get("org-armosphera-demo").count,
+      suiteEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE org_id = ? AND event_type = ?").get("org-armosphera-demo", "crm.lead.created").count,
+      audits: app.db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM audit_events
+        WHERE org_id = ?
+          AND type IN (?, ?, ?, ?)
+      `).get(
+        "org-armosphera-demo",
+        "forms.form.created",
+        "forms.form.updated",
+        "forms.submission.received",
+        "crm.lead.created"
+      ).count
+    });
+    const rejected = async (method, url, payload, remoteAddress = "198.51.100.150") => {
+      const response = await app.inject({ method, url, headers: { cookie: owner }, payload, remoteAddress });
+      assert.strictEqual(response.statusCode, 400, response.body);
+      assert.doesNotMatch(response.body, /secret-forms-/);
+    };
+    const rejectedJsonLiteral = async (method, url, literal, remoteAddress = "198.51.100.151") => {
+      const response = await app.inject({
+        method,
+        url,
+        headers: { cookie: owner, "content-type": "application/json" },
+        payload: literal,
+        remoteAddress
+      });
+      assert.strictEqual(response.statusCode, 400, response.body);
+      assert.doesNotMatch(response.body, /secret-forms-/);
+    };
+
+    const beforeDefinitionRejects = counts();
+    await rejectedJsonLiteral("POST", "/api/forms", "null");
+    for (const payload of [
+      ["secret-forms-create-array-token"],
+      { title: { value: "Lead form", token: "secret-forms-title-object-token" } },
+      { title: "Lead\nsecret-forms-title-control-token" },
+      { title: `${"F".repeat(201)}secret-forms-title-long-token` },
+      { title: "Valid form", description: { value: "Private intake", token: "secret-forms-description-object-token" } },
+      { title: "Valid form", description: "Bad\nsecret-forms-description-control-token" },
+      { title: "Valid form", status: { value: "published", token: "secret-forms-status-object-token" } },
+      { title: "Valid form", status: "archived-secret-forms-status-token" },
+      { title: "Valid form", fields: { key: "email", token: "secret-forms-fields-object-token" } },
+      { title: "Valid form", fields: Array.from({ length: 51 }, (_, index) => ({ key: `field${index}`, label: `Field ${index}` })) },
+      { title: "Valid form", fields: [{ key: "email", label: "Email" }, { key: "email", label: "Duplicate" }] },
+      { title: "Valid form", fields: [{ key: "email-address", label: "Email" }] },
+      { title: "Valid form", fields: [{ key: "email", label: "Bad\nsecret-forms-label-control-token" }] },
+      { title: "Valid form", fields: [{ key: "email", label: "Email", type: "url-secret-forms-type-token" }] },
+      { title: "Valid form", fields: [{ key: "email", label: "Email", required: "false" }] }
+    ]) {
+      await rejected("POST", "/api/forms", payload);
+    }
+    assert.deepStrictEqual(counts(), beforeDefinitionRejects);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/forms",
+      headers: { cookie: owner },
+      payload: {
+        title: "Guarded lead form",
+        status: "published",
+        fields: [
+          { key: "email", label: "Email", type: "email", required: true },
+          { key: "message", label: "Message", type: "textarea", required: false }
+        ]
+      }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    const formId = created.json().form.id;
+    const afterCreate = counts();
+
+    await rejectedJsonLiteral("PATCH", `/api/forms/${formId}`, "[]");
+    for (const payload of [
+      ["secret-forms-patch-array-token"],
+      { title: { value: "Patch", token: "secret-forms-patch-title-object-token" } },
+      { description: "Bad\nsecret-forms-patch-description-control-token" },
+      { status: "deleted-secret-forms-patch-status-token" },
+      { fields: [{ key: "email", label: "Email", type: ["email"] }] },
+      { fields: [{ key: "message", label: "Message", required: 1 }] }
+    ]) {
+      await rejected("PATCH", `/api/forms/${formId}`, payload);
+    }
+    assert.deepStrictEqual(counts(), afterCreate);
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: `/api/forms/${formId}`,
+      headers: { cookie: owner },
+      payload: { description: "", status: "published" }
+    });
+    assert.strictEqual(patched.statusCode, 200, patched.body);
+    assert.strictEqual(patched.json().form.status, "published");
+
+    const afterPatch = counts();
+    const submitUrl = `/api/forms/${formId}/submit`;
+    await rejectedJsonLiteral("POST", submitUrl, "null", "198.51.100.160");
+    let ipSuffix = 161;
+    for (const payload of [
+      ["secret-forms-submit-array-token"],
+      { email: { value: "prospect@example.com", token: "secret-forms-submit-email-object-token" } },
+      { email: "prospect@example.com\nsecret-forms-submit-email-control-token" },
+      { email: `${"e".repeat(2001)}secret-forms-submit-email-long-token` },
+      { email: "prospect@example.com", message: { value: "Private request", token: "secret-forms-submit-message-object-token" } },
+      { email: "prospect@example.com", message: "Private\u0000secret-forms-submit-message-control-token" }
+    ]) {
+      await rejected("POST", submitUrl, payload, `198.51.100.${ipSuffix++}`);
+    }
+    assert.deepStrictEqual(counts(), afterPatch);
+
+    const submitted = await app.inject({
+      method: "POST",
+      url: submitUrl,
+      payload: {
+        email: "guarded-form@example.com",
+        message: "Valid public message\nafter malformed checks",
+        evilKey: { token: "secret-forms-undeclared-object-token" }
+      },
+      remoteAddress: "198.51.100.180"
+    });
+    assert.strictEqual(submitted.statusCode, 200, submitted.body);
+    const detail = (await app.inject({ method: "GET", url: `/api/forms/${formId}`, headers: { cookie: owner } })).json();
+    assert.strictEqual(detail.form.submissions[0].data.email, "guarded-form@example.com");
+    assert.strictEqual(detail.form.submissions[0].data.message, "Valid public message\nafter malformed checks");
+    assert.strictEqual(detail.form.submissions[0].data.evilKey, undefined);
+  } finally { await app.close(); }
+});
+
 test("forms: submission detail blocks non-campaign roles while preserving auditor read access", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

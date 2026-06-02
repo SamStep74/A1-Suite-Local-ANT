@@ -2275,6 +2275,7 @@ function registerApi(app, db, options = {}) {
   app.post("/api/docs/documents/:id/send", async request => {
     const user = await app.auth(request);
     requireDocsWriter(user);
+    normalizeDocsSendBody(request.body === undefined ? {} : request.body);
     const document = getDocument(db, user.org_id, request.params.id);
     if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
     if (document.status !== "draft") { const e = new Error("Only draft documents can be sent for signature"); e.statusCode = 409; throw e; }
@@ -2808,21 +2809,13 @@ function registerApi(app, db, options = {}) {
   app.post("/api/forms", async request => {
     const user = await app.auth(request);
     requireFormsWriter(user);
-    const body = request.body || {};
-    const title = String(body.title || "").trim();
-    if (title.length < 3) { const e = new Error("Form title is required"); e.statusCode = 400; throw e; }
-    const fields = Array.isArray(body.fields) ? body.fields.slice(0, 50).map(f => ({
-      key: String(f.key || "").trim().slice(0, 60),
-      label: String(f.label || "").trim().slice(0, 120),
-      type: normalizeChoice(f.type, ["text", "email", "tel", "textarea", "number"], "text"),
-      required: !!f.required
-    })).filter(f => f.key && f.label) : [];
-    const status = normalizeChoice(body.status, ["draft", "published"], "draft");
+    const input = normalizeFormDefinitionCreateBody(request.body === undefined ? {} : request.body);
+    const { title, description, fields, status } = input;
     const id = randomId("form");
     const now = new Date().toISOString();
     db.prepare(`INSERT INTO forms (id, org_id, title, description, fields, status, submission_count, created_by_user_id, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?)`)
-      .run(id, user.org_id, title.slice(0, 200), String(body.description || "").slice(0, 2000), JSON.stringify(fields), status, user.id, now, now);
+      .run(id, user.org_id, title, description, JSON.stringify(fields), status, user.id, now, now);
     audit(db, user.org_id, user.id, "forms.form.created", { formId: id, title, status });
     return { ok: true, form: getForm(db, user.org_id, id) };
   });
@@ -2832,23 +2825,20 @@ function registerApi(app, db, options = {}) {
     requireFormsWriter(user);
     const form = getForm(db, user.org_id, request.params.id);
     if (!form) { const e = new Error("Form not found"); e.statusCode = 404; throw e; }
-    const body = request.body || {};
+    const input = normalizeFormDefinitionUpdateBody(request.body === undefined ? {} : request.body);
     const sets = [];
     const values = [];
-    if (body.title !== undefined) {
-      const title = String(body.title || "").trim();
-      if (title.length < 3) { const e = new Error("Form title is required"); e.statusCode = 400; throw e; }
-      sets.push("title = ?"); values.push(title.slice(0, 200));
+    if (input.title !== undefined) {
+      sets.push("title = ?"); values.push(input.title);
     }
-    if (body.description !== undefined) { sets.push("description = ?"); values.push(String(body.description || "").slice(0, 2000)); }
-    if (body.status !== undefined) {
-      const status = normalizeChoice(body.status, ["draft", "published"], "");
-      if (!status) { const e = new Error("Invalid form status"); e.statusCode = 400; throw e; }
-      sets.push("status = ?"); values.push(status);
+    if (input.description !== undefined) {
+      sets.push("description = ?"); values.push(input.description);
     }
-    if (body.fields !== undefined && Array.isArray(body.fields)) {
-      const fields = body.fields.slice(0, 50).map(f => ({ key: String(f.key || "").trim().slice(0, 60), label: String(f.label || "").trim().slice(0, 120), type: normalizeChoice(f.type, ["text", "email", "tel", "textarea", "number"], "text"), required: !!f.required })).filter(f => f.key && f.label);
-      sets.push("fields = ?"); values.push(JSON.stringify(fields));
+    if (input.status !== undefined) {
+      sets.push("status = ?"); values.push(input.status);
+    }
+    if (input.fields !== undefined) {
+      sets.push("fields = ?"); values.push(JSON.stringify(input.fields));
     }
     if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
     const now = new Date().toISOString();
@@ -2878,11 +2868,11 @@ function registerApi(app, db, options = {}) {
     if (!formRow || formRow.status !== "published") { const e = new Error("Form not available"); e.statusCode = 404; throw e; }
     const orgId = formRow.orgId;
     const fields = parseFormFields(formRow.fields);
-    const submitted = (request.body && typeof request.body === "object") ? request.body : {};
+    const submitted = normalizePublicFormSubmissionBody(request.body === undefined ? {} : request.body);
     // Keep only declared field keys (never trust arbitrary keys from a public caller).
     const data = {};
     for (const f of fields) {
-      if (f && f.key) data[f.key] = String(submitted[f.key] == null ? "" : submitted[f.key]).slice(0, 2000);
+      if (f && f.key) data[f.key] = normalizePublicFormSubmissionValue(submitted, f);
       if (f && f.key && f.required && !String(data[f.key] || "").trim()) { const e = new Error(`Field "${f.label || f.key}" is required`); e.statusCode = 400; throw e; }
     }
     const now = new Date().toISOString();
@@ -5153,6 +5143,13 @@ function normalizeDocsSignBody(body) {
   };
 }
 
+function normalizeDocsSendBody(body) {
+  if (!isPlainObject(body) || Object.keys(body).length !== 0) {
+    throwInvalidDocsMetadataRequest();
+  }
+  return {};
+}
+
 function normalizeDocsVoidBody(body) {
   if (!isPlainObject(body)) {
     throwInvalidDocsMetadataRequest();
@@ -5254,6 +5251,157 @@ function parseFormFields(raw) {
   try { fields = JSON.parse(raw || "[]"); } catch { fields = []; }
   if (!Array.isArray(fields)) fields = [];
   return fields;
+}
+
+const FORM_STATUSES = ["draft", "published"];
+const FORM_FIELD_TYPES = ["text", "email", "tel", "textarea", "number"];
+const FORM_FIELD_KEY_RE = /^[A-Za-z][A-Za-z0-9_]{0,59}$/;
+
+function normalizeFormDefinitionCreateBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidFormMetadata();
+  }
+  return {
+    title: normalizeFormMetadataText(body, "title", { required: true, minLength: 3, maxLength: 200, error: "Form title is required" }),
+    description: normalizeFormMetadataText(body, "description", { fallback: "", maxLength: 2000 }),
+    fields: normalizeFormFields(body, "fields", []),
+    status: normalizeFormStatus(body, "status", "draft")
+  };
+}
+
+function normalizeFormDefinitionUpdateBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidFormMetadata();
+  }
+  const input = {};
+  if (Object.prototype.hasOwnProperty.call(body, "title")) {
+    input.title = normalizeFormMetadataText(body, "title", { required: true, minLength: 3, maxLength: 200, error: "Form title is required" });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "description")) {
+    input.description = normalizeFormMetadataText(body, "description", { fallback: "", maxLength: 2000 });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "status")) {
+    input.status = normalizeFormStatus(body, "status", "", true);
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "fields")) {
+    input.fields = normalizeFormFields(body, "fields", []);
+  }
+  return input;
+}
+
+function normalizeFormFields(body, field, fallback) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined) return fallback;
+  if (!Array.isArray(value) || value.length > 50) {
+    throwInvalidFormMetadata();
+  }
+  const seen = new Set();
+  return value.map(item => normalizeFormField(item, seen));
+}
+
+function normalizeFormField(field, seen) {
+  if (!isPlainObject(field)) {
+    throwInvalidFormMetadata();
+  }
+  const key = normalizeFormMetadataText(field, "key", { required: true, minLength: 1, maxLength: 60 });
+  if (!FORM_FIELD_KEY_RE.test(key) || seen.has(key)) {
+    throwInvalidFormMetadata();
+  }
+  seen.add(key);
+  const label = normalizeFormMetadataText(field, "label", { required: true, minLength: 1, maxLength: 120 });
+  const type = normalizeFormFieldType(field);
+  const required = normalizeFormFieldRequired(field);
+  return { key, label, type, required };
+}
+
+function normalizeFormFieldType(field) {
+  const value = Object.prototype.hasOwnProperty.call(field, "type") ? field.type : undefined;
+  if (value === undefined || value === "") return "text";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFormMetadata();
+  }
+  const type = value.trim();
+  if (!FORM_FIELD_TYPES.includes(type)) {
+    throwInvalidFormMetadata();
+  }
+  return type;
+}
+
+function normalizeFormFieldRequired(field) {
+  const value = Object.prototype.hasOwnProperty.call(field, "required") ? field.required : undefined;
+  if (value === undefined) return false;
+  if (typeof value !== "boolean") {
+    throwInvalidFormMetadata();
+  }
+  return value;
+}
+
+function normalizeFormStatus(body, field, fallback, required = false) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidFormMetadata("Invalid form status");
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFormMetadata("Invalid form status");
+  }
+  const status = value.trim();
+  if (!FORM_STATUSES.includes(status)) {
+    throwInvalidFormMetadata("Invalid form status");
+  }
+  return status;
+}
+
+function normalizeFormMetadataText(body, field, options = {}) {
+  const { fallback = "", required = false, minLength = 0, maxLength = 2000, error = "Form request requires safe metadata" } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidFormMetadata(error);
+    const text = String(fallback || "").trim();
+    if (text.length < minLength || text.length > maxLength || /[\x00-\x1f\x7f]/.test(text)) {
+      throwInvalidFormMetadata(error);
+    }
+    return text;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFormMetadata(error);
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidFormMetadata(error);
+  }
+  return text;
+}
+
+function normalizePublicFormSubmissionBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidFormMetadata();
+  }
+  return body;
+}
+
+function normalizePublicFormSubmissionValue(submitted, field) {
+  const value = Object.prototype.hasOwnProperty.call(submitted, field.key) ? submitted[field.key] : "";
+  if (value === undefined || value === null || value === "") return "";
+  if (typeof value !== "string") {
+    throwInvalidFormMetadata();
+  }
+  const allowMultiline = field.type === "textarea";
+  const unsafe = allowMultiline ? /[\x00-\x08\x0b\x0c\x0e-\x1f\x7f]/ : /[\x00-\x1f\x7f]/;
+  if (unsafe.test(value)) {
+    throwInvalidFormMetadata();
+  }
+  const text = value.trim();
+  if (text.length > 2000) {
+    throwInvalidFormMetadata();
+  }
+  return text;
+}
+
+function throwInvalidFormMetadata(message = "Form request requires safe metadata") {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
 }
 
 function getForm(db, orgId, id) {
