@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-02 · main after connector enum type guard · 45 tags · **370 tests (370 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-02 · main after connector legacy array guard · 46 tags · **371 tests (371 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 45 slices)
+### Hardening (production-readiness pass — 46 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -80,6 +80,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 43. **Integration connector secret guard** rejects non-string, over-4096-character, or control-character submitted connector secrets before hashing, preventing object coercion or malformed tokens from rotating credential fingerprints.
 44. **Integration connector endpoint URL guard** rejects non-string submitted connector endpoint URLs before URL validation, preventing array/object coercion from changing connector routing targets or credential fingerprints.
 45. **Integration connector enum type guard** rejects non-string submitted connector `status` and `environment` values before enum validation, preventing array coercion from changing readiness state, environment, routing, or credential fingerprints.
+46. **Integration connector legacy array guard** sanitizes malformed stored connector array evidence before list and health-check output, preventing legacy object-shaped scopes/capabilities from leaking or crashing readiness checks.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -127,7 +128,9 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest connector enum type guard checkpoint: this checkpoint (`Reject malformed connector enum types`), pushed with this handoff.
+- Latest connector legacy array guard checkpoint: this checkpoint (`Sanitize legacy connector array fields`), pushed with this handoff.
+- Latest connector legacy array guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "integration connector" test/api.test.js` = 10 pass; `node --test test/api.test.js` = 183 pass, 0 fail; `npm test` = 371 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-connector-legacy-array-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
+- Latest connector enum type guard code commit: `fd2157e` (`Reject malformed connector enum types`), already pushed before this legacy array handoff.
 - Latest connector enum type guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "integration connector" test/api.test.js` = 9 pass; `node --test test/api.test.js` = 182 pass, 0 fail; `npm test` = 370 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-connector-enum-type-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
 - Latest connector endpoint URL guard code commit: `237902a` (`Reject malformed connector endpoint URLs`), already pushed before this enum type handoff.
 - Latest connector endpoint URL guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "integration connector" test/api.test.js` = 8 pass; `node --test test/api.test.js` = 181 pass, 0 fail; `npm test` = 369 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-connector-endpoint-url-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.

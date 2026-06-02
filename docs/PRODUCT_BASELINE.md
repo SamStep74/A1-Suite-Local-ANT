@@ -1937,3 +1937,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Rejected enum-type writes return `400` before mutation, leaving endpoint URL, environment, status, owner role, note, scopes, secret hash/fingerprint, and audit event count unchanged.
 - Added regression coverage proving array `status` and array `environment` values do not coerce into valid enum values, rotate secrets, change connector targets, appear in inventory, or emit extra configuration audit records.
 - Verification for the checkpoint: focused integration connector tests = 9 pass; `test/api.test.js` = 182 pass; `npm test` = 370 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 174 - Integration Connector Legacy Array Guard
+
+- Integration connector list and health-check flows now sanitize legacy malformed stored array fields before using them as scope, capability, or required-scope evidence.
+- Stored object-shaped, malformed, or mixed unsafe `scopes`, `capabilities`, or `required_scopes` values no longer leak object keys through connector inventory or collapse connector-contract defaults.
+- Health checks treat malformed stored scopes as missing and compare against sanitized required scopes, so legacy drift blocks readiness instead of trusting invalid evidence.
+- Added regression coverage proving object-shaped and malformed legacy arrays are hidden from list output, required scopes fall back to connector contract defaults, missing-scope checks block readiness, and object keys do not appear in health-check evidence.
+- Verification for the checkpoint: focused integration connector tests = 10 pass; `test/api.test.js` = 183 pass; `npm test` = 371 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

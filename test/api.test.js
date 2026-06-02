@@ -1506,6 +1506,100 @@ test("integration connector rejects malformed endpoint URL values before mutatio
   });
 });
 
+test("integration connector sanitizes legacy malformed array fields before health checks", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const configured = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "sandbox",
+        endpointUrl: "https://graph.facebook.com/v20.0",
+        secret: "whsec-connector-legacy-array-valid",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Baseline connector before legacy array drift."
+      }
+    });
+    assert.equal(configured.statusCode, 200, configured.body);
+
+    const update = app.db.prepare(`
+      UPDATE integration_connectors
+      SET scopes = ?, capabilities = ?, required_scopes = ?
+      WHERE connector_key = ?
+    `).run(
+      JSON.stringify({ "messages.read": true, "legacy.array.object": true }),
+      JSON.stringify({ "inbound-message-intake": true }),
+      JSON.stringify({ "messages.write": true }),
+      "whatsapp-business"
+    );
+    assert.equal(update.changes, 1);
+
+    const listed = await app.inject({ method: "GET", url: "/api/integrations/connectors", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    const connector = listed.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.deepEqual(connector.scopes, []);
+    assert.ok(connector.capabilities.includes("inbound-message-intake"));
+    assert.deepEqual(connector.requiredScopes, ["messages.read", "messages.write"]);
+    assert.equal(JSON.stringify(listed.json()).includes("legacy.array.object"), false);
+
+    const checked = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/health-check",
+      headers: { cookie },
+      payload: {
+        sampleEvent: "legacy-array-row",
+        note: "Legacy non-array connector scope evidence should block readiness, not crash."
+      }
+    });
+    assert.equal(checked.statusCode, 200, checked.body);
+    assert.equal(checked.json().check.status, "blocked");
+    assert.deepEqual(checked.json().check.missingScopes, ["messages.read", "messages.write"]);
+    const scopeCheck = checked.json().check.checks.find(item => item.key === "required-scopes");
+    assert.equal(scopeCheck.status, "blocked");
+    assert.equal(scopeCheck.detail, "messages.read, messages.write");
+    assert.equal(JSON.stringify(checked.json()).includes("legacy.array.object"), false);
+
+    const invalidRequiredScopes = app.db.prepare(`
+      UPDATE integration_connectors
+      SET scopes = ?, capabilities = ?, required_scopes = ?
+      WHERE connector_key = ?
+    `).run(
+      JSON.stringify(["messages.read"]),
+      JSON.stringify(["inbound-message-intake", { unsafe: true }]),
+      "not-json",
+      "whatsapp-business"
+    );
+    assert.equal(invalidRequiredScopes.changes, 1);
+
+    const listedAfterInvalidContract = await app.inject({ method: "GET", url: "/api/integrations/connectors", headers: { cookie } });
+    assert.equal(listedAfterInvalidContract.statusCode, 200, listedAfterInvalidContract.body);
+    const connectorAfterInvalidContract = listedAfterInvalidContract.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.deepEqual(connectorAfterInvalidContract.scopes, ["messages.read"]);
+    assert.ok(connectorAfterInvalidContract.capabilities.includes("inbound-message-intake"));
+    assert.deepEqual(connectorAfterInvalidContract.requiredScopes, ["messages.read", "messages.write"]);
+    assert.equal(JSON.stringify(listedAfterInvalidContract.json()).includes("unsafe"), false);
+
+    const checkedAfterInvalidContract = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/health-check",
+      headers: { cookie },
+      payload: {
+        sampleEvent: "legacy-invalid-required-scopes",
+        note: "Malformed required scope storage must fall back to connector contract defaults."
+      }
+    });
+    assert.equal(checkedAfterInvalidContract.statusCode, 200, checkedAfterInvalidContract.body);
+    assert.equal(checkedAfterInvalidContract.json().check.status, "blocked");
+    assert.deepEqual(checkedAfterInvalidContract.json().check.missingScopes, ["messages.write"]);
+    const invalidRequiredScopeCheck = checkedAfterInvalidContract.json().check.checks.find(item => item.key === "required-scopes");
+    assert.equal(invalidRequiredScopeCheck.status, "blocked");
+    assert.equal(invalidRequiredScopeCheck.detail, "messages.write");
+  });
+});
+
 test("integration connector rejects credentialed endpoint URLs before persistence", async () => {
   await withApp(async app => {
     const cookie = await login(app);

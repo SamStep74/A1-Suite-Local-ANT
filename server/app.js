@@ -6883,7 +6883,9 @@ function runIntegrationConnectorHealthCheck(db, user, connectorKey, body) {
   }
   const sampleEvent = normalizeIntegrationConnectorEvidenceText(body, "sampleEvent", "", 120);
   const note = normalizeIntegrationConnectorEvidenceText(body, "note", "", 500);
-  const missingScopes = connector.requiredScopes.filter(scope => !connector.scopes.includes(scope));
+  const connectorScopes = Array.isArray(connector.scopes) ? connector.scopes : [];
+  const connectorRequiredScopes = Array.isArray(connector.requiredScopes) ? connector.requiredScopes : [];
+  const missingScopes = connectorRequiredScopes.filter(scope => !connectorScopes.includes(scope));
   const checks = [
     { key: "contract-definition", status: "passed", detail: connector.rebuildPolicy },
     { key: "provider-boundary", status: connector.rebuildPolicy.includes("boundary") ? "passed" : "blocked", detail: connector.dataBoundary },
@@ -6973,9 +6975,9 @@ function formatIntegrationConnector(row, definition, latestCheck = null) {
     status: source.status || "planned",
     environment: source.environment || "sandbox",
     endpointUrl: formatIntegrationConnectorEndpointUrl(source.endpoint_url),
-    scopes: source.scopes ? safeJson(source.scopes) : [],
-    capabilities: source.capabilities ? safeJson(source.capabilities) : definition.capabilities,
-    requiredScopes: source.required_scopes ? safeJson(source.required_scopes) : definition.requiredScopes,
+    scopes: formatIntegrationConnectorStringList(source.scopes, [], { fallbackOnInvalid: false }),
+    capabilities: formatIntegrationConnectorStringList(source.capabilities, definition.capabilities, { fallbackOnInvalid: true }),
+    requiredScopes: formatIntegrationConnectorStringList(source.required_scopes, definition.requiredScopes, { fallbackOnInvalid: true }),
     ownerRole: source.owner_role || definition.ownerRole,
     dataBoundary: source.data_boundary || definition.dataBoundary,
     rebuildPolicy: source.rebuild_policy || definition.rebuildPolicy,
@@ -7002,6 +7004,33 @@ function formatIntegrationConnectorCheck(row) {
     checkedByName: row.checked_by_name,
     checkedAt: row.checked_at
   };
+}
+
+function formatIntegrationConnectorStringList(value, fallback = [], options = {}) {
+  const fallbackList = sanitizeIntegrationConnectorStringList(fallback);
+  const useFallback = Boolean(options.fallbackOnInvalid);
+  const invalidList = useFallback ? fallbackList : [];
+  const emptyValue = value === undefined || value === null || value === "";
+  if (emptyValue) return invalidList;
+  let parsed = value;
+  if (typeof value === "string") {
+    try {
+      parsed = JSON.parse(value);
+    } catch {
+      return invalidList;
+    }
+  }
+  if (!Array.isArray(parsed)) return invalidList;
+  const list = sanitizeIntegrationConnectorStringList(parsed);
+  return list.length === parsed.length ? list : invalidList;
+}
+
+function sanitizeIntegrationConnectorStringList(value) {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter(item => typeof item === "string")
+    .map(item => item.trim())
+    .filter(item => item && item.length <= 120 && !/[\x00-\x1f\x7f]/.test(item));
 }
 
 function getIntegrationConnectorDefinition(connectorKey) {
