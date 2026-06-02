@@ -2076,3 +2076,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted and blank optional payment fields still use the current fallback behavior: today's date, `bank-transfer`, and blank reference.
 - Rejected malformed bill payment requests return `400`, keep submitted payload secrets out of error bodies, leave `bill_payments`, `bills.status`, `ledger_journal`, and `audit_events` unchanged, and do not leak malformed payment evidence into payables records.
 - Verification for the checkpoint: focused payables tests = 4 pass; `test/api.test.js` = 196 pass; `npm test` = 387 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 191 - Finance Opening Balance Metadata Guard
+
+- Opening balance posting now rejects non-plain-object request bodies before mutating opening-balance ledger state.
+- Submitted opening balance dates must be exact ISO calendar dates, submitted entries must be bounded arrays of plain objects, account codes must be known balance-sheet chart codes other than the opening-balance equity contra account, and amounts must be non-negative finite numbers or numeric strings.
+- Amount `0` still clears an account's opening balance, preserving the current correction workflow, while negative or fractional-to-zero amounts are rejected before they can silently clear balances.
+- Rejected malformed opening balance requests return `400`, keep submitted payload secrets out of error bodies, leave existing opening balance rows and `audit_events` unchanged, and do not leak malformed evidence into ledger rows.
+- Verification for the checkpoint: focused opening balance tests = 10 pass; `test/api.test.js` = 196 pass; `npm test` = 388 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

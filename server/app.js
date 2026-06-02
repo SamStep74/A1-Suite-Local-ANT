@@ -3821,15 +3821,7 @@ ${controls}
   app.post("/api/finance/opening-balances", async request => {
     const user = await app.auth(request);
     requirePilotAccountantReviewWriter(user); // Owner/Admin/Accountant only
-    const body = request.body || {};
-    const asOf = /^\d{4}-\d{2}-\d{2}$/.test(body.asOf || "") ? body.asOf : new Date().toISOString().slice(0, 10);
-    const periodKey = asOf.slice(0, 7);
-    const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
-    if (period && period.status === "closed") { const e = new Error("PERIOD_LOCKED"); e.statusCode = 409; throw e; }
-    const entries = Array.isArray(body.entries) ? body.entries : [];
-    const result = ledger.postOpeningBalances(db, user.org_id, { asOf, period_key: periodKey, entries });
-    audit(db, user.org_id, user.id, "finance.opening_balances.set", { asOf, count: result.count });
-    return ledger.openingBalances(db, user.org_id);
+    return postFinanceOpeningBalances(db, user, request.body === undefined ? {} : request.body);
   });
 
   app.get("/api/finance/statements", async request => {
@@ -48536,6 +48528,124 @@ function normalizeFinanceBillPaymentText(body, field, options = {}) {
 
 function throwInvalidFinanceBillPayment() {
   const err = new Error("Invalid finance bill payment");
+  err.statusCode = 400;
+  throw err;
+}
+
+function postFinanceOpeningBalances(db, user, body) {
+  const input = normalizeFinanceOpeningBalancesBody(body);
+  const periodKey = input.asOf.slice(0, 7);
+  const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
+  if (period && period.status === "closed") {
+    const err = new Error("PERIOD_LOCKED");
+    err.statusCode = 409;
+    throw err;
+  }
+  const result = ledger.postOpeningBalances(db, user.org_id, {
+    asOf: input.asOf,
+    period_key: periodKey,
+    entries: input.entries
+  });
+  audit(db, user.org_id, user.id, "finance.opening_balances.set", { asOf: input.asOf, count: result.count });
+  return ledger.openingBalances(db, user.org_id);
+}
+
+function normalizeFinanceOpeningBalancesBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidFinanceOpeningBalances();
+  }
+  return {
+    asOf: normalizeFinanceOpeningBalancesDate(body, "asOf"),
+    entries: normalizeFinanceOpeningBalanceEntries(body)
+  };
+}
+
+function normalizeFinanceOpeningBalancesDate(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return new Date().toISOString().slice(0, 10);
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinanceOpeningBalances();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceOpeningBalances();
+  }
+  const date = value.trim();
+  if (!isExactIsoDate(date)) {
+    throwInvalidFinanceOpeningBalances();
+  }
+  return date;
+}
+
+function normalizeFinanceOpeningBalanceEntries(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "entries") ? body.entries : undefined;
+  if (value === undefined) {
+    return [];
+  }
+  if (!Array.isArray(value) || value.length > 200) {
+    throwInvalidFinanceOpeningBalances();
+  }
+  return value.map(entry => {
+    if (!isPlainObject(entry)) {
+      throwInvalidFinanceOpeningBalances();
+    }
+    return {
+      code: normalizeFinanceOpeningBalanceCode(entry),
+      amount: normalizeFinanceOpeningBalanceAmount(entry)
+    };
+  });
+}
+
+function normalizeFinanceOpeningBalanceCode(entry) {
+  const value = Object.prototype.hasOwnProperty.call(entry, "code") ? entry.code : undefined;
+  if (value === undefined || value === null || typeof value !== "string") {
+    throwInvalidFinanceOpeningBalances();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceOpeningBalances();
+  }
+  const code = value.trim();
+  const account = ledger.CHART.find(item => item.code === code);
+  const isBalanceSheetAccount = account && (account.type === "asset" || account.type === "liability");
+  if (!code || code === ledger.OPENING_BALANCE_EQUITY_CODE || !isBalanceSheetAccount) {
+    throwInvalidFinanceOpeningBalances();
+  }
+  return code;
+}
+
+function normalizeFinanceOpeningBalanceAmount(entry) {
+  const value = Object.prototype.hasOwnProperty.call(entry, "amount") ? entry.amount : undefined;
+  if (value === undefined || value === "" || value === null || Array.isArray(value) || typeof value === "object") {
+    throwInvalidFinanceOpeningBalances();
+  }
+  let amount;
+  if (typeof value === "number") {
+    amount = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidFinanceOpeningBalances();
+    }
+    const text = value.trim();
+    if (!/^-?\d+(?:\.\d+)?$/.test(text)) {
+      throwInvalidFinanceOpeningBalances();
+    }
+    amount = Number(text);
+  } else {
+    throwInvalidFinanceOpeningBalances();
+  }
+  if (!Number.isFinite(amount) || amount < 0) {
+    throwInvalidFinanceOpeningBalances();
+  }
+  const rounded = Math.round(amount);
+  if (amount > 0 && rounded <= 0) {
+    throwInvalidFinanceOpeningBalances();
+  }
+  return rounded;
+}
+
+function throwInvalidFinanceOpeningBalances() {
+  const err = new Error("Invalid finance opening balances");
   err.statusCode = 400;
   throw err;
 }

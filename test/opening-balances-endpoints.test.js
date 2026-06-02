@@ -63,3 +63,127 @@ test("opening-balances POST is rejected for a closed period (409) and nothing is
     assert.strictEqual(count, 0);
   } finally { await app.close(); }
 });
+
+test("opening-balances POST rejects malformed metadata before persistence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const orgId = app.db.prepare("SELECT id FROM organizations LIMIT 1").get().id;
+    const initial = await app.inject({
+      method: "POST",
+      url: "/api/finance/opening-balances",
+      headers: { cookie },
+      payload: {
+        asOf: "2026-01-01",
+        entries: [
+          { code: "251", amount: 1000000 },
+          { code: "521", amount: 400000 }
+        ]
+      }
+    });
+    assert.strictEqual(initial.statusCode, 200, initial.body);
+    const openingRows = () => app.db.prepare(`
+      SELECT entry_date, debit_code, credit_code, amount, memo, source_id, period_key
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = 'opening_balance'
+      ORDER BY source_id
+    `).all(orgId);
+    const auditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("finance.opening_balances.set").count;
+    const secretCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM ledger_journal
+      WHERE org_id = ?
+        AND source_type = 'opening_balance'
+        AND (
+          entry_date LIKE ?
+          OR debit_code LIKE ?
+          OR credit_code LIKE ?
+          OR memo LIKE ?
+          OR source_id LIKE ?
+          OR period_key LIKE ?
+        )
+    `).get(
+      orgId,
+      "%secret-opening-balance-%",
+      "%secret-opening-balance-%",
+      "%secret-opening-balance-%",
+      "%secret-opening-balance-%",
+      "%secret-opening-balance-%",
+      "%secret-opening-balance-%"
+    ).count;
+    const rowsBefore = openingRows();
+    const auditCountBefore = auditCount();
+    const basePayload = {
+      asOf: "2026-01-02",
+      entries: [{ code: "251", amount: 1200000 }]
+    };
+    const tooManyEntries = Array.from({ length: 201 }, () => ({ code: "251", amount: 1 }));
+    const explicitNull = await app.inject({
+      method: "POST",
+      url: "/api/finance/opening-balances",
+      headers: { cookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.strictEqual(explicitNull.statusCode, 400, explicitNull.body);
+    const malformedRequests = [
+      { ...basePayload, asOf: ["2026-01-02"] },
+      { ...basePayload, asOf: "2026-01-02\nsecret-opening-balance-control-date-token" },
+      { ...basePayload, asOf: "not-a-date-secret-opening-balance-date-token" },
+      { ...basePayload, asOf: "2026-02-30" },
+      { ...basePayload, entries: { code: "251", amount: 1200000 } },
+      { ...basePayload, entries: "secret-opening-balance-entries-string-token" },
+      { ...basePayload, entries: tooManyEntries },
+      { ...basePayload, entries: [["251", 1200000]] },
+      { ...basePayload, entries: [null] },
+      { ...basePayload, entries: [{ code: ["251"], amount: 1200000 }] },
+      { ...basePayload, entries: [{ code: { value: "251", token: "secret-opening-balance-code-object-token" }, amount: 1200000 }] },
+      { ...basePayload, entries: [{ code: "251\nsecret-opening-balance-code-control-token", amount: 1200000 }] },
+      { ...basePayload, entries: [{ code: "999", amount: 1200000 }] },
+      { ...basePayload, entries: [{ code: "331", amount: 1200000 }] },
+      { ...basePayload, entries: [{ code: "251", amount: ["1200000"] }] },
+      { ...basePayload, entries: [{ code: "251", amount: { value: 1200000, token: "secret-opening-balance-amount-object-token" } }] },
+      { ...basePayload, entries: [{ code: "251", amount: "1200000\nsecret-opening-balance-amount-control-token" }] },
+      { ...basePayload, entries: [{ code: "251", amount: "not-a-number-secret-opening-balance-amount-token" }] },
+      { ...basePayload, entries: [{ code: "251", amount: -1 }] },
+      { ...basePayload, entries: [{ code: "251", amount: "-0.1" }] },
+      { ...basePayload, entries: [{ code: "251", amount: 0.1 }] },
+      ["secret-opening-balance-array-body-token"]
+    ];
+
+    for (const payload of malformedRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/finance/opening-balances",
+        headers: { cookie },
+        payload
+      });
+      assert.strictEqual(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-opening-balance-/);
+    }
+
+    assert.deepStrictEqual(openingRows(), rowsBefore);
+    assert.strictEqual(auditCount(), auditCountBefore);
+    assert.strictEqual(secretCount(), 0);
+
+    const corrected = await app.inject({
+      method: "POST",
+      url: "/api/finance/opening-balances",
+      headers: { cookie },
+      payload: {
+        asOf: "2026-01-02",
+        entries: [
+          { code: "251", amount: "1200000" },
+          { code: "521", amount: "0" }
+        ]
+      }
+    });
+    assert.strictEqual(corrected.statusCode, 200, corrected.body);
+    assert.strictEqual(corrected.json().count, 1);
+    assert.strictEqual(corrected.json().openingEquity, 1200000);
+  } finally { await app.close(); }
+});
