@@ -3006,7 +3006,7 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     requireOwner(user);
     const appId = request.params.id;
-    const { role: requestedRole = "Operator", enabled: requestedEnabled } = request.body || {};
+    const { role: requestedRole, enabled: requestedEnabled } = normalizeAppAssignmentBody(request.body === undefined ? {} : request.body);
     const role = validateAssignableAppRole(db, user.org_id, requestedRole);
     const enabled = normalizeAppAssignmentEnabled(requestedEnabled);
     const exists = db.prepare("SELECT id FROM apps WHERE id = ?").get(appId);
@@ -4759,7 +4759,12 @@ function requireOwner(user) {
 }
 
 function validateAssignableAppRole(db, orgId, value) {
-  const role = String(value || "").trim();
+  if (value === null || typeof value !== "string") {
+    const err = new Error("Invalid role");
+    err.statusCode = 400;
+    throw err;
+  }
+  const role = value.trim();
   if (!role || role.length > 80 || /[\x00-\x1f\x7f]/.test(role)) {
     const err = new Error("Invalid role");
     err.statusCode = 400;
@@ -4771,6 +4776,18 @@ function validateAssignableAppRole(db, orgId, value) {
     throw err;
   }
   return role;
+}
+
+function normalizeAppAssignmentBody(body) {
+  if (!isPlainObject(body)) {
+    const err = new Error("App assignment requires safe metadata");
+    err.statusCode = 400;
+    throw err;
+  }
+  return {
+    role: Object.prototype.hasOwnProperty.call(body, "role") ? body.role : "Operator",
+    enabled: Object.prototype.hasOwnProperty.call(body, "enabled") ? body.enabled : undefined
+  };
 }
 
 function normalizeAppAssignmentEnabled(value) {

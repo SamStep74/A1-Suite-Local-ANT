@@ -322,6 +322,65 @@ test("app assignment treats omitted enabled as an explicit enable", async () => 
   });
 });
 
+test("app assignment rejects malformed metadata before mutation", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const countAssignments = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM app_assignments
+      WHERE org_id = ? AND app_id = ?
+    `).get("org-armosphera-demo", "flow").count;
+    const countAudits = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ? AND json_extract(details, '$.appId') = ?
+    `).get("app.assignment.updated", "flow").count;
+    const beforeAssignments = countAssignments();
+    const beforeAudits = countAudits();
+
+    const rejectedNull = await app.inject({
+      method: "POST",
+      url: "/api/apps/flow/assign",
+      headers: { cookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
+
+    const malformedPayloads = [
+      ["secret-app-assignment-array-body-token"],
+      { role: { value: "Support", token: "secret-app-assignment-role-object-token" }, enabled: true },
+      { role: ["Support"], enabled: true },
+      { role: "Support\nsecret-app-assignment-role-control-token", enabled: true },
+      { role: `${"S".repeat(81)}secret-app-assignment-role-long-token`, enabled: true },
+      { role: "Support", enabled: "true" },
+      { role: "Support", enabled: { value: true, token: "secret-app-assignment-enabled-object-token" } }
+    ];
+
+    for (const payload of malformedPayloads) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/apps/flow/assign",
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-app-assignment-/);
+      assert.equal(countAssignments(), beforeAssignments);
+      assert.equal(countAudits(), beforeAudits);
+    }
+
+    const valid = await app.inject({
+      method: "POST",
+      url: "/api/apps/flow/assign",
+      headers: { cookie },
+      payload: { role: "Support", enabled: true }
+    });
+    assert.equal(valid.statusCode, 200, valid.body);
+    assert.equal(countAssignments(), beforeAssignments + 1);
+    assert.equal(countAudits(), beforeAudits + 1);
+  });
+});
+
 test("app assignment rejects unknown roles before mutating access-review evidence", async () => {
   await withApp(async app => {
     const cookie = await login(app);

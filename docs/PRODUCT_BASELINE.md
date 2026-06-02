@@ -2275,3 +2275,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted optional channels still preserve the existing `Manual` default, while customer IDs, request types, requester emails, and notes remain required.
 - Rejected malformed privacy requests return `400`, keep submitted payload secrets out of error bodies, leave `privacy_requests`, privacy workflow approvals, privacy suite events, and privacy audit events unchanged, and valid reviewed-source export/delete requests remain unchanged.
 - Verification for the checkpoint: focused privacy tests = 5 pass; `test/api.test.js` = 209 pass; `npm test` = 410 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 214 - App Assignment Metadata Guard
+
+- Owner app-assignment writes now reject non-plain-object request bodies before changing role app access or writing assignment audit evidence.
+- Submitted role values and enabled toggles must be structurally safe before they can become app-assignment state.
+- Roles must be bounded safe strings drawn from the assignable role set, enabled must be a boolean when present, and arrays, objects, explicit JSON null bodies, control-character roles, or overlong roles are rejected instead of coerced.
+- Omitted `enabled` still preserves the existing explicit-enable behavior for valid plain-object assignment bodies.
+- Rejected malformed app-assignment requests return `400`, keep submitted payload secrets out of error bodies, leave `app_assignments` and assignment audit events unchanged, and valid enable/disable plus unknown-role rejection behavior remains unchanged.
+- Verification for the checkpoint: focused app-assignment tests = 5 pass; `test/api.test.js` = 210 pass; `npm test` = 411 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
