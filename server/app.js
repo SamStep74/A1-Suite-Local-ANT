@@ -6969,25 +6969,30 @@ function formatIntegrationConnector(row, definition, latestCheck = null) {
   const capabilities = sanitizeIntegrationConnectorStringList(definition.capabilities);
   const requiredScopes = sanitizeIntegrationConnectorStringList(definition.requiredScopes);
   const currentMissingScopes = getIntegrationConnectorMissingScopes(scopes, requiredScopes);
-  const rawLastHealthStatus = source.last_health_status || latestCheck?.status || null;
-  const lastHealthStatus = rawLastHealthStatus === "ready" && currentMissingScopes.length ? "blocked" : rawLastHealthStatus;
+  const status = normalizeChoice(source.status, INTEGRATION_CONNECTOR_STATUSES, "planned");
+  const environment = normalizeChoice(source.environment, INTEGRATION_CONNECTOR_ENVIRONMENTS, "sandbox");
+  const rawLastHealthStatus = source.last_health_status || latestCheck?.status || "";
+  const normalizedLastHealthStatus = normalizeChoice(rawLastHealthStatus, ["ready", "blocked"], null);
+  const lastHealthStatus = normalizedLastHealthStatus === "ready" && (status !== "connected" || currentMissingScopes.length)
+    ? "blocked"
+    : normalizedLastHealthStatus;
   return {
     id: source.id || null,
     connectorKey: definition.connectorKey,
-    name: source.name || definition.name,
-    category: source.category || definition.category,
-    provider: source.provider || definition.provider,
-    authType: source.auth_type || definition.authType,
-    status: source.status || "planned",
-    environment: source.environment || "sandbox",
+    name: definition.name,
+    category: definition.category,
+    provider: definition.provider,
+    authType: definition.authType,
+    status,
+    environment,
     endpointUrl: formatIntegrationConnectorEndpointUrl(source.endpoint_url),
     scopes,
     capabilities,
     requiredScopes,
     currentMissingScopes,
     ownerRole: source.owner_role || definition.ownerRole,
-    dataBoundary: source.data_boundary || definition.dataBoundary,
-    rebuildPolicy: source.rebuild_policy || definition.rebuildPolicy,
+    dataBoundary: definition.dataBoundary,
+    rebuildPolicy: definition.rebuildPolicy,
     secretExcluded: Boolean(secretFingerprint),
     secretFingerprint,
     lastHealthStatus,
@@ -44206,21 +44211,50 @@ function getCustomerSummary(db, orgId, customerId) {
 }
 
 function normalizeIncomingEvent(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidIncomingEvent();
+  }
   const event = {
-    eventType: String(body.eventType || "").trim(),
-    subjectType: String(body.subjectType || "").trim(),
-    subjectId: String(body.subjectId || "").trim(),
-    customerId: body.customerId ? String(body.customerId).trim() : null,
-    status: String(body.status || "recorded").trim(),
+    eventType: normalizeIncomingEventText(body, "eventType", { required: true, maxLength: 80 }),
+    subjectType: normalizeIncomingEventText(body, "subjectType", { required: true, maxLength: 80 }),
+    subjectId: normalizeIncomingEventText(body, "subjectId", { required: true, maxLength: 160 }),
+    customerId: normalizeIncomingEventText(body, "customerId", { fallback: null, maxLength: 120 }),
+    status: normalizeIncomingEventText(body, "status", { fallback: "recorded", maxLength: 80 }),
     payload: body.payload === undefined ? {} : body.payload
   };
   const allowed = /^[a-z][a-z0-9_.:-]{2,80}$/;
   if (!allowed.test(event.eventType) || !allowed.test(event.subjectType) || !event.subjectId || !isPlainObject(event.payload)) {
-    const err = new Error("Invalid event");
-    err.statusCode = 400;
-    throw err;
+    throwInvalidIncomingEvent();
   }
   return event;
+}
+
+function normalizeIncomingEventText(body, field, options = {}) {
+  const { required = false, fallback = "", maxLength = 160 } = options;
+  const hasField = Object.prototype.hasOwnProperty.call(body, field);
+  const value = hasField ? body[field] : undefined;
+  if (value === undefined || value === null || value === "") {
+    if (required) throwInvalidIncomingEvent();
+    return fallback;
+  }
+  if (typeof value !== "string") {
+    throwInvalidIncomingEvent();
+  }
+  const text = value.trim();
+  if (!text) {
+    if (required) throwInvalidIncomingEvent();
+    return fallback;
+  }
+  if (text.length > maxLength || /[\x00-\x1f\x7f]/.test(text)) {
+    throwInvalidIncomingEvent();
+  }
+  return text;
+}
+
+function throwInvalidIncomingEvent() {
+  const err = new Error("Invalid event");
+  err.statusCode = 400;
+  throw err;
 }
 
 function normalizeEventFeedLimit(value, fallback = 25, max = 100) {

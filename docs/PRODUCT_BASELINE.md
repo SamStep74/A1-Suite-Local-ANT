@@ -1954,3 +1954,19 @@ Status: shipped in the local prototype on 2026-05-28.
 - Rejected malformed webhook and suite-event writes return `400`, keep submitted secrets out of error bodies, leave durable tables unchanged, and create no false creation audit evidence.
 - Added regression coverage proving object-shaped webhook names/secrets, mixed unsupported webhook event arrays, array suite-event payloads, legacy array payload redaction, and invalid/oversized event-feed limits do not leak sensitive evidence.
 - Verification for the checkpoint: focused webhook/event tests = 6 pass; `test/api.test.js` = 184 pass; `npm test` = 372 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 176 - Integration Connector Scalar Contract Guard
+
+- Integration connector list and health-check formatting now pins connector identity, provider, auth type, data-boundary, and rebuild-policy fields to source-code connector definitions instead of trusting mutable tenant rows.
+- Stored legacy `status`, `environment`, and `last_health_status` drift is normalized before output; stale stored `ready` health is downgraded when the current connector state is not actually connected.
+- Clinic pilot connector readiness now receives sanitized connector status and health evidence, so legacy scalar drift cannot make a stale connector look launch-ready.
+- Added regression coverage proving legacy scalar drift does not appear in connector inventory, health-check evidence, or clinic-template readiness output.
+- Verification for the checkpoint: focused integration connector tests = 11 pass; `test/api.test.js` = 186 pass; `npm test` = 374 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 177 - Suite Event Metadata Guard
+
+- Suite event creation now validates `eventType`, `subjectType`, `subjectId`, optional `customerId`, and optional `status` as safe strings before persistence.
+- Array-shaped or object-shaped request bodies are rejected before metadata normalization, preventing `[object Object]` subject or status evidence from entering event feeds.
+- Rejected malformed suite-event metadata returns `400`, keeps submitted payload secrets out of error bodies, leaves `suite_events` unchanged, and creates no `suite.event.created` audit record.
+- Added regression coverage proving object-shaped subject/status metadata and array request bodies do not persist, do not audit, and do not leak sensitive payload strings into event lists.
+- Verification for the checkpoint: focused suite event/webhook tests = 7 pass; `test/api.test.js` = 186 pass; `npm test` = 374 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

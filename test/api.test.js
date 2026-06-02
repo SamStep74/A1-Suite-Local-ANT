@@ -1667,6 +1667,122 @@ test("integration connector sanitizes legacy malformed array fields before healt
   });
 });
 
+test("integration connector pins legacy scalar fields to definitions before health checks", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const initial = await app.inject({
+      method: "GET",
+      url: "/api/integrations/connectors",
+      headers: { cookie }
+    });
+    assert.equal(initial.statusCode, 200, initial.body);
+    const whatsappDefinition = initial.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(whatsappDefinition.name, "WhatsApp Business");
+    assert.equal(whatsappDefinition.provider, "Meta");
+    assert.equal(whatsappDefinition.rebuildPolicy, "external-provider-boundary");
+
+    const configured = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "production",
+        endpointUrl: "https://graph.facebook.com/v20.0",
+        secret: "whsec-connector-legacy-scalar-valid",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        ownerRole: "Admin",
+        note: "Baseline connector before legacy scalar drift."
+      }
+    });
+    assert.equal(configured.statusCode, 200, configured.body);
+
+    const readyCheck = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/health-check",
+      headers: { cookie },
+      payload: {
+        sampleEvent: "baseline-ready-scalar-connector",
+        note: "Baseline ready health evidence before legacy scalar drift."
+      }
+    });
+    assert.equal(readyCheck.statusCode, 200, readyCheck.body);
+    assert.equal(readyCheck.json().check.status, "ready");
+
+    const legacyUpdate = app.db.prepare(`
+      UPDATE integration_connectors
+      SET name = ?, category = ?, provider = ?, auth_type = ?, status = ?,
+        environment = ?, data_boundary = ?, rebuild_policy = ?, last_health_status = ?
+      WHERE connector_key = ?
+    `).run(
+      "Legacy WhatsApp Drift",
+      "Legacy Messaging",
+      "Legacy Provider",
+      "legacy-auth",
+      "ready",
+      "prod",
+      "legacy unsafe data boundary",
+      "legacy-rebuild-without-provider-controls",
+      "ready",
+      "whatsapp-business"
+    );
+    assert.equal(legacyUpdate.changes, 1);
+
+    const listed = await app.inject({
+      method: "GET",
+      url: "/api/integrations/connectors",
+      headers: { cookie }
+    });
+    assert.equal(listed.statusCode, 200, listed.body);
+    const connector = listed.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(connector.name, whatsappDefinition.name);
+    assert.equal(connector.category, whatsappDefinition.category);
+    assert.equal(connector.provider, whatsappDefinition.provider);
+    assert.equal(connector.authType, whatsappDefinition.authType);
+    assert.equal(connector.dataBoundary, whatsappDefinition.dataBoundary);
+    assert.equal(connector.rebuildPolicy, whatsappDefinition.rebuildPolicy);
+    assert.equal(connector.status, "planned");
+    assert.equal(connector.environment, "sandbox");
+    assert.equal(connector.lastHealthStatus, "blocked");
+    assert.equal(connector.latestCheck.status, "ready");
+    assert.equal(JSON.stringify(listed.json()).includes("Legacy WhatsApp Drift"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("Legacy Provider"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("legacy unsafe data boundary"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("legacy-rebuild-without-provider-controls"), false);
+
+    const checked = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/health-check",
+      headers: { cookie },
+      payload: {
+        sampleEvent: "legacy-scalar-row",
+        note: "Legacy scalar drift should not override connector definitions."
+      }
+    });
+    assert.equal(checked.statusCode, 200, checked.body);
+    assert.equal(checked.json().check.status, "blocked");
+    const contractCheck = checked.json().check.checks.find(item => item.key === "contract-definition");
+    assert.equal(contractCheck.status, "passed");
+    assert.equal(contractCheck.detail, whatsappDefinition.rebuildPolicy);
+    const boundaryCheck = checked.json().check.checks.find(item => item.key === "provider-boundary");
+    assert.equal(boundaryCheck.status, "passed");
+    assert.equal(boundaryCheck.detail, whatsappDefinition.dataBoundary);
+    assert.equal(JSON.stringify(checked.json()).includes("Legacy Provider"), false);
+    assert.equal(JSON.stringify(checked.json()).includes("legacy unsafe data boundary"), false);
+    assert.equal(JSON.stringify(checked.json()).includes("legacy-rebuild-without-provider-controls"), false);
+
+    const template = await app.inject({
+      method: "GET",
+      url: "/api/pilots/templates/clinic-wellness",
+      headers: { cookie }
+    });
+    assert.equal(template.statusCode, 200, template.body);
+    const whatsappTemplateStatus = template.json().template.connectorStatuses.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(whatsappTemplateStatus.status, "planned");
+    assert.equal(whatsappTemplateStatus.lastHealthStatus, "blocked");
+  });
+});
+
 test("integration connector rejects credentialed endpoint URLs before persistence", async () => {
   await withApp(async app => {
     const cookie = await login(app);
@@ -18190,6 +18306,68 @@ test("suite event API appends governed customer timeline events", async () => {
 
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
     assert.ok(audit.json().events.some(event => event.type === "suite.event.created"));
+  });
+});
+
+test("suite event API rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const eventCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM suite_events").get().count;
+    const auditCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("suite.event.created").count;
+
+    const objectSubject = await app.inject({
+      method: "POST",
+      url: "/api/events",
+      headers: { cookie },
+      payload: {
+        eventType: "workflow.object.subject",
+        subjectType: "automation_rule",
+        subjectId: { id: "rule-object-subject" },
+        customerId: "cust-ani",
+        payload: { token: "secret-event-metadata-token" }
+      }
+    });
+    assert.equal(objectSubject.statusCode, 400, objectSubject.body);
+    assert.equal(objectSubject.body.includes("secret-event-metadata-token"), false);
+
+    const objectStatus = await app.inject({
+      method: "POST",
+      url: "/api/events",
+      headers: { cookie },
+      payload: {
+        eventType: "workflow.object.status",
+        subjectType: "automation_rule",
+        subjectId: "rule-object-status",
+        customerId: "cust-ani",
+        status: { state: "recorded" },
+        payload: { token: "secret-event-status-token" }
+      }
+    });
+    assert.equal(objectStatus.statusCode, 400, objectStatus.body);
+    assert.equal(objectStatus.body.includes("secret-event-status-token"), false);
+
+    const arrayBody = await app.inject({
+      method: "POST",
+      url: "/api/events",
+      headers: { cookie },
+      payload: ["workflow.array.body", "secret-event-array-body-token"]
+    });
+    assert.equal(arrayBody.statusCode, 400, arrayBody.body);
+    assert.equal(arrayBody.body.includes("secret-event-array-body-token"), false);
+
+    const eventCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM suite_events").get().count;
+    assert.equal(eventCountAfter, eventCountBefore);
+    const auditCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("suite.event.created").count;
+    assert.equal(auditCountAfter, auditCountBefore);
+
+    const listed = await app.inject({ method: "GET", url: "/api/events?customerId=cust-ani", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    assert.equal(listed.body.includes("[object Object]"), false);
+    assert.equal(listed.body.includes("secret-event-metadata-token"), false);
+    assert.equal(listed.body.includes("secret-event-status-token"), false);
+    assert.equal(listed.body.includes("secret-event-array-body-token"), false);
   });
 });
 
