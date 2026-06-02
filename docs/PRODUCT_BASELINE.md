@@ -1814,11 +1814,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Suite timeline reads now support role-aware payload inclusion through `eventFeedOptions(user)`.
 - `/api/events`, event-returning mutation responses, and `/api/suite` redact sensitive event payload keys for non-audit roles while preserving stable operational identifiers such as quote numbers.
 - Owner/Admin/Auditor still receive full timeline payload evidence for review and audit workflows.
-- Added regression coverage proving Support cannot read quote acceptance signer email/name/total from customer event feeds or `/api/suite`, while Owner retains the full payload.
+- Unoptioned internal event-feed reads now default to redacted payloads, so forgotten call-site options fail closed instead of exposing raw timeline payloads.
+- Added regression coverage proving Support cannot read quote acceptance signer email/name/total from customer event feeds, `/api/suite`, or a service-case mutation response, while Owner retains the full payload on explicitly full-access event reads.
 
 ### Slice 159 - Forms Submission Detail Reader Guard
 
 - Authenticated Forms list/detail routes now use a dedicated `requireFormsReader` gate instead of plain authentication.
-- Campaign-enabled roles can read form definitions and submissions; the read-only Auditor keeps explicit review access; Support is blocked from private intake submissions because Support lacks Campaigns access.
+- Campaign-enabled roles and existing forms-writer roles, including Service Manager, can read form definitions and submissions; the read-only Auditor keeps explicit review access; Support is blocked from private intake submissions because Support lacks Campaigns access.
 - Public published-form submission remains unauthenticated, rate-limited, key-whitelisted, and unchanged.
-- Added regression coverage proving Support receives `403` and no submitted email/message content, while Salesperson and Auditor can still read the submitted form detail.
+- Added regression coverage proving Support receives `403` and no submitted email/message content, while Salesperson, Service Manager, and Auditor can still read the submitted form detail.
