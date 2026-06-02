@@ -6652,6 +6652,11 @@ function configureIntegrationConnector(db, user, connectorKey, body) {
   const status = normalizeChoice(body.status, ["planned", "connected", "paused", "error"], existing?.status || "planned");
   const environment = normalizeChoice(body.environment, ["sandbox", "production", "test"], existing?.environment || "sandbox");
   const endpointUrl = String(body.endpointUrl || existing?.endpoint_url || "").trim().slice(0, 260);
+  if (endpointUrl && (!isValidHttpUrl(endpointUrl) || hasSourceUrlCredentials(endpointUrl))) {
+    const err = new Error("Integration connector endpoint URL must be HTTP(S) and must not include credentials");
+    err.statusCode = 400;
+    throw err;
+  }
   const scopes = normalizeStringList(body.scopes, existing ? safeJson(existing.scopes) : []);
   const ownerRole = String(body.ownerRole || existing?.owner_role || definition.ownerRole).trim().slice(0, 80) || definition.ownerRole;
   const note = String(body.note || existing?.note || "").trim().slice(0, 500);

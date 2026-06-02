@@ -701,6 +701,39 @@ test("owner can configure integration connector contracts without rebuilding com
   });
 });
 
+test("integration connector rejects credentialed endpoint URLs before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const credentialedUrl = "https://api-user:secret-token@graph.facebook.com/v20.0";
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "sandbox",
+        endpointUrl: credentialedUrl,
+        secret: "whsec-connector-credentialed",
+        scopes: ["messages.read", "messages.write", "contacts.read"],
+        note: "Credentialed connector endpoint URLs must not be persisted."
+      }
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.ok(!response.body.includes(credentialedUrl));
+    assert.ok(!response.body.includes("secret-token"));
+
+    const listed = await app.inject({ method: "GET", url: "/api/integrations/connectors", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    const connector = listed.json().connectors.find(item => item.connectorKey === "whatsapp-business");
+    assert.equal(connector.endpointUrl, "");
+    assert.equal(connector.secretExcluded, false);
+    assert.equal(JSON.stringify(listed.json()).includes(credentialedUrl), false);
+
+    const persisted = app.db.prepare("SELECT COUNT(*) AS count FROM integration_connectors WHERE endpoint_url = ? OR secret_fingerprint = ?").get(credentialedUrl, sha256("whsec-connector-credentialed").slice(0, 12));
+    assert.equal(persisted.count, 0);
+  });
+});
+
 test("owner can install clinic wellness pilot template with Armenia-localized package evidence", async () => {
   await withApp(async app => {
     const ownerCookie = await login(app);
