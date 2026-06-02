@@ -1808,3 +1808,17 @@ Status: shipped in the local prototype on 2026-05-28.
 - Full signature/privacy evidence payloads, checksums, and source keys are visible only to Owner/Admin/Lawyer/Auditor roles; full finance SRC evidence is visible only to Owner/Admin/Accountant/Auditor roles.
 - Unsupported authenticated roles still receive stable packet summaries, but `payload`, `checksum`, and `sourceKey` are nulled so broad `/api/suite`, `/api/docs/signature-packets`, `/api/privacy/requests`, and `/api/finance/src-exports` reads do not leak customer tax IDs, signer evidence, source keys, or packet internals.
 - Added route-level regression coverage with seeded sentinel evidence proving Support receives redacted summaries while Lawyer/Accountant users retain their permitted packet payload access.
+
+### Slice 158 - Event Feed Payload Reader Guard
+
+- Suite timeline reads now support role-aware payload inclusion through `eventFeedOptions(user)`.
+- `/api/events`, event-returning mutation responses, and `/api/suite` redact sensitive event payload keys for non-audit roles while preserving stable operational identifiers such as quote numbers.
+- Owner/Admin/Auditor still receive full timeline payload evidence for review and audit workflows.
+- Added regression coverage proving Support cannot read quote acceptance signer email/name/total from customer event feeds or `/api/suite`, while Owner retains the full payload.
+
+### Slice 159 - Forms Submission Detail Reader Guard
+
+- Authenticated Forms list/detail routes now use a dedicated `requireFormsReader` gate instead of plain authentication.
+- Campaign-enabled roles can read form definitions and submissions; the read-only Auditor keeps explicit review access; Support is blocked from private intake submissions because Support lacks Campaigns access.
+- Public published-form submission remains unauthenticated, rate-limited, key-whitelisted, and unchanged.
+- Added regression coverage proving Support receives `403` and no submitted email/message content, while Salesperson and Auditor can still read the submitted form detail.
