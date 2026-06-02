@@ -1833,3 +1833,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Failed connector configuration leaves list responses, secret fingerprints, and persisted connector rows unchanged, so credentialed endpoints cannot leak through connector inventory or backup-scoped connector data.
 - Legacy unsafe endpoint values already present in storage are hidden from connector list and health-check responses; the health check reports a missing endpoint instead of echoing stored credentials or truncated credential fragments.
 - Added regression coverage for WhatsApp Business configuration proving raw and long credentialed URLs plus submitted secret fingerprints are absent after rejection, and legacy stored unsafe endpoint URLs are not surfaced by list or health-check APIs.
+
+### Slice 161 - Copilot Launcher Route
+
+- The Legal & Accounting Copilot is now a first-class launcher app, seeded with priority 3 between CRM/Finance and the remaining Suite modules.
+- Existing local databases receive the Copilot app and least-privilege role assignments on reopen without requiring a fresh seed.
+- Workspace app selection now follows `/app/<id>` routes, pushes history when a user opens another app, and respects browser back/forward navigation.
+- App panels expose stable in-page anchors for launcher navigation; `/app/copilot` renders the Copilot panel as the active workspace.
+- Added regression coverage for fresh and existing database app entitlements, plus rendered Playwright proof for Copilot to Finance route switching and back navigation.
