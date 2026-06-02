@@ -1871,4 +1871,4 @@ Status: shipped in the local prototype on 2026-05-28.
 - Rejected enabled-value writes return `400`, leave `app_assignments` unchanged, and create no `app.assignment.updated` audit event.
 - The assignment update regression now proves Support can be explicitly disabled from an assigned app and loses the app from `/api/suite` after the boolean `false` update.
 - Added regression coverage proving a string `"false"` toggle is rejected before mutation, omitted `enabled` still writes an explicit enabled assignment, Support visibility changes in `/api/suite` match each boolean update, and rejected writes emit no assignment audit entry.
-- Verification for the checkpoint: focused app-assignment tests = 4 pass; `test/api.test.js` = 172 pass; `npm test` = 361 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+- Verification for the checkpoint: focused app-assignment tests = 4 pass; `test/api.test.js` = 173 pass; `npm test` = 361 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
