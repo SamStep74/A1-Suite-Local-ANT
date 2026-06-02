@@ -2248,3 +2248,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted optional issue dates, period keys, and due-day values still preserve the existing defaults, while `hourlyRate` remains required for billing.
 - Rejected malformed bill-time requests return `400`, keep submitted payload secrets out of error bodies, leave `finance_draft_invoices`, `invoices`, `ledger_journal`, `project_time_entries.billed_invoice_id`, and `audit_events` unchanged, and valid project time billing plus idempotent rebilling remain unchanged.
 - Verification for the checkpoint: focused `test/project-billing.test.js` = 4 pass; `test/api.test.js` = 207 pass; `npm test` = 407 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 211 - Docs Template Metadata Guard
+
+- Docs template generation now rejects non-plain-object request bodies before generating a draft document or writing document-created audit evidence.
+- Submitted customer IDs, template variable keys, and template variable values must be structurally safe before they can become generated document title/body/customer evidence.
+- Customer IDs must be safe strings, variable containers must be plain objects, variable keys must be stable identifier-like names, and variable values must be bounded single-line strings instead of arrays, objects, control-character text, or overlong values.
+- Omitted optional customer IDs and variables still preserve the existing defaults, including auto-filled organization/date/customer context and visible FILL markers for unsupplied declared variables.
+- Rejected malformed template generation requests return `400`, keep submitted payload secrets out of error bodies, leave `documents` and `audit_events` unchanged, and valid template generation plus literal mustache-value insertion remain unchanged.
+- Verification for the checkpoint: focused `test/docs-templates.test.js` = 5 pass; `test/api.test.js` = 207 pass; `npm test` = 408 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

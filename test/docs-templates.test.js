@@ -87,6 +87,105 @@ test("docs-templates: write-gate (Auditor 403), unknown template (404), bad cust
   } finally { await app.close(); }
 });
 
+test("docs-templates: malformed generate metadata is rejected before persistence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const list = (await app.inject({ method: "GET", url: "/api/docs/templates", headers: { cookie: owner } })).json();
+    const nda = list.templates.find(t => t.key === "nda");
+    const documentCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM documents").get().count;
+    const documentSecretCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM documents
+      WHERE title LIKE ?
+        OR body LIKE ?
+        OR customer_id LIKE ?
+        OR title = ?
+        OR body LIKE ?
+    `).get(
+      "%secret-doc-template-generate-%",
+      "%secret-doc-template-generate-%",
+      "%secret-doc-template-generate-%",
+      "[object Object]",
+      "%[object Object]%"
+    ).count;
+    const auditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("docs.document.created").count;
+
+    const documentCountBefore = documentCount();
+    const auditCountBefore = auditCount();
+    const malformedRequests = [
+      ["secret-doc-template-generate-array-body-token"],
+      {
+        customerId: ["cust-ani"],
+        variables: { counterparty: "secret-doc-template-generate-array-customer-token" }
+      },
+      {
+        customerId: { id: "cust-ani", token: "secret-doc-template-generate-object-customer-token" },
+        variables: { counterparty: "Counterparty" }
+      },
+      {
+        customerId: "cust-ani\nsecret-doc-template-generate-control-customer-token",
+        variables: { counterparty: "Counterparty" }
+      },
+      {
+        customerId: "cust-ani",
+        variables: ["secret-doc-template-generate-array-vars-token"]
+      },
+      {
+        customerId: "cust-ani",
+        variables: { counterparty: { text: "Counterparty", token: "secret-doc-template-generate-object-var-token" } }
+      },
+      {
+        customerId: "cust-ani",
+        variables: { counterparty: ["secret-doc-template-generate-array-var-token"] }
+      },
+      {
+        customerId: "cust-ani",
+        variables: { counterparty: "Counterparty\nsecret-doc-template-generate-control-var-token" }
+      },
+      {
+        customerId: "cust-ani",
+        variables: { "bad-key": "secret-doc-template-generate-bad-key-token" }
+      },
+      {
+        customerId: "cust-ani",
+        variables: { counterparty: `${"V".repeat(4001)}secret-doc-template-generate-long-var-token` }
+      }
+    ];
+
+    for (const payload of malformedRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: `/api/docs/templates/${nda.id}/generate`,
+        headers: { cookie: owner },
+        payload
+      });
+      assert.strictEqual(rejected.statusCode, 400, rejected.body);
+      assert.ok(!rejected.body.includes("secret-doc-template-generate"), "rejected payload secret is not reflected");
+      assert.strictEqual(documentCount(), documentCountBefore, "malformed template generate did not create a document");
+      assert.strictEqual(documentSecretCount(), 0, "malformed template metadata was not persisted");
+      assert.strictEqual(auditCount(), auditCountBefore, "malformed template generate did not write audit evidence");
+    }
+
+    const generated = await app.inject({
+      method: "POST",
+      url: `/api/docs/templates/${nda.id}/generate`,
+      headers: { cookie: owner },
+      payload: { customerId: "cust-ani", variables: { counterparty: "{{orgName}} EVIL" } }
+    });
+    assert.strictEqual(generated.statusCode, 200, generated.body);
+    assert.strictEqual(generated.json().document.customerId, "cust-ani");
+    assert.ok(generated.json().document.body.includes("{{orgName}} EVIL"));
+    assert.strictEqual(documentCount(), documentCountBefore + 1);
+    assert.strictEqual(auditCount(), auditCountBefore + 1);
+  } finally { await app.close(); }
+});
+
 test("docs-templates: a malicious variable value cannot inject a raw mustache or break out of substitution", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

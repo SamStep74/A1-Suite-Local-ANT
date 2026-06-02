@@ -2381,8 +2381,8 @@ function registerApi(app, db, options = {}) {
     requireDocsWriter(user); // read-only Auditor must not author documents
     const template = db.prepare("SELECT id, template_key AS key, name, doc_type AS docType, title_template AS titleTemplate, body_template AS bodyTemplate, variables FROM document_templates WHERE org_id = ? AND id = ?").get(user.org_id, String(request.params.id || ""));
     if (!template) { const e = new Error("Template not found"); e.statusCode = 404; throw e; }
-    const body = request.body || {};
-    const customerId = String(body.customerId || "").trim();
+    const body = normalizeDocsTemplateGenerateBody(request.body === undefined ? {} : request.body);
+    const customerId = body.customerId;
     let customerName = "";
     if (customerId) {
       assertCustomer(db, user.org_id, customerId);
@@ -2396,8 +2396,7 @@ function registerApi(app, db, options = {}) {
       customerName,
       date: new Date().toISOString().slice(0, 10)
     };
-    const userVars = (body.variables && typeof body.variables === "object") ? body.variables : {};
-    const resolved = { ...autoVars, ...userVars };
+    const resolved = { ...autoVars, ...body.variables };
     const title = fillTemplate(template.titleTemplate, resolved).slice(0, 200);
     const docBody = fillTemplate(template.bodyTemplate, resolved).slice(0, 20000);
     const id = randomId("doc");
@@ -5234,6 +5233,42 @@ function normalizeDocsVoidBody(body) {
   return {
     reason: normalizeDocsMetadataText(body, "reason", { fallback: "", maxLength: 500 })
   };
+}
+
+function normalizeDocsTemplateGenerateBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidDocsMetadataRequest();
+  }
+  return {
+    customerId: normalizeDocsMetadataText(body, "customerId", { fallback: "", maxLength: 120 }),
+    variables: normalizeDocsTemplateVariables(body, "variables")
+  };
+}
+
+function normalizeDocsTemplateVariables(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined) return {};
+  if (!isPlainObject(value)) {
+    throwInvalidDocsMetadataRequest();
+  }
+  const variables = {};
+  for (const [key, raw] of Object.entries(value)) {
+    if (!/^[A-Za-z][A-Za-z0-9_]{0,80}$/.test(key)) {
+      throwInvalidDocsMetadataRequest();
+    }
+    if (raw === undefined || raw === "") {
+      variables[key] = "";
+      continue;
+    }
+    if (raw === null || typeof raw !== "string") {
+      throwInvalidDocsMetadataRequest();
+    }
+    if (!isSafeDocsMetadataText(raw) || raw.length > 4000) {
+      throwInvalidDocsMetadataRequest();
+    }
+    variables[key] = raw.trim();
+  }
+  return variables;
 }
 
 function normalizeDocsDocType(body, options = {}) {
