@@ -1841,3 +1841,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Workspace app selection now follows `/app/<id>` routes, pushes history when a user opens another app, and respects browser back/forward navigation.
 - App panels expose stable in-page anchors for launcher navigation; `/app/copilot` renders the Copilot panel as the active workspace.
 - Added regression coverage for fresh and existing database app entitlements, plus rendered Playwright proof for Copilot to Finance route switching and back navigation.
+
+### Slice 162 - Copilot App Access Gate
+
+- `POST /api/copilot/questions` now requires the caller's role to have the `copilot` app assignment before intent-specific gates run.
+- Finance-enabled roles without Copilot access can no longer call VAT/month-close advisory flows just because they still have Finance access.
+- The React Copilot panel is no longer rendered for roles without the Copilot app assignment.
+- Copilot intent tabs are filtered by the user's assigned intent apps, so UI choices match the same app-access model enforced by the API.
+- Added regression coverage proving an Accountant with Finance enabled but Copilot disabled receives `403`, plus rendered proof that Support cannot see the Copilot panel at `/app/copilot`.
