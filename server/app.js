@@ -3506,7 +3506,7 @@ ${controls}
 
   app.get("/api/events", async request => {
     const user = await app.auth(request);
-    const limit = Math.min(Number(request.query.limit || 25), 100);
+    const limit = normalizeEventFeedLimit(request.query.limit, 25, 100);
     const customerId = request.query.customerId || "";
     return { events: getRecentSuiteEvents(db, user.org_id, limit, customerId, eventFeedOptions(user)) };
   });
@@ -44179,13 +44179,17 @@ function redactWorkflowDryRunPreview(preview) {
 }
 
 function redactEventPayload(payload) {
-  if (!payload || typeof payload !== "object") return {};
+  if (!isPlainObject(payload)) return {};
   const safe = {};
   for (const [key, value] of Object.entries(payload)) {
     if (/amount|checksum|currency|email|ip|phone|reference|secret|signer|sourceKey|tax|tin|token|total|vat/i.test(key)) continue;
     safe[key] = typeof value === "object" ? "restricted" : value;
   }
   return safe;
+}
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
 function getCustomerSummary(db, orgId, customerId) {
@@ -44208,15 +44212,22 @@ function normalizeIncomingEvent(body) {
     subjectId: String(body.subjectId || "").trim(),
     customerId: body.customerId ? String(body.customerId).trim() : null,
     status: String(body.status || "recorded").trim(),
-    payload: body.payload && typeof body.payload === "object" ? body.payload : {}
+    payload: body.payload === undefined ? {} : body.payload
   };
   const allowed = /^[a-z][a-z0-9_.:-]{2,80}$/;
-  if (!allowed.test(event.eventType) || !allowed.test(event.subjectType) || !event.subjectId) {
+  if (!allowed.test(event.eventType) || !allowed.test(event.subjectType) || !event.subjectId || !isPlainObject(event.payload)) {
     const err = new Error("Invalid event");
     err.statusCode = 400;
     throw err;
   }
   return event;
+}
+
+function normalizeEventFeedLimit(value, fallback = 25, max = 100) {
+  if (value === undefined || value === null || value === "") return fallback;
+  const parsed = Number(String(value).trim());
+  if (!Number.isInteger(parsed) || parsed <= 0) return fallback;
+  return Math.min(parsed, max);
 }
 
 function getAssignedApps(db, orgId, role) {
@@ -45350,12 +45361,12 @@ function getLegalAnswerSources(db, orgId, answerId) {
 const WEBHOOK_EVENTS = ["quote_accepted", "deal_won", "invoice_paid"];
 
 function createWebhookEndpoint(db, user, body) {
-  const name = String(body.name || "").trim();
-  const url = String(body.url || "").trim();
-  const secret = String(body.secret || "").trim();
-  const events = Array.isArray(body.events) ? body.events.filter(event => WEBHOOK_EVENTS.includes(event)) : [];
+  const name = normalizeWebhookEndpointText(body, "name", { minLength: 2, maxLength: 120 });
+  const url = normalizeWebhookEndpointText(body, "url", { minLength: 1, maxLength: 500 });
+  const secret = normalizeWebhookEndpointText(body, "secret", { minLength: 8, maxLength: 4096 });
+  const events = normalizeWebhookEndpointEvents(body);
   const enabled = normalizeWebhookEndpointEnabled(body.enabled);
-  if (name.length < 2 || !isValidWebhookUrl(url) || secret.length < 8 || events.length === 0) {
+  if (!isValidWebhookUrl(url)) {
     const err = new Error("Webhook name, URL, secret, and at least one supported event are required");
     err.statusCode = 400;
     throw err;
@@ -45367,6 +45378,40 @@ function createWebhookEndpoint(db, user, body) {
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(endpointId, user.org_id, name, url, secret, JSON.stringify([...new Set(events)]), enabled ? 1 : 0, now, now);
   return getWebhookEndpoint(db, user.org_id, endpointId);
+}
+
+function normalizeWebhookEndpointText(body, field, options = {}) {
+  const { minLength = 1, maxLength = 500 } = options;
+  if (!Object.prototype.hasOwnProperty.call(body, field) || typeof body[field] !== "string") {
+    const err = new Error(`Webhook ${field} must be a string`);
+    err.statusCode = 400;
+    throw err;
+  }
+  const text = body[field].trim();
+  if (text.length < minLength || text.length > maxLength || /[\x00-\x1f\x7f]/.test(text)) {
+    const err = new Error(`Webhook ${field} must be a safe string`);
+    err.statusCode = 400;
+    throw err;
+  }
+  return text;
+}
+
+function normalizeWebhookEndpointEvents(body) {
+  if (!Object.prototype.hasOwnProperty.call(body, "events") || !Array.isArray(body.events) || body.events.length === 0) {
+    const err = new Error("Webhook events must be a non-empty array of supported events");
+    err.statusCode = 400;
+    throw err;
+  }
+  const events = [];
+  for (const event of body.events) {
+    if (typeof event !== "string" || !WEBHOOK_EVENTS.includes(event)) {
+      const err = new Error("Webhook events must be a non-empty array of supported events");
+      err.statusCode = 400;
+      throw err;
+    }
+    events.push(event);
+  }
+  return [...new Set(events)];
 }
 
 function normalizeWebhookEndpointEnabled(value) {

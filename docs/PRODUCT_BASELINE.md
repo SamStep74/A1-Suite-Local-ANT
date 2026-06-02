@@ -1945,3 +1945,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Health checks and connector list output treat malformed or stale stored scopes as missing and compare granted scopes against definition-pinned required scopes, so legacy drift blocks readiness instead of trusting invalid or stale evidence.
 - Added regression coverage proving object-shaped and malformed legacy arrays are hidden from list output, stale stored `ready` health is downgraded, clinic-template readiness surfaces current missing scopes, required scopes fall back to connector contract defaults, valid-but-stale contract arrays cannot override definitions, missing-scope checks block readiness, and object keys do not appear in health-check evidence.
 - Verification for the checkpoint: focused integration connector tests = 10 pass; `test/api.test.js` = 183 pass; `npm test` = 371 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 175 - Webhook And Event Payload Guard
+
+- Webhook endpoint creation now validates `name`, `url`, and `secret` as safe strings before persistence instead of coercing object or array payloads with `String(...)`.
+- Webhook event payloads must be non-empty arrays containing only supported event strings; mixed legacy/unknown event arrays are rejected instead of silently filtering to a partial supported set.
+- Suite event creation now requires payloads to be plain objects, legacy array payloads are redacted to `{}` for non-audit event feeds, and malformed or oversized event-feed limits are normalized instead of producing odd pagination.
+- Rejected malformed webhook and suite-event writes return `400`, keep submitted secrets out of error bodies, leave durable tables unchanged, and create no false creation audit evidence.
+- Added regression coverage proving object-shaped webhook names/secrets, mixed unsupported webhook event arrays, array suite-event payloads, legacy array payload redaction, and invalid/oversized event-feed limits do not leak sensitive evidence.
+- Verification for the checkpoint: focused webhook/event tests = 6 pass; `test/api.test.js` = 184 pass; `npm test` = 372 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

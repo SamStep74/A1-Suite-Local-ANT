@@ -17419,6 +17419,79 @@ test("webhook endpoint rejects non-boolean enabled values before persistence", a
   });
 });
 
+test("webhook endpoint rejects malformed text and event values before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const auditCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("webhook.endpoint.created").count;
+
+    const objectName = await app.inject({
+      method: "POST",
+      url: "/api/integrations/webhooks",
+      headers: { cookie },
+      payload: {
+        name: { label: "Object names must not become endpoint evidence." },
+        url: "https://example.com/object-name-webhook",
+        secret: "whsec-object-name-test",
+        events: ["deal_won"]
+      }
+    });
+    assert.equal(objectName.statusCode, 400, objectName.body);
+    assert.match(objectName.body, /name must be a string/);
+    assert.equal(objectName.body.includes("whsec-object-name-test"), false);
+
+    const objectSecret = await app.inject({
+      method: "POST",
+      url: "/api/integrations/webhooks",
+      headers: { cookie },
+      payload: {
+        name: "Object secret connector",
+        url: "https://example.com/object-secret-webhook",
+        secret: { token: "whsec-object-secret-test" },
+        events: ["deal_won"]
+      }
+    });
+    assert.equal(objectSecret.statusCode, 400, objectSecret.body);
+    assert.match(objectSecret.body, /secret must be a string/);
+    assert.equal(objectSecret.body.includes("whsec-object-secret-test"), false);
+
+    const mixedEvents = await app.inject({
+      method: "POST",
+      url: "/api/integrations/webhooks",
+      headers: { cookie },
+      payload: {
+        name: "Mixed event connector",
+        url: "https://example.com/mixed-event-webhook",
+        secret: "whsec-mixed-event-test",
+        events: ["deal_won", "legacy_unknown_event"]
+      }
+    });
+    assert.equal(mixedEvents.statusCode, 400, mixedEvents.body);
+    assert.match(mixedEvents.body, /events must be a non-empty array of supported events/);
+    assert.equal(mixedEvents.body.includes("whsec-mixed-event-test"), false);
+
+    const persisted = app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM webhook_endpoints
+      WHERE url IN (?, ?, ?)
+    `).get(
+      "https://example.com/object-name-webhook",
+      "https://example.com/object-secret-webhook",
+      "https://example.com/mixed-event-webhook"
+    );
+    assert.equal(persisted.count, 0);
+
+    const listed = await app.inject({ method: "GET", url: "/api/integrations/webhooks", headers: { cookie } });
+    assert.equal(listed.statusCode, 200, listed.body);
+    assert.equal(JSON.stringify(listed.json()).includes("[object Object]"), false);
+    assert.equal(JSON.stringify(listed.json()).includes("legacy_unknown_event"), false);
+
+    const auditCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("webhook.endpoint.created").count;
+    assert.equal(auditCountAfter, auditCountBefore);
+  });
+});
+
 test("invoice paid webhook is delivered only for first payment receipt", async () => {
   await withWebhookReceiver(async receiver => {
     await withApp(async app => {
@@ -18083,6 +18156,38 @@ test("suite event API appends governed customer timeline events", async () => {
     const customer360 = await app.inject({ method: "GET", url: "/api/customer-360/cust-nare", headers: { cookie } });
     assert.ok(customer360.json().timeline.some(event => event.eventType === "workflow.approval.requested"));
 
+    for (let i = 0; i < 105; i += 1) {
+      app.db.prepare(`
+        INSERT INTO suite_events (
+          org_id, actor_user_id, event_type, subject_type, subject_id,
+          customer_id, payload, status, created_at
+        )
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+      `).run(
+        "org-armosphera-demo",
+        null,
+        "workflow.limit.probe",
+        "automation_rule",
+        `rule-limit-${i}`,
+        "cust-nare",
+        JSON.stringify({ index: i }),
+        "recorded",
+        `2026-06-02T00:${String(i).padStart(2, "0")}:00.000Z`
+      );
+    }
+    const invalidLimit = await app.inject({ method: "GET", url: "/api/events?limit=abc", headers: { cookie } });
+    assert.equal(invalidLimit.statusCode, 200, invalidLimit.body);
+    assert.ok(invalidLimit.json().events.length <= 25);
+    const partialInvalidLimit = await app.inject({ method: "GET", url: "/api/events?limit=25abc", headers: { cookie } });
+    assert.equal(partialInvalidLimit.statusCode, 200, partialInvalidLimit.body);
+    assert.ok(partialInvalidLimit.json().events.length <= 25);
+    const negativeLimit = await app.inject({ method: "GET", url: "/api/events?limit=-1", headers: { cookie } });
+    assert.equal(negativeLimit.statusCode, 200, negativeLimit.body);
+    assert.ok(negativeLimit.json().events.length <= 25);
+    const oversizedLimit = await app.inject({ method: "GET", url: "/api/events?limit=500", headers: { cookie } });
+    assert.equal(oversizedLimit.statusCode, 200, oversizedLimit.body);
+    assert.equal(oversizedLimit.json().events.length, 100);
+
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
     assert.ok(audit.json().events.some(event => event.type === "suite.event.created"));
   });
@@ -18096,8 +18201,45 @@ test("suite event feed redacts sensitive payloads for non-audit roles", async ()
     const ownerCookie = await login(app);
     const supportCookie = await login(app, "support@armosphera.local");
 
+    const rejectedArrayPayload = await app.inject({
+      method: "POST",
+      url: "/api/events",
+      headers: { cookie: supportCookie },
+      payload: {
+        eventType: "workflow.array.payload",
+        subjectType: "automation_rule",
+        subjectId: "rule-array-payload",
+        customerId: "cust-ani",
+        payload: ["owner@anibeauty.am", "secret-token-value"]
+      }
+    });
+    assert.equal(rejectedArrayPayload.statusCode, 400, rejectedArrayPayload.body);
+    assert.equal(rejectedArrayPayload.body.includes("secret-token-value"), false);
+
+    app.db.prepare(`
+      INSERT INTO suite_events (
+        org_id, actor_user_id, event_type, subject_type, subject_id,
+        customer_id, payload, status, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "org-armosphera-demo",
+      null,
+      "workflow.legacy.array_payload",
+      "automation_rule",
+      "rule-legacy-array-payload",
+      "cust-ani",
+      JSON.stringify(["owner@anibeauty.am", "secret-token-value"]),
+      "recorded",
+      "2999-01-01T00:00:00.000Z"
+    );
+
     const supportEvents = await app.inject({ method: "GET", url: "/api/events?customerId=cust-ani", headers: { cookie: supportCookie } });
     assert.equal(supportEvents.statusCode, 200, supportEvents.body);
+    const supportLegacyArrayEvent = supportEvents.json().events.find(event => event.eventType === "workflow.legacy.array_payload");
+    assert.ok(supportLegacyArrayEvent);
+    assert.deepEqual(supportLegacyArrayEvent.payload, {});
+    assert.equal(supportEvents.body.includes("secret-token-value"), false);
     const supportQuoteEvent = supportEvents.json().events.find(event => event.eventType === "crm.quote.accepted");
     assert.ok(supportQuoteEvent);
     assert.equal(supportQuoteEvent.payload.quoteNumber, acceptedBody.quote.number);
@@ -18113,6 +18255,7 @@ test("suite event feed redacts sensitive payloads for non-audit roles", async ()
     assert.equal(supportSuiteQuoteEvent.payload.signerEmail, undefined);
     assert.equal(supportSuiteQuoteEvent.payload.signerName, undefined);
     assert.equal(supportSuiteQuoteEvent.payload.total, undefined);
+    assert.equal(supportSuite.body.includes("secret-token-value"), false);
 
     const supportCase = await app.inject({
       method: "POST",

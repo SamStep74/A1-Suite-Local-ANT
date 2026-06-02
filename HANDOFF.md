@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-02 · main after connector definition contract guard · 46 tags · **371 tests (371 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-02 · main after webhook and event payload guard · 47 tags · **372 tests (372 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 46 slices)
+### Hardening (production-readiness pass — 47 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -81,6 +81,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 44. **Integration connector endpoint URL guard** rejects non-string submitted connector endpoint URLs before URL validation, preventing array/object coercion from changing connector routing targets or credential fingerprints.
 45. **Integration connector enum type guard** rejects non-string submitted connector `status` and `environment` values before enum validation, preventing array coercion from changing readiness state, environment, routing, or credential fingerprints.
 46. **Integration connector legacy array guard** sanitizes malformed stored connector scope evidence before list and health-check output, pins immutable capability/required-scope contracts to connector definitions, and downgrades stale stored `ready` health when current scopes miss definition-required grants.
+47. **Webhook and event payload guard** rejects non-string webhook `name`, `url`, and `secret` values plus unsupported/mixed event arrays before persistence, requires suite-event payloads to be plain objects, redacts legacy array payloads to `{}`, and normalizes event-feed limits.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -128,7 +129,9 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest connector definition contract guard checkpoint: this checkpoint (`Pin connector contract fields to definitions`), pushed with this handoff.
+- Latest webhook and event payload guard checkpoint: this checkpoint (`Reject malformed webhook and event payloads`), pushed with this handoff.
+- Latest webhook and event payload guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "suite event API|suite event feed|webhook endpoint" test/api.test.js` = 6 pass; `node --test test/api.test.js` = 184 pass, 0 fail; `npm test` = 372 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-webhook-payload-type-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
+- Latest connector definition contract guard code commit: `342f41a` (`Pin connector contract fields to definitions`), already pushed before this webhook payload handoff.
 - Latest connector definition contract guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "integration connector" test/api.test.js` = 10 pass; `node --test test/api.test.js` = 183 pass, 0 fail; `npm test` = 371 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-connector-definition-contract-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
 - Latest connector legacy array guard code commit: `58f4642` (`Sanitize legacy connector array fields`), already pushed before this definition contract handoff.
 - Latest connector enum type guard code commit: `fd2157e` (`Reject malformed connector enum types`), already pushed before this legacy array handoff.
