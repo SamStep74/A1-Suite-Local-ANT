@@ -1849,3 +1849,10 @@ Status: shipped in the local prototype on 2026-05-28.
 - The React Copilot panel is no longer rendered for roles without the Copilot app assignment.
 - Copilot intent tabs are filtered by the user's assigned intent apps, so UI choices match the same app-access model enforced by the API.
 - Added regression coverage proving an Accountant with Finance enabled but Copilot disabled receives `403`, plus rendered proof that Support cannot see the Copilot panel at `/app/copilot`.
+
+### Slice 163 - Dashboard Launcher Role Contract
+
+- Seeded role app assignments now have a source-wiring regression that derives seeded login users from the fixture database, fetches each role's `/api/suite` launcher list, and checks every exposed app has the expected `/app/<id>` route.
+- The same regression compares assigned app ids against `SUITE_APP_IDS` and the `suite-app-<id>` workspace anchor contract in `web/src/main.jsx`, preventing future app-assignment drift from creating a left-sidebar product with no landing target.
+- Rendered Playwright proof on a fresh local preview confirmed every exposed sidebar product opens and scrolls into view for Owner, Operator, Support, Accountant, Lawyer, Salesperson, Service Manager, and Auditor.
+- Verification for the checkpoint: focused dashboard launcher test = 1 pass; `npm test` = 358 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
