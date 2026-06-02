@@ -20602,6 +20602,98 @@ test("posted HayHashvapah draft invoice creates official receivable once", async
   });
 });
 
+test("draft invoice posting rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const draft = await executeDraftInvoice(app, cookie);
+    const draftStatus = () => app.db.prepare(`
+      SELECT status
+      FROM finance_draft_invoices
+      WHERE id = ?
+    `).get(draft.id).status;
+    const invoiceCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM invoices
+      WHERE number LIKE ?
+        OR number = ?
+    `).get("%secret-draft-invoice-post-%", "[object Object]").count;
+    const linkCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM finance_invoice_links
+      WHERE draft_invoice_id = ?
+    `).get(draft.id).count;
+    const ledgerCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM ledger_journal
+      WHERE source_type = ?
+        AND source_id LIKE ?
+    `).get("invoice", "inv-%").count;
+    const suitePostedEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE event_type = ?
+    `).get("finance.invoice.posted").count;
+    const auditPostedEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("finance.invoice.posted").count;
+
+    const ledgerCountBefore = ledgerCount();
+    const suiteEventCountBefore = suitePostedEventCount();
+    const auditCountBefore = auditPostedEventCount();
+    const malformedRequests = [
+      {
+        number: ["HHV-2026-OBJECT"],
+        token: "secret-draft-invoice-post-array-number-token"
+      },
+      {
+        number: { text: "HHV-2026-OBJECT", token: "secret-draft-invoice-post-object-number-token" }
+      },
+      {
+        number: "HHV-2026\nCONTROL",
+        token: "secret-draft-invoice-post-control-token"
+      },
+      {
+        number: `${"H".repeat(81)}secret-draft-invoice-post-long-token`
+      },
+      {
+        number: null,
+        token: "secret-draft-invoice-post-null-number-token"
+      },
+      ["HHV-2026-ARRAY-BODY"]
+    ];
+
+    for (const payload of malformedRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: `/api/finance/draft-invoices/${draft.id}/post`,
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-draft-invoice-post-/);
+    }
+
+    assert.equal(draftStatus(), "draft");
+    assert.equal(invoiceCount(), 0);
+    assert.equal(linkCount(), 0);
+    assert.equal(ledgerCount(), ledgerCountBefore);
+    assert.equal(suitePostedEventCount(), suiteEventCountBefore);
+    assert.equal(auditPostedEventCount(), auditCountBefore);
+
+    const posted = await app.inject({
+      method: "POST",
+      url: `/api/finance/draft-invoices/${draft.id}/post`,
+      headers: { cookie },
+      payload: { number: "HHV-2026-POST-GUARD" }
+    });
+    assert.equal(posted.statusCode, 200, posted.body);
+    assert.equal(posted.json().invoice.number, "HHV-2026-POST-GUARD");
+    assert.equal(posted.json().draftInvoice.status, "posted");
+  });
+});
+
 test("closed finance period blocks posting a HayHashvapah draft invoice", async () => {
   await withApp(async app => {
     const cookie = await login(app);

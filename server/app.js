@@ -3375,7 +3375,7 @@ ${controls}
       err.statusCode = 404;
       throw err;
     }
-    const result = postDraftInvoice(db, user, draftInvoice, request.body || {});
+    const result = postDraftInvoice(db, user, draftInvoice, request.body === undefined ? {} : request.body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, draftInvoice.customerId) };
   });
 
@@ -48169,6 +48169,7 @@ function createDraftInvoiceFromApproval(db, user, approval, now) {
 }
 
 function postDraftInvoice(db, user, draftInvoice, body) {
+  const { number } = normalizeDraftInvoicePostBody(body, draftInvoice);
   const period = getFinancePeriod(db, user.org_id, draftInvoice.periodKey);
   if (!period || period.status !== "open") {
     const err = new Error("PERIOD_LOCKED");
@@ -48189,7 +48190,6 @@ function postDraftInvoice(db, user, draftInvoice, body) {
   const now = new Date().toISOString();
   const invoiceId = randomId("inv");
   const linkId = randomId("invoice-link");
-  const number = normalizeInvoiceNumber(body.number, draftInvoice);
   const sourceKey = `draft:${draftInvoice.id}`;
   db.prepare(`
     INSERT INTO invoices (id, org_id, customer_id, number, status, total, vat, due_date)
@@ -50898,9 +50898,44 @@ function addDays(dateText, days) {
   return parsed.toISOString().slice(0, 10);
 }
 
-function normalizeInvoiceNumber(value, draftInvoice) {
-  const provided = String(value || "").trim();
-  if (provided) return provided;
+function normalizeDraftInvoicePostBody(body, draftInvoice) {
+  if (!isPlainObject(body)) {
+    throwInvalidDraftInvoicePost();
+  }
+  return {
+    number: normalizeInvoiceNumber(body, draftInvoice)
+  };
+}
+
+function normalizeInvoiceNumber(body, draftInvoice) {
+  const hasNumber = Object.prototype.hasOwnProperty.call(body, "number");
+  const provided = hasNumber ? body.number : undefined;
+  if (provided === undefined || provided === "") {
+    return defaultInvoiceNumber(draftInvoice);
+  }
+  if (provided === null || typeof provided !== "string") {
+    throwInvalidDraftInvoicePost();
+  }
+  if (/[\x00-\x1f\x7f]/.test(provided)) {
+    throwInvalidDraftInvoicePost();
+  }
+  const number = provided.trim();
+  if (!number) {
+    return defaultInvoiceNumber(draftInvoice);
+  }
+  if (number.length > 80) {
+    throwInvalidDraftInvoicePost();
+  }
+  return number;
+}
+
+function throwInvalidDraftInvoicePost() {
+  const err = new Error("Invalid draft invoice post");
+  err.statusCode = 400;
+  throw err;
+}
+
+function defaultInvoiceNumber(draftInvoice) {
   return draftInvoice.number.replace(/^DRAFT-/, "HHV-");
 }
 

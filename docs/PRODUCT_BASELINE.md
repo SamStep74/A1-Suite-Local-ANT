@@ -2010,3 +2010,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted and blank close reasons still use the explicit `Closed by owner` fallback, preserving the existing no-body close behavior.
 - Rejected malformed close requests return `400`, keep submitted payload secrets out of error bodies, leave `finance_periods`, `suite_events`, and `audit_events` unchanged, and do not leak malformed close reasons into finance period lists.
 - Verification for the checkpoint: focused finance period tests = 6 pass; `test/api.test.js` = 191 pass; `npm test` = 379 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 183 - Draft Invoice Posting Metadata Guard
+
+- Draft invoice posting now rejects non-plain-object request bodies before mutating HayHashvapah draft or receivable state.
+- Submitted official invoice numbers must be safe strings up to 80 characters without control characters before they can become invoice, link, ledger, event, or audit evidence.
+- Omitted and blank official invoice numbers still use the existing `DRAFT-` to `HHV-` fallback, preserving the current no-body post behavior.
+- Rejected malformed post requests return `400`, keep submitted payload secrets out of error bodies, leave `finance_draft_invoices`, `invoices`, `finance_invoice_links`, `ledger_journal`, `suite_events`, and `audit_events` unchanged, and do not leak malformed invoice evidence into receivables.
+- Verification for the checkpoint: focused draft invoice/payment receipt tests = 18 pass; `test/api.test.js` = 192 pass; `npm test` = 380 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
