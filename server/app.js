@@ -2114,7 +2114,7 @@ function registerApi(app, db, options = {}) {
   app.post("/api/crm/leads", async request => {
     const user = await app.auth(request);
     requireCrmEditor(user);
-    const lead = createCrmLead(db, user, request.body || {});
+    const lead = createCrmLead(db, user, request.body);
     return { ok: true, lead, summary: getCrmLeadSummary(db, user.org_id) };
   });
 
@@ -41407,31 +41407,82 @@ function createCrmLead(db, user, body, options = {}) {
 }
 
 function normalizeCrmLeadInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidCrmLeadMetadata();
+  }
   const lead = {
-    companyName: String(body.companyName || "").trim(),
-    contactName: String(body.contactName || "").trim(),
-    email: String(body.email || "").trim().toLowerCase(),
-    phone: String(body.phone || "").trim(),
-    taxId: String(body.taxId || "").trim(),
-    segment: String(body.segment || "SMB").trim(),
-    source: String(body.source || "Manual").trim(),
-    channel: String(body.channel || "Manual").trim(),
-    interest: String(body.interest || "").trim(),
-    estimatedValue: Math.max(0, Math.round(Number(body.estimatedValue || 0))),
-    consentStatus: String(body.consentStatus || "consent-review-required").trim()
+    companyName: normalizeCrmLeadText(body, "companyName", { required: true, minLength: 2, maxLength: 200 }),
+    contactName: normalizeCrmLeadText(body, "contactName", { required: true, minLength: 2, maxLength: 160 }),
+    email: normalizeCrmLeadText(body, "email", { required: true, minLength: 3, maxLength: 160 }).toLowerCase(),
+    phone: normalizeCrmLeadText(body, "phone", { required: true, minLength: 6, maxLength: 80 }),
+    taxId: normalizeCrmLeadText(body, "taxId", { fallback: "", maxLength: 80 }),
+    segment: normalizeCrmLeadText(body, "segment", { fallback: "SMB", minLength: 1, maxLength: 80 }),
+    source: normalizeCrmLeadText(body, "source", { fallback: "Manual", minLength: 1, maxLength: 80 }),
+    channel: normalizeCrmLeadText(body, "channel", { fallback: "Manual", minLength: 1, maxLength: 80 }),
+    interest: normalizeCrmLeadText(body, "interest", { required: true, minLength: 6, maxLength: 1000 }),
+    estimatedValue: normalizeCrmLeadEstimatedValue(body),
+    consentStatus: normalizeCrmLeadText(body, "consentStatus", { fallback: "consent-review-required", minLength: 1, maxLength: 80 })
   };
   if (
-    lead.companyName.length < 2 ||
-    lead.contactName.length < 2 ||
-    !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(lead.email) ||
-    lead.phone.length < 6 ||
-    lead.interest.length < 6
+    !/^[^@\s]+@[^@\s]+\.[^@\s]+$/.test(lead.email)
   ) {
-    const err = new Error("Lead requires company, contact, email, phone, and interest");
-    err.statusCode = 400;
-    throw err;
+    throwInvalidCrmLeadMetadata("Lead requires company, contact, email, phone, and interest");
   }
   return lead;
+}
+
+function normalizeCrmLeadText(body, field, options = {}) {
+  const { fallback = "", required = false, minLength = 0, maxLength = 200 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) {
+      throwInvalidCrmLeadMetadata("Lead requires company, contact, email, phone, and interest");
+    }
+    const text = String(fallback || "").trim();
+    if (text.length < minLength || text.length > maxLength || /[\x00-\x1f\x7f]/.test(text)) {
+      throwInvalidCrmLeadMetadata();
+    }
+    return text;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmLeadMetadata();
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidCrmLeadMetadata("Lead requires company, contact, email, phone, and interest");
+  }
+  return text;
+}
+
+function normalizeCrmLeadEstimatedValue(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "estimatedValue") ? body.estimatedValue : undefined;
+  if (value === undefined || value === "") return 0;
+  if (value === null) {
+    throwInvalidCrmLeadMetadata();
+  }
+  let parsed;
+  if (typeof value === "number") {
+    parsed = value;
+  } else if (typeof value === "string") {
+    const text = value.trim();
+    if (!text || text.length > 20 || /[\x00-\x1f\x7f]/.test(text) || !/^\d+(\.\d{1,2})?$/.test(text)) {
+      throwInvalidCrmLeadMetadata();
+    }
+    parsed = Number(text);
+  } else {
+    throwInvalidCrmLeadMetadata();
+  }
+  const amount = Math.round(parsed);
+  if (!Number.isSafeInteger(amount) || amount < 0 || amount > 100000000000) {
+    throwInvalidCrmLeadMetadata();
+  }
+  return amount;
+}
+
+function throwInvalidCrmLeadMetadata(message = "Lead requires safe metadata") {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
 }
 
 function calculateCrmLeadScore(lead) {

@@ -15938,6 +15938,104 @@ test("salesperson can capture, score, route, and convert an Armenian SMB lead", 
   });
 });
 
+test("CRM lead API rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app, "sales@armosphera.local");
+    const leadCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM crm_leads").get().count;
+    const suiteEventCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+      .get("crm.lead.created").count;
+    const auditCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("crm.lead.created").count;
+    const basePayload = {
+      companyName: "Guarded Wellness LLC",
+      contactName: "Lilit Guard",
+      email: "guarded@example.am",
+      phone: "+374 93 100200",
+      taxId: "02666001",
+      segment: "Clinic",
+      source: "Instagram",
+      channel: "WhatsApp",
+      interest: "Patient retention automation with HayHashvapah invoice handoff",
+      estimatedValue: 1200000,
+      consentStatus: "marketing-consent-recorded"
+    };
+    const malformedPayloads = [
+      { ...basePayload, companyName: { value: "Guarded Wellness", token: "secret-crm-lead-object-company-token" } },
+      { ...basePayload, companyName: "Guarded\nsecret-crm-lead-control-company-token" },
+      { ...basePayload, companyName: "A", payloadSecret: "secret-crm-lead-short-company-token" },
+      { ...basePayload, contactName: ["Lilit Guard"], payloadSecret: "secret-crm-lead-array-contact-token" },
+      { ...basePayload, email: { value: "guarded@example.am", token: "secret-crm-lead-object-email-token" } },
+      { ...basePayload, email: "guarded@example.am\nsecret-crm-lead-control-email-token" },
+      { ...basePayload, email: "not-an-email-secret-crm-lead-email-token" },
+      { ...basePayload, phone: null, payloadSecret: "secret-crm-lead-null-phone-token" },
+      { ...basePayload, interest: { text: "Patient retention", token: "secret-crm-lead-object-interest-token" } },
+      { ...basePayload, interest: "short", payloadSecret: "secret-crm-lead-short-interest-token" },
+      { ...basePayload, interest: "Patient retention\nsecret-crm-lead-control-interest-token" },
+      { ...basePayload, estimatedValue: { amount: 1200000, token: "secret-crm-lead-object-value-token" } },
+      { ...basePayload, estimatedValue: -1, payloadSecret: "secret-crm-lead-negative-value-token" },
+      { ...basePayload, estimatedValue: "1e9", payloadSecret: "secret-crm-lead-exponent-value-token" },
+      { ...basePayload, consentStatus: "consent\nsecret-crm-lead-control-consent-token" },
+      ["secret-crm-lead-array-body-token"]
+    ];
+
+    const rejectedMissingBody = await app.inject({
+      method: "POST",
+      url: "/api/crm/leads",
+      headers: { cookie }
+    });
+    assert.equal(rejectedMissingBody.statusCode, 400, rejectedMissingBody.body);
+
+    const rejectedNull = await app.inject({
+      method: "POST",
+      url: "/api/crm/leads",
+      headers: { cookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
+
+    for (const payload of malformedPayloads) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/crm/leads",
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-crm-lead-/);
+    }
+
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM crm_leads").get().count, leadCountBefore);
+    assert.equal(
+      app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.lead.created").count,
+      suiteEventCountBefore
+    );
+    assert.equal(
+      app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("crm.lead.created").count,
+      auditCountBefore
+    );
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/crm/leads",
+      headers: { cookie },
+      payload: {
+        companyName: "Numeric Value Clinic",
+        contactName: "Nare Numeric",
+        email: "numeric@example.am",
+        phone: "+374 91 303030",
+        interest: "Patient retention automation with numeric estimate",
+        estimatedValue: "1250000"
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    assert.equal(created.json().lead.estimatedValue, 1250000);
+    assert.equal(created.json().lead.segment, "SMB");
+    assert.equal(created.json().lead.source, "Manual");
+    assert.equal(created.json().lead.channel, "Manual");
+    assert.equal(created.json().lead.consentStatus, "consent-review-required");
+  });
+});
+
 test("auditor cannot create CRM leads", async () => {
   await withApp(async app => {
     const cookie = await login(app, "auditor@armosphera.local");

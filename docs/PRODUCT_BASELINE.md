@@ -2154,3 +2154,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Docs & Sign send now rejects null, array, or non-empty object request bodies before a draft can move to out-for-signature.
 - Rejected malformed Forms and Docs send requests return `400`, keep submitted payload secrets out of error bodies, leave `forms`, `form_submissions`, `crm_leads`, `documents.status`, and `audit_events` unchanged, and valid form authoring, public submission, and document sending remain unchanged.
 - Verification for the checkpoint: focused Forms/page/isolation tests = 17 pass; focused Docs/Sign/templates/export tests = 17 pass; `test/api.test.js` = 198 pass; `npm test` = 396 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 200 - CRM Lead Metadata Guard
+
+- CRM lead creation now rejects missing or non-plain-object request bodies before mutating lead, suite-event, or audit state.
+- Submitted company/contact/email/phone/tax/segment/source/channel/interest/consent fields must be structurally safe before they can become lead routing or customer-conversion evidence.
+- Lead email must keep its email shape, required company/contact/phone/interest fields must meet minimum lengths, and estimated value must be a safe non-negative amount without exponent/object/array coercion.
+- Omitted optional tax, segment, source, channel, estimated value, and consent fields still preserve the existing defaults used by manual lead capture and public form lead handoff.
+- Rejected malformed CRM lead requests return `400`, keep submitted payload secrets out of error bodies, leave `crm_leads`, `suite_events`, and `audit_events` unchanged, and valid lead capture plus Forms-created leads remain unchanged.
+- Verification for the checkpoint: focused CRM/Form tests = 5 pass; focused Forms/page/isolation tests = 17 pass; `test/api.test.js` = 199 pass; `npm test` = 397 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
