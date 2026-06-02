@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-02 · main after workflow rule change metadata guard · 52 tags · **377 tests (377 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-02 · main after workflow approval decision metadata guard · 53 tags · **378 tests (378 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 52 slices)
+### Hardening (production-readiness pass — 53 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -87,6 +87,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 50. **Workflow test-event metadata guard** rejects malformed workflow test-event request bodies, metadata, notes, and array payloads before persistence, preventing object coercion and malformed payload evidence from entering workflow, suite-event, or audit records.
 51. **Workflow dry-run metadata guard** rejects malformed workflow dry-run request bodies, customer/invoice metadata, and notes before persistence, preventing object coercion and malformed preview evidence from entering dry-run, suite-event, or audit records.
 52. **Workflow rule change metadata guard** rejects malformed workflow rule state and rollback request bodies, reasons, and rollback version selectors before persistence, preventing object coercion or numeric coercion from entering rule-version, suite-event, or audit evidence.
+53. **Workflow approval decision metadata guard** rejects malformed workflow approval decision request bodies, decision values, and notes before persistence, preventing array/object coercion from approving actions or entering suite-event/audit evidence.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -134,7 +135,9 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest workflow rule change metadata guard checkpoint: this checkpoint (`Reject malformed workflow rule changes`), pushed with this handoff.
+- Latest workflow approval decision metadata guard checkpoint: this checkpoint (`Reject malformed workflow approval decisions`), pushed with this handoff.
+- Latest workflow approval decision metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "approval decision|workflow approval" test/api.test.js` = 3 pass; `node --test test/api.test.js` = 190 pass, 0 fail; `npm test` = 378 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-workflow-approval-decision-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
+- Previous workflow rule change metadata guard commit: `bead5ca` (`Reject malformed workflow rule changes`), already pushed before this workflow approval-decision handoff.
 - Latest workflow rule change metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "workflow rule|rollback" test/api.test.js` = 3 pass; `node --test test/api.test.js` = 189 pass, 0 fail; `npm test` = 377 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-workflow-rule-change-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.
 - Previous workflow dry-run metadata guard commit: `20e033f` (`Reject malformed workflow dry runs`), already pushed before this workflow rule-change handoff.
 - Latest workflow dry-run metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "workflow dry-run" test/api.test.js` = 2 pass; `node --test test/api.test.js` = 188 pass, 0 fail; `npm test` = 376 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-workflow-dry-run-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10; `node --check server/app.js && node --check test/api.test.js && git diff --check` = pass.

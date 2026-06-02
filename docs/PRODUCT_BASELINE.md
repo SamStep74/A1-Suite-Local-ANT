@@ -1994,3 +1994,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Rollback `versionNumber` / `targetVersionNumber` values must be actual positive integers; strings and arrays are rejected instead of being numerically coerced.
 - Rejected malformed state and rollback requests return `400`, keep submitted payload secrets out of error bodies, leave `automation_rule_versions`, `suite_events`, and `audit_events` unchanged, and do not leak `[object Object]` evidence into rule-version lists.
 - Verification for the checkpoint: focused workflow rule/rollback tests = 3 pass; `test/api.test.js` = 189 pass; `npm test` = 377 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 181 - Workflow Approval Decision Metadata Guard
+
+- Workflow approval decision writes now reject non-plain-object request bodies before mutating approval state.
+- Submitted `decision` values must be real `approved` / `rejected` strings, so arrays like `["approved"]` can no longer be coerced into approvals.
+- Submitted decision notes must be safe strings up to 500 characters without control characters before they can become suite-event payload evidence.
+- Rejected malformed approval decisions return `400`, keep submitted payload secrets out of error bodies, leave `workflow_approvals`, `suite_events`, and `audit_events` unchanged, and do not leak malformed note evidence into approval event payloads.
+- Verification for the checkpoint: focused workflow approval tests = 3 pass; `test/api.test.js` = 190 pass; `npm test` = 378 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

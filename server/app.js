@@ -3064,12 +3064,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/workflow/approvals/:id/decision", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const decision = normalizeChoice((request.body || {}).decision, ["approved", "rejected"], "");
-    if (!decision) {
-      const err = new Error("Decision must be approved or rejected");
-      err.statusCode = 400;
-      throw err;
-    }
+    const body = request.body === undefined ? {} : request.body;
+    const { decision, note } = normalizeWorkflowApprovalDecisionBody(body);
     const approval = getWorkflowApproval(db, user.org_id, request.params.id);
     if (!approval) {
       const err = new Error("Approval not found");
@@ -3095,7 +3091,7 @@ function registerApi(app, db, options = {}) {
       subjectId: approval.id,
       customerId: approval.customerId,
       status: decision,
-      payload: { actionKey: approval.actionKey, riskLevel: approval.riskLevel, note: (request.body || {}).note || "" }
+      payload: { actionKey: approval.actionKey, riskLevel: approval.riskLevel, note }
     });
     audit(db, user.org_id, user.id, `workflow.approval.${decision}`, { approvalId: approval.id, actionKey: approval.actionKey });
     return { ok: true, approval: getWorkflowApproval(db, user.org_id, approval.id), events: getRecentSuiteEvents(db, user.org_id, 5, approval.customerId) };
@@ -49088,6 +49084,57 @@ function throwWorkflowRuleChangeError(message) {
 
 function throwInvalidWorkflowRuleChange() {
   throwWorkflowRuleChangeError("Invalid workflow rule change");
+}
+
+function normalizeWorkflowApprovalDecisionBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidWorkflowApprovalDecision();
+  }
+  if (typeof body.decision !== "string") {
+    throwWorkflowApprovalDecisionError("Decision must be approved or rejected");
+  }
+  if (/[\x00-\x1f\x7f]/.test(body.decision)) {
+    throwInvalidWorkflowApprovalDecision();
+  }
+  const decision = normalizeChoice(body.decision, ["approved", "rejected"], "");
+  if (!decision) {
+    throwWorkflowApprovalDecisionError("Decision must be approved or rejected");
+  }
+  const note = normalizeWorkflowApprovalDecisionText(body, "note", { fallback: "", maxLength: 500 });
+  return { decision, note };
+}
+
+function normalizeWorkflowApprovalDecisionText(body, field, options = {}) {
+  const { fallback = "", maxLength = 500 } = options;
+  const hasField = Object.prototype.hasOwnProperty.call(body, field);
+  const value = hasField ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidWorkflowApprovalDecision();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidWorkflowApprovalDecision();
+  }
+  const text = value.trim();
+  if (!text) {
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidWorkflowApprovalDecision();
+  }
+  return text;
+}
+
+function throwWorkflowApprovalDecisionError(message) {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
+}
+
+function throwInvalidWorkflowApprovalDecision() {
+  throwWorkflowApprovalDecisionError("Invalid workflow approval decision");
 }
 
 function createWorkflowDryRun(db, user, ruleId, body) {

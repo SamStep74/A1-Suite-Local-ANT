@@ -18529,6 +18529,91 @@ test("owner approval decision updates workflow queue and emits governed event", 
   });
 });
 
+test("workflow approval decision rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const approvalStatus = () => app.db.prepare(`
+      SELECT status, decided_by_user_id AS decidedByUserId, decided_at AS decidedAt
+      FROM workflow_approvals
+      WHERE id = ?
+    `).get("approval-overdue-nare");
+    const suiteApprovalEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE event_type IN ('workflow.approval.approved', 'workflow.approval.rejected')
+    `).get().count;
+    const auditApprovalEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type IN ('workflow.approval.approved', 'workflow.approval.rejected')
+    `).get().count;
+
+    const beforeApproval = approvalStatus();
+    assert.equal(beforeApproval.status, "pending");
+    assert.equal(beforeApproval.decidedByUserId, null);
+    assert.equal(beforeApproval.decidedAt, null);
+    const suiteEventCountBefore = suiteApprovalEventCount();
+    const auditCountBefore = auditApprovalEventCount();
+    const malformedRequests = [
+      {
+        decision: ["approved"],
+        note: "Array decisions must not be coerced into approval.",
+        token: "secret-workflow-approval-array-decision-token"
+      },
+      {
+        decision: { value: "approved", token: "secret-workflow-approval-object-decision-token" },
+        note: "Object decisions must not become approval evidence."
+      },
+      {
+        decision: "approved",
+        note: { text: "Object notes must not become evidence.", token: "secret-workflow-approval-object-note-token" }
+      },
+      {
+        decision: "approved",
+        note: "Approval note\nwith control character.",
+        token: "secret-workflow-approval-control-note-token"
+      },
+      {
+        decision: "approved",
+        note: `${"A".repeat(501)}secret-workflow-approval-long-note-token`
+      },
+      ["approved"],
+      null
+    ];
+
+    for (const payload of malformedRequests) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/workflow/approvals/approval-overdue-nare/decision",
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-workflow-approval-/);
+    }
+
+    const afterRejectedApprovals = approvalStatus();
+    assert.equal(afterRejectedApprovals.status, "pending");
+    assert.equal(afterRejectedApprovals.decidedByUserId, null);
+    assert.equal(afterRejectedApprovals.decidedAt, null);
+    assert.equal(suiteApprovalEventCount(), suiteEventCountBefore);
+    assert.equal(auditApprovalEventCount(), auditCountBefore);
+
+    const decision = await app.inject({
+      method: "POST",
+      url: "/api/workflow/approvals/approval-overdue-nare/decision",
+      headers: { cookie },
+      payload: { decision: "approved", note: "Owner approved after malformed decision checks" }
+    });
+    assert.equal(decision.statusCode, 200, decision.body);
+    assert.equal(decision.json().approval.status, "approved");
+    assert.ok(decision.json().events.some(event => (
+      event.eventType === "workflow.approval.approved"
+      && event.payload.note === "Owner approved after malformed decision checks"
+    )));
+  });
+});
+
 test("approved service reply workflow sends knowledge-grounded response once", async () => {
   await withApp(async app => {
     const cookie = await login(app);
