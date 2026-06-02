@@ -189,6 +189,73 @@ test("copilot advisory generation records metadata-only timeline and audit event
   }
 });
 
+test("copilot rejects malformed metadata before advisory persistence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const beforeTimeline = app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("copilot.advisory.generated").count;
+    const beforeAudit = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("copilot.advisory.generated").count;
+    const validQuestion = "Կարո՞ղ ենք պատրաստել հայկական ԱԱՀ եւ SRC ուղեցույց 2026-05 ժամանակաշրջանի համար:";
+    const malformedPayloads = [
+      [],
+      { question: { text: validQuestion }, intent: "vat" },
+      { question: "bad\u0000question", intent: "vat" },
+      { question: "x".repeat(2001), intent: "vat" },
+      { question: validQuestion, intent: { value: "vat" } },
+      { question: validQuestion, intent: "vat\u0000" },
+      { question: validQuestion, intent: "x".repeat(81) },
+      { question: validQuestion, intent: "vat", customerId: { id: "cust-nare" } },
+      { question: validQuestion, intent: "vat", customerId: "cust-nare\u0000" },
+      { question: validQuestion, intent: "vat", periodKey: "2026-13" },
+      { question: validQuestion, intent: "payroll", gross: { amount: 600000 } },
+      { question: validQuestion, intent: "payroll", gross: "600000\u0000" },
+      { question: validQuestion, intent: "payroll", gross: "1e6" },
+      { question: validQuestion, intent: "payroll", gross: -1 },
+      { question: validQuestion, intent: "payroll", asOf: "2026-02-31" },
+      { question: validQuestion, intent: "esign", documentId: { id: "doc-anahit-nda" } },
+      { question: validQuestion, intent: "esign", documentId: "doc-anahit-nda\u0000" }
+    ];
+
+    for (const payload of malformedPayloads) {
+      const res = await app.inject({
+        method: "POST",
+        url: "/api/copilot/questions",
+        headers: { cookie },
+        payload
+      });
+      assert.strictEqual(res.statusCode, 400, res.body);
+      assert.match(res.body, /safe metadata|Copilot question is required/);
+      assert.doesNotMatch(res.body, /cust-nare|doc-anahit-nda|600000/);
+    }
+
+    assert.strictEqual(
+      app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("copilot.advisory.generated").count,
+      beforeTimeline
+    );
+    assert.strictEqual(
+      app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("copilot.advisory.generated").count,
+      beforeAudit
+    );
+
+    const valid = await app.inject({
+      method: "POST",
+      url: "/api/copilot/questions",
+      headers: { cookie },
+      payload: {
+        intent: "vat",
+        customerId: "cust-nare",
+        periodKey: "2026-05",
+        question: validQuestion
+      }
+    });
+    assert.strictEqual(valid.statusCode, 200, valid.body);
+    assert.strictEqual(valid.json().copilot.intent, "vat");
+  } finally {
+    await app.close();
+  }
+});
+
 test("VAT copilot enables SRC proposal only after professional VAT source review", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

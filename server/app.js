@@ -45073,19 +45073,20 @@ function formatAutomationRule(db, orgId, row) {
 }
 
 function createCopilotQuestion(db, user, body) {
-  const question = String(body.question || "").trim();
+  const input = normalizeCopilotQuestionInput(body);
+  const question = input.question;
   if (question.length < 8) {
     const err = new Error("Copilot question is required");
     err.statusCode = 400;
     throw err;
   }
-  const intent = copilot.normalizeIntent(body.intent, question);
+  const intent = copilot.normalizeIntent(input.intent, question);
   requireAppAccess(db, user, "copilot");
   requireAppAccess(db, user, copilot.requiredAppForIntent(intent));
-  const customer = getCopilotCustomer(db, user.org_id, body.customerId);
-  const context = buildCopilotContext(db, user, intent, body, customer);
+  const customer = getCopilotCustomer(db, user.org_id, input.customerId);
+  const context = buildCopilotContext(db, user, intent, input, customer);
   const citations = getCopilotCitations(db, user.org_id, intent, question);
-  const calculations = getCopilotCalculations(db, user.org_id, intent, body, context);
+  const calculations = getCopilotCalculations(db, user.org_id, intent, input, context);
   const packet = copilot.buildCopilotPacket({
     id: randomId("copilot"),
     intent,
@@ -45098,6 +45099,99 @@ function createCopilotQuestion(db, user, body) {
   });
   recordCopilotAdvisory(db, user, packet, question);
   return packet;
+}
+
+function normalizeCopilotQuestionInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidCopilotMetadata();
+  }
+  return {
+    question: normalizeCopilotText(body, "question", { required: true, minLength: 8, maxLength: 2000 }),
+    intent: normalizeCopilotText(body, "intent", { fallback: "", maxLength: 80 }),
+    customerId: normalizeCopilotText(body, "customerId", { fallback: "", maxLength: 120 }),
+    periodKey: normalizeCopilotPeriodKey(body),
+    employeeId: normalizeCopilotText(body, "employeeId", { fallback: "", maxLength: 120 }),
+    gross: normalizeCopilotGross(body),
+    asOf: normalizeCopilotDate(body),
+    documentId: normalizeCopilotText(body, "documentId", { fallback: "", maxLength: 120 })
+  };
+}
+
+function normalizeCopilotText(body, field, options = {}) {
+  const { fallback = "", required = false, minLength = 0, maxLength = 2000 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidCopilotMetadata();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCopilotMetadata();
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidCopilotMetadata();
+  }
+  return text;
+}
+
+function normalizeCopilotPeriodKey(body) {
+  if (!Object.prototype.hasOwnProperty.call(body, "periodKey") || body.periodKey === "") {
+    return new Date().toISOString().slice(0, 7);
+  }
+  const periodKey = normalizeCopilotText(body, "periodKey", { required: true, minLength: 7, maxLength: 7 });
+  if (!/^\d{4}-\d{2}$/.test(periodKey)) {
+    throwInvalidCopilotMetadata();
+  }
+  const month = Number(periodKey.slice(5, 7));
+  if (month < 1 || month > 12) {
+    throwInvalidCopilotMetadata();
+  }
+  return periodKey;
+}
+
+function normalizeCopilotDate(body) {
+  if (!Object.prototype.hasOwnProperty.call(body, "asOf") || body.asOf === "") {
+    return new Date().toISOString().slice(0, 10);
+  }
+  const asOf = normalizeCopilotText(body, "asOf", { required: true, minLength: 10, maxLength: 10 });
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(asOf)) {
+    throwInvalidCopilotMetadata();
+  }
+  const parsed = new Date(`${asOf}T00:00:00.000Z`);
+  if (
+    Number.isNaN(parsed.getTime())
+    || parsed.toISOString().slice(0, 10) !== asOf
+  ) {
+    throwInvalidCopilotMetadata();
+  }
+  return asOf;
+}
+
+function normalizeCopilotGross(body) {
+  if (!Object.prototype.hasOwnProperty.call(body, "gross") || body.gross === "") {
+    return 0;
+  }
+  const value = body.gross;
+  if (typeof value === "string" && /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCopilotMetadata();
+  }
+  if (typeof value !== "number" && typeof value !== "string") {
+    throwInvalidCopilotMetadata();
+  }
+  if (typeof value === "string" && !/^\d+$/.test(value.trim())) {
+    throwInvalidCopilotMetadata();
+  }
+  const gross = Number(value);
+  if (!Number.isSafeInteger(Math.round(gross)) || gross < 0 || gross > 1_000_000_000) {
+    throwInvalidCopilotMetadata();
+  }
+  return Math.round(gross);
+}
+
+function throwInvalidCopilotMetadata(message = "Copilot question requires safe metadata") {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
 }
 
 function getCopilotModelPolicy() {
@@ -45161,19 +45255,19 @@ function getCopilotCustomer(db, orgId, customerId) {
 }
 
 function buildCopilotContext(db, user, intent, body, customer) {
-  const periodKey = normalizePeriodKey(body.periodKey);
+  const periodKey = body.periodKey;
   const base = { customer, periodKey };
   if (intent === "payroll") {
     const employee = body.employeeId ? getEmployee(db, user.org_id, body.employeeId) : null;
-    const gross = employee ? employee.grossSalary : Math.max(0, Math.round(Number(body.gross) || 0));
-    return { ...base, employee, gross, asOf: normalizeDate(body.asOf) };
+    const gross = employee ? employee.grossSalary : body.gross;
+    return { ...base, employee, gross, asOf: body.asOf };
   }
   if (intent === "personal-data") {
-    const text = `${body.intent || ""} ${body.question || ""}`.toLowerCase();
+    const text = `${body.intent} ${body.question}`.toLowerCase();
     return { ...base, requestType: /(delete|erase|ջնջ)/i.test(text) ? "delete" : "export" };
   }
   if (intent === "esign") {
-    const documentId = String(body.documentId || "").trim();
+    const documentId = body.documentId;
     const document = documentId ? getDocument(db, user.org_id, documentId) : null;
     if (documentId && !document) {
       const err = new Error("Document not found");

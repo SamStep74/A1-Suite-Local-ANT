@@ -2223,3 +2223,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Advisory prompts preserve the existing defaults for customer, deal, invoice, and ticket summaries, while workflow-builder prompts remain required and all prompts are bounded and reject object/array/control-character input.
 - Rejected malformed AI advisory requests return `400`, keep submitted payload secrets out of error bodies, leave advisory table, suite-event, and audit counts unchanged, and valid customer, deal, invoice, ticket, and workflow-builder advisory generation remains unchanged.
 - Verification for the checkpoint: focused AI advisory tests = 6 pass; `test/api.test.js` = 206 pass; `npm test` = 404 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 208 - Copilot Question Metadata Guard
+
+- Copilot advisory generation now rejects malformed request bodies before resolving intent context, calculations, citations, proposed actions, timeline events, or audit records.
+- Submitted questions, intents, customer IDs, document IDs, employee IDs, period keys, as-of dates, and payroll gross preview inputs must be structurally safe before they can become Copilot context or advisory evidence.
+- Period keys must be exact valid `YYYY-MM` values, as-of dates must be exact valid ISO calendar dates, payroll gross must be a bounded non-negative safe whole AMD value, and object/array/control-character inputs are rejected instead of being coerced into Copilot decisions.
+- Rejected malformed Copilot requests return `400`, keep submitted payload secrets out of error bodies, leave Copilot suite-event and audit counts unchanged, and valid VAT, payroll, month-close, personal-data, e-sign, entitlement, and unknown-resource behavior remains unchanged.
+- Verification for the checkpoint: focused Copilot metadata/regression tests = 8 pass; full `test/copilot.test.js` = 13 pass; `test/api.test.js` = 206 pass; `npm test` = 405 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
