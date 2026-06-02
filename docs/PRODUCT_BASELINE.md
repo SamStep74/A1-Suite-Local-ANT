@@ -2110,3 +2110,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - Invalid override configurations that would produce missing stamp coverage, out-of-range rates, unsafe money thresholds, negative net pay, or deductions above gross are rejected before a preview response is returned.
 - Rejected malformed preview requests return `400`, keep submitted payload secrets out of error bodies, leave `payroll_runs`, `ledger_journal`, and `audit_events` unchanged, and valid previews still do not persist rows.
 - Verification for the checkpoint: focused payroll/tax-rate tests = 10 pass; `test/api.test.js` = 196 pass; `npm test` = 391 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 195 - Legal Source Review Metadata Guard
+
+- Professional legal-source reviews now reject non-plain-object request bodies before mutating maintained legal sources, review rows, suite events, or audit records.
+- Submitted review titles, source URLs, effective dates, statuses, and review notes must be safe strings without control characters before they can become legal-source evidence.
+- Effective dates must be exact ISO calendar dates, source URLs must be HTTP(S), statuses must remain in the legal-source lifecycle enum, and canonical review notes are bounded before storage.
+- Rejected malformed review requests return `400`, keep submitted payload secrets out of error bodies, leave `legal_sources`, `legal_source_reviews`, `suite_events`, and `audit_events` unchanged, while existing host mismatch, HTTPS downgrade, and credentialed URL block-audit behavior remains intact.
+- Verification for the checkpoint: focused legal-source/production-readiness tests = 8 pass; `test/api.test.js` = 197 pass; `npm test` = 392 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

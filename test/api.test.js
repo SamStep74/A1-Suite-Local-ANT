@@ -16737,6 +16737,106 @@ test("owner can review and version Armenian legal source registry entries", asyn
   });
 });
 
+test("legal source review rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const sourceRow = () => app.db.prepare(`
+      SELECT title, source_url AS sourceUrl, status, effective_date AS effectiveDate
+      FROM legal_sources
+      WHERE id = ?
+    `).get("law-tax-code");
+    const reviewCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM legal_source_reviews
+      WHERE legal_source_id = ?
+    `).get("law-tax-code").count;
+    const reviewedEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE event_type IN (?, ?)
+        AND subject_id = ?
+    `).get("legal.source.reviewed", "legal.source.review.blocked", "law-tax-code").count;
+    const reviewAuditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type IN (?, ?)
+    `).get("legal.source.reviewed", "legal.source.review.blocked").count;
+
+    const sourceBefore = sourceRow();
+    const reviewCountBefore = reviewCount();
+    const reviewedEventCountBefore = reviewedEventCount();
+    const reviewAuditCountBefore = reviewAuditCount();
+    const basePayload = {
+      title: "RA Tax Code Article 63 VAT rate - accountant reviewed",
+      sourceUrl: "https://www.arlis.am/hy/acts/224990?reviewed=2026-05-26",
+      effectiveDate: "2026-05-26",
+      status: "active",
+      reviewNote: "Accountant confirmed this official source for VAT guidance."
+    };
+    const malformedPayloads = [
+      { ...basePayload, title: { value: "RA Tax Code", token: "secret-legal-review-object-title-token" } },
+      { ...basePayload, title: "RA Tax\nsecret-legal-review-control-title-token" },
+      { ...basePayload, title: "bad" },
+      { ...basePayload, title: `${"T".repeat(241)}secret-legal-review-long-title-token` },
+      { ...basePayload, sourceUrl: ["https://www.arlis.am/hy/acts/224990"] },
+      { ...basePayload, sourceUrl: "https://www.arlis.am/hy/acts/224990\nsecret-legal-review-control-url-token" },
+      { ...basePayload, sourceUrl: "ftp://www.arlis.am/hy/acts/224990" },
+      { ...basePayload, effectiveDate: ["2026-05-26"] },
+      { ...basePayload, effectiveDate: "2026-05-26\nsecret-legal-review-control-date-token" },
+      { ...basePayload, effectiveDate: "2026-02-30" },
+      { ...basePayload, status: { value: "active", token: "secret-legal-review-object-status-token" } },
+      { ...basePayload, status: "active\nsecret-legal-review-control-status-token" },
+      { ...basePayload, status: "ghost-secret-legal-review-status-token" },
+      { ...basePayload, reviewNote: { value: "Confirmed", token: "secret-legal-review-object-note-token" } },
+      { ...basePayload, reviewNote: "short" },
+      { ...basePayload, reviewNote: "Confirmed\nsecret-legal-review-control-note-token" },
+      { ...basePayload, reviewNote: `${"N".repeat(2001)}secret-legal-review-long-note-token` },
+      ["secret-legal-review-array-body-token"]
+    ];
+
+    const rejectedMissingBody = await app.inject({
+      method: "POST",
+      url: "/api/legal/sources/law-tax-code/reviews",
+      headers: { cookie }
+    });
+    assert.equal(rejectedMissingBody.statusCode, 400, rejectedMissingBody.body);
+
+    const rejectedNull = await app.inject({
+      method: "POST",
+      url: "/api/legal/sources/law-tax-code/reviews",
+      headers: { cookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
+
+    for (const payload of malformedPayloads) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/legal/sources/law-tax-code/reviews",
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-legal-review-/);
+    }
+
+    assert.deepEqual(sourceRow(), sourceBefore);
+    assert.equal(reviewCount(), reviewCountBefore);
+    assert.equal(reviewedEventCount(), reviewedEventCountBefore);
+    assert.equal(reviewAuditCount(), reviewAuditCountBefore);
+
+    const accepted = await app.inject({
+      method: "POST",
+      url: "/api/legal/sources/law-tax-code/reviews",
+      headers: { cookie },
+      payload: basePayload
+    });
+    assert.equal(accepted.statusCode, 200, accepted.body);
+    assert.equal(accepted.json().source.status, "active");
+    assert.equal(accepted.json().review.reviewNote, basePayload.reviewNote);
+  });
+});
+
 test("legal source review keeps reviewed URLs on the existing source host", async () => {
   await withApp(async app => {
     const cookie = await login(app);

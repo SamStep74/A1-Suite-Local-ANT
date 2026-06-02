@@ -3902,7 +3902,7 @@ ${controls}
   app.post("/api/legal/sources/:id/reviews", async request => {
     const user = await app.auth(request);
     requireLegalSourceReviewer(user, request.params.id);
-    const result = createLegalSourceReview(db, user, request.params.id, request.body || {});
+    const result = createLegalSourceReview(db, user, request.params.id, request.body === undefined ? {} : request.body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8) };
   });
 
@@ -44866,16 +44866,7 @@ function createLegalSourceReview(db, user, sourceId, body) {
     throw err;
   }
 
-  const status = normalizeChoice(body.status, ["active", "needs-accountant-review", "needs-lawyer-review", "superseded", "archived"], "");
-  const effectiveDate = String(body.effectiveDate || current.effective_date || "").trim();
-  const sourceUrl = String(body.sourceUrl || current.source_url || "").trim();
-  const title = String(body.title || current.title || "").trim();
-  const reviewNote = String(body.reviewNote || "").trim();
-  if (!status || !/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate) || !isValidHttpUrl(sourceUrl) || title.length < 4 || reviewNote.length < 8) {
-    const err = new Error("Legal source review requires status, effective date, URL, title, and review note");
-    err.statusCode = 400;
-    throw err;
-  }
+  const { status, effectiveDate, sourceUrl, title, reviewNote } = normalizeLegalSourceReviewBody(current, body);
   if (hasSourceUrlCredentials(sourceUrl)) {
     recordLegalSourceReviewBlock(db, user, current, sourceUrl, status, effectiveDate, "url-credentials");
     const err = new Error("Legal source review URL must not include credentials");
@@ -44932,6 +44923,118 @@ function createLegalSourceReview(db, user, sourceId, body) {
     source: getLegalSource(db, user.org_id, current.id),
     review: getLegalSourceReview(db, user.org_id, reviewId)
   };
+}
+
+function normalizeLegalSourceReviewBody(current, body) {
+  if (!isPlainObject(body)) {
+    throwInvalidLegalSourceReview();
+  }
+  const status = normalizeLegalSourceReviewStatus(body, "status");
+  const effectiveDate = normalizeLegalSourceReviewDate(body, "effectiveDate", current.effective_date);
+  const sourceUrl = normalizeLegalSourceReviewUrl(body, "sourceUrl", current.source_url);
+  const title = normalizeLegalSourceReviewText(body, "title", {
+    fallback: current.title,
+    minLength: 4,
+    maxLength: 240
+  });
+  const reviewNote = normalizeLegalSourceReviewText(body, "reviewNote", {
+    required: true,
+    minLength: 8,
+    maxLength: 2000
+  });
+  return { status, effectiveDate, sourceUrl, title, reviewNote };
+}
+
+function normalizeLegalSourceReviewStatus(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    throwInvalidLegalSourceReview();
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidLegalSourceReview();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidLegalSourceReview();
+  }
+  const status = value.trim();
+  if (!["active", "needs-accountant-review", "needs-lawyer-review", "superseded", "archived"].includes(status)) {
+    throwInvalidLegalSourceReview();
+  }
+  return status;
+}
+
+function normalizeLegalSourceReviewDate(body, field, fallback) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    const date = String(fallback || "").trim();
+    if (!isExactIsoDate(date)) {
+      throwInvalidLegalSourceReview();
+    }
+    return date;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidLegalSourceReview();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidLegalSourceReview();
+  }
+  const date = value.trim();
+  if (!isExactIsoDate(date)) {
+    throwInvalidLegalSourceReview();
+  }
+  return date;
+}
+
+function normalizeLegalSourceReviewUrl(body, field, fallback) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    const url = String(fallback || "").trim();
+    if (!isValidHttpUrl(url)) {
+      throwInvalidLegalSourceReview();
+    }
+    return url;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidLegalSourceReview();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidLegalSourceReview();
+  }
+  const url = value.trim();
+  if (!isValidHttpUrl(url)) {
+    throwInvalidLegalSourceReview();
+  }
+  return url;
+}
+
+function normalizeLegalSourceReviewText(body, field, options = {}) {
+  const { fallback = "", required = false, minLength = 0, maxLength = 2000 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidLegalSourceReview();
+    const text = String(fallback || "").trim();
+    if (text.length < minLength || text.length > maxLength || /[\x00-\x1f\x7f]/.test(text)) {
+      throwInvalidLegalSourceReview();
+    }
+    return text;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidLegalSourceReview();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidLegalSourceReview();
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidLegalSourceReview();
+  }
+  return text;
+}
+
+function throwInvalidLegalSourceReview() {
+  const err = new Error("Legal source review requires status, effective date, URL, title, and review note");
+  err.statusCode = 400;
+  throw err;
 }
 
 function legalSourceReviewNoteMetadata(reviewNote) {
