@@ -2171,3 +2171,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Forecast categories must remain in the CRM forecast enum, deal titles and next steps reject object/array/control-character/overlong input, and omitted fields still preserve the existing hot-lead/default-title/default-next-step behavior.
 - Rejected malformed conversion requests return `400`, keep submitted payload secrets out of error bodies, leave `customers`, `customer_profiles`, `customer_profile_sources`, `deals`, conversion activities, suite events, audit events, and lead conversion pointers unchanged.
 - Verification for the checkpoint: focused CRM conversion tests = 4 pass; `test/api.test.js` = 200 pass; `npm test` = 398 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 202 - CRM Deal Forecast Metadata Guard
+
+- CRM deal forecast updates now reject missing or non-plain-object request bodies before upserting forecast rows or writing suite/audit evidence.
+- Submitted forecast categories, close dates, and manager notes must be structurally safe before they can become pipeline, Customer 360, or audit evidence.
+- Forecast category remains limited to `pipeline`, `best_case`, `commit`, or `omitted`; close dates must be exact ISO calendar dates; manager notes reject object/array/control-character/overlong input.
+- Rejected malformed forecast updates return `400`, keep submitted payload secrets out of error bodies, leave forecast/suite/audit counts unchanged, and leave an existing forecast row byte-for-byte unchanged.
+- Lead conversion default deal-title generation now keeps no-body conversions valid for CRM or Forms leads with a maximum-length company name by bounding the generated default title to the deal title limit.
+- Verification for the checkpoint: focused CRM conversion/forecast tests = 6 pass; `test/api.test.js` = 201 pass; `npm test` = 399 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

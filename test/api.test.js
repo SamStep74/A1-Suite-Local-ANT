@@ -16121,6 +16121,31 @@ test("CRM lead conversion rejects malformed metadata before persistence", async 
     assert.equal(converted.json().deal.title, "Conversion Guard Clinic onboarding package");
     assert.equal(converted.json().deal.next_step, "Prepare Armenian quote package and confirm HayHashvapah billing details");
     assert.equal(converted.json().activity.forecastCategory, "commit");
+
+    const maxCompanyName = "A".repeat(200);
+    const createdMaxCompany = await app.inject({
+      method: "POST",
+      url: "/api/crm/leads",
+      headers: { cookie },
+      payload: {
+        companyName: maxCompanyName,
+        contactName: "Nare Longname",
+        email: "max-company-conversion@example.am",
+        phone: "+374 91 505050",
+        interest: "Patient retention automation with default conversion title bounds",
+        estimatedValue: 2500000
+      }
+    });
+    assert.equal(createdMaxCompany.statusCode, 200, createdMaxCompany.body);
+    const maxCompanyLead = createdMaxCompany.json().lead;
+    const convertedMaxCompany = await app.inject({
+      method: "POST",
+      url: `/api/crm/leads/${maxCompanyLead.id}/convert`,
+      headers: { cookie }
+    });
+    assert.equal(convertedMaxCompany.statusCode, 200, convertedMaxCompany.body);
+    assert.equal(convertedMaxCompany.json().deal.title, `${"A".repeat(181)} onboarding package`);
+    assert.equal(convertedMaxCompany.json().deal.title.length, 200);
   });
 });
 
@@ -16184,6 +16209,105 @@ test("salesperson can update forecast category and deal health evidence", async 
 
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: ownerCookie } });
     assert.ok(audit.json().events.some(event => event.type === "crm.deal.forecast.updated" && event.details.dealId === "deal-nare-retainer"));
+  });
+});
+
+test("CRM deal forecast rejects malformed metadata before persistence", async () => {
+  await withApp(async app => {
+    const cookie = await login(app, "sales@armosphera.local");
+    const forecastCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM crm_deal_forecasts").get().count;
+    const suiteEventCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+      .get("crm.deal.forecast_updated").count;
+    const auditCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("crm.deal.forecast.updated").count;
+    const forecastRow = () => app.db.prepare("SELECT * FROM crm_deal_forecasts WHERE deal_id = ?")
+      .get("deal-nare-retainer") || null;
+    const basePayload = {
+      forecastCategory: "commit",
+      closeDate: "2026-06-15",
+      managerNote: "Clinic buyer confirmed budget; quote is sent; HayHashvapah invoice handoff must be ready after acceptance."
+    };
+    const malformedPayloads = [
+      { ...basePayload, forecastCategory: { value: "commit", token: "secret-crm-forecast-object-category-token" } },
+      { ...basePayload, forecastCategory: "commit\nsecret-crm-forecast-control-category-token" },
+      { ...basePayload, forecastCategory: "closed_won-secret-crm-forecast-invalid-category-token" },
+      { ...basePayload, closeDate: ["2026-06-15"], payloadSecret: "secret-crm-forecast-array-date-token" },
+      { ...basePayload, closeDate: "2026-06-15\nsecret-crm-forecast-control-date-token" },
+      { ...basePayload, closeDate: "2026-02-30", payloadSecret: "secret-crm-forecast-impossible-date-token" },
+      { ...basePayload, managerNote: { text: "Buyer confirmed", token: "secret-crm-forecast-object-note-token" } },
+      { ...basePayload, managerNote: "too short", payloadSecret: "secret-crm-forecast-short-note-token" },
+      { ...basePayload, managerNote: "Buyer confirmed\nsecret-crm-forecast-control-note-token" },
+      { ...basePayload, managerNote: `${"N".repeat(1001)}secret-crm-forecast-long-note-token` },
+      ["secret-crm-forecast-array-body-token"]
+    ];
+
+    const rejectedMissingBody = await app.inject({
+      method: "POST",
+      url: "/api/crm/deals/deal-nare-retainer/forecast",
+      headers: { cookie }
+    });
+    assert.equal(rejectedMissingBody.statusCode, 400, rejectedMissingBody.body);
+
+    const rejectedNull = await app.inject({
+      method: "POST",
+      url: "/api/crm/deals/deal-nare-retainer/forecast",
+      headers: { cookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
+
+    for (const payload of malformedPayloads) {
+      const rejected = await app.inject({
+        method: "POST",
+        url: "/api/crm/deals/deal-nare-retainer/forecast",
+        headers: { cookie },
+        payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-crm-forecast-/);
+    }
+
+    assert.equal(forecastRow(), null);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM crm_deal_forecasts").get().count, forecastCountBefore);
+    assert.equal(
+      app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.deal.forecast_updated").count,
+      suiteEventCountBefore
+    );
+    assert.equal(
+      app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("crm.deal.forecast.updated").count,
+      auditCountBefore
+    );
+
+    const valid = await app.inject({
+      method: "POST",
+      url: "/api/crm/deals/deal-nare-retainer/forecast",
+      headers: { cookie },
+      payload: { ...basePayload, forecastCategory: "omitted" }
+    });
+    assert.equal(valid.statusCode, 200, valid.body);
+    assert.equal(valid.json().dealForecast.forecastCategory, "omitted");
+    const persistedForecast = forecastRow();
+    const suiteEventCountAfterValid = app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
+      .get("crm.deal.forecast_updated").count;
+    const auditCountAfterValid = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
+      .get("crm.deal.forecast.updated").count;
+    const rejectedExistingUpdate = await app.inject({
+      method: "POST",
+      url: "/api/crm/deals/deal-nare-retainer/forecast",
+      headers: { cookie },
+      payload: { ...basePayload, managerNote: ["secret-crm-forecast-existing-row-token"] }
+    });
+    assert.equal(rejectedExistingUpdate.statusCode, 400, rejectedExistingUpdate.body);
+    assert.doesNotMatch(rejectedExistingUpdate.body, /secret-crm-forecast-/);
+    assert.deepEqual(forecastRow(), persistedForecast);
+    assert.equal(
+      app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.deal.forecast_updated").count,
+      suiteEventCountAfterValid
+    );
+    assert.equal(
+      app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("crm.deal.forecast.updated").count,
+      auditCountAfterValid
+    );
   });
 });
 

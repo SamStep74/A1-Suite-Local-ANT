@@ -2127,7 +2127,7 @@ function registerApi(app, db, options = {}) {
   app.post("/api/crm/deals/:id/forecast", async request => {
     const user = await app.auth(request);
     requireCrmEditor(user);
-    const dealForecast = updateCrmDealForecast(db, user, request.params.id, request.body || {});
+    const dealForecast = updateCrmDealForecast(db, user, request.params.id, request.body);
     return { ok: true, dealForecast, forecast: getCrmForecastSummary(db, user.org_id, user) };
   });
 
@@ -42729,14 +42729,7 @@ function updateCrmDealForecast(db, user, dealId, body) {
     err.statusCode = 404;
     throw err;
   }
-  const forecastCategory = normalizeChoice(body.forecastCategory, ["pipeline", "best_case", "commit", "omitted"], "");
-  const closeDate = String(body.closeDate || "").trim();
-  const managerNote = String(body.managerNote || "").trim();
-  if (!forecastCategory || !/^\d{4}-\d{2}-\d{2}$/.test(closeDate) || managerNote.length < 10) {
-    const err = new Error("Forecast category, close date, and manager note are required");
-    err.statusCode = 400;
-    throw err;
-  }
+  const { forecastCategory, closeDate, managerNote } = normalizeCrmDealForecastInput(body);
   const weightedValue = Math.round(Number(deal.value || 0) * Number(deal.probability || 0) / 100);
   const health = calculateDealHealth(db, user.org_id, deal, { forecastCategory, closeDate, managerNote });
   const now = new Date().toISOString();
@@ -42793,6 +42786,60 @@ function updateCrmDealForecast(db, user, dealId, body) {
     healthStatus: health.status
   });
   return getCrmDealForecast(db, user.org_id, deal.id);
+}
+
+function normalizeCrmDealForecastInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidCrmDealForecastMetadata();
+  }
+  return {
+    forecastCategory: normalizeCrmDealForecastChoice(body, "forecastCategory", ["pipeline", "best_case", "commit", "omitted"]),
+    closeDate: normalizeCrmDealForecastDate(body, "closeDate"),
+    managerNote: normalizeCrmDealForecastText(body, "managerNote", { minLength: 10, maxLength: 1000 })
+  };
+}
+
+function normalizeCrmDealForecastChoice(body, field, choices) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "" || value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmDealForecastMetadata("Forecast category, close date, and manager note are required");
+  }
+  const text = value.trim();
+  if (!choices.includes(text)) {
+    throwInvalidCrmDealForecastMetadata("Forecast category, close date, and manager note are required");
+  }
+  return text;
+}
+
+function normalizeCrmDealForecastDate(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "" || value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmDealForecastMetadata("Forecast category, close date, and manager note are required");
+  }
+  const text = value.trim();
+  if (!isExactIsoDate(text)) {
+    throwInvalidCrmDealForecastMetadata("Forecast category, close date, and manager note are required");
+  }
+  return text;
+}
+
+function normalizeCrmDealForecastText(body, field, options = {}) {
+  const { minLength = 0, maxLength = 1000 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "" || value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmDealForecastMetadata("Forecast category, close date, and manager note are required");
+  }
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) {
+    throwInvalidCrmDealForecastMetadata("Forecast category, close date, and manager note are required");
+  }
+  return text;
+}
+
+function throwInvalidCrmDealForecastMetadata(message = "Deal forecast requires safe metadata") {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
 }
 
 function calculateDealHealth(db, orgId, deal, forecast) {
@@ -43107,7 +43154,7 @@ function normalizeCrmLeadConversionInput(body, lead) {
   return {
     forecastCategory: normalizeCrmLeadConversionChoice(input, "forecastCategory", ["pipeline", "best_case", "commit"], defaultForecastCategory),
     dealTitle: normalizeCrmLeadConversionText(input, "dealTitle", {
-      fallback: `${lead.companyName} onboarding package`,
+      fallback: buildCrmLeadConversionDefaultDealTitle(lead),
       minLength: 2,
       maxLength: 200
     }),
@@ -43117,6 +43164,16 @@ function normalizeCrmLeadConversionInput(body, lead) {
       maxLength: 500
     })
   };
+}
+
+function buildCrmLeadConversionDefaultDealTitle(lead) {
+  const suffix = " onboarding package";
+  const maxLength = 200;
+  const companyName = String(lead.companyName || "").trim();
+  const title = `${companyName}${suffix}`;
+  if (title.length <= maxLength) return title;
+  const companyNameBudget = Math.max(0, maxLength - suffix.length);
+  return `${companyName.slice(0, companyNameBudget).trimEnd()}${suffix}`;
 }
 
 function normalizeCrmLeadConversionChoice(body, field, choices, fallback) {
