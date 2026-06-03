@@ -468,7 +468,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/pilots/clinic-wellness/remediation-actions/:actionKey/resolve", async request => {
     const user = await app.auth(request);
     requirePilotRemediationResolutionReader(user);
-    return resolveClinicWellnessRemediationAction(db, user, request.params.actionKey, request.body || {});
+    const actionKey = normalizeClinicPilotActionKey(request.params.actionKey);
+    return resolveClinicWellnessRemediationAction(db, user, actionKey, request.body || {});
   });
 
   app.get("/api/pilots/clinic-wellness/launch-clearance", async request => {
@@ -52487,6 +52488,23 @@ function normalizeClinicPilotListQueryText(query, field, options = {}) {
 
 function throwInvalidClinicPilotListQuery() {
   const err = new Error("Invalid clinic pilot list query");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeClinicPilotActionKey(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidClinicPilotActionKey();
+  }
+  const key = value.trim();
+  if (!key || key.length > 160 || !/^[a-z0-9-]+$/.test(key)) {
+    throwInvalidClinicPilotActionKey();
+  }
+  return key;
+}
+
+function throwInvalidClinicPilotActionKey() {
+  const err = new Error("Invalid clinic pilot action key");
   err.statusCode = 400;
   throw err;
 }

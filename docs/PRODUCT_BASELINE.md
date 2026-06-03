@@ -2544,3 +2544,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Safe unknown document template IDs still preserve the existing `404` behavior, and valid template IDs continue generating draft documents from declared variables.
 - Rejected malformed document template ID requests return `400`, keep submitted path/body secrets out of error bodies, and valid template generation, document draft creation, and audit behavior remains unchanged.
 - Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/docs-templates.test.js` pass; `git diff --check` pass; focused Docs template tests (`node --test test/docs-templates.test.js`) = 5 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-document-template-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
+
+### Slice 243 - Clinic Remediation Action Key Guard
+
+- Clinic/wellness remediation action resolution mutations now reject malformed action path keys before remediation action lookup.
+- Submitted action keys must be structurally safe before they can become remediation resolution lookup or audit inputs.
+- Clinic remediation action keys must be lowercase alphanumeric/hyphen strings; control-character strings, empty values, overlong values, or unsafe characters are rejected instead of being treated as missing remediation actions.
+- Safe unknown action keys still preserve the existing `404` behavior, and valid assigned-role action resolutions continue returning remediation evidence packets.
+- Rejected malformed remediation action key requests return `400`, keep submitted path/body secrets out of error bodies, and valid remediation resolution, backup, and audit behavior remains unchanged.
+- Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic remediation action test (`assigned roles can resolve clinic launch remediation actions with evidence`) = 1 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-action-key-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).

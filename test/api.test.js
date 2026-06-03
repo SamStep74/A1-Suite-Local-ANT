@@ -3152,6 +3152,32 @@ test("assigned roles can resolve clinic launch remediation actions with evidence
     });
     assert.equal(operatorDenied.statusCode, 403);
 
+    const malformedActionKey = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/remediation-actions/resolve-accountant-review%0Asecret-clinic-action-key-token/resolve",
+      headers: { cookie: accountantCookie },
+      payload: {
+        planId: plan.id,
+        evidenceType: "accountant-review-note",
+        evidence: "secret-clinic-action-evidence-token"
+      }
+    });
+    assert.equal(malformedActionKey.statusCode, 400, malformedActionKey.body);
+    assert.match(malformedActionKey.body, /Invalid clinic pilot action key/);
+    assert.doesNotMatch(malformedActionKey.body, /secret-clinic-action-key-token|secret-clinic-action-evidence-token/);
+
+    const unknownSafeActionKey = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/remediation-actions/safe-unknown-action/resolve",
+      headers: { cookie: accountantCookie },
+      payload: {
+        planId: plan.id,
+        evidenceType: "accountant-review-note",
+        evidence: "Safe unknown action key should preserve 404 behavior."
+      }
+    });
+    assert.equal(unknownSafeActionKey.statusCode, 404, unknownSafeActionKey.body);
+
     const accountantResolved = await app.inject({
       method: "POST",
       url: "/api/pilots/clinic-wellness/remediation-actions/resolve-accountant-review/resolve",
