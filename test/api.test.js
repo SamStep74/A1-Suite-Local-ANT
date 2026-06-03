@@ -546,6 +546,24 @@ test("privileged users can enable MFA and must satisfy challenge before session 
     assert.match(enrollment.setup.manualSetupKey, /^[A-Z2-7]{32}$/);
     assert.ok(enrollment.setup.otpauthUrl.includes("Armosphera%20One"));
 
+    const malformedVerifyBody = await app.inject({
+      method: "POST",
+      url: "/api/security/mfa/verify-enrollment",
+      headers: { cookie: ownerCookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.equal(malformedVerifyBody.statusCode, 400);
+    assert.equal(malformedVerifyBody.json().message, "MFA verification requires safe metadata");
+
+    const malformedVerifyFields = await app.inject({
+      method: "POST",
+      url: "/api/security/mfa/verify-enrollment",
+      headers: { cookie: ownerCookie },
+      payload: { factorId: { id: enrollment.factor.id }, code: { value: "000000" } }
+    });
+    assert.equal(malformedVerifyFields.statusCode, 400);
+    assert.equal(malformedVerifyFields.json().message, "MFA verification requires safe metadata");
+
     const badVerify = await app.inject({
       method: "POST",
       url: "/api/security/mfa/verify-enrollment",

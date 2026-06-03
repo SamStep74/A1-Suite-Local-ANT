@@ -326,7 +326,7 @@ function registerApi(app, db, options = {}) {
   app.post("/api/security/mfa/verify-enrollment", async request => {
     const user = await app.auth(request);
     requireMfaPrivilegedUser(user);
-    return verifyMfaEnrollment(db, user, request.body || {});
+    return verifyMfaEnrollment(db, user, request.body === undefined ? {} : request.body);
   });
 
   app.get("/api/suite", async request => {
@@ -4255,9 +4255,10 @@ function normalizeMfaEnrollmentBody(body) {
 }
 
 function verifyMfaEnrollment(db, user, body) {
-  const factorId = String(body.factorId || "").trim();
+  const input = normalizeMfaVerificationBody(body);
+  const factorId = input.factorId;
   const factor = getMfaFactor(db, user.org_id, user.id, factorId, true);
-  if (!factor || factor.status !== "pending" || !verifyTotpCode(factor.secretBase32, body.code)) {
+  if (!factor || factor.status !== "pending" || !verifyTotpCode(factor.secretBase32, input.code)) {
     audit(db, user.org_id, user.id, "security.mfa.verify_failed", { factorId });
     const err = new Error("Invalid MFA verification code");
     err.statusCode = 401;
@@ -4276,6 +4277,29 @@ function verifyMfaEnrollment(db, user, body) {
     factor: getMfaFactor(db, user.org_id, user.id, factor.id),
     mfa: getMfaStatus(db, user).mfa
   };
+}
+
+function normalizeMfaVerificationBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidMfaVerificationRequest();
+  }
+  const factorIdValue = Object.prototype.hasOwnProperty.call(body, "factorId") ? body.factorId : "";
+  const codeValue = Object.prototype.hasOwnProperty.call(body, "code") ? body.code : "";
+  if (typeof factorIdValue !== "string" || typeof codeValue !== "string") {
+    throwInvalidMfaVerificationRequest();
+  }
+  const factorId = factorIdValue.trim();
+  const code = codeValue.replace(/\s+/g, "");
+  if (/[\x00-\x1f\x7f]/.test(factorId) || factorId.length > 160 || /[\x00-\x1f\x7f]/.test(code) || code.length > 32) {
+    throwInvalidMfaVerificationRequest();
+  }
+  return { factorId, code };
+}
+
+function throwInvalidMfaVerificationRequest() {
+  const err = new Error("MFA verification requires safe metadata");
+  err.statusCode = 400;
+  throw err;
 }
 
 function revokePasswordOnlySessionsAfterMfaEnrollment(db, user) {
