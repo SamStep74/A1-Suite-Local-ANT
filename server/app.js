@@ -320,7 +320,7 @@ function registerApi(app, db, options = {}) {
   app.post("/api/security/mfa/enroll", async request => {
     const user = await app.auth(request);
     requireMfaPrivilegedUser(user);
-    return createMfaEnrollment(db, user, request.body || {});
+    return createMfaEnrollment(db, user, request.body === undefined ? {} : request.body);
   });
 
   app.post("/api/security/mfa/verify-enrollment", async request => {
@@ -4203,8 +4203,9 @@ function getMfaStatus(db, user) {
 }
 
 function createMfaEnrollment(db, user, body) {
+  const input = normalizeMfaEnrollmentBody(body);
   const now = new Date().toISOString();
-  const label = String(body.label || "Authenticator app").trim().slice(0, 80) || "Authenticator app";
+  const label = input.label;
   const factorId = randomId("mfa-factor");
   const secretBase32 = base32Encode(crypto.randomBytes(20));
   db.prepare(`
@@ -4235,6 +4236,22 @@ function createMfaEnrollment(db, user, body) {
       otpauthUrl: mfaOtpAuthUrl(user, secretBase32)
     }
   };
+}
+
+function normalizeMfaEnrollmentBody(body) {
+  if (!isPlainObject(body)) {
+    const err = new Error("MFA enrollment body must be an object");
+    err.statusCode = 400;
+    throw err;
+  }
+  if (body.label === undefined) return { label: "Authenticator app" };
+  if (typeof body.label !== "string") {
+    const err = new Error("MFA enrollment label must be a string");
+    err.statusCode = 400;
+    throw err;
+  }
+  const label = body.label.trim().slice(0, 80) || "Authenticator app";
+  return { label };
 }
 
 function verifyMfaEnrollment(db, user, body) {

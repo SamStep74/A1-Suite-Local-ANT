@@ -493,10 +493,45 @@ test("privileged users can enable MFA and must satisfy challenge before session 
     });
     assert.equal(supportDenied.statusCode, 403);
 
+    const nullBodyDenied = await app.inject({
+      method: "POST",
+      url: "/api/security/mfa/enroll",
+      headers: { cookie: ownerCookie, "content-type": "application/json" },
+      payload: "null"
+    });
+    assert.equal(nullBodyDenied.statusCode, 400);
+    assert.equal(nullBodyDenied.json().message, "MFA enrollment body must be an object");
+
+    const objectLabelDenied = await app.inject({
+      method: "POST",
+      url: "/api/security/mfa/enroll",
+      headers: { cookie: ownerCookie },
+      payload: { label: { text: "Owner authenticator app" } }
+    });
+    assert.equal(objectLabelDenied.statusCode, 400);
+    assert.equal(objectLabelDenied.json().message, "MFA enrollment label must be a string");
+
+    const nullLabelDenied = await app.inject({
+      method: "POST",
+      url: "/api/security/mfa/enroll",
+      headers: { cookie: ownerCookie },
+      payload: { label: null }
+    });
+    assert.equal(nullLabelDenied.statusCode, 400);
+    assert.equal(nullLabelDenied.json().message, "MFA enrollment label must be a string");
+
+    const defaultLabelEnrollment = await app.inject({
+      method: "POST",
+      url: "/api/security/mfa/enroll",
+      headers: { cookie: ownerCookie }
+    });
+    assert.equal(defaultLabelEnrollment.statusCode, 200, defaultLabelEnrollment.body);
+    assert.equal(defaultLabelEnrollment.json().factor.label, "Authenticator app");
+
     const before = await app.inject({ method: "GET", url: "/api/security/mfa", headers: { cookie: ownerCookie } });
     assert.equal(before.statusCode, 200, before.body);
     assert.equal(before.json().mfaRequiredForRole, true);
-    assert.equal(before.json().factors.length, 0);
+    assert.equal(before.json().factors.length, 1);
 
     const enrolled = await app.inject({
       method: "POST",
