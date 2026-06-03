@@ -1225,6 +1225,53 @@ test("owner can configure integration connector contracts without rebuilding com
   });
 });
 
+test("integration connector rejects malformed path keys before mutation", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const auditCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type IN (?, ?)")
+      .get("integration.connector.configured", "integration.connector.health_checked").count;
+
+    const malformedConfigure = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/whatsapp-business%0Asecret-connector-key-token/configure",
+      headers: { cookie },
+      payload: {
+        status: "connected",
+        environment: "sandbox",
+        endpointUrl: "https://graph.facebook.com/v20.0",
+        secret: "whsec-malformed-key",
+        scopes: ["messages.read", "messages.write"],
+        ownerRole: "Admin"
+      }
+    });
+    assert.equal(malformedConfigure.statusCode, 400, malformedConfigure.body);
+    assert.match(malformedConfigure.body, /Invalid integration connector key/);
+    assert.doesNotMatch(malformedConfigure.body, /secret-connector-key-token|whsec-malformed-key/);
+
+    const malformedHealth = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/telegram-bot%0Asecret-connector-key-health-token/health-check",
+      headers: { cookie },
+      payload: { note: "Malformed key should not create health evidence." }
+    });
+    assert.equal(malformedHealth.statusCode, 400, malformedHealth.body);
+    assert.match(malformedHealth.body, /Invalid integration connector key/);
+    assert.doesNotMatch(malformedHealth.body, /secret-connector-key-health-token/);
+
+    const unknownSafe = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/unknown-connector/configure",
+      headers: { cookie },
+      payload: { status: "connected" }
+    });
+    assert.equal(unknownSafe.statusCode, 404, unknownSafe.body);
+
+    const auditCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type IN (?, ?)")
+      .get("integration.connector.configured", "integration.connector.health_checked").count;
+    assert.equal(auditCountAfter, auditCountBefore);
+  });
+});
+
 test("integration connector rejects unknown owner roles before mutation", async () => {
   await withApp(async app => {
     const cookie = await login(app);

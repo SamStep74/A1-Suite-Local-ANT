@@ -7814,8 +7814,25 @@ function sanitizeIntegrationConnectorStringList(value) {
 }
 
 function getIntegrationConnectorDefinition(connectorKey) {
-  const key = String(connectorKey || "").trim();
+  const key = normalizeIntegrationConnectorKey(connectorKey);
   return INTEGRATION_CONNECTOR_DEFINITIONS.find(definition => definition.connectorKey === key);
+}
+
+function normalizeIntegrationConnectorKey(connectorKey) {
+  if (typeof connectorKey !== "string" || /[\x00-\x1f\x7f]/.test(connectorKey)) {
+    throwInvalidIntegrationConnectorKey();
+  }
+  const key = connectorKey.trim();
+  if (!key || key.length > 120 || !/^[a-z0-9-]+$/.test(key)) {
+    throwInvalidIntegrationConnectorKey();
+  }
+  return key;
+}
+
+function throwInvalidIntegrationConnectorKey() {
+  const err = new Error("Invalid integration connector key");
+  err.statusCode = 400;
+  throw err;
 }
 
 function normalizeStringList(value, fallback = []) {

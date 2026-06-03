@@ -2490,3 +2490,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted limits still preserve the existing default page size, and valid oversized limits continue being capped to the existing maximum of 100.
 - Rejected malformed event feed limit queries return `400`, keep submitted payload secrets out of error bodies, and valid event feed and audit behavior remains unchanged.
 - Verification for the checkpoint: focused event-feed query test = 1 pass, including malformed, secret-bearing, and capped valid `limit` behavior; `npm test` = 464 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
+
+### Slice 237 - Integration Connector Key Guard
+
+- Integration connector configure and health-check mutations now reject malformed connector path keys before resolving connector definitions.
+- Submitted connector keys must be structurally safe before they can become connector lookup or audit evidence inputs.
+- Connector keys must be lowercase alphanumeric/hyphen strings; control-character strings, empty values, overlong values, or unsafe characters are rejected instead of being treated as missing connectors.
+- Safe unknown connector keys still preserve the existing `404` behavior, and valid connector keys continue configuring and health-checking supported integration connectors.
+- Rejected malformed connector-key mutations return `400`, keep submitted key/secret payloads out of error bodies, and valid connector configuration, health-check, backup, and audit behavior remains unchanged.
+- Verification for the checkpoint: focused connector configure/key tests = 2 pass, including malformed configure and health-check path keys plus valid connector behavior; `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
