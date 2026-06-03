@@ -46,6 +46,12 @@ test("suite route helpers normalize app id casing and surrounding whitespace", (
   assert.equal(appIdFromLocation("/app/%20copilot%20"), "copilot");
 });
 
+test("appRoute emits canonical suite app paths", () => {
+  assert.equal(appRoute(" Finance "), "/app/finance");
+  assert.equal(appRoute("hayhashvapah"), "/app/finance");
+  assert.equal(appRoute("legacy"), "/app/crm");
+});
+
 test("suite route helpers normalize explicit aliases before assignment", () => {
   assert.equal(normalizeSuiteAppId("forms", ["forms"]), "campaigns");
   assert.deepEqual(normalizeSuiteAppIds(["forms"]), ["campaigns"]);

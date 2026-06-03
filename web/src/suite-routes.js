@@ -56,5 +56,5 @@ export function appIdFromLocation(pathname = window.location.pathname) {
 }
 
 export function appRoute(appId) {
-  return `/app/${encodeURIComponent(appId)}`;
+  return `/app/${encodeURIComponent(normalizeSuiteAppId(appId))}`;
 }
