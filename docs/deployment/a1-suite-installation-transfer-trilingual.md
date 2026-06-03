@@ -226,6 +226,8 @@ Option B: small VPS gateway -> WireGuard/Tailscale -> Mac Studio
 Option C: private data-center server -> reverse proxy -> A1 Suite
 ```
 
+Runtime note: Client/tenant production access should use Linux VM runtime and Docker Engine. Docker Desktop is a macOS/Windows developer desktop app and should not be a client runtime dependency or license condition.
+
 Do not publish the A1 Suite process directly on a public IP.
 
 ## 6. Tenant/client isolation model
@@ -626,6 +628,8 @@ PORT=4100 npm run install:server
 Вариант B: small VPS gateway -> WireGuard/Tailscale -> Mac Studio
 Вариант C: private data-center server -> reverse proxy -> A1 Suite
 ```
+
+Примечание по runtime: продакшн/tenant доступ должен идти через Linux VM с Docker Engine. Docker Desktop — desktop-продукт для macOS/Windows и не должен рассматриваться как зависимость рантайма для клиента и его лицензирования.
 
 Не публикуйте A1 Suite process напрямую на public IP.
 
@@ -1028,6 +1032,8 @@ client browser
 Տարբերակ C: private data-center server -> reverse proxy -> A1 Suite
 ```
 
+Runtime note: մուտք հասանելիությունը պետք է կատարվի Linux VM և Docker Engine միջավայրում: Docker Desktop-ը հատուկ macOS/Windows դեսքթոփ միջավայրի գործիք է և չի պետք դիտել որպես տենանտի ռելիզի կախվածություն կամ լիցենզավորման պահանջ։
+
 A1 Suite process-ը ուղիղ public IP-ի վրա մի հրապարակեք։
 
 ## 6. Client / tenant isolation
@@ -1249,4 +1255,3 @@ Restore test կատարվում է ամեն ամիս։
 Secrets չեն commit արվում GitHub-ում։
 Outbound network-ը մնում է անջատված, եթե explicit անհրաժեշտություն չկա։
 ```
-
