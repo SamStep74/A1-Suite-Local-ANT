@@ -15,6 +15,11 @@ test("computeDataDir honors explicit override", () => {
   assert.strictEqual(dir, "/tmp/aoc-x");
 });
 
+test("computeDataDir honors A1_STUDIO_DATA_DIR", () => {
+  const dir = config.computeDataDir({ A1_STUDIO_DATA_DIR: "/tmp/a1-studio-x" });
+  assert.strictEqual(dir, "/tmp/a1-studio-x");
+});
+
 test("computeDataDir resolves per-platform app-support locations", () => {
   const mac = config.computeDataDir({}, "darwin", "/Users/demo");
   assert.strictEqual(mac, "/Users/demo/Library/Application Support/ArmospheraOneClaude");
@@ -29,6 +34,18 @@ test("resolveDbPath honors ARMOSPHERA_ONE_DB", () => {
   process.env.ARMOSPHERA_ONE_DB = "/tmp/aoc.db";
   try { assert.strictEqual(config.resolveDbPath(), "/tmp/aoc.db"); }
   finally { if (prev === undefined) delete process.env.ARMOSPHERA_ONE_DB; else process.env.ARMOSPHERA_ONE_DB = prev; }
+});
+
+test("resolveDbPath prioritizes A1_STUDIO_SQLITE", () => {
+  const prevLegacy = process.env.ARMOSPHERA_ONE_DB;
+  const prevStudio = process.env.A1_STUDIO_SQLITE;
+  process.env.A1_STUDIO_SQLITE = "/tmp/a1-studio.db";
+  process.env.ARMOSPHERA_ONE_DB = "/tmp/legacy.db";
+  try { assert.strictEqual(config.resolveDbPath(), "/tmp/a1-studio.db"); }
+  finally {
+    if (prevLegacy === undefined) delete process.env.ARMOSPHERA_ONE_DB; else process.env.ARMOSPHERA_ONE_DB = prevLegacy;
+    if (prevStudio === undefined) delete process.env.A1_STUDIO_SQLITE; else process.env.A1_STUDIO_SQLITE = prevStudio;
+  }
 });
 
 test("resolveDataDir creates the directory", () => {

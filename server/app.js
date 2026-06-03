@@ -134,7 +134,7 @@ const {
 function buildApp(options = {}) {
   const env = options.env || process.env;
   const fetchImpl = options.fetch || globalThis.fetch;
-  const db = options.db || openDatabase(options.dbPath || env.ARMOSPHERA_ONE_DB);
+  const db = options.db || openDatabase(options.dbPath || env.A1_STUDIO_SQLITE || env.ARMOSPHERA_ONE_DB);
   const app = fastify({ logger: options.logger ?? false });
   const platformTenantCache = new Map();
 
