@@ -50,6 +50,12 @@ test("normalizeSuiteAppIds de-duplicates alias collapse", () => {
   assert.deepEqual(normalized, ["campaigns", "crm"]);
 });
 
+test("normalizeSuiteAppIds rejects stale invalid assignment ids", () => {
+  assert.equal(normalizeSuiteAppId("legacy", ["legacy", "forms", "finance"]), "campaigns");
+  assert.deepEqual(normalizeSuiteAppIds(["legacy", "forms", "finance"]), ["campaigns", "finance"]);
+  assert.deepEqual(normalizeSuiteAppIds(["legacy"]), ["crm"]);
+});
+
 test("canonical app ids remain from all known suite apps", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   await app.ready();

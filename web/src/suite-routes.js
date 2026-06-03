@@ -5,12 +5,24 @@ export const SUITE_APP_ROUTE_ALIASES = {
   hayhashvapah: "finance"
 };
 
+function canonicalSuiteAppId(appId) {
+  return SUITE_APP_ROUTE_ALIASES[appId] || appId;
+}
+
+function firstCanonicalAssignedAppId(assignedApps) {
+  if (!Array.isArray(assignedApps)) return "";
+  for (const assignedAppId of assignedApps) {
+    const canonical = canonicalSuiteAppId(assignedAppId);
+    if (SUITE_APP_IDS.includes(canonical)) return canonical;
+  }
+  return "";
+}
+
 export function normalizeSuiteAppId(appId, assignedApps = null) {
-  const canonical = SUITE_APP_ROUTE_ALIASES[appId] || appId;
+  const canonical = canonicalSuiteAppId(appId);
   if (SUITE_APP_IDS.includes(canonical)) return canonical;
-  if (Array.isArray(assignedApps) && assignedApps.includes(appId) && SUITE_APP_IDS.includes(appId)) return appId;
   if (assignedApps) {
-    return assignedApps.length && assignedApps[0] ? assignedApps[0] : "crm";
+    return firstCanonicalAssignedAppId(assignedApps) || "crm";
   }
   return "crm";
 }
