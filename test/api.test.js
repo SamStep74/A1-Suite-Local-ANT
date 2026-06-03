@@ -2240,6 +2240,29 @@ test("owner can install clinic wellness pilot template with Armenia-localized pa
     });
     assert.equal(supportInstallDenied.statusCode, 403);
 
+    const installsBeforeBadBody = await app.inject({
+      method: "GET",
+      url: "/api/pilots/templates/clinic-wellness",
+      headers: { cookie: ownerCookie }
+    });
+    const auditBeforeBadBody = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: ownerCookie } });
+    const badBody = await app.inject({
+      method: "POST",
+      url: "/api/pilots/templates/clinic-wellness/install",
+      headers: { cookie: ownerCookie, "content-type": "application/json" },
+      payload: []
+    });
+    const installsAfterBadBody = await app.inject({
+      method: "GET",
+      url: "/api/pilots/templates/clinic-wellness",
+      headers: { cookie: ownerCookie }
+    });
+    const auditAfterBadBody = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: ownerCookie } });
+    assert.equal(badBody.statusCode, 400);
+    assert.equal(badBody.json().message, "Invalid pilot template install");
+    assert.deepEqual(installsAfterBadBody.json().installations, installsBeforeBadBody.json().installations);
+    assert.deepEqual(auditAfterBadBody.json().events, auditBeforeBadBody.json().events);
+
     const installed = await app.inject({
       method: "POST",
       url: "/api/pilots/templates/clinic-wellness/install",
@@ -19201,6 +19224,14 @@ test("analytics semantic metrics expose definitions and drilldowns with role acc
     assert.ok(vat.value >= 1);
     assert.ok(vat.sourceApps.includes("Armenian localization"));
 
+    const datedMetrics = await app.inject({
+      method: "GET",
+      url: "/api/analytics/semantic-metrics?asOf=2026-05-31",
+      headers: { cookie: accountantCookie }
+    });
+    assert.equal(datedMetrics.statusCode, 200, datedMetrics.body);
+    assert.equal(datedMetrics.json().reportDate, "2026-05-31");
+
     const overdueDrilldown = await app.inject({
       method: "GET",
       url: "/api/analytics/semantic-metrics/overdue-exposure/drilldown",
@@ -19236,6 +19267,19 @@ test("analytics semantic metrics expose definitions and drilldowns with role acc
       headers: { cookie: accountantCookie }
     });
     assert.equal(unknown.statusCode, 404);
+
+    const malformedAsOfUrls = [
+      "/api/analytics/receivables-aging?asOf=not-a-date",
+      "/api/analytics/semantic-metrics?asOf=2026-02-30",
+      "/api/analytics/semantic-metrics?asOf=2026-05-31%0Asecret-analytics-query-token",
+      "/api/analytics/semantic-metrics/overdue-exposure/drilldown?asOf=not-a-date"
+    ];
+
+    for (const url of malformedAsOfUrls) {
+      const rejected = await app.inject({ method: "GET", url, headers: { cookie: accountantCookie } });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.equal(rejected.body.includes("secret-analytics-query-token"), false);
+    }
 
     const analytics = await app.inject({ method: "GET", url: "/api/analytics", headers: { cookie: accountantCookie } });
     assert.equal(analytics.statusCode, 200, analytics.body);

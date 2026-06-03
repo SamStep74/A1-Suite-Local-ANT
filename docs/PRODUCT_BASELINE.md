@@ -2311,3 +2311,20 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted query text still returns the existing empty result response, and omitted result limits still preserve the default of 8.
 - Rejected malformed law-search queries return `400`, keep submitted payload secrets out of error bodies, avoid RAG lookup, and valid authenticated Armenian law search plus bounded `k` behavior remain unchanged.
 - Verification for the checkpoint: focused `test/legal-search.test.js` = 2 pass; `npm test` = 426 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 217 - Pilot Template Install Body Guard
+
+- Clinic/wellness pilot template installation now rejects malformed JSON bodies before creating install, suite-event, audit, or backup evidence.
+- Submitted install metadata must be a plain object before any customer/template defaults are resolved.
+- Explicit array, null, or scalar bodies are rejected instead of being coerced into omitted-body demo defaults, while truly omitted bodies still preserve the default `cust-nare` pilot installation path.
+- Rejected malformed pilot install requests return `400`, keep submitted payload secrets out of error bodies, leave template installations unchanged, and write no audit event; valid owner install and support-role denial behavior remain unchanged.
+- Verification for the checkpoint: focused pilot install test = 1 pass; `npm test` = 426 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 218 - Analytics As-Of Query Guard
+
+- Analytics receivables aging, semantic metrics, and semantic metric drilldowns now reject malformed `asOf` query dates before calculating report values.
+- Submitted report dates must be exact ISO calendar dates before they can become analytics report-date context.
+- Invalid date text, impossible calendar dates, and control-character strings are rejected instead of silently falling back to the default report date.
+- Omitted `asOf` values still preserve the existing default report date, and valid dated semantic metrics continue to return the requested `reportDate`.
+- Rejected malformed analytics query requests return `400`, keep submitted payload secrets out of error bodies, and valid analytics semantic metrics, drilldowns, and role-access behavior remain unchanged.
+- Verification for the checkpoint: focused analytics semantic metrics test = 1 pass; `npm test` = 426 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

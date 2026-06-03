@@ -385,7 +385,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/pilots/templates/clinic-wellness/install", async request => {
     const user = await app.auth(request);
     requirePilotTemplateWriter(user);
-    return installClinicWellnessPilotTemplate(db, user, request.body || {});
+    const body = request.body === undefined ? {} : request.body;
+    return installClinicWellnessPilotTemplate(db, user, body);
   });
 
   app.get("/api/pilots/clinic-wellness/owner-briefs", async request => {
@@ -2049,8 +2050,9 @@ function registerApi(app, db, options = {}) {
   app.get("/api/analytics/receivables-aging", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "analytics");
+    const asOf = normalizeAnalyticsAsOfQuery(request.query || {}, DEFAULT_REPORT_DATE);
     return {
-      ...getReceivablesAging(db, user.org_id, "", request.query.asOf || DEFAULT_REPORT_DATE),
+      ...getReceivablesAging(db, user.org_id, "", asOf),
       invoiceOverdueExplanations: canAccessInvoiceOverdueExplanation(user) ? getAiInvoiceOverdueExplanations(db, user.org_id) : []
     };
   });
@@ -2058,13 +2060,13 @@ function registerApi(app, db, options = {}) {
   app.get("/api/analytics/semantic-metrics", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "analytics");
-    return getSemanticMetrics(db, user.org_id, user, request.query.asOf || DEFAULT_REPORT_DATE);
+    return getSemanticMetrics(db, user.org_id, user, normalizeAnalyticsAsOfQuery(request.query || {}, DEFAULT_REPORT_DATE));
   });
 
   app.get("/api/analytics/semantic-metrics/:id/drilldown", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "analytics");
-    return getSemanticMetricDrilldown(db, user.org_id, user, request.params.id, request.query.asOf || DEFAULT_REPORT_DATE);
+    return getSemanticMetricDrilldown(db, user.org_id, user, request.params.id, normalizeAnalyticsAsOfQuery(request.query || {}, DEFAULT_REPORT_DATE));
   });
 
   app.get("/api/analytics/role-dashboard", async request => {
@@ -7852,6 +7854,11 @@ function buildClinicWellnessPilotTemplate(db, orgId) {
 }
 
 function installClinicWellnessPilotTemplate(db, user, body) {
+  if (!isPlainObject(body)) {
+    const err = new Error("Invalid pilot template install");
+    err.statusCode = 400;
+    throw err;
+  }
   const customerId = String(body.customerId || "cust-nare").trim();
   const customer = getCustomerSummary(db, user.org_id, customerId);
   if (!customer) {
@@ -42382,6 +42389,15 @@ function getSemanticMetricSnapshots(db, orgId, query = {}) {
     snapshots,
     series: buildSemanticSnapshotSeries(snapshots)
   };
+}
+
+function normalizeAnalyticsAsOfQuery(query, fallback) {
+  if (!isPlainObject(query)) {
+    throwInvalidAnalyticsMetadata();
+  }
+  const value = Object.prototype.hasOwnProperty.call(query, "asOf") ? query.asOf : undefined;
+  if (value === undefined || value === "") return fallback;
+  return normalizeSnapshotReportDate(value);
 }
 
 function getSemanticMetricSnapshotRows(db, orgId, filters = {}) {

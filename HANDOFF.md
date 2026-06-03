@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-03 · legal law-search query guard · 87 tags · **426 tests (426 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-03 · pilot install and analytics query guards · 87 tags · **426 tests (426 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 97 slices)
+### Hardening (production-readiness pass — 99 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -132,6 +132,8 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 95. **MFA verification metadata guard** rejects non-object enrollment-verification bodies and non-string factor/code values before factor lookup or failed-verification audit, preventing coerced object evidence from entering MFA verification trails.
 96. **Project billing preview query guard** validates preview hourly-rate and as-of query metadata with the same project billing normalizers used by persisted billing, rejecting malformed preview inputs before quote/VAT calculations.
 97. **Legal law-search query guard** validates Armenian legal search query text and result-limit metadata before RAG lookup, rejecting malformed query values instead of coercing objects, control text, overlong prompts, or unsafe limits into search behavior.
+98. **Pilot template install body guard** rejects non-object clinic/wellness pilot install bodies before template installation, suite-event, audit, or backup evidence writes while preserving omitted-body demo defaults.
+99. **Analytics as-of query guard** validates analytics receivables-aging, semantic-metrics, and metric-drilldown as-of query dates before calculation, rejecting malformed dates instead of falling back to the default reporting date.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -179,8 +181,10 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest legal law-search query guard checkpoint: this checkpoint, to be pushed on `codex/suite-dashboard-route-normalization`.
-- Latest legal law-search query guard verification from `~/dev/A1-Suite-Local`: focused `node --test test/legal-search.test.js` = 2 pass, including malformed law-search query text and result-limit values rejected before RAG lookup.
+- Latest pilot install and analytics query guard checkpoint: this checkpoint, to be pushed on `codex/suite-dashboard-route-normalization`.
+- Latest pilot install and analytics query guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "owner can install clinic wellness pilot template|analytics semantic metrics expose definitions and drilldowns" test/api.test.js` = 2 pass, including explicit JSON array pilot-install bodies rejected before install/suite-event/audit/backup evidence writes and malformed analytics as-of query values rejected before analytics calculation.
+- Latest legal law-search query guard checkpoint: `08ecc84` (`Harden legal law-search query validation`), pushed on `codex/suite-dashboard-route-normalization`.
+- Latest legal law-search query guard verification from `~/dev/A1-Suite-Local`: focused `node --test test/legal-search.test.js` = 2 pass, including malformed law-search query text and result-limit values rejected before RAG lookup; full `npm test` = 426 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; offline smoke = pass, apps=10.
 - Latest project billing preview query guard checkpoint: `d6f65f7` (`Validate billing preview query metadata`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest project billing preview query guard verification from `~/dev/A1-Suite-Local`: focused `node --test test/project-billing.test.js` = 5 pass, including malformed billing-preview hourly-rate and as-of query values rejected before quote/VAT calculations; full `npm test` = 425 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; offline smoke = pass, apps=10.
 - Latest MFA verification metadata guard checkpoint: `b4c30a0` (`Harden suite MFA verification body validation`), pushed on `codex/suite-dashboard-route-normalization`.
