@@ -181,7 +181,7 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest pilot install and analytics query guard checkpoint: this checkpoint, to be pushed on `codex/suite-dashboard-route-normalization`.
+- Latest pilot install and analytics query guard checkpoint: `6f88a47` (`Harden pilot template install and analytics asOf validation`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest pilot install and analytics query guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "owner can install clinic wellness pilot template|analytics semantic metrics expose definitions and drilldowns" test/api.test.js` = 2 pass, including explicit JSON array pilot-install bodies rejected before install/suite-event/audit/backup evidence writes and malformed analytics as-of query values rejected before analytics calculation.
 - Latest legal law-search query guard checkpoint: `08ecc84` (`Harden legal law-search query validation`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest legal law-search query guard verification from `~/dev/A1-Suite-Local`: focused `node --test test/legal-search.test.js` = 2 pass, including malformed law-search query text and result-limit values rejected before RAG lookup; full `npm test` = 426 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; offline smoke = pass, apps=10.
