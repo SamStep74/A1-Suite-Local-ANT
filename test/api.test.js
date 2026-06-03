@@ -228,6 +228,9 @@ test("dashboard launcher source wiring covers every seeded login role app", asyn
           dashboardSource.includes(`id="suite-app-${suiteApp.id}"`),
           `${email} app ${suiteApp.id} is missing a dashboard anchor`
         );
+
+        const appRouteResponse = await app.inject({ method: "GET", url: suiteApp.route, headers: { cookie } });
+        assert.equal(appRouteResponse.statusCode, 200, `${email} app route failed: ${suiteApp.route}`);
       }
     }
   });
