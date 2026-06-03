@@ -4373,6 +4373,30 @@ test("accountant can hand accepted pilot quote into HayHashvapah invoice approva
 test("accountant can record HayHashvapah draft invoice packet after owner executes pilot finance approval", async () => {
   await withApp(async app => {
     const proof = await createAcceptedClinicPilotQuoteHandoff(app);
+    const draftPacketCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_hayhashvapah_draft_invoice_packets").get().count
+    });
+    const beforeMalformedDraftPacket = draftPacketCounts();
+
+    const malformedHandoffId = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/quote-acceptance-handoffs/${proof.acceptanceHandoff.id}%0Asecret-clinic-acceptance-handoff-id-token/draft-invoice-packet`,
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-draft-packet-body-token" }
+    });
+    assert.equal(malformedHandoffId.statusCode, 400, malformedHandoffId.body);
+    assert.match(malformedHandoffId.body, /Invalid clinic pilot quote acceptance handoff id/);
+    assert.doesNotMatch(malformedHandoffId.body, /secret-clinic-acceptance-handoff-id-token|secret-clinic-draft-packet-body-token/);
+    assert.deepEqual(draftPacketCounts(), beforeMalformedDraftPacket);
+
+    const unknownSafeHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/quote-acceptance-handoffs/pilot-quote-acceptance-handoff-missing/draft-invoice-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing acceptance handoff remains missing." }
+    });
+    assert.equal(unknownSafeHandoffId.statusCode, 404, unknownSafeHandoffId.body);
+    assert.deepEqual(draftPacketCounts(), beforeMalformedDraftPacket);
 
     const supportDenied = await app.inject({
       method: "POST",
