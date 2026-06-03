@@ -4442,6 +4442,8 @@ test("accountant can record official HayHashvapah invoice posting packet from pi
       headers: { cookie: auditorCookie }
     });
     assert.equal(auditorList.statusCode, 200, auditorList.body);
+    assert.ok(auditorList.json().packets.length > 0);
+    assert.ok(auditorList.json().packets.every(item => item.draftPacketId === proof.draftPacket.id));
     assert.ok(auditorList.json().packets.some(item => (
       item.id === packet.id
       && item.payload === undefined
@@ -4452,6 +4454,14 @@ test("accountant can record official HayHashvapah invoice posting packet from pi
       && item.periodKey === "2026-05"
       && item.status === "official-invoice-open"
     )));
+
+    const unmatchedList = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/official-invoices?draftPacketId=pilot-draft-packet-missing",
+      headers: { cookie: auditorCookie }
+    });
+    assert.equal(unmatchedList.statusCode, 200, unmatchedList.body);
+    assert.deepEqual(unmatchedList.json().packets, []);
 
     const backup = await app.inject({
       method: "POST",
@@ -23814,6 +23824,19 @@ test("clinic wellness HayHashvapah drafts reject unsafe acceptanceHandoffId quer
     const response = await app.inject({
       method: "GET",
       url: "/api/pilots/clinic-wellness/hayhashvapah-drafts?acceptanceHandoffId=%00bad",
+      headers: { cookie }
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.match(response.body, /Invalid clinic pilot list query/);
+  });
+});
+
+test("clinic wellness official invoices reject unsafe draftPacketId query", async () => {
+  await withApp(async app => {
+    const cookie = await login(app, "accountant@armosphera.local");
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/official-invoices?draftPacketId=%00bad",
       headers: { cookie }
     });
     assert.equal(response.statusCode, 400, response.body);

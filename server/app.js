@@ -594,12 +594,13 @@ function registerApi(app, db, options = {}) {
   app.get("/api/pilots/clinic-wellness/official-invoices", async request => {
     const user = await app.auth(request);
     requirePilotHayhashvapahPostingReader(user);
+    const { draftPacketId } = normalizeClinicPilotListQuery(request.query || {}, { draftPacketId: true });
     return {
       packets: getPilotHayhashvapahInvoicePostingPackets(
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.draftPacketId || ""
+        draftPacketId
       )
     };
   });
@@ -52222,7 +52223,8 @@ function normalizeClinicPilotListQuery(query, filters = {}) {
     offerId: filters.offerId ? normalizeClinicPilotListQueryText(query, "offerId", { maxLength: 160 }) : "",
     quoteHandoffId: filters.quoteHandoffId ? normalizeClinicPilotListQueryText(query, "quoteHandoffId", { maxLength: 160 }) : "",
     quoteReleasePacketId: filters.quoteReleasePacketId ? normalizeClinicPilotListQueryText(query, "quoteReleasePacketId", { maxLength: 160 }) : "",
-    acceptanceHandoffId: filters.acceptanceHandoffId ? normalizeClinicPilotListQueryText(query, "acceptanceHandoffId", { maxLength: 160 }) : ""
+    acceptanceHandoffId: filters.acceptanceHandoffId ? normalizeClinicPilotListQueryText(query, "acceptanceHandoffId", { maxLength: 160 }) : "",
+    draftPacketId: filters.draftPacketId ? normalizeClinicPilotListQueryText(query, "draftPacketId", { maxLength: 160 }) : ""
   };
 }
 
