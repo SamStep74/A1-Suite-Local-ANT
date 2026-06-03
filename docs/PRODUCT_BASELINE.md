@@ -2436,3 +2436,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted filters still preserve the existing all-quote-acceptance-handoffs behavior, and valid quote-release packet filters continue returning matching quote-acceptance-handoff packets.
 - Rejected malformed quote-acceptance-handoff list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness quote-acceptance-handoff behavior remains unchanged.
 - Verification for the checkpoint: focused quote-acceptance-handoff list filter and quote-acceptance-handoff creation tests = 2 pass, including valid `quoteReleasePacketId` filtering and no-match behavior; `npm test` = 457 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
+
+### Slice 231 - Clinic HayHashvapah Draft List Query Filter Guard
+
+- Clinic/wellness HayHashvapah draft-invoice packet list reads now reject malformed draft filter query metadata before reading pilot draft rows.
+- Submitted `acceptanceHandoffId` filters must be structurally safe before they can become HayHashvapah draft packet list SQL filters.
+- Acceptance-handoff IDs must be bounded single-line strings, and control-character strings or overlong values are rejected instead of coerced.
+- Omitted filters still preserve the existing all-HayHashvapah-drafts behavior, and valid acceptance-handoff filters continue returning matching draft packets.
+- Rejected malformed HayHashvapah draft list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness draft packet behavior remains unchanged.
+- Verification for the checkpoint: focused HayHashvapah draft list filter and draft packet creation tests = 2 pass, including valid `acceptanceHandoffId` filtering and no-match behavior; `npm test` = 458 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
