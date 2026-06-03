@@ -2346,3 +2346,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted filters still preserve the existing all-leads/all-quotes behavior, and valid lead-status and quote-customer filters continue returning the matching CRM lists.
 - Rejected malformed CRM list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid CRM list, quote, and lead behavior remains unchanged.
 - Verification for the checkpoint: focused CRM list filter test = 1 pass; `npm test` = 427 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 221 - Collection List Query Filter Guard
+
+- CRM collection promise and reminder list reads now reject malformed filter query metadata before reading collection rows.
+- Submitted `customerId` filters must be structurally safe before they can become collection list SQL filters or customer assertions.
+- Collection customer IDs must be bounded single-line strings, and control-character strings or overlong values are rejected instead of coerced.
+- Omitted filters still preserve the existing all-promises/all-reminders behavior, and valid customer filters continue returning the matching collection evidence lists.
+- Rejected malformed collection list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid collection promise, reminder, and Customer 360 behavior remains unchanged.
+- Verification for the checkpoint: focused collection list filter test = 1 pass; `npm test` = 428 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

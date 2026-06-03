@@ -21860,6 +21860,66 @@ test("collection promise and reminder reject malformed metadata before persisten
   });
 });
 
+test("collection list query filters reject malformed metadata before reads", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+
+    await app.inject({
+      method: "POST",
+      url: "/api/workflow/approvals/approval-overdue-nare/decision",
+      headers: { cookie },
+      payload: { decision: "approved", note: "Execute collection task" }
+    });
+    const executed = await app.inject({
+      method: "POST",
+      url: "/api/workflow/approvals/approval-overdue-nare/execute",
+      headers: { cookie }
+    });
+    assert.equal(executed.statusCode, 200, executed.body);
+    const task = executed.json().task;
+
+    const promised = await app.inject({
+      method: "POST",
+      url: `/api/crm/tasks/${task.id}/payment-promise`,
+      headers: { cookie },
+      payload: {
+        promisedAmount: 960000,
+        promisedOn: "2026-05-30",
+        reminderChannel: "WhatsApp"
+      }
+    });
+    assert.equal(promised.statusCode, 200, promised.body);
+    const promise = promised.json().promise;
+
+    const sent = await app.inject({
+      method: "POST",
+      url: `/api/crm/collection-promises/${promise.id}/send-reminder`,
+      headers: { cookie }
+    });
+    assert.equal(sent.statusCode, 200, sent.body);
+
+    const validPromises = await app.inject({ method: "GET", url: "/api/crm/collection-promises?customerId=cust-nare", headers: { cookie } });
+    assert.equal(validPromises.statusCode, 200, validPromises.body);
+    assert.ok(validPromises.json().promises.every(item => item.customerId === "cust-nare"));
+
+    const validReminders = await app.inject({ method: "GET", url: "/api/crm/collection-reminders?customerId=cust-nare", headers: { cookie } });
+    assert.equal(validReminders.statusCode, 200, validReminders.body);
+    assert.ok(validReminders.json().deliveries.every(item => item.customerId === "cust-nare"));
+
+    const malformedListUrls = [
+      "/api/crm/collection-promises?customerId=cust-nare%0Asecret-collection-list-promise-token",
+      "/api/crm/collection-promises?customerId=" + "c".repeat(161),
+      "/api/crm/collection-reminders?customerId=cust-nare%0Asecret-collection-list-reminder-token",
+      "/api/crm/collection-reminders?customerId=" + "r".repeat(161)
+    ];
+    for (const url of malformedListUrls) {
+      const rejected = await app.inject({ method: "GET", url, headers: { cookie } });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-collection-list-/);
+    }
+  });
+});
+
 test("scheduled collection promise sends idempotent Armenian reminder evidence", async () => {
   await withApp(async app => {
     const cookie = await login(app);

@@ -2136,7 +2136,7 @@ function registerApi(app, db, options = {}) {
   app.get("/api/crm/collection-promises", async request => {
     const user = await app.auth(request);
     requireCollectionEditor(user);
-    const customerId = request.query.customerId || "";
+    const customerId = normalizeCollectionListQuery(request.query || {}).customerId;
     if (customerId) assertCustomer(db, user.org_id, customerId);
     return { promises: getCollectionPromises(db, user.org_id, customerId) };
   });
@@ -2144,7 +2144,7 @@ function registerApi(app, db, options = {}) {
   app.get("/api/crm/collection-reminders", async request => {
     const user = await app.auth(request);
     requireCollectionEditor(user);
-    const customerId = request.query.customerId || "";
+    const customerId = normalizeCollectionListQuery(request.query || {}).customerId;
     if (customerId) assertCustomer(db, user.org_id, customerId);
     return { deliveries: getCollectionReminderDeliveries(db, user.org_id, customerId) };
   });
@@ -52770,6 +52770,29 @@ function normalizeCollectionReminderBody(body, promise) {
     channel,
     provider: normalizeCollectionText(body, "provider", { fallback: `${channel} manual evidence`, maxLength: 80 })
   };
+}
+
+function normalizeCollectionListQuery(query) {
+  if (!isPlainObject(query)) {
+    throwInvalidCollectionMetadata();
+  }
+  return {
+    customerId: normalizeCollectionQueryText(query, "customerId", { maxLength: 160 })
+  };
+}
+
+function normalizeCollectionQueryText(query, field, options = {}) {
+  const { maxLength = 160 } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCollectionMetadata();
+  }
+  const text = value.trim();
+  if (!text || text.length > maxLength) {
+    throwInvalidCollectionMetadata();
+  }
+  return text;
 }
 
 function normalizeCollectionAmount(body, field, invoice) {
