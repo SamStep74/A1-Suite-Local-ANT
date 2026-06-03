@@ -182,7 +182,7 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest analytics snapshot filter query guard checkpoint: this checkpoint, to be pushed on `codex/suite-dashboard-route-normalization`.
+- Latest analytics snapshot filter query guard checkpoint: `2cc1df6` (`Harden analytics snapshot filter queries`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest analytics snapshot filter query guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "analytics semantic snapshots persist time-series" test/api.test.js` = 1 pass, including malformed semantic snapshot filter values rejected before snapshot rows are read.
 - Latest pilot install and analytics query guard checkpoint: `6f88a47` (`Harden pilot template install and analytics asOf validation`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest pilot install and analytics query guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "owner can install clinic wellness pilot template|analytics semantic metrics expose definitions and drilldowns" test/api.test.js` = 2 pass, including explicit JSON array pilot-install bodies rejected before install/suite-event/audit/backup evidence writes and malformed analytics as-of query values rejected before analytics calculation.
