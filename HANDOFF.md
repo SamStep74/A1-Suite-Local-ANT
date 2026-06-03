@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-04 · clinic paid-offer list query filter guard · 87 tags · **436 tests (pending full-suite verification)**_
+_Last updated: 2026-06-04 · clinic paid-offer list query filter guard · 87 tags · **436 tests (436 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -190,8 +190,8 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest clinic paid-offer list query filter guard checkpoint: pending commit on `codex/suite-dashboard-route-normalization` (validates `clearancePacketId` before paid-offer list reads).
-- Latest clinic paid-offer list query filter guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` = pass; `node --check test/api.test.js` = pass; `git diff --check` = pass; focused `node --test --test-name-pattern "clinic wellness paid offers reject unsafe clearancePacketId query|sales can create clinic pilot paid offer" test/api.test.js` = 2 pass; full `npm test`, `npm run build:ui`, and offline smoke pending.
+- Latest clinic paid-offer list query filter guard checkpoint: this checkpoint on `codex/suite-dashboard-route-normalization` (validates `clearancePacketId` before paid-offer list reads).
+- Latest clinic paid-offer list query filter guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` = pass; `node --check test/api.test.js` = pass; `git diff --check` = pass; focused `node --test --test-name-pattern "clinic wellness paid offers reject unsafe clearancePacketId query|sales can create clinic pilot paid offer" test/api.test.js` = 2 pass, including valid `clearancePacketId` filtering and no-match behavior; full `npm test` = 436 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite chunk-size warning; offline smoke = pass, apps=10; read-only code review subagent follow-up = pass with no findings.
 - Latest clinic launch-clearance list query filter guard checkpoint: `c07d1b3` (`Harden clinic launch clearance query filters`), pushed on `codex/suite-dashboard-route-normalization`; documentation sync in `89be3cf`.
 - Latest clinic launch-clearance list query filter guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` = pass; `node --check test/api.test.js` = pass; `git diff --check` = pass; focused `node --test --test-name-pattern "clinic wellness launch clearance rejects unsafe remediationPlanId query" test/api.test.js` = 1 pass; dashboard/sidebar regression `node --test test/suite-dashboard-sidebar-openability.test.mjs` = 1 pass; route regression `node --test test/suite-routes.test.mjs` = 9 pass; full `npm test` = 435 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite chunk-size warning; offline smoke = pass, apps=10.
 - Latest workflow list query filter guard checkpoint: `db33b80` (`Harden workflow list query filters`), pushed on `codex/suite-dashboard-route-normalization` (includes workflow query normalization + validation tests + verification updates).

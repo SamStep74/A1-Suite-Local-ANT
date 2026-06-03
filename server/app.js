@@ -494,12 +494,13 @@ function registerApi(app, db, options = {}) {
   app.get("/api/pilots/clinic-wellness/paid-offers", async request => {
     const user = await app.auth(request);
     requirePilotPaidOfferReader(user);
+    const { clearancePacketId } = normalizeClinicPilotListQuery(request.query || {}, { clearancePacketId: true });
     return {
       offers: getPilotPaidOfferPackets(
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.clearancePacketId || ""
+        clearancePacketId
       )
     };
   });
@@ -52212,7 +52213,8 @@ function normalizeClinicPilotListQuery(query, filters = {}) {
   }
   return {
     planId: filters.planId ? normalizeClinicPilotListQueryText(query, "planId", { maxLength: 160 }) : "",
-    remediationPlanId: filters.remediationPlanId ? normalizeClinicPilotListQueryText(query, "remediationPlanId", { maxLength: 160 }) : ""
+    remediationPlanId: filters.remediationPlanId ? normalizeClinicPilotListQueryText(query, "remediationPlanId", { maxLength: 160 }) : "",
+    clearancePacketId: filters.clearancePacketId ? normalizeClinicPilotListQueryText(query, "clearancePacketId", { maxLength: 160 }) : ""
   };
 }
 

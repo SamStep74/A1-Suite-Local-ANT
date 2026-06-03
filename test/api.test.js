@@ -3587,6 +3587,24 @@ test("sales can create clinic pilot paid offer from cleared launch packet", asyn
       && item.firstMonthTotal === 1704000
     )));
 
+    const filteredList = await app.inject({
+      method: "GET",
+      url: `/api/pilots/clinic-wellness/paid-offers?clearancePacketId=${clearance.id}`,
+      headers: { cookie: auditorCookie }
+    });
+    assert.equal(filteredList.statusCode, 200, filteredList.body);
+    assert.ok(filteredList.json().offers.length > 0);
+    assert.ok(filteredList.json().offers.every(item => item.clearancePacketId === clearance.id));
+    assert.ok(filteredList.json().offers.some(item => item.id === offer.id));
+
+    const unmatchedList = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/paid-offers?clearancePacketId=pilot-launch-clearance-missing",
+      headers: { cookie: auditorCookie }
+    });
+    assert.equal(unmatchedList.statusCode, 200, unmatchedList.body);
+    assert.deepEqual(unmatchedList.json().offers, []);
+
     const backup = await app.inject({
       method: "POST",
       url: "/api/admin/backups",
@@ -23691,6 +23709,19 @@ test("clinic wellness launch clearance rejects unsafe remediationPlanId query", 
     const response = await app.inject({
       method: "GET",
       url: "/api/pilots/clinic-wellness/launch-clearance?remediationPlanId=%00bad",
+      headers: { cookie }
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.match(response.body, /Invalid clinic pilot list query/);
+  });
+});
+
+test("clinic wellness paid offers reject unsafe clearancePacketId query", async () => {
+  await withApp(async app => {
+    const cookie = await login(app, "sales@armosphera.local");
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/paid-offers?clearancePacketId=%00bad",
       headers: { cookie }
     });
     assert.equal(response.statusCode, 400, response.body);
