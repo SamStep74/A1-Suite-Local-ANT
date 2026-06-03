@@ -5098,6 +5098,31 @@ test("sales can create clinic pilot renewal quote handoff from closeout", async 
 test("sales can create clinic pilot renewal quote release packet after workflow executes", async () => {
   await withApp(async app => {
     const proof = await createPilotRenewalQuoteHandoff(app);
+    const renewalReleaseCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_renewal_quote_release_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.renewal_quote_release.created").count
+    });
+    const beforeMalformedRenewalRelease = renewalReleaseCounts();
+
+    const malformedHandoffId = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/renewal-quotes/${proof.renewalQuoteHandoff.id}%0Asecret-clinic-renewal-handoff-id-token/release-packet`,
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "secret-clinic-renewal-release-body-token" }
+    });
+    assert.equal(malformedHandoffId.statusCode, 400, malformedHandoffId.body);
+    assert.match(malformedHandoffId.body, /Invalid clinic pilot renewal quote handoff id/);
+    assert.doesNotMatch(malformedHandoffId.body, /secret-clinic-renewal-handoff-id-token|secret-clinic-renewal-release-body-token/);
+    assert.deepEqual(renewalReleaseCounts(), beforeMalformedRenewalRelease);
+
+    const unknownSafeHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/renewal-quotes/pilot-renewal-quote-handoff-missing/release-packet",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "Safe missing renewal quote handoff remains missing." }
+    });
+    assert.equal(unknownSafeHandoffId.statusCode, 404, unknownSafeHandoffId.body);
+    assert.deepEqual(renewalReleaseCounts(), beforeMalformedRenewalRelease);
 
     const supportDenied = await app.inject({
       method: "POST",
