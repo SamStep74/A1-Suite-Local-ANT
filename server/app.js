@@ -554,12 +554,13 @@ function registerApi(app, db, options = {}) {
   app.get("/api/pilots/clinic-wellness/quote-acceptance-handoffs", async request => {
     const user = await app.auth(request);
     requirePilotQuoteAcceptanceHandoffReader(user);
+    const { quoteReleasePacketId } = normalizeClinicPilotListQuery(request.query || {}, { quoteReleasePacketId: true });
     return {
       packets: getPilotQuoteAcceptanceHandoffPackets(
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.quoteReleasePacketId || ""
+        quoteReleasePacketId
       )
     };
   });
@@ -52218,7 +52219,8 @@ function normalizeClinicPilotListQuery(query, filters = {}) {
     remediationPlanId: filters.remediationPlanId ? normalizeClinicPilotListQueryText(query, "remediationPlanId", { maxLength: 160 }) : "",
     clearancePacketId: filters.clearancePacketId ? normalizeClinicPilotListQueryText(query, "clearancePacketId", { maxLength: 160 }) : "",
     offerId: filters.offerId ? normalizeClinicPilotListQueryText(query, "offerId", { maxLength: 160 }) : "",
-    quoteHandoffId: filters.quoteHandoffId ? normalizeClinicPilotListQueryText(query, "quoteHandoffId", { maxLength: 160 }) : ""
+    quoteHandoffId: filters.quoteHandoffId ? normalizeClinicPilotListQueryText(query, "quoteHandoffId", { maxLength: 160 }) : "",
+    quoteReleasePacketId: filters.quoteReleasePacketId ? normalizeClinicPilotListQueryText(query, "quoteReleasePacketId", { maxLength: 160 }) : ""
   };
 }
 

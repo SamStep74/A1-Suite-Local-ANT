@@ -4183,6 +4183,8 @@ test("accountant can hand accepted pilot quote into HayHashvapah invoice approva
       headers: { cookie: auditorCookie }
     });
     assert.equal(auditorList.statusCode, 200, auditorList.body);
+    assert.ok(auditorList.json().packets.length > 0);
+    assert.ok(auditorList.json().packets.every(item => item.quoteReleasePacketId === proof.releasePacket.id));
     assert.ok(auditorList.json().packets.some(item => (
       item.id === packet.id
       && item.payload === undefined
@@ -4192,6 +4194,14 @@ test("accountant can hand accepted pilot quote into HayHashvapah invoice approva
       && item.vatMode === "amd-inclusive-20"
       && item.status === "invoice-approval-pending"
     )));
+
+    const unmatchedList = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/quote-acceptance-handoffs?quoteReleasePacketId=pilot-quote-release-missing",
+      headers: { cookie: auditorCookie }
+    });
+    assert.equal(unmatchedList.statusCode, 200, unmatchedList.body);
+    assert.deepEqual(unmatchedList.json().packets, []);
 
     const backup = await app.inject({
       method: "POST",
@@ -23768,6 +23778,19 @@ test("clinic wellness quote releases reject unsafe quoteHandoffId query", async 
     const response = await app.inject({
       method: "GET",
       url: "/api/pilots/clinic-wellness/quote-releases?quoteHandoffId=%00bad",
+      headers: { cookie }
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.match(response.body, /Invalid clinic pilot list query/);
+  });
+});
+
+test("clinic wellness quote acceptance handoffs reject unsafe quoteReleasePacketId query", async () => {
+  await withApp(async app => {
+    const cookie = await login(app, "accountant@armosphera.local");
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/quote-acceptance-handoffs?quoteReleasePacketId=%00bad",
       headers: { cookie }
     });
     assert.equal(response.statusCode, 400, response.body);
