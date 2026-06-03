@@ -196,7 +196,8 @@ test("expanded Armenia SaaS roles receive least-privilege app entitlements", asy
 
 test("dashboard launcher source wiring covers every seeded login role app", async () => {
   const dashboardSource = fs.readFileSync(path.join(__dirname, "..", "web", "src", "main.jsx"), "utf8");
-  const routeListMatch = dashboardSource.match(/const SUITE_APP_IDS = \[([^\]]+)\]/);
+  const routeSource = fs.readFileSync(path.join(__dirname, "..", "web", "src", "suite-routes.js"), "utf8");
+  const routeListMatch = routeSource.match(/export const SUITE_APP_IDS = \[([^\]]+)\]/);
   assert.ok(routeListMatch, "dashboard route allowlist is missing");
   const routeIds = new Set([...routeListMatch[1].matchAll(/"([^"]+)"/g)].map(match => match[1]));
 
