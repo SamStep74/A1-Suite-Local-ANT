@@ -85,7 +85,7 @@ Default data location on Linux:
 ~/.local/share/armosphera-one-claude/armosphera-one.db
 ```
 
-The application is local-first and outbound network access is off by default. For online client access, expose it through a controlled gateway, tunnel, or reverse proxy. For Armenian private deployments, avoid Docker Desktop licensing risk by running platform/container workloads in an Ubuntu ARM64 VM with Docker Engine on Mac Studio (or on Linux VPS/client hardware). Do not expose the Mac Studio directly through router port forwarding.
+The application is local-first and outbound network access is off by default. For online client access, expose it through a controlled gateway, tunnel, or reverse proxy. Do not expose the Mac Studio directly through router port forwarding.
 
 ## 2. Mac Studio preparation
 
@@ -486,7 +486,7 @@ http://127.0.0.1:4100
 ~/.local/share/armosphera-one-claude/armosphera-one.db
 ```
 
-Продукт local-first, и outbound network выключен по умолчанию. Для online-доступа клиентов используйте gateway, tunnel или reverse proxy. Для частных размещений избегайте зависимость от Docker Desktop лицензирования: контейнерный runtime для Mac Studio должен быть в Ubuntu ARM64 VM с Docker Engine (или на VPS/физическом Linux-узле). Не открывайте Mac Studio напрямую через port forwarding.
+Продукт local-first, и outbound network выключен по умолчанию. Для online-доступа клиентов используйте gateway, tunnel или reverse proxy. Не открывайте Mac Studio напрямую через port forwarding.
 
 ## 2. Подготовка Mac Studio
 
@@ -887,7 +887,7 @@ Linux default database path՝
 ~/.local/share/armosphera-one-claude/armosphera-one.db
 ```
 
-Արտադրանքը local-first է, և outbound network-ը default անջատված է։ Online հաճախորդների access-ի համար օգտագործեք gateway, tunnel կամ reverse proxy։ Եթե օգտագործում եք բիզնես-արտադրողական դենպլոյ, թողեք պահպանումը դեպի Docker Desktop ռիսկային չլինի՝ օգտագործելով Ubuntu ARM64 VM + Docker Engine կամ այլ համապատասխան Linux runtime-ի վրա (VPS կամ dedicated սերվիս): Mac Studio-ն ուղիղ public internet-ի վրա ոչ մի կերպ չի բացվում պորտ ֆորվարդինգով։
+Արտադրանքը local-first է, և outbound network-ը default անջատված է։ Online հաճախորդների access-ի համար օգտագործեք gateway, tunnel կամ reverse proxy։ Mac Studio-ն ուղիղ public internet-ին մի բացեք router port forwarding-ով։
 
 ## 2. Mac Studio-ի պատրաստում
 
@@ -1249,3 +1249,4 @@ Restore test կատարվում է ամեն ամիս։
 Secrets չեն commit արվում GitHub-ում։
 Outbound network-ը մնում է անջատված, եթե explicit անհրաժեշտություն չկա։
 ```
+
