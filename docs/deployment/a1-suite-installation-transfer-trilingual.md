@@ -175,8 +175,6 @@ If no path is provided, the installer checks the default HayHashvapah source pat
 
 Use this when running A1 Suite inside an Ubuntu ARM64 VM or a VPS.
 
-For production and client deployments, do not use Docker Desktop on client/prod machines. Use Ubuntu VM + Docker Engine / Docker Compose (or a compatible Linux container runtime) on Linux so no per-client Docker Desktop license is required.
-
 ```bash
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y git curl sqlite3 ca-certificates
@@ -577,8 +575,6 @@ node scripts/install-laws.js /path/to/laws.sqlite
 ## 4. Установка на Linux / VM
 
 Используется для Ubuntu ARM64 VM или VPS.
-
-Для production и client-сред избегайте Docker Desktop на рабочих машинах клиента или production хосте. Используйте Ubuntu VM + Docker Engine / Docker Compose (или совместимый Linux runtime): это убирает зависимость от клиентской лицензии Docker Desktop.
 
 ```bash
 sudo apt update && sudo apt upgrade -y
@@ -981,8 +977,6 @@ node scripts/install-laws.js /path/to/laws.sqlite
 
 Օգտագործվում է Ubuntu ARM64 VM-ի կամ VPS-ի համար։
 
-Client կամ production դեգոյզում չօգտագործել Docker Desktop: օգտագործել Ubuntu VM + Docker Engine / Docker Compose (կամ համապատասխան այլ Linux container runtime), որպեսզի մի client-ի վրա նորից լիցենզիաներ չպահանջվեն։
-
 ```bash
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y git curl sqlite3 ca-certificates
@@ -1255,3 +1249,4 @@ Restore test կատարվում է ամեն ամիս։
 Secrets չեն commit արվում GitHub-ում։
 Outbound network-ը մնում է անջատված, եթե explicit անհրաժեշտություն չկա։
 ```
+
