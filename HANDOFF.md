@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-03 · dashboard route alias/openability guard · 87 tags · **420 tests (420 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-03 · dashboard route decode guard · 87 tags · **421 tests (421 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 89 slices)
+### Hardening (production-readiness pass — 90 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -124,6 +124,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 87. **Session revoke metadata guard** rejects malformed admin session-revoke request bodies and reasons before session revocation or audit persistence.
 88. **Suite route alias guard** normalizes legacy `/app/hayhashvapah` to the canonical Finance app and collapses the Forms alias onto Campaigns before app assignment fallback, preventing stale product links from landing on the wrong dashboard.
 89. **Dashboard sidebar openability guard** adds stable suite launcher button metadata and a Playwright-backed seeded-role matrix test proving every assigned sidebar product opens its canonical route and workspace panel.
+90. **Suite route decode guard** treats malformed percent-encoded `/app/<id>` path segments as unknown app ids instead of throwing during SPA route selection, preserving the default CRM fallback on bad local links.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -171,6 +172,8 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
+- Latest dashboard route decode checkpoint: `08004df` (`Harden suite route ID decoding`), pushed on `codex/suite-dashboard-route-normalization`.
+- Latest dashboard route decode verification from `~/dev/A1-Suite-Local`: focused `node --test test/suite-routes.test.mjs` = 6 pass, including malformed `%` route ids falling back to CRM without throwing.
 - Latest dashboard route alias/openability checkpoint: `a3d00f1` (`Add dashboard sidebar openability regression checks`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest legacy route alias checkpoint: `cec4ea2` (`Fix legacy suite app aliases for dashboard routing`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest dashboard route/openability verification from `~/dev/A1-Suite-Local`: focused `node --test test/suite-dashboard-sidebar-openability.test.mjs` = 1 pass; focused `node --test test/suite-routes.test.mjs` = 5 pass; focused `node --test --test-name-pattern "dashboard launcher source wiring covers every seeded login role app" test/api.test.js` = 1 pass; full `npm test` = 420 pass, 0 fail, 0 cancelled. Browser/Playwright proof verified Owner, Operator, Support, Accountant, Lawyer, Salesperson, Service Manager, and Auditor sidebar apps open canonical routes; legacy `/app/hayhashvapah` resolves to `/app/finance`.

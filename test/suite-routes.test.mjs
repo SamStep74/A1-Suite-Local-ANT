@@ -35,6 +35,11 @@ test("suite route helpers map legacy hayhashvapah alias", () => {
   assert.equal(appIdFromLocation("/app/hayhashvapah"), "finance");
 });
 
+test("suite route helpers tolerate malformed encoded app ids", () => {
+  assert.equal(appIdFromLocation("/app/%E0%A4%A"), "crm");
+  assert.equal(appIdFromLocation("/app/%ZZ"), "crm");
+});
+
 test("suite route helpers normalize explicit aliases before assignment", () => {
   assert.equal(normalizeSuiteAppId("forms", ["forms"]), "campaigns");
   assert.deepEqual(normalizeSuiteAppIds(["forms"]), ["campaigns"]);
