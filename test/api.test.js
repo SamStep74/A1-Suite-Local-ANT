@@ -4056,6 +4056,8 @@ test("owner can create pilot quote release packet after quote release workflow e
       headers: { cookie: auditorCookie }
     });
     assert.equal(auditorList.statusCode, 200, auditorList.body);
+    assert.ok(auditorList.json().packets.length > 0);
+    assert.ok(auditorList.json().packets.every(item => item.quoteHandoffId === handoff.id));
     assert.ok(auditorList.json().packets.some(item => (
       item.id === packet.id
       && item.payload === undefined
@@ -4063,6 +4065,14 @@ test("owner can create pilot quote release packet after quote release workflow e
       && item.approvalId === approval.id
       && item.status === "released"
     )));
+
+    const unmatchedList = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/quote-releases?quoteHandoffId=pilot-quote-handoff-missing",
+      headers: { cookie: auditorCookie }
+    });
+    assert.equal(unmatchedList.statusCode, 200, unmatchedList.body);
+    assert.deepEqual(unmatchedList.json().packets, []);
 
     const backup = await app.inject({
       method: "POST",
@@ -23745,6 +23755,19 @@ test("clinic wellness quote handoffs reject unsafe offerId query", async () => {
     const response = await app.inject({
       method: "GET",
       url: "/api/pilots/clinic-wellness/quote-handoffs?offerId=%00bad",
+      headers: { cookie }
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.match(response.body, /Invalid clinic pilot list query/);
+  });
+});
+
+test("clinic wellness quote releases reject unsafe quoteHandoffId query", async () => {
+  await withApp(async app => {
+    const cookie = await login(app, "sales@armosphera.local");
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/quote-releases?quoteHandoffId=%00bad",
       headers: { cookie }
     });
     assert.equal(response.statusCode, 400, response.body);

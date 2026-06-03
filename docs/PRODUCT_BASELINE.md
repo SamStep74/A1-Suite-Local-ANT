@@ -2418,3 +2418,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted filters still preserve the existing all-quote-handoffs behavior, and valid offer filters continue returning matching quote-handoff packets.
 - Rejected malformed quote-handoff list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness quote-handoff behavior remains unchanged.
 - Verification for the checkpoint: focused quote-handoff list filter and quote-handoff creation tests = 2 pass, including valid `offerId` filtering and no-match behavior; `npm test` = 444 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
+
+### Slice 229 - Clinic Quote-Release List Query Filter Guard
+
+- Clinic/wellness quote-release list reads now reject malformed quote-release filter query metadata before reading pilot quote-release rows.
+- Submitted `quoteHandoffId` filters must be structurally safe before they can become quote-release list SQL filters.
+- Quote-handoff IDs must be bounded single-line strings, and control-character strings or overlong values are rejected instead of coerced.
+- Omitted filters still preserve the existing all-quote-releases behavior, and valid quote-handoff filters continue returning matching quote-release packets.
+- Rejected malformed quote-release list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness quote-release behavior remains unchanged.
+- Verification for the checkpoint: focused quote-release list filter and quote-release creation tests = 2 pass, including valid `quoteHandoffId` filtering and no-match behavior; `npm test` = 445 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
