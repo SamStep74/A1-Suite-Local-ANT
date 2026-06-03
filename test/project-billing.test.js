@@ -32,6 +32,11 @@ test("project-billing: unbilled time → posted invoice → ledger; entries mark
     assert.strictEqual(preview.preview.subtotal, 25000);
     assert.strictEqual(preview.preview.vat, 5000);
 
+    const defaultPreview = (await app.inject({ method: "GET", url: `/api/projects/${proj}/billing-preview`, headers: { cookie: owner } })).json();
+    assert.strictEqual(defaultPreview.preview.unbilledMinutes, 180);
+    assert.strictEqual(defaultPreview.preview.hourlyRate, 0);
+    assert.strictEqual(defaultPreview.preview.total, 0);
+
     // Bill it (use a non-seeded open period via issueDate 2099-03).
     const billed = await app.inject({ method: "POST", url: `/api/projects/${proj}/bill-time`, headers: { cookie: owner },
       payload: { hourlyRate: 10000, issueDate: "2026-05-15" } });
@@ -187,6 +192,29 @@ test("project-billing: rejects malformed bill-time metadata before persistence",
     assert.strictEqual(draftInvoiceCount(), snapshot.draftInvoices + 1);
     assert.strictEqual(billedEntryCount(), 2);
     assert.strictEqual(billedAuditCount(), snapshot.auditEvents + 1);
+  } finally { await app.close(); }
+});
+
+test("project-billing: rejects malformed billing-preview query before quoting", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const proj = await createBillableProject(app, owner);
+    const rejectedUrls = [
+      `/api/projects/${proj}/billing-preview?hourlyRate=abc`,
+      `/api/projects/${proj}/billing-preview?hourlyRate=-1`,
+      `/api/projects/${proj}/billing-preview?hourlyRate=10000&asOf=not-a-date`
+    ];
+
+    for (const url of rejectedUrls) {
+      const rejected = await app.inject({
+        method: "GET",
+        url,
+        headers: { cookie: owner }
+      });
+      assert.strictEqual(rejected.statusCode, 400, rejected.body);
+    }
   } finally { await app.close(); }
 });
 

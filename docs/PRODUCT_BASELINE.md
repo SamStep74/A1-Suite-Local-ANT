@@ -2251,11 +2251,12 @@ Status: shipped in the local prototype on 2026-05-28.
 ### Slice 210 - Project Billing Metadata Guard
 
 - Project bill-time requests now reject non-plain-object request bodies before computing the project-period idempotency key or mutating finance state.
+- Project billing-preview queries now reject malformed hourly-rate and as-of query values before quote/VAT calculations, so preview totals use the same safe billing metadata rules as persisted billing.
 - Submitted hourly rates, issue dates, period keys, and due-day values must be structurally safe before they can become invoice, ledger, billed-time, or audit evidence.
 - Hourly rates must be positive safe whole AMD amounts, issue dates must be exact ISO calendar dates, period keys must be valid `YYYY-MM` months, and due-day values must be bounded positive whole days instead of arrays, objects, control-character strings, or coercible malformed values.
 - Omitted optional issue dates, period keys, and due-day values still preserve the existing defaults, while `hourlyRate` remains required for billing.
 - Rejected malformed bill-time requests return `400`, keep submitted payload secrets out of error bodies, leave `finance_draft_invoices`, `invoices`, `ledger_journal`, `project_time_entries.billed_invoice_id`, and `audit_events` unchanged, and valid project time billing plus idempotent rebilling remain unchanged.
-- Verification for the checkpoint: focused `test/project-billing.test.js` = 4 pass; `test/api.test.js` = 207 pass; `npm test` = 407 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+- Verification for the checkpoint: focused `test/project-billing.test.js` = 5 pass; `test/api.test.js` = 207 pass; `npm test` = 425 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
 
 ### Slice 211 - Docs Template Metadata Guard
 

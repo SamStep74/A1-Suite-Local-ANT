@@ -2713,6 +2713,14 @@ function registerApi(app, db, options = {}) {
     };
   }
 
+  function normalizeProjectBillingPreviewQuery(query, nowIso) {
+    const input = isPlainObject(query) ? query : {};
+    return {
+      hourlyRate: normalizeProjectBillingAmount(input, "hourlyRate", { fallback: 0 }),
+      asOf: normalizeProjectDate(input, "asOf", nowIso.slice(0, 10))
+    };
+  }
+
   function normalizeProjectBillingAmount(body, field, options = {}) {
     const { required = false, fallback = 0, min = 1, max = 1000000000, error = "Project request requires safe metadata" } = options;
     const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
@@ -2796,14 +2804,13 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     const project = getProject(db, user.org_id, request.params.id);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
-    const hourlyRate = Math.max(0, Math.round(Number(request.query && request.query.hourlyRate) || 0));
+    const { hourlyRate, asOf } = normalizeProjectBillingPreviewQuery(request.query, new Date().toISOString());
     const agg = db.prepare("SELECT COALESCE(SUM(minutes), 0) AS minutes, COUNT(*) AS entries FROM project_time_entries WHERE org_id = ? AND project_id = ? AND billed_invoice_id IS NULL").get(user.org_id, project.id);
     const unbilledMinutes = agg.minutes;
     const hours = Math.round((unbilledMinutes / 60) * 100) / 100;
     const total = hourlyRate > 0 ? Math.round((unbilledMinutes / 60) * hourlyRate) : 0;
     // VAT rate in force on the as-of date (defaults to today); the bill-time route freezes
     // the rate on the chosen issue date, so the preview accepts the same asOf for parity.
-    const asOf = /^\d{4}-\d{2}-\d{2}$/.test((request.query && request.query.asOf) || "") ? request.query.asOf : new Date().toISOString().slice(0, 10);
     const vatRate = resolveVatRate(db, user.org_id, asOf);
     const { subtotal, vat } = splitVatInclusive(total, vatRate);
     return { preview: { projectId: project.id, customerId: project.customerId, unbilledMinutes, unbilledEntries: agg.entries, hours, hourlyRate, subtotal, vat, total, vatRate, currency: "AMD" } };

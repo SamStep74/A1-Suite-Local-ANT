@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-03 · MFA verification metadata guard · 87 tags · **424 tests (424 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-03 · project billing preview query guard · 87 tags · **425 tests (425 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 95 slices)
+### Hardening (production-readiness pass — 96 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -130,6 +130,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 93. **Suite route generation guard** makes `appRoute()` emit only canonical suite app paths, so direct route generation for aliases, whitespace/case drift, or unknown ids resolves to Finance/Copilot/CRM-safe URLs instead of preserving malformed path segments.
 94. **MFA enrollment metadata guard** rejects non-object privileged MFA enrollment bodies and non-string labels before pending factor creation, preventing object/null coercion from entering MFA factor labels or audit-backed enrollment evidence.
 95. **MFA verification metadata guard** rejects non-object enrollment-verification bodies and non-string factor/code values before factor lookup or failed-verification audit, preventing coerced object evidence from entering MFA verification trails.
+96. **Project billing preview query guard** validates preview hourly-rate and as-of query metadata with the same project billing normalizers used by persisted billing, rejecting malformed preview inputs before quote/VAT calculations.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -177,8 +178,10 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest MFA verification metadata guard checkpoint: this checkpoint, to be pushed on `codex/suite-dashboard-route-normalization`.
-- Latest MFA verification metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "privileged users can enable MFA" test/api.test.js` = 1 pass, including malformed verification bodies and object factor/code values rejected before failed-verification audit.
+- Latest project billing preview query guard checkpoint: this checkpoint, to be pushed on `codex/suite-dashboard-route-normalization`.
+- Latest project billing preview query guard verification from `~/dev/A1-Suite-Local`: focused `node --test test/project-billing.test.js` = 5 pass, including malformed billing-preview hourly-rate and as-of query values rejected before quote/VAT calculations.
+- Latest MFA verification metadata guard checkpoint: `b4c30a0` (`Harden suite MFA verification body validation`), pushed on `codex/suite-dashboard-route-normalization`.
+- Latest MFA verification metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "privileged users can enable MFA" test/api.test.js` = 1 pass, including malformed verification bodies and object factor/code values rejected before failed-verification audit; full `npm test` = 424 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; offline smoke = pass, apps=10.
 - Latest MFA enrollment metadata guard checkpoint: `68393e0` (`Update suite handoff and baseline for MFA enrollment guard`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest MFA enrollment metadata guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "privileged users can enable MFA" test/api.test.js` = 1 pass, including null enrollment bodies and object labels rejected before factor creation; full `npm test` = 424 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; offline smoke = pass, apps=10.
 - Latest dashboard route generation checkpoint: `b82bbbb` (`fix: canonicalize generated suite app routes`), pushed on `codex/suite-dashboard-route-normalization`.
