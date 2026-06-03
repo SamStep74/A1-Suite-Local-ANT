@@ -5406,6 +5406,31 @@ test("accountant can hand accepted renewal quote into HayHashvapah invoice appro
 test("accountant can record renewal HayHashvapah draft invoice packet after owner executes finance approval", async () => {
   await withApp(async app => {
     const proof = await createPilotRenewalAcceptanceHandoff(app);
+    const renewalDraftPacketCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_renewal_hayhashvapah_draft_invoice_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.renewal_hayhashvapah_draft_invoice.created").count
+    });
+    const beforeMalformedRenewalDraft = renewalDraftPacketCounts();
+
+    const malformedHandoffId = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/renewal-acceptance-handoffs/${proof.renewalAcceptanceHandoff.id}%0Asecret-clinic-renewal-acceptance-handoff-id-token/draft-invoice-packet`,
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-renewal-draft-body-token" }
+    });
+    assert.equal(malformedHandoffId.statusCode, 400, malformedHandoffId.body);
+    assert.match(malformedHandoffId.body, /Invalid clinic pilot renewal acceptance handoff id/);
+    assert.doesNotMatch(malformedHandoffId.body, /secret-clinic-renewal-acceptance-handoff-id-token|secret-clinic-renewal-draft-body-token/);
+    assert.deepEqual(renewalDraftPacketCounts(), beforeMalformedRenewalDraft);
+
+    const unknownSafeHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/renewal-acceptance-handoffs/pilot-renewal-acceptance-handoff-missing/draft-invoice-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing renewal acceptance handoff remains missing." }
+    });
+    assert.equal(unknownSafeHandoffId.statusCode, 404, unknownSafeHandoffId.body);
+    assert.deepEqual(renewalDraftPacketCounts(), beforeMalformedRenewalDraft);
 
     const supportDenied = await app.inject({
       method: "POST",
