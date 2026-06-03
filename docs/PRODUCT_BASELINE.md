@@ -2328,3 +2328,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted `asOf` values still preserve the existing default report date, and valid dated semantic metrics continue to return the requested `reportDate`.
 - Rejected malformed analytics query requests return `400`, keep submitted payload secrets out of error bodies, and valid analytics semantic metrics, drilldowns, and role-access behavior remain unchanged.
 - Verification for the checkpoint: focused analytics semantic metrics test = 1 pass; `npm test` = 426 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 219 - Analytics Snapshot Filter Query Guard
+
+- Analytics semantic snapshot reads now reject malformed filter query metadata before reading snapshot rows.
+- Submitted `metricId`, `reportDate`, `from`, and `to` filters must be structurally safe before they can become snapshot SQL filters.
+- Metric IDs must be bounded single-line strings, date filters must be exact ISO calendar dates, and control-character strings, overlong metric IDs, invalid dates, and impossible calendar dates are rejected instead of coerced.
+- Omitted filters still preserve the existing all-snapshots behavior, and valid metric/date filters continue returning the matching snapshot series.
+- Rejected malformed snapshot filter queries return `400`, keep submitted payload secrets out of error bodies, and valid analytics snapshot listing, series grouping, backup scope, and audit behavior remain unchanged.
+- Verification for the checkpoint: focused analytics semantic snapshots test = 1 pass; `npm test` = 426 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

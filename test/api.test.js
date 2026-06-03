@@ -19364,6 +19364,27 @@ test("analytics semantic snapshots persist time-series with writer controls and 
     assert.deepEqual(seriesBody.series[0].points.map(point => point.reportDate), ["2026-05-26", "2026-05-27"]);
     assert.ok(seriesBody.series[0].points.every(point => point.value === 960000));
 
+    const datedSeries = await app.inject({
+      method: "GET",
+      url: "/api/analytics/semantic-snapshots?metricId=overdue-exposure&from=2026-05-27&to=2026-05-27",
+      headers: { cookie: auditorCookie }
+    });
+    assert.equal(datedSeries.statusCode, 200, datedSeries.body);
+    assert.deepEqual(datedSeries.json().snapshots.map(snapshot => snapshot.reportDate), ["2026-05-27"]);
+
+    const malformedFilterUrls = [
+      "/api/analytics/semantic-snapshots?metricId=overdue%0Asecret-analytics-snapshot-filter-token",
+      "/api/analytics/semantic-snapshots?metricId=" + "m".repeat(121),
+      "/api/analytics/semantic-snapshots?reportDate=2026-02-30",
+      "/api/analytics/semantic-snapshots?from=not-a-date",
+      "/api/analytics/semantic-snapshots?to=2026-05-27%0Asecret-analytics-snapshot-date-token"
+    ];
+    for (const url of malformedFilterUrls) {
+      const rejected = await app.inject({ method: "GET", url, headers: { cookie: auditorCookie } });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-analytics-snapshot-/);
+    }
+
     const allSnapshots = await app.inject({
       method: "GET",
       url: "/api/analytics/semantic-snapshots",

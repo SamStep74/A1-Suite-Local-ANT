@@ -42374,21 +42374,45 @@ function captureSemanticMetricSnapshots(db, user, body) {
 }
 
 function getSemanticMetricSnapshots(db, orgId, query = {}) {
-  const filters = {
-    metricId: String(query.metricId || "").trim(),
-    reportDate: String(query.reportDate || "").trim(),
-    from: String(query.from || "").trim(),
-    to: String(query.to || "").trim()
-  };
-  if (filters.reportDate) normalizeSnapshotReportDate(filters.reportDate);
-  if (filters.from) normalizeSnapshotReportDate(filters.from);
-  if (filters.to) normalizeSnapshotReportDate(filters.to);
+  const filters = normalizeAnalyticsSnapshotQuery(query);
   const snapshots = getSemanticMetricSnapshotRows(db, orgId, filters);
   return {
     semanticLayerVersion: snapshots[0]?.semanticLayerVersion || SEMANTIC_LAYER_VERSION,
     snapshots,
     series: buildSemanticSnapshotSeries(snapshots)
   };
+}
+
+function normalizeAnalyticsSnapshotQuery(query) {
+  if (!isPlainObject(query)) {
+    throwInvalidAnalyticsMetadata();
+  }
+  return {
+    metricId: normalizeAnalyticsQueryText(query, "metricId", { maxLength: 120 }),
+    reportDate: normalizeAnalyticsQueryDate(query, "reportDate"),
+    from: normalizeAnalyticsQueryDate(query, "from"),
+    to: normalizeAnalyticsQueryDate(query, "to")
+  };
+}
+
+function normalizeAnalyticsQueryText(query, field, options = {}) {
+  const { maxLength = 120 } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidAnalyticsMetadata();
+  }
+  const text = value.trim();
+  if (text.length > maxLength) {
+    throwInvalidAnalyticsMetadata();
+  }
+  return text;
+}
+
+function normalizeAnalyticsQueryDate(query, field) {
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return "";
+  return normalizeSnapshotReportDate(value);
 }
 
 function normalizeAnalyticsAsOfQuery(query, fallback) {
