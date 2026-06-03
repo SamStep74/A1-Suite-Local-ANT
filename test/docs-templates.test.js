@@ -118,6 +118,19 @@ test("docs-templates: malformed generate metadata is rejected before persistence
 
     const documentCountBefore = documentCount();
     const auditCountBefore = auditCount();
+    const malformedPath = await app.inject({
+      method: "POST",
+      url: `/api/docs/templates/${nda.id}%0Asecret-doc-template-generate-path-token/generate`,
+      headers: { cookie: owner },
+      payload: { variables: { counterparty: "Path token" } }
+    });
+    assert.strictEqual(malformedPath.statusCode, 400, malformedPath.body);
+    assert.match(malformedPath.body, /Invalid document template id/);
+    assert.ok(!malformedPath.body.includes("secret-doc-template-generate-path-token"), "rejected path secret is not reflected");
+    assert.strictEqual(documentCount(), documentCountBefore, "malformed template path did not create a document");
+    assert.strictEqual(documentSecretCount(), 0, "malformed template path metadata was not persisted");
+    assert.strictEqual(auditCount(), auditCountBefore, "malformed template path did not write audit evidence");
+
     const malformedRequests = [
       ["secret-doc-template-generate-array-body-token"],
       {

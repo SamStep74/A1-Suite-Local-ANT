@@ -2535,3 +2535,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Safe unknown public quote tokens still preserve the existing `404` behavior, and valid sent/viewed/accepted quote tokens continue returning public packets and accepting quotes.
 - Rejected malformed public quote token requests return `400`, keep submitted path/body secrets out of error bodies, and valid quote acceptance, CRM deal updates, finance approval creation, webhooks, and audit behavior remains unchanged.
 - Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused public quote token tests = 2 pass, including malformed secret-bearing read/accept tokens plus safe unknown public quote token `404`; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
+
+### Slice 242 - Document Template ID Guard
+
+- Docs template generation now rejects malformed template path IDs before template lookup or generated document creation.
+- Submitted document template IDs must be structurally safe before they can become template lookup, document draft creation, or audit inputs.
+- Document template IDs must be lowercase alphanumeric/hyphen strings; control-character strings, empty values, overlong values, or unsafe characters are rejected instead of being treated as missing templates.
+- Safe unknown document template IDs still preserve the existing `404` behavior, and valid template IDs continue generating draft documents from declared variables.
+- Rejected malformed document template ID requests return `400`, keep submitted path/body secrets out of error bodies, and valid template generation, document draft creation, and audit behavior remains unchanged.
+- Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/docs-templates.test.js` pass; `git diff --check` pass; focused Docs template tests (`node --test test/docs-templates.test.js`) = 5 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-document-template-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).

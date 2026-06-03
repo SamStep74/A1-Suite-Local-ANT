@@ -2393,7 +2393,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/docs/templates/:id/generate", async request => {
     const user = await app.auth(request);
     requireDocsWriter(user); // read-only Auditor must not author documents
-    const template = db.prepare("SELECT id, template_key AS key, name, doc_type AS docType, title_template AS titleTemplate, body_template AS bodyTemplate, variables FROM document_templates WHERE org_id = ? AND id = ?").get(user.org_id, String(request.params.id || ""));
+    const templateId = normalizeDocumentTemplateId(request.params.id);
+    const template = db.prepare("SELECT id, template_key AS key, name, doc_type AS docType, title_template AS titleTemplate, body_template AS bodyTemplate, variables FROM document_templates WHERE org_id = ? AND id = ?").get(user.org_id, templateId);
     if (!template) { const e = new Error("Template not found"); e.statusCode = 404; throw e; }
     const body = normalizeDocsTemplateGenerateBody(request.body === undefined ? {} : request.body);
     const customerId = body.customerId;
@@ -5356,6 +5357,23 @@ function getDocument(db, orgId, id) {
   if (!doc) return null;
   doc.signers = getDocumentSigners(db, orgId, doc.id);
   return doc;
+}
+
+function normalizeDocumentTemplateId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidDocumentTemplateId();
+  }
+  const id = value.trim();
+  if (!id || id.length > 180 || !/^[a-z0-9-]+$/.test(id)) {
+    throwInvalidDocumentTemplateId();
+  }
+  return id;
+}
+
+function throwInvalidDocumentTemplateId() {
+  const err = new Error("Invalid document template id");
+  err.statusCode = 400;
+  throw err;
 }
 
 const DOC_TYPES = ["agreement", "nda", "contract", "offer", "policy", "other"];
