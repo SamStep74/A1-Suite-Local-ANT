@@ -182,11 +182,6 @@ sudo apt install -y git curl sqlite3 ca-certificates
 
 Install Node.js `>=22.5`.
 
-> Important: for production deployments, avoid Docker Desktop on client hardware.
-> If container runtime is needed for gateway/platform services, use Ubuntu ARM64
-> with Docker Engine / Podman / containerd in the VM. Docker Engine on Linux has
-> no per-client Docker Desktop commercial license requirement.
-
 Clone and build:
 
 ```bash
@@ -580,11 +575,6 @@ node scripts/install-laws.js /path/to/laws.sqlite
 ## 4. Установка на Linux / VM
 
 Используется для Ubuntu ARM64 VM или VPS.
-
-Важно: в production не использовать Docker Desktop на клиентской инфраструктуре.
-Если для gateway/platform нужны контейнеры, в VM используйте Ubuntu ARM64 с
-Docker Engine / Podman / containerd. Для Docker Engine на Linux обязательная
-лицензия Docker Desktop не требуется.
 
 ```bash
 sudo apt update && sudo apt upgrade -y
@@ -987,12 +977,6 @@ node scripts/install-laws.js /path/to/laws.sqlite
 
 Օգտագործվում է Ubuntu ARM64 VM-ի կամ VPS-ի համար։
 
-Կարևոր է: արտադրական միջավայրում չի օգտագործվում Docker Desktop հաճախորդի
-սարքավորումների վրա։ Եթե gateway/platform ծառայությունների համար պահանջվում է
-կոնտեյներացում, օգտագործեք Ubuntu ARM64-ում Docker Engine / Podman / containerd։
-Linux-ում Docker Engine-ի օգտագործման համար Docker Desktop-ի լրացուցիչ վճարային
-պահանջ չկա։
-
 ```bash
 sudo apt update && sudo apt upgrade -y
 sudo apt install -y git curl sqlite3 ca-certificates
@@ -1265,3 +1249,4 @@ Restore test կատարվում է ամեն ամիս։
 Secrets չեն commit արվում GitHub-ում։
 Outbound network-ը մնում է անջատված, եթե explicit անհրաժեշտություն չկա։
 ```
+
