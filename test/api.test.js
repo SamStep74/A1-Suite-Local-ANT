@@ -4218,6 +4218,31 @@ test("owner can create pilot quote release packet after quote release workflow e
 test("accountant can hand accepted pilot quote into HayHashvapah invoice approval", async () => {
   await withApp(async app => {
     const proof = await createReleasedClinicPilotQuote(app);
+    const acceptanceHandoffCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_quote_acceptance_handoff_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.quote_acceptance_handoff.created").count
+    });
+    const beforeMalformedHandoff = acceptanceHandoffCounts();
+
+    const malformedReleaseId = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/quote-releases/${proof.releasePacket.id}%0Asecret-clinic-release-id-token/acceptance-handoff`,
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-acceptance-body-token" }
+    });
+    assert.equal(malformedReleaseId.statusCode, 400, malformedReleaseId.body);
+    assert.match(malformedReleaseId.body, /Invalid clinic pilot quote release id/);
+    assert.doesNotMatch(malformedReleaseId.body, /secret-clinic-release-id-token|secret-clinic-acceptance-body-token/);
+    assert.deepEqual(acceptanceHandoffCounts(), beforeMalformedHandoff);
+
+    const unknownSafeReleaseId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/quote-releases/pilot-quote-release-missing/acceptance-handoff",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing release remains missing." }
+    });
+    assert.equal(unknownSafeReleaseId.statusCode, 404, unknownSafeReleaseId.body);
+    assert.deepEqual(acceptanceHandoffCounts(), beforeMalformedHandoff);
 
     const supportDenied = await app.inject({
       method: "POST",
