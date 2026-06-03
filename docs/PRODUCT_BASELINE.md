@@ -594,6 +594,7 @@ Status: shipped in the local prototype on 2026-05-27.
 Status: shipped in the local prototype on 2026-05-27.
 
 - Added TOTP MFA enrollment for privileged Owner and Admin users while rejecting non-privileged support enrollment attempts.
+- MFA enrollment now rejects non-object request bodies and non-string labels before pending factor creation, so null/object coercion cannot enter factor labels or enrollment evidence.
 - Added a password login MFA challenge flow that blocks privileged session creation until the one-time code challenge is satisfied.
 - Added `/api/security/mfa`, `/api/security/mfa/enroll`, `/api/security/mfa/verify-enrollment`, and `/api/login/mfa` endpoints.
 - Stored MFA factors and login challenges with five-minute challenge expiry, active/pending factor states, and audit evidence for enrollment, challenge creation, failures, and verification.
