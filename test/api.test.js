@@ -22893,6 +22893,22 @@ test("owner can create idempotent SRC export packet from posted HayHashvapah inv
     assert.equal(listed.statusCode, 200, listed.body);
     assert.ok(listed.json().exports.some(item => item.id === body.export.id));
 
+    for (const url of ["/api/finance/src-exports", "/api/finance/src-exports?periodKey="]) {
+      const unfilteredList = await app.inject({ method: "GET", url, headers: { cookie } });
+      assert.equal(unfilteredList.statusCode, 200, unfilteredList.body);
+      assert.ok(unfilteredList.json().exports.some(item => item.id === body.export.id));
+    }
+
+    for (const url of [
+      "/api/finance/src-exports?periodKey=2026-13",
+      "/api/finance/src-exports?periodKey=2026-00",
+      "/api/finance/src-exports?periodKey=2026/05",
+      "/api/finance/src-exports?periodKey=2026-05&periodKey=2026-06"
+    ]) {
+      const malformedList = await app.inject({ method: "GET", url, headers: { cookie } });
+      assert.equal(malformedList.statusCode, 400, malformedList.body);
+    }
+
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
     assert.ok(audit.json().events.some(event => event.type === "finance.src_export.created" && event.details.exportId === body.export.id));
   });

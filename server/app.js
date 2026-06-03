@@ -3582,7 +3582,8 @@ ${controls}
 
   app.get("/api/finance/src-exports", async request => {
     const user = await app.auth(request);
-    return { exports: getFinanceSrcExports(db, user.org_id, request.query.periodKey || "", financeEvidenceOptions(user)) };
+    const query = normalizeFinanceSrcExportListQuery(request.query || {});
+    return { exports: getFinanceSrcExports(db, user.org_id, query.periodKey, financeEvidenceOptions(user)) };
   });
 
   app.post("/api/finance/src-exports", async request => {
@@ -51653,10 +51654,40 @@ function normalizeFinanceSrcExportPeriodKey(body) {
     throwInvalidFinanceSrcExport();
   }
   const periodKey = value.trim();
-  if (!/^\d{4}-\d{2}$/.test(periodKey)) {
+  if (!isValidFinancePeriodKey(periodKey)) {
     throwInvalidFinanceSrcExport();
   }
   return periodKey;
+}
+
+function normalizeFinanceSrcExportListQuery(query) {
+  if (!isPlainObject(query)) {
+    throwInvalidFinanceListQuery();
+  }
+  return {
+    periodKey: normalizeFinanceSrcExportListPeriodKey(query, "periodKey")
+  };
+}
+
+function normalizeFinanceSrcExportListPeriodKey(query, field) {
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "" || value === null) return "";
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceListQuery();
+  }
+  const periodKey = value.trim();
+  if (!periodKey) return "";
+  if (!isValidFinancePeriodKey(periodKey)) {
+    throwInvalidFinanceListQuery();
+  }
+  return periodKey;
+}
+
+function isValidFinancePeriodKey(periodKey) {
+  const match = /^(\d{4})-(\d{2})$/.exec(periodKey);
+  if (!match) return false;
+  const month = Number(match[2]);
+  return month >= 1 && month <= 12;
 }
 
 function normalizeFinanceSrcExportText(body, field, options = {}) {
