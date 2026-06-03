@@ -6194,6 +6194,31 @@ test("sales can create clinic next renewal quote handoff from renewal closeout",
 test("sales can create clinic next renewal quote release packet after workflow executes", async () => {
   await withApp(async app => {
     const proof = await createPilotNextRenewalQuoteHandoff(app);
+    const nextRenewalReleaseCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_next_renewal_quote_release_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.next_renewal_quote_release.created").count
+    });
+    const beforeMalformedNextRenewalRelease = nextRenewalReleaseCounts();
+
+    const malformedHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-renewal-quotes/badAsecret-clinic-next-renewal-handoff-token/release-packet",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "secret-clinic-next-renewal-release-body-token" }
+    });
+    assert.equal(malformedHandoffId.statusCode, 400, malformedHandoffId.body);
+    assert.match(malformedHandoffId.body, /Invalid clinic pilot next renewal quote handoff id/);
+    assert.doesNotMatch(malformedHandoffId.body, /badAsecret-clinic-next-renewal-handoff-token|secret-clinic-next-renewal-release-body-token/);
+    assert.deepEqual(nextRenewalReleaseCounts(), beforeMalformedNextRenewalRelease);
+
+    const unknownSafeHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-renewal-quotes/pilot-next-renewal-quote-handoff-missing/release-packet",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "Safe missing next renewal quote handoff remains missing." }
+    });
+    assert.equal(unknownSafeHandoffId.statusCode, 404, unknownSafeHandoffId.body);
+    assert.deepEqual(nextRenewalReleaseCounts(), beforeMalformedNextRenewalRelease);
 
     const supportDenied = await app.inject({
       method: "POST",

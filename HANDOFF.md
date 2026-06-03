@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-04 · clinic next renewal quote closeout id guard · 87 tags · **465 tests verified**_
+_Last updated: 2026-06-04 · clinic next renewal release handoff id guard · 87 tags · **465 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 139 slices)
+### Hardening (production-readiness pass — 140 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -174,6 +174,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 137. **Clinic renewal payment collection posting packet id guard** validates clinic/wellness renewal official-invoice posting packet path IDs before payment-collection packet creation, rejecting malformed renewal posting packet metadata instead of treating unsafe IDs as missing renewal posting packets.
 138. **Clinic renewal closeout payment collection id guard** validates clinic/wellness renewal payment-collection packet path IDs before renewal closeout packet creation, rejecting malformed renewal payment-collection metadata instead of treating unsafe IDs as missing renewal payment-collection packets.
 139. **Clinic next renewal quote closeout id guard** validates clinic/wellness renewal closeout packet path IDs before next-renewal quote handoff creation, rejecting malformed renewal closeout metadata instead of treating unsafe IDs as missing renewal closeout packets.
+140. **Clinic next renewal release handoff id guard** validates clinic/wellness next-renewal quote handoff path IDs before next-renewal quote release packet creation, rejecting malformed next-renewal handoff metadata instead of treating unsafe IDs as missing next-renewal handoffs.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -221,7 +222,9 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Current clinic next renewal quote closeout id guard checkpoint: pending commit on `codex/suite-dashboard-route-normalization` (validates clinic/wellness renewal closeout packet path IDs before next-renewal quote handoff creation).
+- Current clinic next renewal release handoff id guard checkpoint: pending commit on `codex/suite-dashboard-route-normalization` (validates clinic/wellness next-renewal quote handoff path IDs before next-renewal quote release packet creation).
+- Latest clinic next renewal release handoff id guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic next-renewal quote release packet test (`sales can create clinic next renewal quote release packet after workflow executes`) = 1 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-next-renewal-release-handoff-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
+- Latest clinic next renewal quote closeout id guard checkpoint: `92a9029` (`Harden clinic next renewal quote closeout ids`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest clinic next renewal quote closeout id guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic next-renewal quote handoff test (`sales can create clinic next renewal quote handoff from renewal closeout`) = 1 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-next-renewal-quote-closeout-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
 - Latest clinic renewal closeout payment collection id guard checkpoint: `66884c5` (`Harden clinic renewal closeout payment collection ids`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest clinic renewal closeout payment collection id guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic renewal closeout/next-renewal task test (`owner can close renewal cycle and schedule next renewal task after payment collection`) = 1 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-renewal-closeout-payment-collection-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
