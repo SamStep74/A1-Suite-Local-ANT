@@ -186,6 +186,8 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
+- Latest finance list query helper cleanup: this checkpoint, to be pushed on `codex/suite-dashboard-route-normalization`; duplicate helper declarations were removed without changing list-query behavior.
+- Latest finance list query helper cleanup verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` = pass; focused `node --test --test-name-pattern "finance list query filters reject malformed" test/api.test.js` = 2 pass; full `npm test` = 431 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite chunk-size warning; offline smoke = pass, apps=10; read-only code review subagent = pass.
 - Latest finance list query filter guard checkpoint: `593634b` (`Harden finance list query filters`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest finance list query filter guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "finance list query filters reject malformed metadata" test/api.test.js` = 1 pass, including malformed finance draft-invoice, payment, and bank-transaction `customerId` filters rejected before finance list reads; full `npm test` = 431 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; offline smoke = pass, apps=10.
 - Latest signature packet list query filter guard checkpoint: `fe9c52b` (`Add signature packet list query filter guard`), pushed on `codex/suite-dashboard-route-normalization`.
