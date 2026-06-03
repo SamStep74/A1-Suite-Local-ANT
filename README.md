@@ -78,8 +78,10 @@ local Ollama embedder.
 |---|---|---|
 | `PORT` | HTTP port | `4100` |
 | `HOST` | Bind address (keep loopback for local-only access) | `127.0.0.1` |
-| `ARMOSPHERA_ONE_DATA_DIR` | Override the data directory | OS app-support dir |
-| `ARMOSPHERA_ONE_DB` | Override the DB file path | `<data dir>/armosphera-one.db` |
+| `A1_STUDIO_DATA_DIR` | Platform alias for data directory override | OS app-support dir |
+| `ARMOSPHERA_ONE_DATA_DIR` | Legacy data directory override | OS app-support dir |
+| `A1_STUDIO_SQLITE` | Platform alias for DB file path | `/opt/a1/product-data/studio/armosphera-one.db` |
+| `ARMOSPHERA_ONE_DB` | Legacy DB file path override | `<data dir>/armosphera-one.db` |
 | `ARMOSPHERA_ONE_ALLOW_EGRESS` | `1` to permit outbound calls | off |
 | `ARMOSPHERA_ONE_EGRESS_ALLOWLIST` | Allowed outbound hosts (comma-separated) | empty |
 | `AI_PROVIDER` | Scaffolding (not yet wired): `local` / `claude` / `openai` / `auto` | `local` |

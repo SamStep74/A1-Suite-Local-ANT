@@ -10,6 +10,7 @@ const PRODUCT = Object.freeze({
 });
 
 function computeDataDir(env = process.env, platform = process.platform, home = os.homedir()) {
+  if (env.A1_STUDIO_DATA_DIR) return env.A1_STUDIO_DATA_DIR;
   if (env.ARMOSPHERA_ONE_DATA_DIR) return env.ARMOSPHERA_ONE_DATA_DIR;
   if (platform === "darwin") return path.join(home, "Library", "Application Support", PRODUCT.appSupportDir);
   if (platform === "win32") {
@@ -30,6 +31,7 @@ function resolveDataDir() {
 }
 
 function resolveDbPath() {
+  if (process.env.A1_STUDIO_SQLITE) return process.env.A1_STUDIO_SQLITE;
   if (process.env.ARMOSPHERA_ONE_DB) return process.env.ARMOSPHERA_ONE_DB;
   return path.join(resolveDataDir(), "armosphera-one.db");
 }
