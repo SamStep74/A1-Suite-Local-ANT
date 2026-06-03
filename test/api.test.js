@@ -3816,6 +3816,29 @@ test("sales can hand off paid pilot offer into governed CRM quote release", asyn
       releaseAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("crm.quote.release.requested").count
     });
     const beforeMalformedHandoff = quoteHandoffCounts();
+    const malformedOfferId = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/paid-offers/${offer.id}%0Asecret-clinic-offer-id-token/quote-handoff`,
+      headers: { cookie: salespersonCookie },
+      payload: {
+        dealId: "deal-nare-retainer",
+        note: "secret-clinic-offer-id-body-token"
+      }
+    });
+    assert.equal(malformedOfferId.statusCode, 400, malformedOfferId.body);
+    assert.match(malformedOfferId.body, /Invalid clinic pilot offer id/);
+    assert.doesNotMatch(malformedOfferId.body, /secret-clinic-offer-id-token|secret-clinic-offer-id-body-token/);
+    assert.deepEqual(quoteHandoffCounts(), beforeMalformedHandoff);
+
+    const unknownSafeOfferId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/paid-offers/pilot-paid-offer-missing/quote-handoff",
+      headers: { cookie: salespersonCookie },
+      payload: { dealId: "deal-nare-retainer" }
+    });
+    assert.equal(unknownSafeOfferId.statusCode, 404, unknownSafeOfferId.body);
+    assert.deepEqual(quoteHandoffCounts(), beforeMalformedHandoff);
+
     const malformedHandoff = await app.inject({
       method: "POST",
       url: `/api/pilots/clinic-wellness/paid-offers/${offer.id}/quote-handoff`,

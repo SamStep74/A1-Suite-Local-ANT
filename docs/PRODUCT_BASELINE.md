@@ -2553,3 +2553,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Safe unknown action keys still preserve the existing `404` behavior, and valid assigned-role action resolutions continue returning remediation evidence packets.
 - Rejected malformed remediation action key requests return `400`, keep submitted path/body secrets out of error bodies, and valid remediation resolution, backup, and audit behavior remains unchanged.
 - Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic remediation action test (`assigned roles can resolve clinic launch remediation actions with evidence`) = 1 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-action-key-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
+
+### Slice 244 - Clinic Quote Handoff Offer ID Guard
+
+- Clinic/wellness paid-offer quote-handoff mutations now reject malformed offer path IDs before paid-offer lookup or quote handoff creation.
+- Submitted offer IDs must be structurally safe before they can become quote handoff lookup, quote creation, workflow approval, suite-event, or audit inputs.
+- Clinic paid-offer IDs must be lowercase alphanumeric/hyphen strings; control-character strings, empty values, overlong values, or unsafe characters are rejected instead of being treated as missing paid offers.
+- Safe unknown offer IDs still preserve the existing `404` behavior, and valid paid-offer IDs continue creating governed CRM quote handoff packets.
+- Rejected malformed offer ID requests return `400`, keep submitted path/body secrets out of error bodies, and valid quote handoff, quote creation, workflow approval, backup, and audit behavior remains unchanged.
+- Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic quote handoff test (`sales can hand off paid pilot offer into governed CRM quote release`) = 1 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-quote-handoff-offer-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).

@@ -529,7 +529,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/pilots/clinic-wellness/paid-offers/:offerId/quote-handoff", async request => {
     const user = await app.auth(request);
     requirePilotQuoteHandoffWriter(user);
-    return createClinicWellnessOfferQuoteHandoff(db, user, request.params.offerId, request.body || {});
+    const offerId = normalizeClinicPilotOfferId(request.params.offerId);
+    return createClinicWellnessOfferQuoteHandoff(db, user, offerId, request.body || {});
   });
 
   app.get("/api/pilots/clinic-wellness/quote-releases", async request => {
@@ -52505,6 +52506,23 @@ function normalizeClinicPilotActionKey(value) {
 
 function throwInvalidClinicPilotActionKey() {
   const err = new Error("Invalid clinic pilot action key");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeClinicPilotOfferId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidClinicPilotOfferId();
+  }
+  const id = value.trim();
+  if (!id || id.length > 160 || !/^[a-z0-9-]+$/.test(id)) {
+    throwInvalidClinicPilotOfferId();
+  }
+  return id;
+}
+
+function throwInvalidClinicPilotOfferId() {
+  const err = new Error("Invalid clinic pilot offer id");
   err.statusCode = 400;
   throw err;
 }
