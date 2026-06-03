@@ -2445,3 +2445,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted filters still preserve the existing all-HayHashvapah-drafts behavior, and valid acceptance-handoff filters continue returning matching draft packets.
 - Rejected malformed HayHashvapah draft list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness draft packet behavior remains unchanged.
 - Verification for the checkpoint: focused HayHashvapah draft list filter and draft packet creation tests = 2 pass, including valid `acceptanceHandoffId` filtering and no-match behavior; `npm test` = 458 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
+
+### Slice 232 - Clinic Official-Invoice List Query Filter Guard
+
+- Clinic/wellness official-invoice posting packet list reads now reject malformed posting filter query metadata before reading pilot invoice rows.
+- Submitted `draftPacketId` filters must be structurally safe before they can become official-invoice posting packet list SQL filters.
+- Draft packet IDs must be bounded single-line strings, and control-character strings or overlong values are rejected instead of coerced.
+- Omitted filters still preserve the existing all-official-invoices behavior, and valid draft-packet filters continue returning matching posting packets.
+- Rejected malformed official-invoice list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness posting packet behavior remains unchanged.
+- Verification for the checkpoint: focused official-invoice list filter and posting packet creation tests = 2 pass, including valid `draftPacketId` filtering and no-match behavior; `npm test` = 459 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
