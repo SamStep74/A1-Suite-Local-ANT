@@ -40,6 +40,12 @@ test("suite route helpers tolerate malformed encoded app ids", () => {
   assert.equal(appIdFromLocation("/app/%ZZ"), "crm");
 });
 
+test("suite route helpers normalize app id casing and surrounding whitespace", () => {
+  assert.equal(normalizeSuiteAppId(" Finance ", ["crm", "finance"]), "finance");
+  assert.equal(appIdFromLocation("/app/Finance"), "finance");
+  assert.equal(appIdFromLocation("/app/%20copilot%20"), "copilot");
+});
+
 test("suite route helpers normalize explicit aliases before assignment", () => {
   assert.equal(normalizeSuiteAppId("forms", ["forms"]), "campaigns");
   assert.deepEqual(normalizeSuiteAppIds(["forms"]), ["campaigns"]);

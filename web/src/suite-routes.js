@@ -6,7 +6,8 @@ export const SUITE_APP_ROUTE_ALIASES = {
 };
 
 function canonicalSuiteAppId(appId) {
-  return SUITE_APP_ROUTE_ALIASES[appId] || appId;
+  const normalizedAppId = typeof appId === "string" ? appId.trim().toLowerCase() : "";
+  return SUITE_APP_ROUTE_ALIASES[normalizedAppId] || normalizedAppId;
 }
 
 function firstCanonicalAssignedAppId(assignedApps) {

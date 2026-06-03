@@ -1859,8 +1859,9 @@ Status: shipped in the local prototype on 2026-05-28.
 - Suite route helpers normalize legacy product aliases before route fallback, so `/app/hayhashvapah` opens canonical HayHashvapah Finance and `/app/forms` opens the Campaigns & Forms surface.
 - Malformed percent-encoded `/app/<id>` path segments now fall back to CRM instead of throwing during route selection, keeping bad local links from blanking the workspace.
 - Stale invalid assigned app ids cannot become selected dashboard routes; the route helper falls back to the first canonical assigned product or CRM instead of echoing unknown assignment rows back into navigation state.
+- Route app ids are trimmed and lowercased before alias and allow-list matching, so copied links like `/app/Finance` and encoded `/app/%20copilot%20` open the intended product.
 - Sidebar launcher buttons expose stable `data-app-id` and `data-target-app-id` metadata, and a Playwright-backed seeded-role matrix verifies every assigned product button opens its canonical route and matching workspace panel.
-- Latest verification for the checkpoint: focused dashboard sidebar openability test = 1 pass; focused route helper test = 7 pass; focused dashboard source-wiring test = 1 pass; `npm test` = 422 pass.
+- Latest verification for the checkpoint: focused dashboard sidebar openability test = 1 pass; focused route helper test = 8 pass; focused dashboard source-wiring test = 1 pass; `npm test` = 423 pass.
 
 ### Slice 164 - App Assignment Role Guard
 
