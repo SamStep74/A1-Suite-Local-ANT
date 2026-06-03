@@ -2562,3 +2562,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Safe unknown offer IDs still preserve the existing `404` behavior, and valid paid-offer IDs continue creating governed CRM quote handoff packets.
 - Rejected malformed offer ID requests return `400`, keep submitted path/body secrets out of error bodies, and valid quote handoff, quote creation, workflow approval, backup, and audit behavior remains unchanged.
 - Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic quote handoff test (`sales can hand off paid pilot offer into governed CRM quote release`) = 1 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-quote-handoff-offer-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
+
+### Slice 245 - Clinic Quote Release Handoff ID Guard
+
+- Clinic/wellness quote-release packet mutations now reject malformed quote-handoff path IDs before quote-handoff lookup or release-packet creation.
+- Submitted quote-handoff IDs must be structurally safe before they can become release-packet lookup, public-release evidence, backup, suite-event, or audit inputs.
+- Clinic quote-handoff IDs must be lowercase alphanumeric/hyphen strings; control-character strings, empty values, overlong values, or unsafe characters are rejected instead of being treated as missing quote handoffs.
+- Safe unknown quote-handoff IDs still preserve the existing `404` behavior, and valid executed quote handoff IDs continue creating governed public quote release packets.
+- Rejected malformed quote-handoff ID requests return `400`, keep submitted path/body secrets out of error bodies, and valid quote release, public quote visibility, backup, and audit behavior remains unchanged.
+- Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic quote release test (`owner can create pilot quote release packet after quote release workflow executes`) = 1 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-quote-release-handoff-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
