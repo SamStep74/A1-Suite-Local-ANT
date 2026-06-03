@@ -3680,7 +3680,7 @@ ${controls}
   app.get("/api/events", async request => {
     const user = await app.auth(request);
     const limit = normalizeEventFeedLimit(request.query.limit, 25, 100);
-    const customerId = request.query.customerId || "";
+    const { customerId } = normalizeSuiteAdvisoryListQuery(request.query || {}, { customerId: true });
     return { events: getRecentSuiteEvents(db, user.org_id, limit, customerId, eventFeedOptions(user)) };
   });
 
@@ -3706,7 +3706,7 @@ ${controls}
   app.get("/api/ai/customer-briefs", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const customerId = request.query.customerId || "";
+    const { customerId } = normalizeSuiteAdvisoryListQuery(request.query || {}, { customerId: true });
     if (customerId) assertCustomer(db, user.org_id, customerId);
     return { briefs: getAiCustomerBriefs(db, user.org_id, customerId) };
   });
@@ -3721,8 +3721,7 @@ ${controls}
   app.get("/api/ai/deal-risk-briefs", async request => {
     const user = await app.auth(request);
     requireDealRiskBriefAccess(user);
-    const dealId = request.query.dealId || "";
-    const customerId = request.query.customerId || "";
+    const { dealId, customerId } = normalizeSuiteAdvisoryListQuery(request.query || {}, { dealId: true, customerId: true });
     if (dealId && !getDeal(db, user.org_id, dealId)) {
       const err = new Error("Deal not found");
       err.statusCode = 404;
@@ -3742,8 +3741,7 @@ ${controls}
   app.get("/api/ai/invoice-overdue-explanations", async request => {
     const user = await app.auth(request);
     requireInvoiceOverdueExplanationAccess(user);
-    const invoiceId = request.query.invoiceId || "";
-    const customerId = request.query.customerId || "";
+    const { invoiceId, customerId } = normalizeSuiteAdvisoryListQuery(request.query || {}, { invoiceId: true, customerId: true });
     if (invoiceId && !getInvoice(db, user.org_id, invoiceId)) {
       const err = new Error("Invoice not found");
       err.statusCode = 404;
@@ -3763,8 +3761,7 @@ ${controls}
   app.get("/api/ai/ticket-summaries", async request => {
     const user = await app.auth(request);
     requireTicketSummaryAccess(user);
-    const caseId = request.query.caseId || "";
-    const customerId = request.query.customerId || "";
+    const { caseId, customerId } = normalizeSuiteAdvisoryListQuery(request.query || {}, { caseId: true, customerId: true });
     if (caseId && !getServiceCase(db, user.org_id, caseId)) {
       const err = new Error("Service case not found");
       err.statusCode = 404;
@@ -52140,6 +52137,38 @@ function normalizeWorkflowListQueryText(query, field, options = {}) {
 
 function throwInvalidWorkflowListQuery() {
   const err = new Error("Invalid workflow list query");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeSuiteAdvisoryListQuery(query, filters = {}) {
+  if (!isPlainObject(query)) {
+    throwInvalidSuiteAdvisoryListQuery();
+  }
+  return {
+    customerId: filters.customerId ? normalizeSuiteAdvisoryListQueryText(query, "customerId", { maxLength: 160 }) : "",
+    dealId: filters.dealId ? normalizeSuiteAdvisoryListQueryText(query, "dealId", { maxLength: 160 }) : "",
+    invoiceId: filters.invoiceId ? normalizeSuiteAdvisoryListQueryText(query, "invoiceId", { maxLength: 160 }) : "",
+    caseId: filters.caseId ? normalizeSuiteAdvisoryListQueryText(query, "caseId", { maxLength: 160 }) : ""
+  };
+}
+
+function normalizeSuiteAdvisoryListQueryText(query, field, options = {}) {
+  const { maxLength = 160 } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidSuiteAdvisoryListQuery();
+  }
+  const text = value.trim();
+  if (!text || text.length > maxLength) {
+    throwInvalidSuiteAdvisoryListQuery();
+  }
+  return text;
+}
+
+function throwInvalidSuiteAdvisoryListQuery() {
+  const err = new Error("Invalid suite advisory list query");
   err.statusCode = 400;
   throw err;
 }

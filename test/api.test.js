@@ -21440,6 +21440,36 @@ test("workflow list query filters reject malformed metadata before reads", async
   });
 });
 
+test("suite advisory list query filters reject malformed metadata before reads", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+
+    const unfilteredEvents = await app.inject({ method: "GET", url: "/api/events", headers: { cookie } });
+    assert.equal(unfilteredEvents.statusCode, 200, unfilteredEvents.body);
+
+    const unfilteredCustomerBriefs = await app.inject({ method: "GET", url: "/api/ai/customer-briefs", headers: { cookie } });
+    assert.equal(unfilteredCustomerBriefs.statusCode, 200, unfilteredCustomerBriefs.body);
+
+    const malformedListUrls = [
+      "/api/events?customerId=cust-nare%0Asecret-suite-advisory-event-customer-token",
+      "/api/events?customerId=" + "e".repeat(161),
+      "/api/ai/customer-briefs?customerId=cust-nare%0Asecret-suite-advisory-brief-customer-token",
+      "/api/ai/customer-briefs?customerId=" + "b".repeat(161),
+      "/api/ai/deal-risk-briefs?dealId=deal-nare-retainer%0Asecret-suite-advisory-deal-token",
+      "/api/ai/deal-risk-briefs?customerId=cust-nare%0Asecret-suite-advisory-deal-customer-token",
+      "/api/ai/invoice-overdue-explanations?invoiceId=inv-1007%0Asecret-suite-advisory-invoice-token",
+      "/api/ai/invoice-overdue-explanations?customerId=cust-nare%0Asecret-suite-advisory-invoice-customer-token",
+      "/api/ai/ticket-summaries?caseId=case-nare-vat%0Asecret-suite-advisory-case-token",
+      "/api/ai/ticket-summaries?customerId=cust-nare%0Asecret-suite-advisory-case-customer-token"
+    ];
+    for (const url of malformedListUrls) {
+      const rejected = await app.inject({ method: "GET", url, headers: { cookie } });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-suite-advisory-/);
+    }
+  });
+});
+
 test("owner can generate advisory workflow builder suggestion without mutating workflow state", async () => {
   await withApp(async app => {
     const ownerCookie = await login(app);
