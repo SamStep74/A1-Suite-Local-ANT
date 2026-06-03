@@ -4531,6 +4531,31 @@ test("accountant can record HayHashvapah draft invoice packet after owner execut
 test("accountant can record official HayHashvapah invoice posting packet from pilot draft", async () => {
   await withApp(async app => {
     const proof = await createPilotHayhashvapahDraftPacket(app);
+    const postingPacketCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_hayhashvapah_invoice_posting_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.hayhashvapah_invoice_posting.created").count
+    });
+    const beforeMalformedPostingPacket = postingPacketCounts();
+
+    const malformedDraftPacketId = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/hayhashvapah-drafts/${proof.draftPacket.id}%0Asecret-clinic-draft-packet-id-token/posting-packet`,
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-posting-packet-body-token" }
+    });
+    assert.equal(malformedDraftPacketId.statusCode, 400, malformedDraftPacketId.body);
+    assert.match(malformedDraftPacketId.body, /Invalid clinic pilot draft packet id/);
+    assert.doesNotMatch(malformedDraftPacketId.body, /secret-clinic-draft-packet-id-token|secret-clinic-posting-packet-body-token/);
+    assert.deepEqual(postingPacketCounts(), beforeMalformedPostingPacket);
+
+    const unknownSafeDraftPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/hayhashvapah-drafts/pilot-draft-packet-missing/posting-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing draft packet remains missing." }
+    });
+    assert.equal(unknownSafeDraftPacketId.statusCode, 404, unknownSafeDraftPacketId.body);
+    assert.deepEqual(postingPacketCounts(), beforeMalformedPostingPacket);
 
     const supportDenied = await app.inject({
       method: "POST",

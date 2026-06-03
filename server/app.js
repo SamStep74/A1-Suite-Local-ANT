@@ -613,7 +613,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/pilots/clinic-wellness/hayhashvapah-drafts/:draftPacketId/posting-packet", async request => {
     const user = await app.auth(request);
     requirePilotHayhashvapahPostingWriter(user);
-    return createClinicWellnessHayhashvapahInvoicePostingPacket(db, user, request.params.draftPacketId, request.body || {});
+    const draftPacketId = normalizeClinicPilotDraftPacketId(request.params.draftPacketId);
+    return createClinicWellnessHayhashvapahInvoicePostingPacket(db, user, draftPacketId, request.body || {});
   });
 
   app.get("/api/pilots/clinic-wellness/payment-collections", async request => {
@@ -52577,6 +52578,23 @@ function normalizeClinicPilotQuoteAcceptanceHandoffId(value) {
 
 function throwInvalidClinicPilotQuoteAcceptanceHandoffId() {
   const err = new Error("Invalid clinic pilot quote acceptance handoff id");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeClinicPilotDraftPacketId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidClinicPilotDraftPacketId();
+  }
+  const id = value.trim();
+  if (!id || id.length > 160 || !/^[a-z0-9-]+$/.test(id)) {
+    throwInvalidClinicPilotDraftPacketId();
+  }
+  return id;
+}
+
+function throwInvalidClinicPilotDraftPacketId() {
+  const err = new Error("Invalid clinic pilot draft packet id");
   err.statusCode = 400;
   throw err;
 }
