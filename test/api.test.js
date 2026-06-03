@@ -5248,6 +5248,31 @@ test("sales can create clinic pilot renewal quote release packet after workflow 
 test("accountant can hand accepted renewal quote into HayHashvapah invoice approval", async () => {
   await withApp(async app => {
     const proof = await createPilotRenewalQuoteReleasePacket(app);
+    const renewalAcceptanceHandoffCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_renewal_quote_acceptance_handoff_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.renewal_quote_acceptance_handoff.created").count
+    });
+    const beforeMalformedRenewalAcceptance = renewalAcceptanceHandoffCounts();
+
+    const malformedReleaseId = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/renewal-quote-releases/${proof.renewalQuoteReleasePacket.id}%0Asecret-clinic-renewal-release-id-token/acceptance-handoff`,
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-renewal-acceptance-body-token" }
+    });
+    assert.equal(malformedReleaseId.statusCode, 400, malformedReleaseId.body);
+    assert.match(malformedReleaseId.body, /Invalid clinic pilot renewal quote release packet id/);
+    assert.doesNotMatch(malformedReleaseId.body, /secret-clinic-renewal-release-id-token|secret-clinic-renewal-acceptance-body-token/);
+    assert.deepEqual(renewalAcceptanceHandoffCounts(), beforeMalformedRenewalAcceptance);
+
+    const unknownSafeReleaseId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/renewal-quote-releases/pilot-renewal-quote-release-missing/acceptance-handoff",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing renewal quote release remains missing." }
+    });
+    assert.equal(unknownSafeReleaseId.statusCode, 404, unknownSafeReleaseId.body);
+    assert.deepEqual(renewalAcceptanceHandoffCounts(), beforeMalformedRenewalAcceptance);
 
     const supportDenied = await app.inject({
       method: "POST",
