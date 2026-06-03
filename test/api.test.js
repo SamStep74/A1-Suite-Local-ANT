@@ -3821,12 +3821,22 @@ test("sales can hand off paid pilot offer into governed CRM quote release", asyn
       headers: { cookie: auditorCookie }
     });
     assert.equal(auditorList.statusCode, 200, auditorList.body);
+    assert.ok(auditorList.json().handoffs.length > 0);
+    assert.ok(auditorList.json().handoffs.every(item => item.offerId === offer.id));
     assert.ok(auditorList.json().handoffs.some(item => (
       item.id === handoff.id
       && item.payload === undefined
       && item.quoteId === quote.id
       && item.approvalId === approval.id
     )));
+
+    const unmatchedList = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/quote-handoffs?offerId=pilot-paid-offer-missing",
+      headers: { cookie: auditorCookie }
+    });
+    assert.equal(unmatchedList.statusCode, 200, unmatchedList.body);
+    assert.deepEqual(unmatchedList.json().handoffs, []);
 
     const backup = await app.inject({
       method: "POST",
@@ -23722,6 +23732,19 @@ test("clinic wellness paid offers reject unsafe clearancePacketId query", async 
     const response = await app.inject({
       method: "GET",
       url: "/api/pilots/clinic-wellness/paid-offers?clearancePacketId=%00bad",
+      headers: { cookie }
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.match(response.body, /Invalid clinic pilot list query/);
+  });
+});
+
+test("clinic wellness quote handoffs reject unsafe offerId query", async () => {
+  await withApp(async app => {
+    const cookie = await login(app, "sales@armosphera.local");
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/quote-handoffs?offerId=%00bad",
       headers: { cookie }
     });
     assert.equal(response.statusCode, 400, response.body);

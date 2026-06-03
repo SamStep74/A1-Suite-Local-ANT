@@ -514,12 +514,13 @@ function registerApi(app, db, options = {}) {
   app.get("/api/pilots/clinic-wellness/quote-handoffs", async request => {
     const user = await app.auth(request);
     requirePilotQuoteHandoffReader(user);
+    const { offerId } = normalizeClinicPilotListQuery(request.query || {}, { offerId: true });
     return {
       handoffs: getPilotOfferQuoteHandoffPackets(
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.offerId || ""
+        offerId
       )
     };
   });
@@ -52214,7 +52215,8 @@ function normalizeClinicPilotListQuery(query, filters = {}) {
   return {
     planId: filters.planId ? normalizeClinicPilotListQueryText(query, "planId", { maxLength: 160 }) : "",
     remediationPlanId: filters.remediationPlanId ? normalizeClinicPilotListQueryText(query, "remediationPlanId", { maxLength: 160 }) : "",
-    clearancePacketId: filters.clearancePacketId ? normalizeClinicPilotListQueryText(query, "clearancePacketId", { maxLength: 160 }) : ""
+    clearancePacketId: filters.clearancePacketId ? normalizeClinicPilotListQueryText(query, "clearancePacketId", { maxLength: 160 }) : "",
+    offerId: filters.offerId ? normalizeClinicPilotListQueryText(query, "offerId", { maxLength: 160 }) : ""
   };
 }
 
