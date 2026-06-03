@@ -22198,6 +22198,106 @@ test("Armenian bank transaction import reconciles collection promise payment", a
   });
 });
 
+test("finance list query filters reject malformed metadata before reads", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const draft = await executeDraftInvoice(app, cookie);
+
+    const validDrafts = await app.inject({ method: "GET", url: "/api/finance/draft-invoices?customerId=cust-nare", headers: { cookie } });
+    assert.equal(validDrafts.statusCode, 200, validDrafts.body);
+    assert.ok(validDrafts.json().draftInvoices.some(item => item.id === draft.id));
+    assert.ok(validDrafts.json().draftInvoices.every(item => item.customerId === "cust-nare"));
+
+    const posted = await app.inject({
+      method: "POST",
+      url: `/api/finance/draft-invoices/${draft.id}/post`,
+      headers: { cookie },
+      payload: { number: "HHV-FIN-LIST-2026-0001" }
+    });
+    assert.equal(posted.statusCode, 200, posted.body);
+    const invoice = posted.json().invoice;
+
+    const paid = await app.inject({
+      method: "POST",
+      url: `/api/finance/invoices/${invoice.id}/payments`,
+      headers: { cookie },
+      payload: {
+        amount: invoice.total,
+        paidAt: "2026-05-31",
+        method: "bank-transfer",
+        reference: "FIN-LIST-GUARD"
+      }
+    });
+    assert.equal(paid.statusCode, 200, paid.body);
+    const payment = paid.json().payment;
+
+    await app.inject({
+      method: "POST",
+      url: "/api/workflow/approvals/approval-overdue-nare/decision",
+      headers: { cookie },
+      payload: { decision: "approved", note: "Execute collection task for finance list guard" }
+    });
+    const executed = await app.inject({
+      method: "POST",
+      url: "/api/workflow/approvals/approval-overdue-nare/execute",
+      headers: { cookie }
+    });
+    assert.equal(executed.statusCode, 200, executed.body);
+    const promised = await app.inject({
+      method: "POST",
+      url: `/api/crm/tasks/${executed.json().task.id}/payment-promise`,
+      headers: { cookie },
+      payload: {
+        promisedAmount: 960000,
+        promisedOn: "2026-05-30",
+        reminderChannel: "WhatsApp"
+      }
+    });
+    assert.equal(promised.statusCode, 200, promised.body);
+
+    const imported = await app.inject({
+      method: "POST",
+      url: "/api/finance/bank-transactions",
+      headers: { cookie },
+      payload: {
+        bankName: "Ameriabank",
+        accountNumber: "AM00 0000 0000 0000 0000",
+        transactionDate: "2026-05-31",
+        amount: 960000,
+        direction: "credit",
+        description: "Payment for HHV-1007 from Nare Medical Center",
+        reference: "AMERIA-FIN-LIST-1007"
+      }
+    });
+    assert.equal(imported.statusCode, 200, imported.body);
+    const transaction = imported.json().transaction;
+
+    const validPayments = await app.inject({ method: "GET", url: "/api/finance/payments?customerId=cust-nare", headers: { cookie } });
+    assert.equal(validPayments.statusCode, 200, validPayments.body);
+    assert.ok(validPayments.json().payments.some(item => item.id === payment.id));
+    assert.ok(validPayments.json().payments.every(item => item.customerId === "cust-nare"));
+
+    const validTransactions = await app.inject({ method: "GET", url: "/api/finance/bank-transactions?customerId=cust-nare", headers: { cookie } });
+    assert.equal(validTransactions.statusCode, 200, validTransactions.body);
+    assert.ok(validTransactions.json().transactions.some(item => item.id === transaction.id));
+    assert.ok(validTransactions.json().transactions.every(item => item.customerId === "cust-nare"));
+
+    const malformedListUrls = [
+      "/api/finance/draft-invoices?customerId=cust-nare%0Asecret-finance-list-draft-token",
+      "/api/finance/draft-invoices?customerId=" + "d".repeat(161),
+      "/api/finance/payments?customerId=cust-nare%0Asecret-finance-list-payment-token",
+      "/api/finance/payments?customerId=" + "p".repeat(161),
+      "/api/finance/bank-transactions?customerId=cust-nare%0Asecret-finance-list-bank-token",
+      "/api/finance/bank-transactions?customerId=" + "b".repeat(161)
+    ];
+    for (const url of malformedListUrls) {
+      const rejected = await app.inject({ method: "GET", url, headers: { cookie } });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-finance-list-/);
+    }
+  });
+});
+
 test("bank transaction import rejects malformed metadata before persistence", async () => {
   await withApp(async app => {
     const cookie = await login(app);
@@ -22315,6 +22415,78 @@ test("finance period guardrails expose open Armenian accounting period", async (
     const drafts = await app.inject({ method: "GET", url: "/api/finance/draft-invoices", headers: { cookie } });
     assert.equal(drafts.statusCode, 200, drafts.body);
     assert.deepEqual(drafts.json().draftInvoices, []);
+  });
+});
+
+test("finance list query filters reject malformed customer metadata before reads", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const draft = await executeDraftInvoice(app, cookie);
+    const posted = await app.inject({
+      method: "POST",
+      url: `/api/finance/draft-invoices/${draft.id}/post`,
+      headers: { cookie },
+      payload: { number: "HHV-2026-FINANCE-LIST-GUARD" }
+    });
+    assert.equal(posted.statusCode, 200, posted.body);
+    const invoiceId = posted.json().invoice.id;
+
+    const paid = await app.inject({
+      method: "POST",
+      url: `/api/finance/invoices/${invoiceId}/payments`,
+      headers: { cookie },
+      payload: {
+        amount: 3200000,
+        paidAt: "2026-05-27",
+        method: "bank-transfer",
+        reference: "ACBA-FINANCE-LIST-GUARD"
+      }
+    });
+    assert.equal(paid.statusCode, 200, paid.body);
+
+    const bankTransaction = await app.inject({
+      method: "POST",
+      url: "/api/finance/bank-transactions",
+      headers: { cookie },
+      payload: {
+        bankName: "Ameriabank",
+        accountNumber: "AM00 0000 0000 0000 0000",
+        transactionDate: "2026-05-31",
+        amount: 960000,
+        direction: "credit",
+        description: "Payment for HHV-1007 from Nare Medical Center",
+        reference: "AMERIA-FINANCE-LIST-GUARD"
+      }
+    });
+    assert.equal(bankTransaction.statusCode, 200, bankTransaction.body);
+
+    const validDrafts = await app.inject({ method: "GET", url: "/api/finance/draft-invoices?customerId=cust-nare", headers: { cookie } });
+    assert.equal(validDrafts.statusCode, 200, validDrafts.body);
+    assert.ok(validDrafts.json().draftInvoices.every(item => item.customerId === "cust-nare"));
+
+    const validPayments = await app.inject({ method: "GET", url: "/api/finance/payments?customerId=cust-nare", headers: { cookie } });
+    assert.equal(validPayments.statusCode, 200, validPayments.body);
+    assert.ok(validPayments.json().payments.some(item => item.id === paid.json().payment.id));
+    assert.ok(validPayments.json().payments.every(item => item.customerId === "cust-nare"));
+
+    const validBankTransactions = await app.inject({ method: "GET", url: "/api/finance/bank-transactions?customerId=cust-nare", headers: { cookie } });
+    assert.equal(validBankTransactions.statusCode, 200, validBankTransactions.body);
+    assert.ok(validBankTransactions.json().transactions.some(item => item.id === bankTransaction.json().transaction.id));
+    assert.ok(validBankTransactions.json().transactions.every(item => item.customerId === "cust-nare"));
+
+    const malformedListUrls = [
+      "/api/finance/draft-invoices?customerId=cust-nare%0Asecret-finance-list-draft-token",
+      "/api/finance/draft-invoices?customerId=" + "d".repeat(161),
+      "/api/finance/payments?customerId=cust-nare%0Asecret-finance-list-payment-token",
+      "/api/finance/payments?customerId=" + "p".repeat(161),
+      "/api/finance/bank-transactions?customerId=cust-nare%0Asecret-finance-list-bank-token",
+      "/api/finance/bank-transactions?customerId=" + "b".repeat(161)
+    ];
+    for (const url of malformedListUrls) {
+      const rejected = await app.inject({ method: "GET", url, headers: { cookie } });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-finance-list-/);
+    }
   });
 });
 

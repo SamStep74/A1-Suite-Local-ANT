@@ -3529,7 +3529,7 @@ ${controls}
 
   app.get("/api/finance/draft-invoices", async request => {
     const user = await app.auth(request);
-    const customerId = request.query.customerId || "";
+    const customerId = normalizeFinanceListQuery(request.query || {}).customerId;
     if (customerId) assertCustomer(db, user.org_id, customerId);
     return { draftInvoices: getFinanceDraftInvoices(db, user.org_id, customerId) };
   });
@@ -3549,7 +3549,7 @@ ${controls}
 
   app.get("/api/finance/payments", async request => {
     const user = await app.auth(request);
-    const customerId = request.query.customerId || "";
+    const customerId = normalizeFinanceListQuery(request.query || {}).customerId;
     if (customerId) assertCustomer(db, user.org_id, customerId);
     return { payments: getFinancePayments(db, user.org_id, customerId) };
   });
@@ -3557,7 +3557,7 @@ ${controls}
   app.get("/api/finance/bank-transactions", async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
-    const customerId = request.query.customerId || "";
+    const customerId = normalizeFinanceListQuery(request.query || {}).customerId;
     if (customerId) assertCustomer(db, user.org_id, customerId);
     return { transactions: getFinanceBankTransactions(db, user.org_id, customerId) };
   });
@@ -49891,6 +49891,40 @@ function normalizeFinanceExpenseBody(body) {
   };
 }
 
+function normalizeFinanceListQuery(query) {
+  if (!isPlainObject(query)) {
+    throwInvalidFinanceListQuery();
+  }
+  return {
+    customerId: normalizeFinanceListQueryText(query, "customerId", { maxLength: 160 })
+  };
+}
+
+function normalizeFinanceListQueryText(query, field, options = {}) {
+  const { maxLength = 160 } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") {
+    return "";
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinanceListQuery();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceListQuery();
+  }
+  const text = value.trim();
+  if (!text || text.length > maxLength) {
+    throwInvalidFinanceListQuery();
+  }
+  return text;
+}
+
+function throwInvalidFinanceListQuery() {
+  const err = new Error("Invalid finance list query");
+  err.statusCode = 400;
+  throw err;
+}
+
 function normalizeFinanceExpenseAmount(body, field, options = {}) {
   const { required = false, fallback = 0 } = options;
   const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
@@ -51609,6 +51643,35 @@ function normalizeFinanceSrcExportText(body, field, options = {}) {
 
 function throwInvalidFinanceSrcExport() {
   const err = new Error("Invalid SRC export");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeFinanceListQuery(query) {
+  if (!isPlainObject(query)) {
+    throwInvalidFinanceListQuery();
+  }
+  return {
+    customerId: normalizeFinanceListQueryText(query, "customerId", { maxLength: 160 })
+  };
+}
+
+function normalizeFinanceListQueryText(query, field, options = {}) {
+  const { maxLength = 160 } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceListQuery();
+  }
+  const text = value.trim();
+  if (!text || text.length > maxLength) {
+    throwInvalidFinanceListQuery();
+  }
+  return text;
+}
+
+function throwInvalidFinanceListQuery() {
+  const err = new Error("Invalid finance list query");
   err.statusCode = 400;
   throw err;
 }
