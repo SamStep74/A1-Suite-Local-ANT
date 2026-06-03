@@ -3764,17 +3764,22 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           </div>
         </div>
         <nav className="app-nav">
-          {suite.apps.map(app => (
-            <button
-              key={app.id}
-              className={normalizeSuiteAppId(app.id, assignedAppIds) === selectedAppId ? "active" : ""}
-              onClick={() => openApp(app.id)}
-              title={app.description}
-            >
-              <span className="nav-icon">{app.name.slice(0, 1)}</span>
-              <span>{app.name}</span>
-            </button>
-          ))}
+          {suite.apps.map(app => {
+            const targetAppId = normalizeSuiteAppId(app.id, assignedAppIds);
+            return (
+              <button
+                key={app.id}
+                className={targetAppId === selectedAppId ? "active" : ""}
+                data-app-id={app.id}
+                data-target-app-id={targetAppId}
+                onClick={() => openApp(app.id)}
+                title={app.description}
+              >
+                <span className="nav-icon">{app.name.slice(0, 1)}</span>
+                <span>{app.name}</span>
+              </button>
+            );
+          })}
         </nav>
       </aside>
 
