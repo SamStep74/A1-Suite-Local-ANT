@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-03 · signature packet list query filter guard · 87 tags · **428 tests (428 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-03 · signature packet list query filter guard · 87 tags · **429 tests (429 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -185,8 +185,8 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest signature packet list query filter guard checkpoint: this checkpoint, to be pushed on `codex/suite-dashboard-route-normalization`.
-- Latest signature packet list query filter guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "signature packet list query filters reject malformed metadata" test/api.test.js` = pending.
+- Latest signature packet list query filter guard checkpoint: `fe9c52b` (`Add signature packet list query filter guard`), pushed on `codex/suite-dashboard-route-normalization`.
+- Latest signature packet list query filter guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "signature packet list query filters reject malformed metadata" test/api.test.js` = 1 pass, including malformed signature packet customer filters rejected before Docs evidence list reads; full `npm test` = 429 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; offline smoke = pass, apps=10.
 - Latest collection list query filter guard checkpoint: `f88de1a` (`Harden collection list query filters`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest collection list query filter guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "collection list query filters reject malformed metadata" test/api.test.js` = 1 pass, including malformed collection promise/reminder customer filters rejected before collection list reads; full `npm test` = 428 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; offline smoke = pass, apps=10.
 - Latest CRM list query filter guard checkpoint: `5fbee76` (`docs: update CRM list filter verification count`), pushed on `codex/suite-dashboard-route-normalization` with implementation in `28f3e74`.

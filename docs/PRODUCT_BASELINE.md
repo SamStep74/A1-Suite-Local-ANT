@@ -2363,4 +2363,4 @@ Status: shipped in the local prototype on 2026-05-28.
 - Signature packet customer IDs must be bounded single-line strings, and control-character strings or overlong values are rejected instead of coerced.
 - Omitted filters still preserve the existing all-signature-packets behavior, and valid customer filters continue returning the matching Docs evidence list.
 - Rejected malformed signature packet list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid signature packet creation, redaction, and evidence list behavior remains unchanged.
-- Verification for the checkpoint: focused signature packet list filter test = pending; `npm test` = pending; `npm run build:ui` = pending; smoke = pending.
+- Verification for the checkpoint: focused signature packet list filter test = 1 pass; `npm test` = 429 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
