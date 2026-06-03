@@ -2463,3 +2463,21 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted filters still preserve the existing all-payment-collections, all-closeouts, and renewal-chain list behavior, and valid packet filters continue returning matching pilot packets.
 - Rejected malformed clinic pilot list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness payment, closeout, and renewal-chain behavior remains unchanged.
 - Verification for the checkpoint: focused payment-collection and closeout list filter tests plus existing packet workflow tests = 4 pass, including valid payment/closeout filtered-list behavior; `npm test` = 462 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`; read-only code review subagent = pass with no findings.
+
+### Slice 234 - Production-Readiness Query Filter Guard
+
+- Production-readiness gate reads now reject malformed `asOf` query metadata before evaluating legal/accounting readiness gates.
+- Submitted readiness dates must be structurally safe before they can become VAT and payroll readiness gate inputs.
+- Readiness dates must be exact `YYYY-MM-DD` strings, and control-character strings, non-string values, or invalid date values are rejected instead of silently falling back to the current date.
+- Omitted `asOf` still preserves the existing current-date readiness behavior, and valid `asOf` filters continue returning the requested readiness date.
+- Rejected malformed production-readiness filter queries return `400`, keep submitted payload secrets out of error bodies, and valid legal/accounting readiness behavior remains unchanged.
+- Verification for the checkpoint: focused production-readiness query and valid readiness tests = 2 pass; full `npm test` = 464 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
+
+### Slice 235 - Finance Report Query Filter Guard
+
+- Finance report reads now reject malformed VAT report `period` and payables report `asOf` query metadata before reading ledger/accounting reports.
+- Submitted VAT report periods must be exact `YYYY-MM` finance period keys; submitted payables dates must be exact `YYYY-MM-DD` dates.
+- Control-character strings, invalid period/month values, and impossible dates are rejected instead of being coerced into report filters.
+- Omitted report filters still preserve existing all-period VAT and current-date payables behavior, and valid filters continue returning the requested period/date.
+- Rejected malformed finance report filter queries return `400`, keep submitted payload secrets out of error bodies, and valid finance report behavior remains unchanged.
+- Verification for the checkpoint: focused finance report query test = 1 pass, including valid VAT/payables report behavior; full `npm test` = 464 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.

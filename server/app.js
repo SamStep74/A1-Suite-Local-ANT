@@ -3931,8 +3931,8 @@ ${controls}
 
   app.get("/api/finance/vat-report", async request => {
     const user = await app.auth(request);
-    const period = String((request.query && request.query.period) || "").trim();
-    return ledger.vatReport(db, user.org_id, period);
+    const query = normalizeFinanceVatReportQuery(request.query || {});
+    return ledger.vatReport(db, user.org_id, query.period);
   });
 
   // Effective-dated tax-rate history (read-only). Surfaces the VAT (and payroll) rows so the
@@ -3969,8 +3969,8 @@ ${controls}
 
   app.get("/api/finance/payables", async request => {
     const user = await app.auth(request);
-    const asOf = String((request.query && request.query.asOf) || "").trim() || undefined;
-    return ledger.payablesReport(db, user.org_id, asOf);
+    const query = normalizeFinancePayablesReportQuery(request.query || {});
+    return ledger.payablesReport(db, user.org_id, query.asOf);
   });
 
   app.post("/api/finance/bills", async request => {
@@ -45972,7 +45972,7 @@ function getLegalSources(db, orgId) {
 }
 
 function getProductionReadiness(db, orgId, query = {}) {
-  const asOf = normalizeDate(query.asOf);
+  const { asOf } = normalizeProductionReadinessQuery(query);
   const legalSources = getLegalSources(db, orgId);
   const gates = [
     ...buildLegalSourceReadinessGates(legalSources),
@@ -45993,6 +45993,30 @@ function getProductionReadiness(db, orgId, query = {}) {
     gates,
     blockers
   };
+}
+
+function normalizeProductionReadinessQuery(query = {}) {
+  if (!isPlainObject(query)) {
+    throwInvalidProductionReadinessQuery();
+  }
+  const value = Object.prototype.hasOwnProperty.call(query, "asOf") ? query.asOf : undefined;
+  if (value === undefined || value === "") {
+    return { asOf: normalizeDate(undefined) };
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidProductionReadinessQuery();
+  }
+  const asOf = value.trim();
+  if (!isExactIsoDate(asOf)) {
+    throwInvalidProductionReadinessQuery();
+  }
+  return { asOf };
+}
+
+function throwInvalidProductionReadinessQuery() {
+  const err = new Error("Invalid production readiness query");
+  err.statusCode = 400;
+  throw err;
 }
 
 function buildLegalSourceReadinessGates(sources) {
@@ -51750,6 +51774,58 @@ function normalizeFinanceListQueryText(query, field, options = {}) {
 
 function throwInvalidFinanceListQuery() {
   const err = new Error("Invalid finance list query");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeFinanceVatReportQuery(query) {
+  if (!isPlainObject(query)) {
+    throwInvalidFinanceReportQuery();
+  }
+  return {
+    period: normalizeFinanceReportPeriod(query, "period")
+  };
+}
+
+function normalizeFinancePayablesReportQuery(query) {
+  if (!isPlainObject(query)) {
+    throwInvalidFinanceReportQuery();
+  }
+  return {
+    asOf: normalizeFinanceReportDate(query, "asOf")
+  };
+}
+
+function normalizeFinanceReportPeriod(query, field) {
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "" || value === null) return "";
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceReportQuery();
+  }
+  const period = value.trim();
+  if (!period) return "";
+  if (!isValidFinancePeriodKey(period)) {
+    throwInvalidFinanceReportQuery();
+  }
+  return period;
+}
+
+function normalizeFinanceReportDate(query, field) {
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "" || value === null) return undefined;
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceReportQuery();
+  }
+  const date = value.trim();
+  if (!date) return undefined;
+  if (!isExactIsoDate(date)) {
+    throwInvalidFinanceReportQuery();
+  }
+  return date;
+}
+
+function throwInvalidFinanceReportQuery() {
+  const err = new Error("Invalid finance report query");
   err.statusCode = 400;
   throw err;
 }

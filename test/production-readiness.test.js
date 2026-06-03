@@ -131,6 +131,25 @@ test("production readiness gate is limited to review roles", async () => {
   }
 });
 
+test("production readiness gate rejects malformed asOf query before readiness checks", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+
+    const res = await app.inject({
+      method: "GET",
+      url: "/api/compliance/production-readiness?asOf=%00bad",
+      headers: { cookie }
+    });
+
+    assert.strictEqual(res.statusCode, 400, res.body);
+    assert.match(res.body, /Invalid production readiness query/);
+  } finally {
+    await app.close();
+  }
+});
+
 test("legal source reviews require the matching professional role", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

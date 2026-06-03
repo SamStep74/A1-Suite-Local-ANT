@@ -22788,6 +22788,37 @@ test("finance list query filters reject malformed customer metadata before reads
   });
 });
 
+test("finance report query filters reject malformed report metadata before reads", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+
+    const validVat = await app.inject({ method: "GET", url: "/api/finance/vat-report?period=2026-05", headers: { cookie } });
+    assert.equal(validVat.statusCode, 200, validVat.body);
+    assert.equal(validVat.json().periodKey, "2026-05");
+
+    const validPayables = await app.inject({ method: "GET", url: "/api/finance/payables?asOf=2026-05-31", headers: { cookie } });
+    assert.equal(validPayables.statusCode, 200, validPayables.body);
+    assert.equal(validPayables.json().asOf, "2026-05-31");
+
+    const vatIgnoresPayablesFilter = await app.inject({ method: "GET", url: "/api/finance/vat-report?asOf=2026-02-31", headers: { cookie } });
+    assert.equal(vatIgnoresPayablesFilter.statusCode, 200, vatIgnoresPayablesFilter.body);
+    const payablesIgnoreVatFilter = await app.inject({ method: "GET", url: "/api/finance/payables?period=2026-13", headers: { cookie } });
+    assert.equal(payablesIgnoreVatFilter.statusCode, 200, payablesIgnoreVatFilter.body);
+
+    const malformedReportUrls = [
+      "/api/finance/vat-report?period=2026-05%0Asecret-finance-report-period-token",
+      "/api/finance/vat-report?period=2026-13",
+      "/api/finance/payables?asOf=2026-05-31%0Asecret-finance-report-asof-token",
+      "/api/finance/payables?asOf=2026-02-31"
+    ];
+    for (const url of malformedReportUrls) {
+      const rejected = await app.inject({ method: "GET", url, headers: { cookie } });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-finance-report-/);
+    }
+  });
+});
+
 test("finance period close rejects malformed metadata before persistence", async () => {
   await withApp(async app => {
     const cookie = await login(app);
