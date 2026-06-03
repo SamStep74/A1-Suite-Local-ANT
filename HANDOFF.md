@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-03 · CRM list query filter guard · 87 tags · **426 tests (426 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-03 · CRM list query filter guard · 87 tags · **427 tests (427 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -184,7 +184,7 @@ The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPI
 
 Current checkpoint:
 - Latest CRM list query filter guard checkpoint: this checkpoint, to be pushed on `codex/suite-dashboard-route-normalization`.
-- Latest CRM list query filter guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "CRM list query filters reject malformed metadata" test/api.test.js` = 1 pass, including malformed lead status and quote customer filters rejected before CRM row reads.
+- Latest CRM list query filter guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "CRM list query filters reject malformed metadata" test/api.test.js` = 1 pass, including malformed lead-status and quote-customer filters rejected before CRM list reads; full `npm test` = 427 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; offline smoke = pass, apps=10.
 - Latest analytics snapshot filter query guard checkpoint: `2cc1df6` (`Harden analytics snapshot filter queries`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest analytics snapshot filter query guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "analytics semantic snapshots persist time-series" test/api.test.js` = 1 pass, including malformed semantic snapshot filter values rejected before snapshot rows are read.
 - Latest pilot install and analytics query guard checkpoint: `6f88a47` (`Harden pilot template install and analytics asOf validation`), pushed on `codex/suite-dashboard-route-normalization`.
