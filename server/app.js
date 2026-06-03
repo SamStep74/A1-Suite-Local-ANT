@@ -2003,7 +2003,7 @@ function registerApi(app, db, options = {}) {
 
   app.get("/api/crm/quotes", async request => {
     const user = await app.auth(request);
-    const customerId = request.query.customerId || "";
+    const customerId = normalizeCrmListQueryText(request.query || {}, "customerId", { maxLength: 160 });
     if (customerId) assertCustomer(db, user.org_id, customerId);
     return { quotes: getQuotes(db, user.org_id, customerId) };
   });
@@ -2030,7 +2030,7 @@ function registerApi(app, db, options = {}) {
   app.get("/api/crm/leads", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "crm");
-    const status = request.query.status || "";
+    const status = normalizeCrmLeadStatusQuery(request.query || {});
     const leads = getCrmLeads(db, user.org_id, status);
     return { leads, summary: getCrmLeadSummary(db, user.org_id) };
   });
@@ -41724,6 +41724,38 @@ function normalizeCrmLeadEstimatedValue(body) {
 
 function throwInvalidCrmLeadMetadata(message = "Lead requires safe metadata") {
   const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeCrmLeadStatusQuery(query) {
+  const status = normalizeCrmListQueryText(query, "status", { maxLength: 40 });
+  if (!status) return "";
+  if (!["new", "qualified", "converted", "closed", "disqualified"].includes(status)) {
+    throwInvalidCrmListQueryMetadata();
+  }
+  return status;
+}
+
+function normalizeCrmListQueryText(query, field, options = {}) {
+  if (!isPlainObject(query)) {
+    throwInvalidCrmListQueryMetadata();
+  }
+  const { maxLength = 160 } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmListQueryMetadata();
+  }
+  const text = value.trim();
+  if (!text || text.length > maxLength) {
+    throwInvalidCrmListQueryMetadata();
+  }
+  return text;
+}
+
+function throwInvalidCrmListQueryMetadata() {
+  const err = new Error("CRM list query requires safe metadata");
   err.statusCode = 400;
   throw err;
 }

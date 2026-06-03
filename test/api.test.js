@@ -16273,6 +16273,33 @@ test("CRM lead API rejects malformed metadata before persistence", async () => {
   });
 });
 
+test("CRM list query filters reject malformed metadata before reads", async () => {
+  await withApp(async app => {
+    const cookie = await login(app, "sales@armosphera.local");
+
+    const validLeads = await app.inject({ method: "GET", url: "/api/crm/leads?status=qualified", headers: { cookie } });
+    assert.equal(validLeads.statusCode, 200, validLeads.body);
+    assert.ok(validLeads.json().leads.every(lead => lead.status === "qualified"));
+
+    const validQuotes = await app.inject({ method: "GET", url: "/api/crm/quotes?customerId=cust-ani", headers: { cookie } });
+    assert.equal(validQuotes.statusCode, 200, validQuotes.body);
+    assert.ok(validQuotes.json().quotes.every(quote => quote.customerId === "cust-ani"));
+
+    const malformedListUrls = [
+      "/api/crm/leads?status=qualified%0Asecret-crm-list-status-token",
+      "/api/crm/leads?status=archived-secret-crm-list-status-token",
+      "/api/crm/leads?status=" + "s".repeat(41),
+      "/api/crm/quotes?customerId=cust-ani%0Asecret-crm-list-customer-token",
+      "/api/crm/quotes?customerId=" + "c".repeat(161)
+    ];
+    for (const url of malformedListUrls) {
+      const rejected = await app.inject({ method: "GET", url, headers: { cookie } });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-crm-list-/);
+    }
+  });
+});
+
 test("CRM lead conversion rejects malformed metadata before persistence", async () => {
   await withApp(async app => {
     const cookie = await login(app, "sales@armosphera.local");
