@@ -1856,7 +1856,9 @@ Status: shipped in the local prototype on 2026-05-28.
 - Seeded role app assignments now have a source-wiring regression that derives seeded login users from the fixture database, fetches each role's `/api/suite` launcher list, and checks every exposed app has the expected `/app/<id>` route.
 - The same regression compares assigned app ids against `SUITE_APP_IDS` and the `suite-app-<id>` workspace anchor contract in `web/src/main.jsx`, preventing future app-assignment drift from creating a left-sidebar product with no landing target.
 - Rendered Playwright proof on a fresh local preview confirmed every exposed sidebar product opens and scrolls into view for Owner, Operator, Support, Accountant, Lawyer, Salesperson, Service Manager, and Auditor.
-- Verification for the checkpoint: focused dashboard launcher test = 1 pass; `npm test` = 358 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+- Suite route helpers normalize legacy product aliases before route fallback, so `/app/hayhashvapah` opens canonical HayHashvapah Finance and `/app/forms` opens the Campaigns & Forms surface.
+- Sidebar launcher buttons expose stable `data-app-id` and `data-target-app-id` metadata, and a Playwright-backed seeded-role matrix verifies every assigned product button opens its canonical route and matching workspace panel.
+- Latest verification for the checkpoint: focused dashboard sidebar openability test = 1 pass; focused route helper test = 5 pass; focused dashboard source-wiring test = 1 pass; `npm test` = 420 pass.
 
 ### Slice 164 - App Assignment Role Guard
 
