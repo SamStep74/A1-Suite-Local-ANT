@@ -2517,3 +2517,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Safe unknown analytics IDs still preserve the existing `404` behavior, and valid metric/report IDs continue returning drilldowns and report packets.
 - Rejected malformed analytics path requests return `400`, keep submitted path secrets out of error bodies, and valid semantic metrics, report packets, backup, and audit behavior remains unchanged.
 - Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused analytics path tests (`analytics semantic metrics expose definitions and drilldowns with role access|analytics reports export owner and accountant packets from semantic snapshots`) = 2 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-analytics-path-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
+
+### Slice 240 - Public Form ID Guard
+
+- Public form pages, public form submissions, and authenticated form detail/update reads now reject malformed form path IDs before form lookup.
+- Submitted form IDs must be structurally safe before they can become public page, public submit, detail-read, or update lookup inputs.
+- Form IDs must be lowercase alphanumeric/hyphen strings; control-character strings, empty values, overlong values, or unsafe characters are rejected instead of being treated as missing forms.
+- Safe unknown form IDs still preserve the existing `404` behavior, and valid published forms continue rendering, accepting public submissions, and exposing authenticated detail/update flows.
+- Rejected malformed form path requests return `400`, keep submitted path/body secrets out of error bodies, and valid form submission, CRM lead creation, audit, and timeline behavior remains unchanged.
+- Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/forms.test.js` pass; `node --check test/forms-public-page.test.js` pass; `git diff --check` pass; focused form path tests = 3 pass, including malformed secret-bearing public page and submit IDs plus safe unknown form `404`; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.

@@ -45,6 +45,11 @@ test("forms-public-page: draft + unknown forms 404 (no draft leak)", async () =>
 
     const unknown = await app.inject({ method: "GET", url: "/f/form-does-not-exist" });
     assert.strictEqual(unknown.statusCode, 404);
+
+    const malformed = await app.inject({ method: "GET", url: "/f/form-lead-intake%0Asecret-public-form-page-token" });
+    assert.strictEqual(malformed.statusCode, 400, malformed.body);
+    assert.match(malformed.body, /Invalid form id/);
+    assert.doesNotMatch(malformed.body, /secret-public-form-page-token/);
   } finally { await app.close(); }
 });
 

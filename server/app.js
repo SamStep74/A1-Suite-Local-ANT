@@ -2951,7 +2951,7 @@ function registerApi(app, db, options = {}) {
   // PUBLIC submit — NO app.auth. An outside prospect submits a published form.
   // Per-route bodyLimit (32 KiB) caps abuse; the form row carries the org scope.
   app.post("/api/forms/:id/submit", { bodyLimit: 32 * 1024 }, async (request, reply) => {
-    const formId = String(request.params.id || "");
+    const formId = normalizeFormId(request.params.id);
     // Unauthenticated write path: throttle per-IP (per form) to blunt spam/DoS that would
     // otherwise flood the org's CRM with junk leads. 10 submissions per minute per IP.
     const client = publicClientIdentity(request);
@@ -3431,7 +3431,7 @@ ${controls}
 </body></html>`;
   }
   app.get("/f/:id", async (request, reply) => {
-    const fid = String(request.params.id || "");
+    const fid = normalizeFormId(request.params.id);
     // Public form pages are unauthenticated and id-addressable; throttle per-IP before
     // lookup so form-id enumeration cannot hammer the DB/render path.
     const client = publicClientIdentity(request);
@@ -5679,6 +5679,23 @@ function normalizePublicFormSubmissionBody(body) {
   return body;
 }
 
+function normalizeFormId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFormId();
+  }
+  const id = value.trim();
+  if (!id || id.length > 160 || !/^[a-z0-9-]+$/.test(id)) {
+    throwInvalidFormId();
+  }
+  return id;
+}
+
+function throwInvalidFormId() {
+  const err = new Error("Invalid form id");
+  err.statusCode = 400;
+  throw err;
+}
+
 function normalizePublicFormSubmissionValue(submitted, field) {
   const value = Object.prototype.hasOwnProperty.call(submitted, field.key) ? submitted[field.key] : "";
   if (value === undefined || value === null || value === "") return "";
@@ -5704,7 +5721,8 @@ function throwInvalidFormMetadata(message = "Form request requires safe metadata
 }
 
 function getForm(db, orgId, id) {
-  const form = db.prepare("SELECT id, title, description, fields, status, submission_count AS submissionCount, created_at AS createdAt, updated_at AS updatedAt FROM forms WHERE org_id = ? AND id = ?").get(orgId, String(id || ""));
+  const formId = normalizeFormId(id);
+  const form = db.prepare("SELECT id, title, description, fields, status, submission_count AS submissionCount, created_at AS createdAt, updated_at AS updatedAt FROM forms WHERE org_id = ? AND id = ?").get(orgId, formId);
   if (!form) return null;
   form.fields = parseFormFields(form.fields);
   return form;

@@ -183,6 +183,27 @@ test("forms: rejects malformed metadata before persistence", async () => {
     const formId = created.json().form.id;
     const afterCreate = counts();
 
+    const malformedDetailPath = await app.inject({
+      method: "GET",
+      url: `/api/forms/${formId}%0Asecret-forms-detail-path-token`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(malformedDetailPath.statusCode, 400, malformedDetailPath.body);
+    assert.match(malformedDetailPath.body, /Invalid form id/);
+    assert.doesNotMatch(malformedDetailPath.body, /secret-forms-detail-path-token/);
+    assert.deepStrictEqual(counts(), afterCreate);
+
+    const malformedPatchPath = await app.inject({
+      method: "PATCH",
+      url: `/api/forms/${formId}%0Asecret-forms-patch-path-token`,
+      headers: { cookie: owner },
+      payload: { title: "secret-forms-patch-path-body-token" }
+    });
+    assert.strictEqual(malformedPatchPath.statusCode, 400, malformedPatchPath.body);
+    assert.match(malformedPatchPath.body, /Invalid form id/);
+    assert.doesNotMatch(malformedPatchPath.body, /secret-forms-patch-path-token|secret-forms-patch-path-body-token/);
+    assert.deepStrictEqual(counts(), afterCreate);
+
     await rejectedJsonLiteral("PATCH", `/api/forms/${formId}`, "[]");
     for (const payload of [
       ["secret-forms-patch-array-token"],
@@ -207,6 +228,17 @@ test("forms: rejects malformed metadata before persistence", async () => {
 
     const afterPatch = counts();
     const submitUrl = `/api/forms/${formId}/submit`;
+    const malformedPath = await app.inject({
+      method: "POST",
+      url: `/api/forms/${formId}%0Asecret-forms-submit-path-token/submit`,
+      payload: { email: "path-token@example.com" },
+      remoteAddress: "198.51.100.159"
+    });
+    assert.strictEqual(malformedPath.statusCode, 400, malformedPath.body);
+    assert.match(malformedPath.body, /Invalid form id/);
+    assert.doesNotMatch(malformedPath.body, /secret-forms-submit-path-token/);
+    assert.deepStrictEqual(counts(), afterPatch);
+
     await rejectedJsonLiteral("POST", submitUrl, "null", "198.51.100.160");
     let ipSuffix = 161;
     for (const payload of [
