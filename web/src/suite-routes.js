@@ -5,7 +5,7 @@ export const SUITE_APP_ROUTE_ALIASES = {
 };
 
 export function normalizeSuiteAppId(appId, assignedApps = null) {
-  const canonical = SUITE_APP_ROUTE_ALIASES[appId] || appId;
+  const canonical = SUITE_APP_IDS.includes(appId) ? appId : (SUITE_APP_ROUTE_ALIASES[appId] || appId);
   if (SUITE_APP_IDS.includes(canonical)) return canonical;
   if (assignedApps) {
     return assignedApps.length && assignedApps[0] ? assignedApps[0] : "crm";

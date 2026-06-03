@@ -24,15 +24,15 @@ const ROLES = [
   { email: "auditor@armosphera.local" }
 ];
 
-test("suite route helpers normalize form alias to campaigns", () => {
-  assert.equal(normalizeSuiteAppId("forms"), "campaigns");
-  assert.equal(appIdFromLocation("/app/forms"), "campaigns");
-  assert.equal(appRoute("campaigns"), "/app/campaigns");
+test("suite route helpers keep forms as a first-class app id", () => {
+  assert.equal(normalizeSuiteAppId("forms"), "forms");
+  assert.equal(appIdFromLocation("/app/forms"), "forms");
+  assert.equal(appRoute("forms"), "/app/forms");
 });
 
 test("normalizeSuiteAppIds de-duplicates alias collapse", () => {
   const normalized = normalizeSuiteAppIds(["forms", "campaigns", "crm", "forms"]);
-  assert.deepEqual(normalized, ["campaigns", "crm"]);
+  assert.deepEqual(normalized, ["forms", "campaigns", "crm"]);
 });
 
 test("canonical app ids remain from all known suite apps", async () => {
