@@ -454,12 +454,13 @@ function registerApi(app, db, options = {}) {
   app.get("/api/pilots/clinic-wellness/remediation-resolutions", async request => {
     const user = await app.auth(request);
     requirePilotRemediationResolutionReader(user);
+    const { planId } = normalizeClinicPilotListQuery(request.query || {}, { planId: true });
     return {
       resolutions: getPilotRemediationActionResolutions(
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.planId || ""
+        planId
       )
     };
   });
@@ -52169,6 +52170,35 @@ function normalizeSuiteAdvisoryListQueryText(query, field, options = {}) {
 
 function throwInvalidSuiteAdvisoryListQuery() {
   const err = new Error("Invalid suite advisory list query");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeClinicPilotListQuery(query, filters = {}) {
+  if (!isPlainObject(query)) {
+    throwInvalidClinicPilotListQuery();
+  }
+  return {
+    planId: filters.planId ? normalizeClinicPilotListQueryText(query, "planId", { maxLength: 160 }) : ""
+  };
+}
+
+function normalizeClinicPilotListQueryText(query, field, options = {}) {
+  const { maxLength = 160 } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidClinicPilotListQuery();
+  }
+  const text = value.trim();
+  if (!text || text.length > maxLength) {
+    throwInvalidClinicPilotListQuery();
+  }
+  return text;
+}
+
+function throwInvalidClinicPilotListQuery() {
+  const err = new Error("Invalid clinic pilot list query");
   err.statusCode = 400;
   throw err;
 }

@@ -3177,6 +3177,20 @@ test("assigned roles can resolve clinic launch remediation actions with evidence
       && item.actionKey === "resolve-accountant-review"
     )));
 
+    const malformedResolutionListUrls = [
+      `/api/pilots/clinic-wellness/remediation-resolutions?planId=${plan.id}%0Asecret-clinic-pilot-list-control-token`,
+      "/api/pilots/clinic-wellness/remediation-resolutions?planId=" + "p".repeat(161)
+    ];
+    for (const url of malformedResolutionListUrls) {
+      const rejectedList = await app.inject({
+        method: "GET",
+        url,
+        headers: { cookie: auditorCookie }
+      });
+      assert.equal(rejectedList.statusCode, 400, rejectedList.body);
+      assert.doesNotMatch(rejectedList.body, /secret-clinic-pilot-list-/);
+    }
+
     const backup = await app.inject({
       method: "POST",
       url: "/api/admin/backups",
