@@ -30,14 +30,19 @@ test("suite route helpers normalize form alias to campaigns", () => {
   assert.equal(appRoute("campaigns"), "/app/campaigns");
 });
 
-test("suite route helpers preserve explicitly assigned forms app ids", () => {
-  assert.equal(normalizeSuiteAppId("forms", ["forms"]), "forms");
-  assert.deepEqual(normalizeSuiteAppIds(["forms"]), ["forms"]);
+test("suite route helpers map legacy hayhashvapah alias", () => {
+  assert.equal(normalizeSuiteAppId("hayhashvapah"), "finance");
+  assert.equal(appIdFromLocation("/app/hayhashvapah"), "finance");
+});
+
+test("suite route helpers normalize explicit aliases before assignment", () => {
+  assert.equal(normalizeSuiteAppId("forms", ["forms"]), "campaigns");
+  assert.deepEqual(normalizeSuiteAppIds(["forms"]), ["campaigns"]);
 });
 
 test("normalizeSuiteAppIds de-duplicates alias collapse", () => {
   const normalized = normalizeSuiteAppIds(["forms", "campaigns", "crm", "forms"]);
-  assert.deepEqual(normalized, ["forms", "campaigns", "crm"]);
+  assert.deepEqual(normalized, ["campaigns", "crm"]);
 });
 
 test("canonical app ids remain from all known suite apps", async () => {

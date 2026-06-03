@@ -1,13 +1,14 @@
 export const SUITE_APP_IDS = ["crm", "finance", "copilot", "desk", "campaigns", "projects", "people", "docs", "analytics", "flow", "forms"];
 
 export const SUITE_APP_ROUTE_ALIASES = {
-  forms: "campaigns"
+  forms: "campaigns",
+  hayhashvapah: "finance"
 };
 
 export function normalizeSuiteAppId(appId, assignedApps = null) {
-  if (Array.isArray(assignedApps) && assignedApps.includes(appId) && SUITE_APP_IDS.includes(appId)) return appId;
   const canonical = SUITE_APP_ROUTE_ALIASES[appId] || appId;
   if (SUITE_APP_IDS.includes(canonical)) return canonical;
+  if (Array.isArray(assignedApps) && assignedApps.includes(appId) && SUITE_APP_IDS.includes(appId)) return appId;
   if (assignedApps) {
     return assignedApps.length && assignedApps[0] ? assignedApps[0] : "crm";
   }

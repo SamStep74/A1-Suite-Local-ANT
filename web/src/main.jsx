@@ -233,6 +233,7 @@ function App() {
       setSuite(data);
       const normalizedAssignedAppIds = normalizeSuiteAppIds((data.apps || []).map(app => app.id));
       setAssignedAppIds(normalizedAssignedAppIds);
+      const assignedApps = new Set(normalizedAssignedAppIds);
       const requestedAppId = normalizeSuiteAppId(appIdFromLocation(), normalizedAssignedAppIds);
       const nextSelectedApp = normalizedAssignedAppIds.includes(requestedAppId) ? requestedAppId : (normalizedAssignedAppIds[0] || "crm");
       setSelectedApp(nextSelectedApp);
@@ -251,7 +252,7 @@ function App() {
       }
       const serviceData = await loadOr(null, () => api("/api/service/console"));
       setServiceConsole(serviceData);
-      if ((data.apps || []).some(app => app.id === "crm")) {
+      if (assignedApps.has("crm")) {
         const leadData = await loadOr(null, () => api("/api/crm/leads"));
         setCrmLeadData(leadData);
         const forecastData = await loadOr(null, () => api("/api/crm/forecast"));
@@ -266,7 +267,6 @@ function App() {
         setCrmQuotes(null);
         setCrmActivities(null);
       }
-      const assignedApps = new Set(normalizedAssignedAppIds);
       const hasCampaigns = assignedApps.has("campaigns");
       const hasForms = hasCampaigns || assignedApps.has("forms");
       if (hasCampaigns) {
@@ -281,7 +281,7 @@ function App() {
       } else {
         setForms(null);
       }
-      if ((data.apps || []).some(app => app.id === "analytics")) {
+      if (assignedApps.has("analytics")) {
         const receivablesData = await loadOr(null, () => api("/api/analytics/receivables-aging"));
         setReceivablesAging(receivablesData);
         const semanticData = await loadOr(null, () => api("/api/analytics/semantic-metrics"));
@@ -300,7 +300,7 @@ function App() {
         setSemanticSnapshots(null);
         setAnalyticsReports([]);
       }
-      if ((data.apps || []).some(app => app.id === "finance")) {
+      if (assignedApps.has("finance")) {
         const trialBalance = await api("/api/finance/trial-balance");
         const statements = await api("/api/finance/statements");
         const vat = await api("/api/finance/vat-report");
@@ -314,20 +314,20 @@ function App() {
       } else {
         setFinance(null);
       }
-      if ((data.apps || []).some(app => app.id === "people")) {
+      if (assignedApps.has("people")) {
         const peopleData = await loadOr(null, () => api("/api/people/employees"));
         setPeople(peopleData);
       } else {
         setPeople(null);
       }
-      if ((data.apps || []).some(app => app.id === "docs")) {
+      if (assignedApps.has("docs")) {
         const docsData = await loadOr(null, () => api("/api/docs/documents"));
         const templatesData = await loadOr(null, () => api("/api/docs/templates"));
         setDocs(docsData ? { ...docsData, templates: (templatesData && templatesData.templates) || [] } : docsData);
       } else {
         setDocs(null);
       }
-      if ((data.apps || []).some(app => app.id === "projects")) {
+      if (assignedApps.has("projects")) {
         const projectsData = await loadOr(null, () => api("/api/projects"));
         setProjects(projectsData);
       } else {
@@ -1028,8 +1028,10 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     pilotNextRecurringOngoingRenewalPaymentCollections,
     pilotNextRecurringOngoingRenewalCloseouts,
   } = pilot;
-  const selected = suite.apps.find(app => app.id === selectedApp) || suite.apps[0];
   const assignedAppIds = useMemo(() => normalizeSuiteAppIds(suite.apps.map(app => app.id)), [suite.apps]);
+  const selected = useMemo(() => (
+    suite.apps.find(app => normalizeSuiteAppId(app.id, assignedAppIds) === selectedApp) || suite.apps[0]
+  ), [suite.apps, assignedAppIds, selectedApp]);
   const selectedAppId = normalizeSuiteAppId(selected?.id || "", assignedAppIds);
   const canUseCopilot = assignedAppIds.includes("copilot");
   function openApp(appId) {
