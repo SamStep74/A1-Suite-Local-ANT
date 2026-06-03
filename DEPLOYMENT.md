@@ -22,7 +22,8 @@ bash deploy/install.sh --check
 ## Where data lives
 - DB: `~/Library/Application Support/ArmospheraOneClaude/armosphera-one.db` (macOS)
   or `~/.local/share/armosphera-one-claude/armosphera-one.db` (Linux). Never in a
-  synced folder. Override with `ARMOSPHERA_ONE_DB`.
+  synced folder. Override with `A1_STUDIO_SQLITE` (preferred) or legacy
+  `ARMOSPHERA_ONE_DB`.
 - Legal KB: `…/ArmospheraOneClaude/laws.sqlite` (override `ARMOSPHERA_ONE_LAWS_DB`).
 
 ## Data sovereignty
