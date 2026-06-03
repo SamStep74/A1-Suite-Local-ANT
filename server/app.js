@@ -733,7 +733,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.draftPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { draftPacketId: true }).draftPacketId
       )
     };
   });
@@ -866,7 +866,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.draftPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { draftPacketId: true }).draftPacketId
       )
     };
   });
@@ -999,7 +999,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.draftPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { draftPacketId: true }).draftPacketId
       )
     };
   });
@@ -1132,7 +1132,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.draftPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { draftPacketId: true }).draftPacketId
       )
     };
   });
@@ -1265,7 +1265,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.draftPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { draftPacketId: true }).draftPacketId
       )
     };
   });
@@ -1398,7 +1398,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.draftPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { draftPacketId: true }).draftPacketId
       )
     };
   });
@@ -1531,7 +1531,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.draftPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { draftPacketId: true }).draftPacketId
       )
     };
   });
@@ -1664,7 +1664,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.draftPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { draftPacketId: true }).draftPacketId
       )
     };
   });
@@ -1797,7 +1797,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.draftPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { draftPacketId: true }).draftPacketId
       )
     };
   });
@@ -1930,7 +1930,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.draftPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { draftPacketId: true }).draftPacketId
       )
     };
   });

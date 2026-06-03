@@ -23844,6 +23844,19 @@ test("clinic wellness official invoices reject unsafe draftPacketId query", asyn
   });
 });
 
+test("clinic wellness renewal official invoices reject unsafe draftPacketId query", async () => {
+  await withApp(async app => {
+    const cookie = await login(app, "accountant@armosphera.local");
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/renewal-official-invoices?draftPacketId=%00bad",
+      headers: { cookie }
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.match(response.body, /Invalid clinic pilot list query/);
+  });
+});
+
 async function createReleasedClinicPilotQuote(app) {
   const ownerCookie = await login(app);
   const salespersonCookie = await login(app, "sales@armosphera.local");
