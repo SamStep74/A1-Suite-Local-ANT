@@ -19422,6 +19422,22 @@ test("failed webhook delivery can be retried manually", async () => {
       assert.equal(failed.attemptCount, 1);
       assert.equal(failed.responseStatus, 500);
 
+      const malformedRetry = await app.inject({
+        method: "POST",
+        url: `/api/integrations/webhook-deliveries/${failed.id}%0Asecret-webhook-delivery-token/retry`,
+        headers: { cookie }
+      });
+      assert.equal(malformedRetry.statusCode, 400, malformedRetry.body);
+      assert.match(malformedRetry.body, /Invalid webhook delivery id/);
+      assert.doesNotMatch(malformedRetry.body, /secret-webhook-delivery-token/);
+
+      const unknownSafeRetry = await app.inject({
+        method: "POST",
+        url: "/api/integrations/webhook-deliveries/delivery-unknown/retry",
+        headers: { cookie }
+      });
+      assert.equal(unknownSafeRetry.statusCode, 404, unknownSafeRetry.body);
+
       receiver.statusCode = 200;
       const retried = await app.inject({
         method: "POST",

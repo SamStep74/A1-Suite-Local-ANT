@@ -47109,13 +47109,31 @@ function getWebhookDeliveries(db, orgId) {
 }
 
 function getWebhookDelivery(db, orgId, deliveryId) {
+  const safeDeliveryId = normalizeWebhookDeliveryId(deliveryId);
   const row = db.prepare(`
     SELECT webhook_deliveries.*, webhook_endpoints.name AS endpoint_name, webhook_endpoints.url AS endpoint_url
     FROM webhook_deliveries
     JOIN webhook_endpoints ON webhook_endpoints.id = webhook_deliveries.endpoint_id
     WHERE webhook_deliveries.org_id = ? AND webhook_deliveries.id = ?
-  `).get(orgId, deliveryId);
+  `).get(orgId, safeDeliveryId);
   return row ? formatWebhookDelivery(row) : null;
+}
+
+function normalizeWebhookDeliveryId(deliveryId) {
+  if (typeof deliveryId !== "string" || /[\x00-\x1f\x7f]/.test(deliveryId)) {
+    throwInvalidWebhookDeliveryId();
+  }
+  const id = deliveryId.trim();
+  if (!id || id.length > 160 || !/^[a-z0-9-]+$/.test(id)) {
+    throwInvalidWebhookDeliveryId();
+  }
+  return id;
+}
+
+function throwInvalidWebhookDeliveryId() {
+  const err = new Error("Invalid webhook delivery id");
+  err.statusCode = 400;
+  throw err;
 }
 
 function formatWebhookDelivery(row) {

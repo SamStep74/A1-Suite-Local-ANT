@@ -2499,3 +2499,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Safe unknown connector keys still preserve the existing `404` behavior, and valid connector keys continue configuring and health-checking supported integration connectors.
 - Rejected malformed connector-key mutations return `400`, keep submitted key/secret payloads out of error bodies, and valid connector configuration, health-check, backup, and audit behavior remains unchanged.
 - Verification for the checkpoint: focused connector configure/key tests = 2 pass, including malformed configure and health-check path keys plus valid connector behavior; `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
+
+### Slice 238 - Webhook Delivery ID Guard
+
+- Webhook delivery retry mutations now reject malformed delivery path IDs before delivery lookup and retry work.
+- Submitted webhook delivery IDs must be structurally safe before they can become delivery lookup or retry audit inputs.
+- Delivery IDs must be lowercase alphanumeric/hyphen strings; control-character strings, empty values, overlong values, or unsafe characters are rejected instead of being treated as missing deliveries.
+- Safe unknown delivery IDs still preserve the existing `404` behavior, and valid failed delivery IDs continue retrying normally.
+- Rejected malformed webhook delivery retry requests return `400`, keep submitted path secrets out of error bodies, and valid webhook retry, delivery, and audit behavior remains unchanged.
+- Verification for the checkpoint: focused webhook retry test = 1 pass, including malformed secret-bearing retry IDs, safe unknown `404`, and valid retry behavior; `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
