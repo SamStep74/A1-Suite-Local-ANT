@@ -4825,6 +4825,35 @@ test("accountant can record clinic pilot payment collection packet after HayHash
 test("owner can create clinic pilot closeout and renewal handoff after payment collection", async () => {
   await withApp(async app => {
     const proof = await createPilotPaymentCollectionPacket(app);
+    const closeoutCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_closeout_packets").get().count,
+      tasks: app.db.prepare("SELECT COUNT(*) AS count FROM crm_tasks").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.closeout.created").count
+    });
+    const beforeMalformedCloseout = closeoutCounts();
+
+    const malformedPaymentCollectionPacketId = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/payment-collections/${proof.paymentCollectionPacket.id}%0Asecret-clinic-payment-collection-id-token/closeout-packet`,
+      headers: { cookie: proof.ownerCookie },
+      payload: {
+        note: "secret-clinic-closeout-body-token",
+        renewalDueDate: "2026-06-10"
+      }
+    });
+    assert.equal(malformedPaymentCollectionPacketId.statusCode, 400, malformedPaymentCollectionPacketId.body);
+    assert.match(malformedPaymentCollectionPacketId.body, /Invalid clinic pilot payment collection packet id/);
+    assert.doesNotMatch(malformedPaymentCollectionPacketId.body, /secret-clinic-payment-collection-id-token|secret-clinic-closeout-body-token/);
+    assert.deepEqual(closeoutCounts(), beforeMalformedCloseout);
+
+    const unknownSafePaymentCollectionPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/payment-collections/pilot-payment-collection-missing/closeout-packet",
+      headers: { cookie: proof.ownerCookie },
+      payload: { renewalDueDate: "2026-06-10" }
+    });
+    assert.equal(unknownSafePaymentCollectionPacketId.statusCode, 404, unknownSafePaymentCollectionPacketId.body);
+    assert.deepEqual(closeoutCounts(), beforeMalformedCloseout);
 
     const supportDenied = await app.inject({
       method: "POST",
