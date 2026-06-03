@@ -2382,3 +2382,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted filters still preserve the existing all-legal-questions/all-privacy-requests behavior, and valid customer filters continue returning the matching legal/privacy evidence lists.
 - Rejected malformed legal/privacy list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid legal question, privacy request, privacy export packet, retention assessment, and evidence redaction behavior remains unchanged.
 - Verification for the checkpoint: focused legal/privacy list filter test = 1 pass; `npm test` = 432 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 225 - Workflow List Query Filter Guard
+
+- Workflow approval, dry-run, test-event, and run list reads now reject malformed filter query metadata before reading workflow rows.
+- Submitted approval `status` and workflow `customerId` filters must be structurally safe before they can become list SQL filters or customer assertions.
+- Approval statuses must stay inside the existing workflow approval status set, workflow customer IDs must be bounded single-line strings, and control-character strings, overlong values, or unknown status selectors are rejected instead of coerced.
+- Omitted filters still preserve the existing all-approvals/all-dry-runs/all-test-events/all-runs behavior, and valid status/customer filters continue returning the matching workflow evidence lists.
+- Rejected malformed workflow list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid workflow approval, dry-run, test-event, run, and Customer 360 behavior remains unchanged.
+- Verification for the checkpoint: focused workflow list filter test = 1 pass; `npm test` = 433 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

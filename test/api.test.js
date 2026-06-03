@@ -21309,6 +21309,105 @@ test("workflow test-event rejects malformed metadata and payload before persiste
   });
 });
 
+test("workflow list query filters reject malformed metadata before reads", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+
+    const preview = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/dry-run",
+      headers: { cookie },
+      payload: {
+        customerId: "cust-nare",
+        invoiceId: "inv-1007",
+        note: "Workflow list guard dry-run evidence."
+      }
+    });
+    assert.equal(preview.statusCode, 200, preview.body);
+    const dryRun = preview.json().dryRun;
+
+    const event = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-overdue-task/test-event",
+      headers: { cookie },
+      payload: {
+        eventType: "invoice_overdue",
+        customerId: "cust-nare",
+        subjectType: "invoice",
+        subjectId: "inv-1007",
+        payload: {
+          invoiceNumber: "HHV-1007",
+          source: "Workflow list guard test event"
+        },
+        note: "Workflow list guard test-event evidence."
+      }
+    });
+    assert.equal(event.statusCode, 200, event.body);
+    const testEvent = event.json().testEvent;
+
+    const pendingApprovals = await app.inject({ method: "GET", url: "/api/workflow/approvals?status=pending", headers: { cookie } });
+    assert.equal(pendingApprovals.statusCode, 200, pendingApprovals.body);
+    assert.ok(pendingApprovals.json().approvals.some(approval => approval.id === "approval-overdue-nare"));
+    assert.ok(pendingApprovals.json().approvals.every(approval => approval.status === "pending"));
+
+    const dryRuns = await app.inject({ method: "GET", url: "/api/workflow/dry-runs?customerId=cust-nare", headers: { cookie } });
+    assert.equal(dryRuns.statusCode, 200, dryRuns.body);
+    assert.ok(dryRuns.json().dryRuns.some(item => item.id === dryRun.id));
+    assert.ok(dryRuns.json().dryRuns.every(item => item.customerId === "cust-nare"));
+
+    const testEvents = await app.inject({ method: "GET", url: "/api/workflow/test-events?customerId=cust-nare", headers: { cookie } });
+    assert.equal(testEvents.statusCode, 200, testEvents.body);
+    assert.ok(testEvents.json().testEvents.some(item => item.id === testEvent.id));
+    assert.ok(testEvents.json().testEvents.every(item => item.customerId === "cust-nare"));
+
+    const decision = await app.inject({
+      method: "POST",
+      url: "/api/workflow/approvals/approval-overdue-nare/decision",
+      headers: { cookie },
+      payload: { decision: "approved", note: "Execute workflow list guard task." }
+    });
+    assert.equal(decision.statusCode, 200, decision.body);
+    const executed = await app.inject({
+      method: "POST",
+      url: "/api/workflow/approvals/approval-overdue-nare/execute",
+      headers: { cookie }
+    });
+    assert.equal(executed.statusCode, 200, executed.body);
+    const run = executed.json().run;
+
+    const executedApprovals = await app.inject({ method: "GET", url: "/api/workflow/approvals?status=executed", headers: { cookie } });
+    assert.equal(executedApprovals.statusCode, 200, executedApprovals.body);
+    assert.ok(executedApprovals.json().approvals.some(approval => approval.id === "approval-overdue-nare"));
+    assert.ok(executedApprovals.json().approvals.every(approval => approval.status === "executed"));
+
+    const runs = await app.inject({ method: "GET", url: "/api/workflow/runs?customerId=cust-nare", headers: { cookie } });
+    assert.equal(runs.statusCode, 200, runs.body);
+    assert.ok(runs.json().runs.some(item => item.id === run.id));
+    assert.ok(runs.json().runs.every(item => item.customerId === "cust-nare"));
+
+    const dryRunsWithIgnoredStatus = await app.inject({ method: "GET", url: "/api/workflow/dry-runs?customerId=cust-nare&status=all", headers: { cookie } });
+    assert.equal(dryRunsWithIgnoredStatus.statusCode, 200, dryRunsWithIgnoredStatus.body);
+    assert.ok(dryRunsWithIgnoredStatus.json().dryRuns.some(item => item.id === dryRun.id));
+
+    const malformedListUrls = [
+      "/api/workflow/approvals?status=pending%0Asecret-workflow-list-status-token",
+      "/api/workflow/approvals?status=archived-secret-workflow-list-status-token",
+      "/api/workflow/approvals?status=" + "s".repeat(41),
+      "/api/workflow/dry-runs?customerId=cust-nare%0Asecret-workflow-list-dry-token",
+      "/api/workflow/dry-runs?customerId=" + "d".repeat(161),
+      "/api/workflow/test-events?customerId=cust-nare%0Asecret-workflow-list-test-token",
+      "/api/workflow/test-events?customerId=" + "t".repeat(161),
+      "/api/workflow/runs?customerId=cust-nare%0Asecret-workflow-list-run-token",
+      "/api/workflow/runs?customerId=" + "r".repeat(161)
+    ];
+    for (const url of malformedListUrls) {
+      const rejected = await app.inject({ method: "GET", url, headers: { cookie } });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-workflow-list-/);
+    }
+  });
+});
+
 test("owner can generate advisory workflow builder suggestion without mutating workflow state", async () => {
   await withApp(async app => {
     const ownerCookie = await login(app);

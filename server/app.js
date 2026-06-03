@@ -3226,7 +3226,8 @@ function registerApi(app, db, options = {}) {
 
   app.get("/api/workflow/approvals", async request => {
     const user = await app.auth(request);
-    return { approvals: getWorkflowApprovals(db, user.org_id, request.query.status || "") };
+    const { status } = normalizeWorkflowListQuery(request.query || {}, { status: true });
+    return { approvals: getWorkflowApprovals(db, user.org_id, status) };
   });
 
   app.post("/api/workflow/approvals/:id/decision", async request => {
@@ -3638,7 +3639,7 @@ ${controls}
   app.get("/api/workflow/dry-runs", async request => {
     const user = await app.auth(request);
     requireWorkflowOperator(user);
-    const customerId = request.query.customerId || "";
+    const { customerId } = normalizeWorkflowListQuery(request.query || {}, { customerId: true });
     if (customerId) assertCustomer(db, user.org_id, customerId);
     return { dryRuns: getWorkflowDryRuns(db, user.org_id, customerId) };
   });
@@ -3646,7 +3647,7 @@ ${controls}
   app.get("/api/workflow/test-events", async request => {
     const user = await app.auth(request);
     requireWorkflowOperator(user);
-    const customerId = request.query.customerId || "";
+    const { customerId } = normalizeWorkflowListQuery(request.query || {}, { customerId: true });
     if (customerId) assertCustomer(db, user.org_id, customerId);
     return { testEvents: getWorkflowTestEvents(db, user.org_id, customerId) };
   });
@@ -3669,7 +3670,9 @@ ${controls}
 
   app.get("/api/workflow/runs", async request => {
     const user = await app.auth(request);
-    return { runs: getWorkflowRuns(db, user.org_id, request.query.customerId || "") };
+    const { customerId } = normalizeWorkflowListQuery(request.query || {}, { customerId: true });
+    if (customerId) assertCustomer(db, user.org_id, customerId);
+    return { runs: getWorkflowRuns(db, user.org_id, customerId) };
   });
 
   app.get("/api/events", async request => {
@@ -52062,6 +52065,44 @@ function throwWorkflowApprovalDecisionError(message) {
 
 function throwInvalidWorkflowApprovalDecision() {
   throwWorkflowApprovalDecisionError("Invalid workflow approval decision");
+}
+
+function normalizeWorkflowListQuery(query, filters = {}) {
+  if (!isPlainObject(query)) {
+    throwInvalidWorkflowListQuery();
+  }
+  const status = filters.status
+    ? normalizeWorkflowListQueryText(query, "status", { maxLength: 40 })
+    : "";
+  if (status && !["pending", "approved", "rejected", "executed"].includes(status)) {
+    throwInvalidWorkflowListQuery();
+  }
+  return {
+    status,
+    customerId: filters.customerId
+      ? normalizeWorkflowListQueryText(query, "customerId", { maxLength: 160 })
+      : ""
+  };
+}
+
+function normalizeWorkflowListQueryText(query, field, options = {}) {
+  const { maxLength = 160 } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidWorkflowListQuery();
+  }
+  const text = value.trim();
+  if (!text || text.length > maxLength) {
+    throwInvalidWorkflowListQuery();
+  }
+  return text;
+}
+
+function throwInvalidWorkflowListQuery() {
+  const err = new Error("Invalid workflow list query");
+  err.statusCode = 400;
+  throw err;
 }
 
 function createWorkflowDryRun(db, user, ruleId, body) {
