@@ -4683,6 +4683,30 @@ test("accountant can record official HayHashvapah invoice posting packet from pi
 test("accountant can record clinic pilot payment collection packet after HayHashvapah receipt", async () => {
   await withApp(async app => {
     const proof = await createPilotOfficialInvoicePostingPacket(app);
+    const paymentPacketCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_hayhashvapah_payment_collection_packets").get().count
+    });
+    const beforeMalformedPaymentPacket = paymentPacketCounts();
+
+    const malformedPostingPacketId = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/official-invoices/${proof.postingPacket.id}%0Asecret-clinic-posting-packet-id-token/payment-packet`,
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-payment-packet-body-token" }
+    });
+    assert.equal(malformedPostingPacketId.statusCode, 400, malformedPostingPacketId.body);
+    assert.match(malformedPostingPacketId.body, /Invalid clinic pilot posting packet id/);
+    assert.doesNotMatch(malformedPostingPacketId.body, /secret-clinic-posting-packet-id-token|secret-clinic-payment-packet-body-token/);
+    assert.deepEqual(paymentPacketCounts(), beforeMalformedPaymentPacket);
+
+    const unknownSafePostingPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/official-invoices/pilot-posting-packet-missing/payment-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing posting packet remains missing." }
+    });
+    assert.equal(unknownSafePostingPacketId.statusCode, 404, unknownSafePostingPacketId.body);
+    assert.deepEqual(paymentPacketCounts(), beforeMalformedPaymentPacket);
 
     const supportDenied = await app.inject({
       method: "POST",
