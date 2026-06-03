@@ -599,6 +599,38 @@ test("privileged users can enable MFA and must satisfy challenge before session 
     assert.match(passwordOnly.json().challengeId, /^mfa-challenge-/);
     assert.equal(passwordOnly.headers["set-cookie"], undefined);
 
+    const challengeStatus = () => app.db.prepare("SELECT status FROM login_mfa_challenges WHERE id = ?").get(passwordOnly.json().challengeId).status;
+    const failedMfaAuditCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("auth.mfa.failed").count;
+    const verifiedSessionCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM sessions WHERE mfa_verified = 1").get().count;
+    const beforeMalformedChallenge = challengeStatus();
+    const beforeMalformedFailedAudits = failedMfaAuditCount();
+    const beforeMalformedVerifiedSessions = verifiedSessionCount();
+    const malformedMfaLoginRequests = [
+      { payload: { challengeId: { id: passwordOnly.json().challengeId, token: "secret-mfa-login-challenge-object-token" }, code: "000000" } },
+      { payload: { challengeId: passwordOnly.json().challengeId, code: { value: "000000", token: "secret-mfa-login-code-object-token" } } },
+      { payload: { challengeId: `${passwordOnly.json().challengeId}\nsecret-mfa-login-challenge-control-token`, code: "000000" } },
+      { payload: { challengeId: passwordOnly.json().challengeId, code: "000000\nsecret-mfa-login-code-control-token" } },
+      { payload: { challengeId: passwordOnly.json().challengeId, code: "abcdefsecret-mfa-login-alpha-code-token" } },
+      { payload: { challengeId: `${"m".repeat(161)}secret-mfa-login-long-challenge-token`, code: "000000" } },
+      { payload: { challengeId: passwordOnly.json().challengeId, code: `${"1".repeat(33)}secret-mfa-login-long-code-token` } },
+      { payload: ["secret-mfa-login-array-body-token"] },
+      { headers: { "content-type": "application/json" }, payload: "null" }
+    ];
+    for (const requestOptions of malformedMfaLoginRequests) {
+      const rejectedMalformed = await app.inject({
+        method: "POST",
+        url: "/api/login/mfa",
+        headers: requestOptions.headers || {},
+        payload: requestOptions.payload
+      });
+      assert.equal(rejectedMalformed.statusCode, 400, rejectedMalformed.body);
+      assert.equal(rejectedMalformed.headers["set-cookie"], undefined);
+      assert.doesNotMatch(rejectedMalformed.body, /secret-mfa-login-/);
+    }
+    assert.equal(challengeStatus(), beforeMalformedChallenge);
+    assert.equal(failedMfaAuditCount(), beforeMalformedFailedAudits);
+    assert.equal(verifiedSessionCount(), beforeMalformedVerifiedSessions);
+
     const rejectedChallenge = await app.inject({
       method: "POST",
       url: "/api/login/mfa",

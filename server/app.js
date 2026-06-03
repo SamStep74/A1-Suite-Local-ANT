@@ -278,10 +278,12 @@ function registerApi(app, db, options = {}) {
     // A 6-digit TOTP has only 1e6 combinations, so the challenge itself must be
     // attempt-capped: 5 tries per challenge (keyed on challengeId, so rotating IPs
     // cannot parallelize the search). After that the challenge is locked (429).
-    const challengeId = String((request.body || {}).challengeId || "").trim();
+    const rawBody = request.body === undefined ? {} : request.body;
+    const challengeId = normalizeMfaLoginChallengeId(rawBody);
     const client = publicClientIdentity(request);
     if (challengeId) enforceRateLimit(`login-mfa:${challengeId}`, 5, 10 * 60 * 1000, client.rateLimitIp);
-    const result = verifyMfaLoginChallenge(db, request.body || {}, {
+    const body = normalizeMfaLoginChallengeBody(rawBody, challengeId);
+    const result = verifyMfaLoginChallenge(db, body, {
       userAgent: request.headers["user-agent"],
       ipAddress: client.ip,
       beforeSession: user => assertPlatformTenantUser(request, user, env)
@@ -4309,6 +4311,43 @@ function normalizeMfaVerificationBody(body) {
 
 function throwInvalidMfaVerificationRequest() {
   const err = new Error("MFA verification requires safe metadata");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeMfaLoginChallengeId(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidMfaLoginChallengeRequest();
+  }
+  const value = Object.prototype.hasOwnProperty.call(body, "challengeId") ? body.challengeId : undefined;
+  if (typeof value !== "string") {
+    throwInvalidMfaLoginChallengeRequest();
+  }
+  const challengeId = value.trim();
+  if (!challengeId || /[\x00-\x1f\x7f]/.test(challengeId) || challengeId.length > 160) {
+    throwInvalidMfaLoginChallengeRequest();
+  }
+  return challengeId;
+}
+
+function normalizeMfaLoginChallengeBody(body, challengeId = normalizeMfaLoginChallengeId(body)) {
+  const codeValue = Object.prototype.hasOwnProperty.call(body, "code") ? body.code : undefined;
+  if (typeof codeValue !== "string") {
+    throwInvalidMfaLoginChallengeRequest();
+  }
+  const code = codeValue.replace(/\s+/g, "");
+  if (
+    !/^\d{6}$/.test(code)
+    || /[\x00-\x1f\x7f]/.test(codeValue)
+    || code.length > 32
+  ) {
+    throwInvalidMfaLoginChallengeRequest();
+  }
+  return { challengeId, code };
+}
+
+function throwInvalidMfaLoginChallengeRequest() {
+  const err = new Error("MFA login challenge requires safe metadata");
   err.statusCode = 400;
   throw err;
 }
