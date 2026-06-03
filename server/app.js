@@ -474,12 +474,13 @@ function registerApi(app, db, options = {}) {
   app.get("/api/pilots/clinic-wellness/launch-clearance", async request => {
     const user = await app.auth(request);
     requirePilotLaunchClearanceReader(user);
+    const { remediationPlanId } = normalizeClinicPilotListQuery(request.query || {}, { remediationPlanId: true });
     return {
       packets: getPilotLaunchClearancePackets(
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.remediationPlanId || ""
+        remediationPlanId
       )
     };
   });
@@ -52210,7 +52211,8 @@ function normalizeClinicPilotListQuery(query, filters = {}) {
     throwInvalidClinicPilotListQuery();
   }
   return {
-    planId: filters.planId ? normalizeClinicPilotListQueryText(query, "planId", { maxLength: 160 }) : ""
+    planId: filters.planId ? normalizeClinicPilotListQueryText(query, "planId", { maxLength: 160 }) : "",
+    remediationPlanId: filters.remediationPlanId ? normalizeClinicPilotListQueryText(query, "remediationPlanId", { maxLength: 160 }) : ""
   };
 }
 

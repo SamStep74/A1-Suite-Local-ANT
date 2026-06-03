@@ -23685,6 +23685,19 @@ async function reviewPersonalDataSource(app, cookie) {
   return reviewed.json().source;
 }
 
+test("clinic wellness launch clearance rejects unsafe remediationPlanId query", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/launch-clearance?remediationPlanId=%00bad",
+      headers: { cookie }
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.match(response.body, /Invalid clinic pilot list query/);
+  });
+});
+
 async function createReleasedClinicPilotQuote(app) {
   const ownerCookie = await login(app);
   const salespersonCookie = await login(app, "sales@armosphera.local");
