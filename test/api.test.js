@@ -20136,14 +20136,17 @@ test("suite event API appends governed customer timeline events", async () => {
       );
     }
     const invalidLimit = await app.inject({ method: "GET", url: "/api/events?limit=abc", headers: { cookie } });
-    assert.equal(invalidLimit.statusCode, 200, invalidLimit.body);
-    assert.ok(invalidLimit.json().events.length <= 25);
+    assert.equal(invalidLimit.statusCode, 400, invalidLimit.body);
+    assert.match(invalidLimit.body, /Invalid event feed query/);
     const partialInvalidLimit = await app.inject({ method: "GET", url: "/api/events?limit=25abc", headers: { cookie } });
-    assert.equal(partialInvalidLimit.statusCode, 200, partialInvalidLimit.body);
-    assert.ok(partialInvalidLimit.json().events.length <= 25);
+    assert.equal(partialInvalidLimit.statusCode, 400, partialInvalidLimit.body);
+    assert.match(partialInvalidLimit.body, /Invalid event feed query/);
     const negativeLimit = await app.inject({ method: "GET", url: "/api/events?limit=-1", headers: { cookie } });
-    assert.equal(negativeLimit.statusCode, 200, negativeLimit.body);
-    assert.ok(negativeLimit.json().events.length <= 25);
+    assert.equal(negativeLimit.statusCode, 400, negativeLimit.body);
+    assert.match(negativeLimit.body, /Invalid event feed query/);
+    const secretLimit = await app.inject({ method: "GET", url: "/api/events?limit=25%0Asecret-event-feed-limit-token", headers: { cookie } });
+    assert.equal(secretLimit.statusCode, 400, secretLimit.body);
+    assert.doesNotMatch(secretLimit.body, /secret-event-feed-limit-token/);
     const oversizedLimit = await app.inject({ method: "GET", url: "/api/events?limit=500", headers: { cookie } });
     assert.equal(oversizedLimit.statusCode, 200, oversizedLimit.body);
     assert.equal(oversizedLimit.json().events.length, 100);

@@ -45511,9 +45511,24 @@ function throwInvalidIncomingEvent() {
 
 function normalizeEventFeedLimit(value, fallback = 25, max = 100) {
   if (value === undefined || value === null || value === "") return fallback;
-  const parsed = Number(String(value).trim());
-  if (!Number.isInteger(parsed) || parsed <= 0) return fallback;
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidEventFeedQuery();
+  }
+  const text = value.trim();
+  if (!/^\d+$/.test(text)) {
+    throwInvalidEventFeedQuery();
+  }
+  const parsed = Number(text);
+  if (!Number.isInteger(parsed) || parsed <= 0) {
+    throwInvalidEventFeedQuery();
+  }
   return Math.min(parsed, max);
+}
+
+function throwInvalidEventFeedQuery() {
+  const err = new Error("Invalid event feed query");
+  err.statusCode = 400;
+  throw err;
 }
 
 function getAssignedApps(db, orgId, role) {

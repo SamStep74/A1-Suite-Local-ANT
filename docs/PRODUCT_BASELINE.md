@@ -2481,3 +2481,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted report filters still preserve existing all-period VAT and current-date payables behavior, and valid filters continue returning the requested period/date.
 - Rejected malformed finance report filter queries return `400`, keep submitted payload secrets out of error bodies, and valid finance report behavior remains unchanged.
 - Verification for the checkpoint: focused finance report query test = 1 pass, including valid VAT/payables report behavior; full `npm test` = 464 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
+
+### Slice 236 - Event Feed Limit Query Filter Guard
+
+- Suite event feed reads now reject malformed `limit` query metadata before reading timeline rows.
+- Submitted event feed limits must be structurally safe before they can become event-list bounds.
+- Event feed limits must be positive integer strings; control-character strings, negative values, and partial numeric strings are rejected instead of silently falling back to the default limit.
+- Omitted limits still preserve the existing default page size, and valid oversized limits continue being capped to the existing maximum of 100.
+- Rejected malformed event feed limit queries return `400`, keep submitted payload secrets out of error bodies, and valid event feed and audit behavior remains unchanged.
+- Verification for the checkpoint: focused event-feed query test = 1 pass, including malformed, secret-bearing, and capped valid `limit` behavior; `npm test` = 464 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.

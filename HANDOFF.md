@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-04 · readiness and finance report query filter guards · 87 tags · **464 tests verified**_
+_Last updated: 2026-06-04 · event feed limit query filter guard · 87 tags · **464 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 116 slices)
+### Hardening (production-readiness pass — 117 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -151,6 +151,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 114. **Clinic payment/closeout list query filter guard** validates clinic/wellness payment-collection, closeout, and renewal-chain list query filters before reading pilot packet rows, rejecting malformed packet metadata instead of coercing unsafe query values.
 115. **Production-readiness query filter guard** validates production-readiness `asOf` filters before evaluating legal/accounting readiness gates, rejecting malformed date metadata instead of falling back to the current date.
 116. **Finance report query filter guard** validates VAT report `period` and payables report `asOf` filters before reading ledger/accounting reports, rejecting malformed report metadata instead of coercing unsafe query values.
+117. **Event feed limit query filter guard** validates suite event feed `limit` filters before reading event timeline rows, rejecting malformed pagination metadata instead of silently falling back to the default limit.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -198,6 +199,8 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
+- Latest event feed limit query filter guard checkpoint: current checkpoint on `codex/suite-dashboard-route-normalization` (validates `limit` before suite event feed reads).
+- Latest event feed limit query filter guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` = pass; `node --check test/api.test.js` = pass; `git diff --check` = pass; focused `node --test --test-name-pattern "suite event API appends governed customer timeline events" test/api.test.js` = 1 pass; full `npm test` = 464 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-event-feed-limit-query-filter-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10.
 - Latest readiness and finance report query filter guard checkpoint: current checkpoint on `codex/suite-dashboard-route-normalization` (validates production-readiness `asOf`, VAT report `period`, and payables report `asOf` before report/gate reads).
 - Latest readiness and finance report query filter guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` = pass; `node --check test/api.test.js` = pass; `node --check test/production-readiness.test.js` = pass; `git diff --check` = pass; focused readiness/finance report query tests = 3 pass; full `npm test` = 464 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-readiness-finance-query-filter-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` = pass, apps=10.
 - Latest clinic payment/closeout list query filter guard checkpoint: `b445240` (`Normalize all clinic pilot list query filters`), pushed on `codex/suite-dashboard-route-normalization`.
