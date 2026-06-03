@@ -2409,3 +2409,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted filters still preserve the existing all-paid-offers behavior, and valid clearance-packet filters continue returning matching paid-offer packets.
 - Rejected malformed paid-offer list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness paid-offer behavior remains unchanged.
 - Verification for the checkpoint: focused paid-offer list filter and paid-offer creation tests = 2 pass, including valid `clearancePacketId` filtering and no-match behavior; `npm test` = 436 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 228 - Clinic Quote-Handoff List Query Filter Guard
+
+- Clinic/wellness quote-handoff list reads now reject malformed quote-handoff filter query metadata before reading pilot quote-handoff rows.
+- Submitted `offerId` filters must be structurally safe before they can become quote-handoff list SQL filters.
+- Offer IDs must be bounded single-line strings, and control-character strings or overlong values are rejected instead of coerced.
+- Omitted filters still preserve the existing all-quote-handoffs behavior, and valid offer filters continue returning matching quote-handoff packets.
+- Rejected malformed quote-handoff list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness quote-handoff behavior remains unchanged.
+- Verification for the checkpoint: focused quote-handoff list filter and quote-handoff creation tests = 2 pass, including valid `offerId` filtering and no-match behavior; `npm test` = 444 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
