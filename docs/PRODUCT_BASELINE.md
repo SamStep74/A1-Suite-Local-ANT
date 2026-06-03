@@ -2526,3 +2526,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Safe unknown form IDs still preserve the existing `404` behavior, and valid published forms continue rendering, accepting public submissions, and exposing authenticated detail/update flows.
 - Rejected malformed form path requests return `400`, keep submitted path/body secrets out of error bodies, and valid form submission, CRM lead creation, audit, and timeline behavior remains unchanged.
 - Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/forms.test.js` pass; `node --check test/forms-public-page.test.js` pass; `git diff --check` pass; focused form path tests = 3 pass, including malformed secret-bearing public page and submit IDs plus safe unknown form `404`; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
+
+### Slice 241 - Public Quote Token Guard
+
+- Public quote read and acceptance endpoints now reject malformed public quote tokens before quote lookup or acceptance work.
+- Submitted public quote tokens must be structurally safe before they can become public quote lookup, acceptance, deal-update, or workflow-approval inputs.
+- Public quote tokens must be lowercase alphanumeric/hyphen strings; control-character strings, empty values, overlong values, or unsafe characters are rejected instead of being treated as missing quotes.
+- Safe unknown public quote tokens still preserve the existing `404` behavior, and valid sent/viewed/accepted quote tokens continue returning public packets and accepting quotes.
+- Rejected malformed public quote token requests return `400`, keep submitted path/body secrets out of error bodies, and valid quote acceptance, CRM deal updates, finance approval creation, webhooks, and audit behavior remains unchanged.
+- Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused public quote token tests = 2 pass, including malformed secret-bearing read/accept tokens plus safe unknown public quote token `404`; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.

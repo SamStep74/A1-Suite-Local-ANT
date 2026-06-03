@@ -18285,6 +18285,14 @@ test("public quote endpoint exposes sent Armenian quote without authentication",
     assert.equal(body.customer.taxId, "01888999");
     assert.equal(body.deal.stage, "Negotiation");
     assert.ok(body.quote.acceptanceUrl.includes("public-quote-ani-inbox-token"));
+
+    const malformed = await app.inject({ method: "GET", url: "/api/public/quotes/public-quote-ani-inbox-token%0Asecret-public-quote-token-read" });
+    assert.equal(malformed.statusCode, 400, malformed.body);
+    assert.match(malformed.body, /Invalid public quote token/);
+    assert.doesNotMatch(malformed.body, /secret-public-quote-token-read/);
+
+    const unknownSafe = await app.inject({ method: "GET", url: "/api/public/quotes/public-quote-missing-token" });
+    assert.equal(unknownSafe.statusCode, 404, unknownSafe.body);
   });
 });
 
@@ -18619,6 +18627,19 @@ test("public quote acceptance rejects malformed metadata before persistence", as
       { ...basePayload, acceptedAt: "2026-02-30", payloadSecret: "secret-public-quote-accept-impossible-date-token" },
       ["secret-public-quote-accept-array-body-token"]
     ];
+
+    const malformedToken = await app.inject({
+      method: "POST",
+      url: `/api/public/quotes/${token}%0Asecret-public-quote-token-accept/accept`,
+      remoteAddress: nextPublicQuoteAcceptRemoteAddress(),
+      payload: basePayload
+    });
+    assert.equal(malformedToken.statusCode, 400, malformedToken.body);
+    assert.match(malformedToken.body, /Invalid public quote token/);
+    assert.doesNotMatch(malformedToken.body, /secret-public-quote-token-accept/);
+    assert.deepEqual(counts(), beforeCounts);
+    assert.deepEqual(quoteRow(), beforeQuote);
+    assert.deepEqual(dealRow(), beforeDeal);
 
     const rejectedMissingBody = await app.inject({
       method: "POST",

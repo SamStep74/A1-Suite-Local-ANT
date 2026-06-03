@@ -3460,7 +3460,8 @@ ${controls}
     const client = publicClientIdentity(request);
     enforcePublicRateLimit(`public-quote-get:${client.rateLimitIp}`, 30, 60 * 1000);
     const tenantOrgId = platformTenantResourceOrgId(request, env);
-    const quote = getPublicQuote(db, request.params.token, tenantOrgId);
+    const token = normalizePublicQuoteToken(request.params.token);
+    const quote = getPublicQuote(db, token, tenantOrgId);
     if (!quote || !["sent", "viewed", "accepted"].includes(quote.quote.status)) {
       const err = new Error("Quote not found");
       err.statusCode = 404;
@@ -3474,7 +3475,8 @@ ${controls}
     const client = publicClientIdentity(request);
     enforcePublicRateLimit(`public-quote-accept:${client.rateLimitIp}`, 10, 60 * 1000);
     const tenantOrgId = platformTenantResourceOrgId(request, env);
-    const quote = getPublicQuote(db, request.params.token, tenantOrgId);
+    const token = normalizePublicQuoteToken(request.params.token);
+    const quote = getPublicQuote(db, token, tenantOrgId);
     if (!quote) {
       const err = new Error("Quote not found");
       err.statusCode = 404;
@@ -47334,7 +47336,8 @@ function getQuote(db, orgId, quoteId) {
 }
 
 function getPublicQuote(db, token, orgId = "") {
-  const params = [token];
+  const publicToken = normalizePublicQuoteToken(token);
+  const params = [publicToken];
   let where = "quotes.public_token = ?";
   if (orgId) {
     where += " AND quotes.org_id = ?";
@@ -47377,6 +47380,23 @@ function getPublicQuote(db, token, orgId = "") {
     },
     quote
   };
+}
+
+function normalizePublicQuoteToken(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidPublicQuoteToken();
+  }
+  const token = value.trim();
+  if (!token || token.length > 180 || !/^[a-z0-9-]+$/.test(token)) {
+    throwInvalidPublicQuoteToken();
+  }
+  return token;
+}
+
+function throwInvalidPublicQuoteToken() {
+  const err = new Error("Invalid public quote token");
+  err.statusCode = 400;
+  throw err;
 }
 
 function getQuoteLines(db, orgId, quoteId) {

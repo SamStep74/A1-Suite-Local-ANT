@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-04 · public form id guard · 87 tags · **465 tests verified**_
+_Last updated: 2026-06-04 · public quote token guard · 87 tags · **465 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 121 slices)
+### Hardening (production-readiness pass — 122 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -156,6 +156,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 119. **Webhook delivery id guard** validates webhook delivery retry path IDs before delivery lookup and retry work, rejecting malformed delivery metadata instead of treating unsafe IDs as missing deliveries.
 120. **Analytics path id guard** validates semantic metric and analytics report path IDs before drilldown/report lookups, rejecting malformed analytics metadata instead of treating unsafe IDs as missing analytics records.
 121. **Public form id guard** validates public and authenticated form path IDs before page rendering, public submission, detail reads, or updates, rejecting malformed form metadata instead of treating unsafe IDs as missing forms.
+122. **Public quote token guard** validates public quote read and acceptance tokens before quote lookup or acceptance work, rejecting malformed public token metadata instead of treating unsafe tokens as missing quotes.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -203,7 +204,9 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Current public form id guard checkpoint: current checkpoint on `codex/suite-dashboard-route-normalization` (validates public/authenticated form path IDs before form lookups and public submission work).
+- Current public quote token guard checkpoint: current checkpoint on `codex/suite-dashboard-route-normalization` (validates public quote read/acceptance tokens before quote lookups and acceptance work).
+- Latest public quote token guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused public quote token tests (`public quote endpoint exposes sent Armenian quote without authentication|public quote acceptance rejects malformed metadata before persistence`) = 2 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-public-quote-token-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
+- Latest public form id guard checkpoint: `1590e24` (`Harden public form path ids`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest public form id guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/forms.test.js` pass; `node --check test/forms-public-page.test.js` pass; `git diff --check` pass; focused form path tests (`forms: rejects malformed metadata before persistence|forms: submitting an unknown form id -> 404|forms-public-page: draft \+ unknown forms 404`) = 3 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-public-form-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
 - Latest analytics path id guard checkpoint: `16e299e` (`Harden analytics path ids`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest analytics path id guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused analytics path tests (`analytics semantic metrics expose definitions and drilldowns with role access|analytics reports export owner and accountant packets from semantic snapshots`) = 2 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-analytics-path-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
