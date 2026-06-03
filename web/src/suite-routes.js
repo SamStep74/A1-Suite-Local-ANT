@@ -17,12 +17,8 @@ export function normalizeSuiteAppId(appId, assignedApps = null) {
 export function normalizeSuiteAppIds(appIds = []) {
   const normalized = [];
   const seen = new Set();
-  const assignedAppIds = appIds || [];
-  for (const appId of assignedAppIds) {
-    const aliasTarget = SUITE_APP_ROUTE_ALIASES[appId];
-    const normalizedAppId = aliasTarget && !assignedAppIds.includes(aliasTarget) && SUITE_APP_IDS.includes(appId)
-      ? appId
-      : normalizeSuiteAppId(appId);
+  for (const appId of appIds || []) {
+    const normalizedAppId = normalizeSuiteAppId(appId, appIds);
     if (normalizedAppId && !seen.has(normalizedAppId)) {
       seen.add(normalizedAppId);
       normalized.push(normalizedAppId);

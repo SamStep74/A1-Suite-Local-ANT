@@ -37,7 +37,7 @@ test("suite route helpers preserve explicitly assigned forms app ids", () => {
 
 test("normalizeSuiteAppIds de-duplicates alias collapse", () => {
   const normalized = normalizeSuiteAppIds(["forms", "campaigns", "crm", "forms"]);
-  assert.deepEqual(normalized, ["campaigns", "crm"]);
+  assert.deepEqual(normalized, ["forms", "campaigns", "crm"]);
 });
 
 test("canonical app ids remain from all known suite apps", async () => {
