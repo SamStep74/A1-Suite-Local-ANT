@@ -18666,6 +18666,43 @@ test("signature evidence packet rejects malformed metadata before persistence", 
   });
 });
 
+test("signature packet list query filters reject malformed metadata before reads", async () => {
+  await withApp(async app => {
+    const accepted = await acceptAniQuote(app);
+    assert.equal(accepted.statusCode, 200, accepted.body);
+    const cookie = await login(app);
+    const lawyerCookie = await login(app, "lawyer@armosphera.local");
+    await reviewEsignSource(app, lawyerCookie);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/docs/signature-packets",
+      headers: { cookie },
+      payload: {
+        quoteId: "quote-ani-inbox",
+        note: "Archive accepted quote evidence before list query guard"
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const packet = created.json().packet;
+
+    const validList = await app.inject({ method: "GET", url: "/api/docs/signature-packets?customerId=cust-ani", headers: { cookie } });
+    assert.equal(validList.statusCode, 200, validList.body);
+    assert.ok(validList.json().packets.some(item => item.id === packet.id));
+    assert.ok(validList.json().packets.every(item => item.customerId === "cust-ani"));
+
+    const malformedListUrls = [
+      "/api/docs/signature-packets?customerId=cust-ani%0Asecret-signature-list-customer-token",
+      "/api/docs/signature-packets?customerId=" + "c".repeat(161)
+    ];
+    for (const url of malformedListUrls) {
+      const rejected = await app.inject({ method: "GET", url, headers: { cookie } });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-signature-list-/);
+    }
+  });
+});
+
 test("evidence packet list endpoints hide payloads from unsupported roles", async () => {
   await withApp(async app => {
     const accepted = await acceptAniQuote(app);

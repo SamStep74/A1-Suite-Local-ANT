@@ -2355,3 +2355,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted filters still preserve the existing all-promises/all-reminders behavior, and valid customer filters continue returning the matching collection evidence lists.
 - Rejected malformed collection list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid collection promise, reminder, and Customer 360 behavior remains unchanged.
 - Verification for the checkpoint: focused collection list filter test = 1 pass; `npm test` = 428 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 222 - Signature Packet List Query Filter Guard
+
+- Docs signature packet list reads now reject malformed filter query metadata before reading signature evidence rows.
+- Submitted `customerId` filters must be structurally safe before they can become signature packet list SQL filters or customer assertions.
+- Signature packet customer IDs must be bounded single-line strings, and control-character strings or overlong values are rejected instead of coerced.
+- Omitted filters still preserve the existing all-signature-packets behavior, and valid customer filters continue returning the matching Docs evidence list.
+- Rejected malformed signature packet list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid signature packet creation, redaction, and evidence list behavior remains unchanged.
+- Verification for the checkpoint: focused signature packet list filter test = pending; `npm test` = pending; `npm run build:ui` = pending; smoke = pending.

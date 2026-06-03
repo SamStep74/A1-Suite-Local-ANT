@@ -2163,7 +2163,7 @@ function registerApi(app, db, options = {}) {
 
   app.get("/api/docs/signature-packets", async request => {
     const user = await app.auth(request);
-    const customerId = request.query.customerId || "";
+    const customerId = normalizeSignaturePacketListQuery(request.query || {}).customerId;
     if (customerId) assertCustomer(db, user.org_id, customerId);
     return { packets: getSignaturePackets(db, user.org_id, customerId, legalEvidenceOptions(user)) };
   });
@@ -47720,6 +47720,15 @@ function normalizeSignaturePacketText(body, field, options = {}) {
     throwInvalidSignaturePacket();
   }
   return text;
+}
+
+function normalizeSignaturePacketListQuery(query) {
+  if (!isPlainObject(query)) {
+    throwInvalidSignaturePacket();
+  }
+  return {
+    customerId: normalizeSignaturePacketText(query, "customerId", { fallback: "", maxLength: 160 })
+  };
 }
 
 function throwInvalidSignaturePacket() {
