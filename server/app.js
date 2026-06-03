@@ -2995,7 +2995,7 @@ function registerApi(app, db, options = {}) {
 
   app.get("/api/privacy/requests", async request => {
     const user = await app.auth(request);
-    const customerId = request.query.customerId || "";
+    const customerId = normalizeLegalPrivacyListQuery(request.query || {}).customerId;
     if (customerId) assertCustomer(db, user.org_id, customerId);
     const evidence = legalEvidenceOptions(user);
     return {
@@ -3897,7 +3897,7 @@ ${controls}
 
   app.get("/api/legal/questions", async request => {
     const user = await app.auth(request);
-    const customerId = request.query.customerId || "";
+    const customerId = normalizeLegalPrivacyListQuery(request.query || {}).customerId;
     if (customerId) assertCustomer(db, user.org_id, customerId);
     return { questions: getLegalQuestions(db, user.org_id, customerId) };
   });
@@ -46750,6 +46750,40 @@ function formatLegalQuestion(row) {
     status: row.status,
     createdAt: row.created_at
   };
+}
+
+function normalizeLegalPrivacyListQuery(query) {
+  if (!isPlainObject(query)) {
+    throwInvalidLegalPrivacyListQuery();
+  }
+  return {
+    customerId: normalizeLegalPrivacyListQueryText(query, "customerId", { maxLength: 160 })
+  };
+}
+
+function normalizeLegalPrivacyListQueryText(query, field, options = {}) {
+  const { maxLength = 160 } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") {
+    return "";
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidLegalPrivacyListQuery();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidLegalPrivacyListQuery();
+  }
+  const text = value.trim();
+  if (!text || text.length > maxLength) {
+    throwInvalidLegalPrivacyListQuery();
+  }
+  return text;
+}
+
+function throwInvalidLegalPrivacyListQuery() {
+  const err = new Error("Invalid legal/privacy list query");
+  err.statusCode = 400;
+  throw err;
 }
 
 function getLegalAnswerByQuestion(db, orgId, questionId) {

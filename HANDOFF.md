@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-03 · finance list query filter guard · 87 tags · **431 tests (431 pass, 0 fail, 0 cancelled)**_
+_Last updated: 2026-06-03 · legal/privacy list query filter guard · 87 tags · **432 tests (432 pass, 0 fail, 0 cancelled)**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 104 slices)
+### Hardening (production-readiness pass — 105 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -139,6 +139,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 102. **Collection list query filter guard** validates collection promise and reminder `customerId` list filters before reading collection rows, rejecting malformed filter metadata instead of coercing unsafe query values.
 103. **Signature packet list query filter guard** validates Docs signature-packet `customerId` list filters before reading signature evidence rows, rejecting malformed filter metadata instead of coercing unsafe query values.
 104. **Finance list query filter guard** validates Finance draft-invoice, payment, and bank-transaction `customerId` list filters before reading finance rows, rejecting malformed filter metadata instead of coercing unsafe query values.
+105. **Legal/privacy list query filter guard** validates legal-question and privacy-request `customerId` list filters before reading legal/privacy rows, rejecting malformed filter metadata instead of coercing unsafe query values.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -186,6 +187,8 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
+- Latest legal/privacy list query filter guard checkpoint: this checkpoint, to be pushed on `codex/suite-dashboard-route-normalization`.
+- Latest legal/privacy list query filter guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` = pass; `node --check test/api.test.js` = pass; focused `node --test --test-name-pattern "legal and privacy list query filters reject malformed metadata" test/api.test.js` = 1 pass; full `npm test` = 432 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite chunk-size warning; offline smoke = pass, apps=10; read-only code review subagent = pass with one docs-pending note addressed.
 - Latest finance list query helper cleanup: `d263258` (`Remove duplicate finance list query helper`), pushed on `codex/suite-dashboard-route-normalization`; duplicate helper declarations were removed without changing list-query behavior.
 - Latest finance list query helper cleanup verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` = pass; focused `node --test --test-name-pattern "finance list query filters reject malformed" test/api.test.js` = 2 pass; full `npm test` = 431 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite chunk-size warning; offline smoke = pass, apps=10; read-only code review subagent = pass.
 - Latest finance list query filter guard checkpoint: `593634b` (`Harden finance list query filters`), pushed on `codex/suite-dashboard-route-normalization`.

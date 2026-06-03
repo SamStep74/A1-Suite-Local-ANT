@@ -17557,6 +17557,61 @@ test("approved privacy delete request creates retention assessment instead of di
   });
 });
 
+test("legal and privacy list query filters reject malformed metadata before reads", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const lawyerCookie = await login(app, "lawyer@armosphera.local");
+    await reviewPersonalDataSource(app, lawyerCookie);
+
+    const legal = await app.inject({
+      method: "POST",
+      url: "/api/legal/questions",
+      headers: { cookie },
+      payload: {
+        customerId: "cust-ani",
+        topic: "personal-data",
+        question: "Can Ani export customer appointment data with Armenian consent evidence?"
+      }
+    });
+    assert.equal(legal.statusCode, 200, legal.body);
+    const privacy = await app.inject({
+      method: "POST",
+      url: "/api/privacy/requests",
+      headers: { cookie },
+      payload: {
+        customerId: "cust-ani",
+        requestType: "export",
+        requesterEmail: "owner@anibeauty.am",
+        channel: "Telegram",
+        note: "Customer asks for her appointment and consent data export."
+      }
+    });
+    assert.equal(privacy.statusCode, 200, privacy.body);
+
+    const validLegal = await app.inject({ method: "GET", url: "/api/legal/questions?customerId=cust-ani", headers: { cookie } });
+    assert.equal(validLegal.statusCode, 200, validLegal.body);
+    assert.ok(validLegal.json().questions.some(question => question.id === legal.json().question.id));
+    assert.ok(validLegal.json().questions.every(question => question.customerId === "cust-ani"));
+
+    const validPrivacy = await app.inject({ method: "GET", url: "/api/privacy/requests?customerId=cust-ani", headers: { cookie } });
+    assert.equal(validPrivacy.statusCode, 200, validPrivacy.body);
+    assert.ok(validPrivacy.json().requests.some(request => request.id === privacy.json().request.id));
+    assert.ok(validPrivacy.json().requests.every(request => request.customerId === "cust-ani"));
+
+    const malformedListUrls = [
+      "/api/legal/questions?customerId=cust-ani%0Asecret-legal-privacy-list-legal-token",
+      "/api/legal/questions?customerId=" + "l".repeat(161),
+      "/api/privacy/requests?customerId=cust-ani%0Asecret-legal-privacy-list-privacy-token",
+      "/api/privacy/requests?customerId=" + "p".repeat(161)
+    ];
+    for (const url of malformedListUrls) {
+      const rejected = await app.inject({ method: "GET", url, headers: { cookie } });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-legal-privacy-list-/);
+    }
+  });
+});
+
 test("legal answer approval decision is auditable", async () => {
   await withApp(async app => {
     const cookie = await login(app);

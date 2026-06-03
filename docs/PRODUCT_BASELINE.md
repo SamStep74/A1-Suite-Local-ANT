@@ -2373,3 +2373,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted filters still preserve the existing all-drafts/all-payments/all-bank-transactions behavior, and valid customer filters continue returning the matching finance evidence lists.
 - Rejected malformed finance list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid draft invoice, payment, bank transaction, and Customer 360 behavior remains unchanged.
 - Verification for the checkpoint: focused finance list filter test = 1 pass; `npm test` = 431 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 224 - Legal/Privacy List Query Filter Guard
+
+- Legal-question and privacy-request list reads now reject malformed filter query metadata before reading legal/privacy rows.
+- Submitted `customerId` filters must be structurally safe before they can become legal/privacy list SQL filters or customer assertions.
+- Legal/privacy customer IDs must be bounded single-line strings, and control-character strings or overlong values are rejected instead of coerced.
+- Omitted filters still preserve the existing all-legal-questions/all-privacy-requests behavior, and valid customer filters continue returning the matching legal/privacy evidence lists.
+- Rejected malformed legal/privacy list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid legal question, privacy request, privacy export packet, retention assessment, and evidence redaction behavior remains unchanged.
+- Verification for the checkpoint: focused legal/privacy list filter test = 1 pass; `npm test` = 432 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
