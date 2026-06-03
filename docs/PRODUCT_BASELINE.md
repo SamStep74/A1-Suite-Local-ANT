@@ -2454,3 +2454,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted filters still preserve the existing all-official-invoices behavior, and valid draft-packet filters continue returning matching posting packets.
 - Rejected malformed official-invoice list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness posting packet behavior remains unchanged.
 - Verification for the checkpoint: focused official-invoice list filter, renewal official-invoice filter, and posting packet creation tests = 3 pass, including valid `draftPacketId` filtering and no-match behavior; `npm test` = 459 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
+
+### Slice 233 - Clinic Payment/Closeout List Query Filter Guard
+
+- Clinic/wellness payment-collection, closeout, and renewal-chain packet list reads now reject malformed packet filter query metadata before reading pilot rows.
+- Submitted posting, payment-collection, closeout, handoff, quote-release, and acceptance-handoff packet filters must be structurally safe before they can become clinic pilot list SQL filters.
+- Packet and handoff IDs must be bounded single-line strings, and control-character strings or overlong values are rejected instead of coerced.
+- Omitted filters still preserve the existing all-payment-collections, all-closeouts, and renewal-chain list behavior, and valid packet filters continue returning matching pilot packets.
+- Rejected malformed clinic pilot list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness payment, closeout, and renewal-chain behavior remains unchanged.
+- Verification for the checkpoint: focused payment-collection and closeout list filter tests plus existing packet workflow tests = 4 pass, including valid payment/closeout filtered-list behavior; `npm test` = 462 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`; read-only code review subagent = pass with no findings.
