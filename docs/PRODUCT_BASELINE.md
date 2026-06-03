@@ -2337,3 +2337,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted filters still preserve the existing all-snapshots behavior, and valid metric/date filters continue returning the matching snapshot series.
 - Rejected malformed snapshot filter queries return `400`, keep submitted payload secrets out of error bodies, and valid analytics snapshot listing, series grouping, backup scope, and audit behavior remain unchanged.
 - Verification for the checkpoint: focused analytics semantic snapshots test = 1 pass; `npm test` = 426 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 220 - CRM List Query Filter Guard
+
+- CRM lead and quote list reads now reject malformed filter query metadata before reading CRM rows.
+- Submitted lead `status` and quote `customerId` filters must be structurally safe before they can become list SQL filters or customer assertions.
+- Lead statuses must stay inside the existing CRM lead status set, quote customer IDs must be bounded single-line strings, and control-character strings, overlong values, and unknown status selectors are rejected instead of coerced.
+- Omitted filters still preserve the existing all-leads/all-quotes behavior, and valid lead-status and quote-customer filters continue returning the matching CRM lists.
+- Rejected malformed CRM list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid CRM list, quote, and lead behavior remains unchanged.
+- Verification for the checkpoint: focused CRM list filter test = 1 pass; recent full Suite proof in this thread remains `npm test` = 426 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
