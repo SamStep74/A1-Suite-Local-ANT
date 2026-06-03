@@ -2302,3 +2302,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted reasons still preserve the existing `Administrative revocation` default for valid plain-object revoke bodies.
 - Rejected malformed session-revoke requests return `400`, keep submitted payload secrets out of error bodies, leave the target session active, leave `revoked_reason` empty, and write no `admin.session.revoked` audit event; valid revocation and Auditor read-only behavior remain unchanged.
 - Verification for the checkpoint: focused session-admin tests = 3 pass; `test/api.test.js` = 211 pass; `npm test` = 412 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 216 - Legal Law-Search Query Guard
+
+- Armenian legal law-search now rejects malformed query metadata before running the RAG lookup.
+- Submitted search text and result-limit values must be structurally safe before they can become legal search input.
+- Query text must be a bounded single-line string, result limits must be whole-number strings between 1 and 20, and control-character text, overlong prompts, non-numeric limits, fractional limits, and out-of-range limits are rejected instead of coerced.
+- Omitted query text still returns the existing empty result response, and omitted result limits still preserve the default of 8.
+- Rejected malformed law-search queries return `400`, keep submitted payload secrets out of error bodies, avoid RAG lookup, and valid authenticated Armenian law search plus bounded `k` behavior remain unchanged.
+- Verification for the checkpoint: focused `test/legal-search.test.js` = 2 pass; `npm test` = 426 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.

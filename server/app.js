@@ -4052,8 +4052,7 @@ ${controls}
 
   app.get("/api/legal/law-search", async request => {
     await app.auth(request);
-    const q = String((request.query && request.query.q) || "").trim();
-    const k = Math.min(20, Math.max(1, Number(request.query && request.query.k) || 8));
+    const { q, k } = normalizeLegalLawSearchQuery(request.query || {});
     const s = rag.stats();
     if (!q) return { ...s, query: "", results: [] };
     const results = s.ready ? await rag.searchHybrid(q, k) : [];
@@ -4945,6 +4944,53 @@ function updatePeopleEmployee(db, user, employee, body) {
     .run(...values, user.org_id, employee.id);
   audit(db, user.org_id, user.id, "people.employee.updated", { employeeId: employee.id });
   return { ok: true, employee: getEmployee(db, user.org_id, employee.id) };
+}
+
+function normalizeLegalLawSearchQuery(query) {
+  if (!isPlainObject(query)) {
+    throwInvalidLegalLawSearchQuery();
+  }
+  return {
+    q: normalizeLegalLawSearchText(query, "q", { fallback: "", maxLength: 500 }),
+    k: normalizeLegalLawSearchLimit(query, "k", 8)
+  };
+}
+
+function normalizeLegalLawSearchText(query, field, options = {}) {
+  const { fallback = "", maxLength = 500 } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return fallback;
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidLegalLawSearchQuery();
+  }
+  const text = value.trim();
+  if (text.length > maxLength) {
+    throwInvalidLegalLawSearchQuery();
+  }
+  return text;
+}
+
+function normalizeLegalLawSearchLimit(query, field, fallback) {
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return fallback;
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidLegalLawSearchQuery();
+  }
+  const text = value.trim();
+  if (!/^\d+$/.test(text)) {
+    throwInvalidLegalLawSearchQuery();
+  }
+  const limit = Number(text);
+  if (!Number.isSafeInteger(limit) || limit < 1 || limit > 20) {
+    throwInvalidLegalLawSearchQuery();
+  }
+  return limit;
+}
+
+function throwInvalidLegalLawSearchQuery() {
+  const err = new Error("Legal search query requires safe metadata");
+  err.statusCode = 400;
+  throw err;
 }
 
 function normalizePeopleEmployeeCreateBody(body) {
