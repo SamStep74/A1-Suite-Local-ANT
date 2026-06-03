@@ -2076,7 +2076,8 @@ function registerApi(app, db, options = {}) {
   app.get("/api/analytics/semantic-metrics/:id/drilldown", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "analytics");
-    return getSemanticMetricDrilldown(db, user.org_id, user, request.params.id, normalizeAnalyticsAsOfQuery(request.query || {}, DEFAULT_REPORT_DATE));
+    const metricId = normalizeAnalyticsPathId(request.params.id);
+    return getSemanticMetricDrilldown(db, user.org_id, user, metricId, normalizeAnalyticsAsOfQuery(request.query || {}, DEFAULT_REPORT_DATE));
   });
 
   app.get("/api/analytics/role-dashboard", async request => {
@@ -2114,7 +2115,8 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     requireAppAccess(db, user, "analytics");
     requireAnalyticsReportReader(user);
-    const report = getAnalyticsReportPacket(db, user, request.params.id, true);
+    const reportId = normalizeAnalyticsPathId(request.params.id);
+    const report = getAnalyticsReportPacket(db, user, reportId, true);
     if (!report) {
       const err = new Error("Analytics report not found");
       err.statusCode = 404;
@@ -42504,6 +42506,23 @@ function normalizeAnalyticsQueryText(query, field, options = {}) {
     throwInvalidAnalyticsMetadata();
   }
   return text;
+}
+
+function normalizeAnalyticsPathId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidAnalyticsPathId();
+  }
+  const id = value.trim();
+  if (!id || id.length > 160 || !/^[a-z0-9-]+$/.test(id)) {
+    throwInvalidAnalyticsPathId();
+  }
+  return id;
+}
+
+function throwInvalidAnalyticsPathId() {
+  const err = new Error("Invalid analytics path id");
+  err.statusCode = 400;
+  throw err;
 }
 
 function normalizeAnalyticsQueryDate(query, field) {

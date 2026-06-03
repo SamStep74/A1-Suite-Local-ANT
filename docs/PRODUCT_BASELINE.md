@@ -2508,3 +2508,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Safe unknown delivery IDs still preserve the existing `404` behavior, and valid failed delivery IDs continue retrying normally.
 - Rejected malformed webhook delivery retry requests return `400`, keep submitted path secrets out of error bodies, and valid webhook retry, delivery, and audit behavior remains unchanged.
 - Verification for the checkpoint: focused webhook retry test = 1 pass, including malformed secret-bearing retry IDs, safe unknown `404`, and valid retry behavior; `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass with existing Vite large-chunk warning; smoke = pass with `apps=10`.
+
+### Slice 239 - Analytics Path ID Guard
+
+- Analytics semantic metric drilldown and report detail reads now reject malformed path IDs before analytics lookups.
+- Submitted metric/report IDs must be structurally safe before they can become analytics drilldown or report-packet lookup inputs.
+- Analytics path IDs must be lowercase alphanumeric/hyphen strings; control-character strings, empty values, overlong values, or unsafe characters are rejected instead of being treated as missing analytics records.
+- Safe unknown analytics IDs still preserve the existing `404` behavior, and valid metric/report IDs continue returning drilldowns and report packets.
+- Rejected malformed analytics path requests return `400`, keep submitted path secrets out of error bodies, and valid semantic metrics, report packets, backup, and audit behavior remains unchanged.
+- Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused analytics path tests (`analytics semantic metrics expose definitions and drilldowns with role access|analytics reports export owner and accountant packets from semantic snapshots`) = 2 pass; full `npm test` = 465 pass, 0 fail, 0 cancelled; `npm run build:ui` pass with existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-analytics-path-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).

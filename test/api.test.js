@@ -19564,6 +19564,15 @@ test("analytics semantic metrics expose definitions and drilldowns with role acc
     });
     assert.equal(unknown.statusCode, 404);
 
+    const malformedMetricId = await app.inject({
+      method: "GET",
+      url: "/api/analytics/semantic-metrics/overdue-exposure%0Asecret-analytics-metric-id-token/drilldown",
+      headers: { cookie: accountantCookie }
+    });
+    assert.equal(malformedMetricId.statusCode, 400, malformedMetricId.body);
+    assert.match(malformedMetricId.body, /Invalid analytics path id/);
+    assert.doesNotMatch(malformedMetricId.body, /secret-analytics-metric-id-token/);
+
     const malformedAsOfUrls = [
       "/api/analytics/receivables-aging?asOf=not-a-date",
       "/api/analytics/semantic-metrics?asOf=2026-02-30",
@@ -19819,6 +19828,30 @@ test("analytics reports export owner and accountant packets from semantic snapsh
     assert.equal(auditorList.statusCode, 200, auditorList.body);
     assert.ok(auditorList.json().reports.some(report => report.id === accountantBody.report.id));
     assert.ok(auditorList.json().reports.some(report => report.id === ownerBody.report.id));
+
+    const ownerDetail = await app.inject({
+      method: "GET",
+      url: `/api/analytics/reports/${ownerBody.report.id}`,
+      headers: { cookie: ownerCookie }
+    });
+    assert.equal(ownerDetail.statusCode, 200, ownerDetail.body);
+    assert.equal(ownerDetail.json().report.id, ownerBody.report.id);
+
+    const malformedReportId = await app.inject({
+      method: "GET",
+      url: `/api/analytics/reports/${ownerBody.report.id}%0Asecret-analytics-report-id-token`,
+      headers: { cookie: ownerCookie }
+    });
+    assert.equal(malformedReportId.statusCode, 400, malformedReportId.body);
+    assert.match(malformedReportId.body, /Invalid analytics path id/);
+    assert.doesNotMatch(malformedReportId.body, /secret-analytics-report-id-token/);
+
+    const unknownSafeReport = await app.inject({
+      method: "GET",
+      url: "/api/analytics/reports/analytics-report-unknown",
+      headers: { cookie: ownerCookie }
+    });
+    assert.equal(unknownSafeReport.statusCode, 404, unknownSafeReport.body);
 
     const analytics = await app.inject({ method: "GET", url: "/api/analytics", headers: { cookie: ownerCookie } });
     assert.equal(analytics.statusCode, 200, analytics.body);
