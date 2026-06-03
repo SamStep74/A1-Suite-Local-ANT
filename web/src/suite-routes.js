@@ -28,9 +28,17 @@ export function normalizeSuiteAppIds(appIds = []) {
   return normalized;
 }
 
+function safeDecodeURIComponent(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return value;
+  }
+}
+
 export function appIdFromLocation(pathname = window.location.pathname) {
   const match = String(pathname || "").match(/^\/app\/([^/?#]+)/);
-  const appId = match ? decodeURIComponent(match[1]) : "";
+  const appId = match ? safeDecodeURIComponent(match[1]) : "";
   return normalizeSuiteAppId(appId);
 }
 
