@@ -5888,6 +5888,40 @@ test("accountant can record renewal payment collection packet after HayHashvapah
 test("owner can close renewal cycle and schedule next renewal task after payment collection", async () => {
   await withApp(async app => {
     const proof = await createPilotRenewalPaymentCollectionPacket(app);
+    const renewalCloseoutCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_renewal_closeout_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.renewal_closeout.created").count
+    });
+    const beforeMalformedRenewalCloseout = renewalCloseoutCounts();
+
+    const malformedPaymentCollectionIdValue = "badAsecret-clinic-renewal-token";
+    const malformedPaymentCollectionId = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/renewal-payment-collections/${malformedPaymentCollectionIdValue}/closeout-packet`,
+      headers: { cookie: proof.ownerCookie },
+      payload: {
+        note: "secret-clinic-renewal-closeout-body-token",
+        closeoutDate: "2026-05-29",
+        nextRenewalDueDate: "2026-06-29"
+      }
+    });
+    assert.equal(malformedPaymentCollectionId.statusCode, 400, malformedPaymentCollectionId.body);
+    assert.match(malformedPaymentCollectionId.body, /Invalid clinic pilot renewal payment collection packet id/);
+    assert.doesNotMatch(malformedPaymentCollectionId.body, /badAsecret-clinic-renewal-token|secret-clinic-renewal-closeout-body-token/);
+    assert.deepEqual(renewalCloseoutCounts(), beforeMalformedRenewalCloseout);
+
+    const unknownSafePaymentCollectionId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/renewal-payment-collections/pilot-renewal-payment-collection-missing/closeout-packet",
+      headers: { cookie: proof.ownerCookie },
+      payload: {
+        note: "Safe missing renewal payment collection remains missing.",
+        closeoutDate: "2026-05-29",
+        nextRenewalDueDate: "2026-06-29"
+      }
+    });
+    assert.equal(unknownSafePaymentCollectionId.statusCode, 404, unknownSafePaymentCollectionId.body);
+    assert.deepEqual(renewalCloseoutCounts(), beforeMalformedRenewalCloseout);
 
     const supportDenied = await app.inject({
       method: "POST",
