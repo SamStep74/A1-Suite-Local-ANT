@@ -2391,3 +2391,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted filters still preserve the existing all-approvals/all-dry-runs/all-test-events/all-runs behavior, and valid status/customer filters continue returning the matching workflow evidence lists.
 - Rejected malformed workflow list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid workflow approval, dry-run, test-event, run, and Customer 360 behavior remains unchanged.
 - Verification for the checkpoint: focused workflow list filter test = 1 pass; `npm test` = 433 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 226 - Clinic Launch-Clearance List Query Filter Guard
+
+- Clinic/wellness launch-clearance list reads now reject malformed remediation-plan filter query metadata before reading pilot clearance rows.
+- Submitted `remediationPlanId` filters must be structurally safe before they can become launch-clearance list SQL filters.
+- Remediation plan IDs must be bounded single-line strings, and control-character strings or overlong values are rejected instead of coerced.
+- Omitted filters still preserve the existing all-launch-clearance behavior, and valid remediation-plan filters continue returning matching launch-clearance packets.
+- Rejected malformed launch-clearance list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness launch-clearance behavior remains unchanged.
+- Verification for the checkpoint: focused clinic launch-clearance filter test = 1 pass; dashboard sidebar openability regression = 1 pass; route regression = 9 pass; `npm test` = 435 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
