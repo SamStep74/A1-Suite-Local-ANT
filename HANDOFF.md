@@ -184,7 +184,7 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Latest collection list query filter guard checkpoint: this checkpoint, to be pushed on `codex/suite-dashboard-route-normalization`.
+- Latest collection list query filter guard checkpoint: `f88de1a` (`Harden collection list query filters`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest collection list query filter guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "collection list query filters reject malformed metadata" test/api.test.js` = 1 pass, including malformed collection promise/reminder customer filters rejected before collection list reads; full `npm test` = 428 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; offline smoke = pass, apps=10.
 - Latest CRM list query filter guard checkpoint: `5fbee76` (`docs: update CRM list filter verification count`), pushed on `codex/suite-dashboard-route-normalization` with implementation in `28f3e74`.
 - Latest CRM list query filter guard verification from `~/dev/A1-Suite-Local`: focused `node --test --test-name-pattern "CRM list query filters reject malformed metadata" test/api.test.js` = 1 pass, including malformed lead-status and quote-customer filters rejected before CRM list reads; full `npm test` = 427 pass, 0 fail, 0 cancelled; `npm run build:ui` = pass; offline smoke = pass, apps=10.
