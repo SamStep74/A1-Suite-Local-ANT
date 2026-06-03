@@ -2400,3 +2400,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Omitted filters still preserve the existing all-launch-clearance behavior, and valid remediation-plan filters continue returning matching launch-clearance packets.
 - Rejected malformed launch-clearance list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness launch-clearance behavior remains unchanged.
 - Verification for the checkpoint: focused clinic launch-clearance filter test = 1 pass; dashboard sidebar openability regression = 1 pass; route regression = 9 pass; `npm test` = 435 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
+
+### Slice 227 - Clinic Paid-Offer List Query Filter Guard
+
+- Clinic/wellness paid-offer list reads now reject malformed launch-clearance filter query metadata before reading pilot offer rows.
+- Submitted `clearancePacketId` filters must be structurally safe before they can become paid-offer list SQL filters.
+- Clearance packet IDs must be bounded single-line strings, and control-character strings or overlong values are rejected instead of coerced.
+- Omitted filters still preserve the existing all-paid-offers behavior, and valid clearance-packet filters continue returning matching paid-offer packets.
+- Rejected malformed paid-offer list filter queries return `400`, keep submitted payload secrets out of error bodies, and valid clinic/wellness paid-offer behavior remains unchanged.
+- Verification for the checkpoint: focused paid-offer list filter and paid-offer creation tests = 2 pass; full `npm test`, `npm run build:ui`, and smoke pending.
