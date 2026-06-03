@@ -23857,6 +23857,32 @@ test("clinic wellness renewal official invoices reject unsafe draftPacketId quer
   });
 });
 
+test("clinic wellness payment collections reject unsafe postingPacketId query", async () => {
+  await withApp(async app => {
+    const cookie = await login(app, "accountant@armosphera.local");
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/payment-collections?postingPacketId=%00bad",
+      headers: { cookie }
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.match(response.body, /Invalid clinic pilot list query/);
+  });
+});
+
+test("clinic wellness closeouts reject unsafe paymentCollectionPacketId query", async () => {
+  await withApp(async app => {
+    const cookie = await login(app, "accountant@armosphera.local");
+    const response = await app.inject({
+      method: "GET",
+      url: "/api/pilots/clinic-wellness/closeouts?paymentCollectionPacketId=%00bad",
+      headers: { cookie }
+    });
+    assert.equal(response.statusCode, 400, response.body);
+    assert.match(response.body, /Invalid clinic pilot list query/);
+  });
+});
+
 async function createReleasedClinicPilotQuote(app) {
   const ownerCookie = await login(app);
   const salespersonCookie = await login(app, "sales@armosphera.local");

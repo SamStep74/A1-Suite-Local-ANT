@@ -619,7 +619,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.postingPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { postingPacketId: true }).postingPacketId
       )
     };
   });
@@ -638,7 +638,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.paymentCollectionPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { paymentCollectionPacketId: true }).paymentCollectionPacketId
       )
     };
   });
@@ -657,7 +657,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.closeoutPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { closeoutPacketId: true }).closeoutPacketId
       )
     };
   });
@@ -676,7 +676,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.renewalHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { renewalHandoffId: true }).renewalHandoffId
       )
     };
   });
@@ -695,7 +695,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.renewalQuoteReleasePacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { renewalQuoteReleasePacketId: true }).renewalQuoteReleasePacketId
       )
     };
   });
@@ -714,7 +714,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.renewalAcceptanceHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { renewalAcceptanceHandoffId: true }).renewalAcceptanceHandoffId
       )
     };
   });
@@ -752,7 +752,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.postingPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { postingPacketId: true }).postingPacketId
       )
     };
   });
@@ -771,7 +771,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.paymentCollectionPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { paymentCollectionPacketId: true }).paymentCollectionPacketId
       )
     };
   });
@@ -790,7 +790,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.renewalCloseoutPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { renewalCloseoutPacketId: true }).renewalCloseoutPacketId
       )
     };
   });
@@ -809,7 +809,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.nextRenewalHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { nextRenewalHandoffId: true }).nextRenewalHandoffId
       )
     };
   });
@@ -828,7 +828,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.nextRenewalQuoteReleasePacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { nextRenewalQuoteReleasePacketId: true }).nextRenewalQuoteReleasePacketId
       )
     };
   });
@@ -847,7 +847,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.nextRenewalAcceptanceHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { nextRenewalAcceptanceHandoffId: true }).nextRenewalAcceptanceHandoffId
       )
     };
   });
@@ -885,7 +885,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.postingPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { postingPacketId: true }).postingPacketId
       )
     };
   });
@@ -904,7 +904,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.paymentCollectionPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { paymentCollectionPacketId: true }).paymentCollectionPacketId
       )
     };
   });
@@ -923,7 +923,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.nextRenewalCloseoutPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { nextRenewalCloseoutPacketId: true }).nextRenewalCloseoutPacketId
       )
     };
   });
@@ -942,7 +942,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.followingRenewalHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { followingRenewalHandoffId: true }).followingRenewalHandoffId
       )
     };
   });
@@ -961,7 +961,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.followingRenewalQuoteReleasePacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { followingRenewalQuoteReleasePacketId: true }).followingRenewalQuoteReleasePacketId
       )
     };
   });
@@ -980,7 +980,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.followingRenewalAcceptanceHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { followingRenewalAcceptanceHandoffId: true }).followingRenewalAcceptanceHandoffId
       )
     };
   });
@@ -1018,7 +1018,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.postingPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { postingPacketId: true }).postingPacketId
       )
     };
   });
@@ -1037,7 +1037,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.paymentCollectionPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { paymentCollectionPacketId: true }).paymentCollectionPacketId
       )
     };
   });
@@ -1056,7 +1056,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.followingRenewalCloseoutPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { followingRenewalCloseoutPacketId: true }).followingRenewalCloseoutPacketId
       )
     };
   });
@@ -1075,7 +1075,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.subsequentRenewalHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { subsequentRenewalHandoffId: true }).subsequentRenewalHandoffId
       )
     };
   });
@@ -1094,7 +1094,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.subsequentRenewalQuoteReleasePacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { subsequentRenewalQuoteReleasePacketId: true }).subsequentRenewalQuoteReleasePacketId
       )
     };
   });
@@ -1113,7 +1113,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.subsequentRenewalAcceptanceHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { subsequentRenewalAcceptanceHandoffId: true }).subsequentRenewalAcceptanceHandoffId
       )
     };
   });
@@ -1151,7 +1151,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.postingPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { postingPacketId: true }).postingPacketId
       )
     };
   });
@@ -1170,7 +1170,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.paymentCollectionPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { paymentCollectionPacketId: true }).paymentCollectionPacketId
       )
     };
   });
@@ -1189,7 +1189,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.subsequentRenewalCloseoutPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { subsequentRenewalCloseoutPacketId: true }).subsequentRenewalCloseoutPacketId
       )
     };
   });
@@ -1208,7 +1208,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.continuationRenewalHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { continuationRenewalHandoffId: true }).continuationRenewalHandoffId
       )
     };
   });
@@ -1227,7 +1227,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.continuationRenewalQuoteReleasePacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { continuationRenewalQuoteReleasePacketId: true }).continuationRenewalQuoteReleasePacketId
       )
     };
   });
@@ -1246,7 +1246,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.continuationRenewalAcceptanceHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { continuationRenewalAcceptanceHandoffId: true }).continuationRenewalAcceptanceHandoffId
       )
     };
   });
@@ -1284,7 +1284,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.postingPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { postingPacketId: true }).postingPacketId
       )
     };
   });
@@ -1303,7 +1303,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.paymentCollectionPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { paymentCollectionPacketId: true }).paymentCollectionPacketId
       )
     };
   });
@@ -1322,7 +1322,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.continuationRenewalCloseoutPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { continuationRenewalCloseoutPacketId: true }).continuationRenewalCloseoutPacketId
       )
     };
   });
@@ -1341,7 +1341,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.ongoingRenewalHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { ongoingRenewalHandoffId: true }).ongoingRenewalHandoffId
       )
     };
   });
@@ -1360,7 +1360,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.ongoingRenewalQuoteReleasePacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { ongoingRenewalQuoteReleasePacketId: true }).ongoingRenewalQuoteReleasePacketId
       )
     };
   });
@@ -1379,7 +1379,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.ongoingRenewalAcceptanceHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { ongoingRenewalAcceptanceHandoffId: true }).ongoingRenewalAcceptanceHandoffId
       )
     };
   });
@@ -1417,7 +1417,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.postingPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { postingPacketId: true }).postingPacketId
       )
     };
   });
@@ -1436,7 +1436,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.paymentCollectionPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { paymentCollectionPacketId: true }).paymentCollectionPacketId
       )
     };
   });
@@ -1455,7 +1455,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.ongoingRenewalCloseoutPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { ongoingRenewalCloseoutPacketId: true }).ongoingRenewalCloseoutPacketId
       )
     };
   });
@@ -1474,7 +1474,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.nextOngoingRenewalHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { nextOngoingRenewalHandoffId: true }).nextOngoingRenewalHandoffId
       )
     };
   });
@@ -1493,7 +1493,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.nextOngoingRenewalQuoteReleasePacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { nextOngoingRenewalQuoteReleasePacketId: true }).nextOngoingRenewalQuoteReleasePacketId
       )
     };
   });
@@ -1512,7 +1512,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.nextOngoingRenewalAcceptanceHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { nextOngoingRenewalAcceptanceHandoffId: true }).nextOngoingRenewalAcceptanceHandoffId
       )
     };
   });
@@ -1550,7 +1550,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.postingPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { postingPacketId: true }).postingPacketId
       )
     };
   });
@@ -1569,7 +1569,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.paymentCollectionPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { paymentCollectionPacketId: true }).paymentCollectionPacketId
       )
     };
   });
@@ -1588,7 +1588,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.nextOngoingRenewalCloseoutPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { nextOngoingRenewalCloseoutPacketId: true }).nextOngoingRenewalCloseoutPacketId
       )
     };
   });
@@ -1607,7 +1607,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.followingOngoingRenewalHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { followingOngoingRenewalHandoffId: true }).followingOngoingRenewalHandoffId
       )
     };
   });
@@ -1626,7 +1626,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.followingOngoingRenewalQuoteReleasePacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { followingOngoingRenewalQuoteReleasePacketId: true }).followingOngoingRenewalQuoteReleasePacketId
       )
     };
   });
@@ -1645,7 +1645,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.followingOngoingRenewalAcceptanceHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { followingOngoingRenewalAcceptanceHandoffId: true }).followingOngoingRenewalAcceptanceHandoffId
       )
     };
   });
@@ -1683,7 +1683,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.postingPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { postingPacketId: true }).postingPacketId
       )
     };
   });
@@ -1702,7 +1702,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.paymentCollectionPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { paymentCollectionPacketId: true }).paymentCollectionPacketId
       )
     };
   });
@@ -1721,7 +1721,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.followingOngoingRenewalCloseoutPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { followingOngoingRenewalCloseoutPacketId: true }).followingOngoingRenewalCloseoutPacketId
       )
     };
   });
@@ -1740,7 +1740,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.subsequentOngoingRenewalHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { subsequentOngoingRenewalHandoffId: true }).subsequentOngoingRenewalHandoffId
       )
     };
   });
@@ -1759,7 +1759,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.subsequentOngoingRenewalQuoteReleasePacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { subsequentOngoingRenewalQuoteReleasePacketId: true }).subsequentOngoingRenewalQuoteReleasePacketId
       )
     };
   });
@@ -1778,7 +1778,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.subsequentOngoingRenewalAcceptanceHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { subsequentOngoingRenewalAcceptanceHandoffId: true }).subsequentOngoingRenewalAcceptanceHandoffId
       )
     };
   });
@@ -1816,7 +1816,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.postingPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { postingPacketId: true }).postingPacketId
       )
     };
   });
@@ -1835,7 +1835,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.paymentCollectionPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { paymentCollectionPacketId: true }).paymentCollectionPacketId
       )
     };
   });
@@ -1854,7 +1854,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.subsequentOngoingRenewalCloseoutPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { subsequentOngoingRenewalCloseoutPacketId: true }).subsequentOngoingRenewalCloseoutPacketId
       )
     };
   });
@@ -1873,7 +1873,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.nextRecurringOngoingRenewalHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { nextRecurringOngoingRenewalHandoffId: true }).nextRecurringOngoingRenewalHandoffId
       )
     };
   });
@@ -1892,7 +1892,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.nextRecurringOngoingRenewalQuoteReleasePacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { nextRecurringOngoingRenewalQuoteReleasePacketId: true }).nextRecurringOngoingRenewalQuoteReleasePacketId
       )
     };
   });
@@ -1911,7 +1911,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.nextRecurringOngoingRenewalAcceptanceHandoffId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { nextRecurringOngoingRenewalAcceptanceHandoffId: true }).nextRecurringOngoingRenewalAcceptanceHandoffId
       )
     };
   });
@@ -1949,7 +1949,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.postingPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { postingPacketId: true }).postingPacketId
       )
     };
   });
@@ -1968,7 +1968,7 @@ function registerApi(app, db, options = {}) {
         db,
         user.org_id,
         CLINIC_WELLNESS_TEMPLATE_KEY,
-        request.query.paymentCollectionPacketId || ""
+        normalizeClinicPilotListQuery(request.query || {}, { paymentCollectionPacketId: true }).paymentCollectionPacketId
       )
     };
   });
@@ -52224,6 +52224,48 @@ function normalizeClinicPilotListQuery(query, filters = {}) {
     quoteHandoffId: filters.quoteHandoffId ? normalizeClinicPilotListQueryText(query, "quoteHandoffId", { maxLength: 160 }) : "",
     quoteReleasePacketId: filters.quoteReleasePacketId ? normalizeClinicPilotListQueryText(query, "quoteReleasePacketId", { maxLength: 160 }) : "",
     acceptanceHandoffId: filters.acceptanceHandoffId ? normalizeClinicPilotListQueryText(query, "acceptanceHandoffId", { maxLength: 160 }) : "",
+    postingPacketId: filters.postingPacketId ? normalizeClinicPilotListQueryText(query, "postingPacketId", { maxLength: 160 }) : "",
+    paymentCollectionPacketId: filters.paymentCollectionPacketId ? normalizeClinicPilotListQueryText(query, "paymentCollectionPacketId", { maxLength: 160 }) : "",
+    closeoutPacketId: filters.closeoutPacketId ? normalizeClinicPilotListQueryText(query, "closeoutPacketId", { maxLength: 160 }) : "",
+    renewalHandoffId: filters.renewalHandoffId ? normalizeClinicPilotListQueryText(query, "renewalHandoffId", { maxLength: 160 }) : "",
+    renewalQuoteReleasePacketId: filters.renewalQuoteReleasePacketId ? normalizeClinicPilotListQueryText(query, "renewalQuoteReleasePacketId", { maxLength: 160 }) : "",
+    renewalAcceptanceHandoffId: filters.renewalAcceptanceHandoffId ? normalizeClinicPilotListQueryText(query, "renewalAcceptanceHandoffId", { maxLength: 160 }) : "",
+    renewalCloseoutPacketId: filters.renewalCloseoutPacketId ? normalizeClinicPilotListQueryText(query, "renewalCloseoutPacketId", { maxLength: 160 }) : "",
+    nextRenewalCloseoutPacketId: filters.nextRenewalCloseoutPacketId ? normalizeClinicPilotListQueryText(query, "nextRenewalCloseoutPacketId", { maxLength: 160 }) : "",
+    followingRenewalCloseoutPacketId: filters.followingRenewalCloseoutPacketId ? normalizeClinicPilotListQueryText(query, "followingRenewalCloseoutPacketId", { maxLength: 160 }) : "",
+    nextRenewalHandoffId: filters.nextRenewalHandoffId ? normalizeClinicPilotListQueryText(query, "nextRenewalHandoffId", { maxLength: 160 }) : "",
+    nextRenewalQuoteReleasePacketId: filters.nextRenewalQuoteReleasePacketId ? normalizeClinicPilotListQueryText(query, "nextRenewalQuoteReleasePacketId", { maxLength: 160 }) : "",
+    nextRenewalAcceptanceHandoffId: filters.nextRenewalAcceptanceHandoffId ? normalizeClinicPilotListQueryText(query, "nextRenewalAcceptanceHandoffId", { maxLength: 160 }) : "",
+    followingRenewalHandoffId: filters.followingRenewalHandoffId ? normalizeClinicPilotListQueryText(query, "followingRenewalHandoffId", { maxLength: 160 }) : "",
+    followingRenewalQuoteReleasePacketId: filters.followingRenewalQuoteReleasePacketId ? normalizeClinicPilotListQueryText(query, "followingRenewalQuoteReleasePacketId", { maxLength: 160 }) : "",
+    followingRenewalAcceptanceHandoffId: filters.followingRenewalAcceptanceHandoffId ? normalizeClinicPilotListQueryText(query, "followingRenewalAcceptanceHandoffId", { maxLength: 160 }) : "",
+    subsequentRenewalHandoffId: filters.subsequentRenewalHandoffId ? normalizeClinicPilotListQueryText(query, "subsequentRenewalHandoffId", { maxLength: 160 }) : "",
+    subsequentRenewalQuoteReleasePacketId: filters.subsequentRenewalQuoteReleasePacketId ? normalizeClinicPilotListQueryText(query, "subsequentRenewalQuoteReleasePacketId", { maxLength: 160 }) : "",
+    subsequentRenewalAcceptanceHandoffId: filters.subsequentRenewalAcceptanceHandoffId ? normalizeClinicPilotListQueryText(query, "subsequentRenewalAcceptanceHandoffId", { maxLength: 160 }) : "",
+    subsequentRenewalCloseoutPacketId: filters.subsequentRenewalCloseoutPacketId ? normalizeClinicPilotListQueryText(query, "subsequentRenewalCloseoutPacketId", { maxLength: 160 }) : "",
+    continuationRenewalHandoffId: filters.continuationRenewalHandoffId ? normalizeClinicPilotListQueryText(query, "continuationRenewalHandoffId", { maxLength: 160 }) : "",
+    continuationRenewalQuoteReleasePacketId: filters.continuationRenewalQuoteReleasePacketId ? normalizeClinicPilotListQueryText(query, "continuationRenewalQuoteReleasePacketId", { maxLength: 160 }) : "",
+    continuationRenewalAcceptanceHandoffId: filters.continuationRenewalAcceptanceHandoffId ? normalizeClinicPilotListQueryText(query, "continuationRenewalAcceptanceHandoffId", { maxLength: 160 }) : "",
+    continuationRenewalCloseoutPacketId: filters.continuationRenewalCloseoutPacketId ? normalizeClinicPilotListQueryText(query, "continuationRenewalCloseoutPacketId", { maxLength: 160 }) : "",
+    ongoingRenewalHandoffId: filters.ongoingRenewalHandoffId ? normalizeClinicPilotListQueryText(query, "ongoingRenewalHandoffId", { maxLength: 160 }) : "",
+    ongoingRenewalQuoteReleasePacketId: filters.ongoingRenewalQuoteReleasePacketId ? normalizeClinicPilotListQueryText(query, "ongoingRenewalQuoteReleasePacketId", { maxLength: 160 }) : "",
+    ongoingRenewalAcceptanceHandoffId: filters.ongoingRenewalAcceptanceHandoffId ? normalizeClinicPilotListQueryText(query, "ongoingRenewalAcceptanceHandoffId", { maxLength: 160 }) : "",
+    ongoingRenewalCloseoutPacketId: filters.ongoingRenewalCloseoutPacketId ? normalizeClinicPilotListQueryText(query, "ongoingRenewalCloseoutPacketId", { maxLength: 160 }) : "",
+    nextOngoingRenewalHandoffId: filters.nextOngoingRenewalHandoffId ? normalizeClinicPilotListQueryText(query, "nextOngoingRenewalHandoffId", { maxLength: 160 }) : "",
+    nextOngoingRenewalQuoteReleasePacketId: filters.nextOngoingRenewalQuoteReleasePacketId ? normalizeClinicPilotListQueryText(query, "nextOngoingRenewalQuoteReleasePacketId", { maxLength: 160 }) : "",
+    nextOngoingRenewalAcceptanceHandoffId: filters.nextOngoingRenewalAcceptanceHandoffId ? normalizeClinicPilotListQueryText(query, "nextOngoingRenewalAcceptanceHandoffId", { maxLength: 160 }) : "",
+    nextOngoingRenewalCloseoutPacketId: filters.nextOngoingRenewalCloseoutPacketId ? normalizeClinicPilotListQueryText(query, "nextOngoingRenewalCloseoutPacketId", { maxLength: 160 }) : "",
+    followingOngoingRenewalHandoffId: filters.followingOngoingRenewalHandoffId ? normalizeClinicPilotListQueryText(query, "followingOngoingRenewalHandoffId", { maxLength: 160 }) : "",
+    followingOngoingRenewalQuoteReleasePacketId: filters.followingOngoingRenewalQuoteReleasePacketId ? normalizeClinicPilotListQueryText(query, "followingOngoingRenewalQuoteReleasePacketId", { maxLength: 160 }) : "",
+    followingOngoingRenewalAcceptanceHandoffId: filters.followingOngoingRenewalAcceptanceHandoffId ? normalizeClinicPilotListQueryText(query, "followingOngoingRenewalAcceptanceHandoffId", { maxLength: 160 }) : "",
+    followingOngoingRenewalCloseoutPacketId: filters.followingOngoingRenewalCloseoutPacketId ? normalizeClinicPilotListQueryText(query, "followingOngoingRenewalCloseoutPacketId", { maxLength: 160 }) : "",
+    subsequentOngoingRenewalHandoffId: filters.subsequentOngoingRenewalHandoffId ? normalizeClinicPilotListQueryText(query, "subsequentOngoingRenewalHandoffId", { maxLength: 160 }) : "",
+    subsequentOngoingRenewalQuoteReleasePacketId: filters.subsequentOngoingRenewalQuoteReleasePacketId ? normalizeClinicPilotListQueryText(query, "subsequentOngoingRenewalQuoteReleasePacketId", { maxLength: 160 }) : "",
+    subsequentOngoingRenewalAcceptanceHandoffId: filters.subsequentOngoingRenewalAcceptanceHandoffId ? normalizeClinicPilotListQueryText(query, "subsequentOngoingRenewalAcceptanceHandoffId", { maxLength: 160 }) : "",
+    subsequentOngoingRenewalCloseoutPacketId: filters.subsequentOngoingRenewalCloseoutPacketId ? normalizeClinicPilotListQueryText(query, "subsequentOngoingRenewalCloseoutPacketId", { maxLength: 160 }) : "",
+    nextRecurringOngoingRenewalHandoffId: filters.nextRecurringOngoingRenewalHandoffId ? normalizeClinicPilotListQueryText(query, "nextRecurringOngoingRenewalHandoffId", { maxLength: 160 }) : "",
+    nextRecurringOngoingRenewalQuoteReleasePacketId: filters.nextRecurringOngoingRenewalQuoteReleasePacketId ? normalizeClinicPilotListQueryText(query, "nextRecurringOngoingRenewalQuoteReleasePacketId", { maxLength: 160 }) : "",
+    nextRecurringOngoingRenewalAcceptanceHandoffId: filters.nextRecurringOngoingRenewalAcceptanceHandoffId ? normalizeClinicPilotListQueryText(query, "nextRecurringOngoingRenewalAcceptanceHandoffId", { maxLength: 160 }) : "",
     draftPacketId: filters.draftPacketId ? normalizeClinicPilotListQueryText(query, "draftPacketId", { maxLength: 160 }) : ""
   };
 }
