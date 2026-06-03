@@ -5,7 +5,8 @@ export const SUITE_APP_ROUTE_ALIASES = {
 };
 
 export function normalizeSuiteAppId(appId, assignedApps = null) {
-  const canonical = SUITE_APP_IDS.includes(appId) ? appId : (SUITE_APP_ROUTE_ALIASES[appId] || appId);
+  if (Array.isArray(assignedApps) && assignedApps.includes(appId) && SUITE_APP_IDS.includes(appId)) return appId;
+  const canonical = SUITE_APP_ROUTE_ALIASES[appId] || appId;
   if (SUITE_APP_IDS.includes(canonical)) return canonical;
   if (assignedApps) {
     return assignedApps.length && assignedApps[0] ? assignedApps[0] : "crm";
@@ -16,8 +17,12 @@ export function normalizeSuiteAppId(appId, assignedApps = null) {
 export function normalizeSuiteAppIds(appIds = []) {
   const normalized = [];
   const seen = new Set();
-  for (const appId of appIds || []) {
-    const normalizedAppId = normalizeSuiteAppId(appId);
+  const assignedAppIds = appIds || [];
+  for (const appId of assignedAppIds) {
+    const aliasTarget = SUITE_APP_ROUTE_ALIASES[appId];
+    const normalizedAppId = aliasTarget && !assignedAppIds.includes(aliasTarget) && SUITE_APP_IDS.includes(appId)
+      ? appId
+      : normalizeSuiteAppId(appId);
     if (normalizedAppId && !seen.has(normalizedAppId)) {
       seen.add(normalizedAppId);
       normalized.push(normalizedAppId);
