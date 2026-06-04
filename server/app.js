@@ -3409,9 +3409,10 @@ function registerApi(app, db, options = {}) {
   app.post("/api/workflow/approvals/:id/decision", async request => {
     const user = await app.auth(request);
     requireOwner(user);
+    const approvalId = normalizeWorkflowApprovalPathId(request.params.id);
     const body = request.body === undefined ? {} : request.body;
     const { decision, note } = normalizeWorkflowApprovalDecisionBody(body);
-    const approval = getWorkflowApproval(db, user.org_id, request.params.id);
+    const approval = getWorkflowApproval(db, user.org_id, approvalId);
     if (!approval) {
       const err = new Error("Approval not found");
       err.statusCode = 404;
@@ -3445,7 +3446,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/workflow/approvals/:id/execute", async (request, reply) => {
     const user = await app.auth(request);
     requireOwner(user);
-    const approval = getWorkflowApproval(db, user.org_id, request.params.id);
+    const approvalId = normalizeWorkflowApprovalPathId(request.params.id);
+    const approval = getWorkflowApproval(db, user.org_id, approvalId);
     if (!approval) {
       const err = new Error("Approval not found");
       err.statusCode = 404;

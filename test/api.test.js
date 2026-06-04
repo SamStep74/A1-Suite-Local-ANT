@@ -23977,7 +23977,7 @@ test("workflow approval decision rejects malformed metadata before persistence",
       {
         method: "POST",
         url: "/api/workflow/approvals/approval-overdue-nare%0Asecret-workflow-approval-path-token/decision",
-        payload: { decision: "approved", note: "secret-workflow-approval-path-body-token" },
+        payload: { decision: ["approved"], note: "secret-workflow-approval-path-body-token" },
         message: /Invalid workflow approval id/
       },
       {
