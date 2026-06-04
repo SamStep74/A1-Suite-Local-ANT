@@ -904,6 +904,42 @@ test("admin session revoke rejects malformed metadata before mutation", async ()
       { reason: `${"r".repeat(241)}secret-session-revoke-long-reason-token` }
     ];
 
+    const malformedPath = await app.inject({
+      method: "POST",
+      url: `/api/admin/sessions/${supportSession.sessionId}%0Asecret-admin-session-path-token/revoke`,
+      headers: { cookie: ownerCookie },
+      payload: { reason: "secret-admin-session-path-body-token" }
+    });
+    assert.equal(malformedPath.statusCode, 400, malformedPath.body);
+    assert.match(malformedPath.body, /Invalid admin session id/);
+    assert.doesNotMatch(malformedPath.body, /secret-admin-session-path-/);
+    assert.equal(sessionRow().revokedAt, null);
+    assert.equal(revokeAuditCount(), beforeAudit);
+
+    const malformedDecodedPath = await app.inject({
+      method: "POST",
+      url: `/api/admin/sessions/${supportSession.sessionId}_secret-admin-session-path-token/revoke`,
+      headers: { cookie: ownerCookie },
+      payload: {}
+    });
+    assert.equal(malformedDecodedPath.statusCode, 400, malformedDecodedPath.body);
+    assert.match(malformedDecodedPath.body, /Invalid admin session id/);
+    assert.doesNotMatch(malformedDecodedPath.body, /secret-admin-session-path-token/);
+    assert.equal(sessionRow().revokedAt, null);
+    assert.equal(revokeAuditCount(), beforeAudit);
+
+    const missingPath = await app.inject({
+      method: "POST",
+      url: "/api/admin/sessions/000000000000000000000000/revoke",
+      headers: { cookie: ownerCookie },
+      payload: { reason: "secret-admin-session-missing-body-token" }
+    });
+    assert.equal(missingPath.statusCode, 404, missingPath.body);
+    assert.match(missingPath.body, /Session not found/);
+    assert.doesNotMatch(missingPath.body, /secret-admin-session-missing/);
+    assert.equal(sessionRow().revokedAt, null);
+    assert.equal(revokeAuditCount(), beforeAudit);
+
     const rejectedNull = await app.inject({
       method: "POST",
       url: `/api/admin/sessions/${supportSession.sessionId}/revoke`,
@@ -1015,6 +1051,32 @@ test("owner can create tamper-evident audit export packet for auditor review", a
     assert.equal(auditorDetail.statusCode, 200, auditorDetail.body);
     assert.equal(auditorDetail.json().export.id, packet.id);
     assert.equal(auditorDetail.json().export.payload.chainHead, packet.chainHead);
+
+    const malformedDetail = await app.inject({
+      method: "GET",
+      url: `/api/admin/audit-exports/${packet.id}%0Asecret-admin-audit-export-path-token`,
+      headers: { cookie: auditorCookie }
+    });
+    assert.equal(malformedDetail.statusCode, 400, malformedDetail.body);
+    assert.match(malformedDetail.body, /Invalid audit export id/);
+    assert.doesNotMatch(malformedDetail.body, /secret-admin-audit-export-path-token/);
+
+    const malformedDecodedDetail = await app.inject({
+      method: "GET",
+      url: "/api/admin/audit-exports/audit-export_guard_secret-admin-audit-export-path-token",
+      headers: { cookie: auditorCookie }
+    });
+    assert.equal(malformedDecodedDetail.statusCode, 400, malformedDecodedDetail.body);
+    assert.match(malformedDecodedDetail.body, /Invalid audit export id/);
+    assert.doesNotMatch(malformedDecodedDetail.body, /secret-admin-audit-export-path-token/);
+
+    const missingDetail = await app.inject({
+      method: "GET",
+      url: "/api/admin/audit-exports/audit-export-missing-safe",
+      headers: { cookie: auditorCookie }
+    });
+    assert.equal(missingDetail.statusCode, 404, missingDetail.body);
+    assert.match(missingDetail.body, /Audit export not found/);
 
     const listed = await app.inject({
       method: "GET",
@@ -18961,6 +19023,43 @@ test("owner can create sanitized tenant backup and restore proof", async () => {
     assert.equal(serialized.includes("sessions"), true);
     assert.equal(serialized.includes("token"), false);
 
+    const restoreProofAuditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE org_id = ?
+        AND type LIKE ?
+    `).get("org-armosphera-demo", "admin.backup.restore_proof.%").count;
+    const beforeRestoreProofAudit = restoreProofAuditCount();
+
+    const malformedProofPath = await app.inject({
+      method: "POST",
+      url: `/api/admin/backups/${body.backup.id}%0Asecret-admin-backup-path-token/restore-proof`,
+      headers: { cookie }
+    });
+    assert.equal(malformedProofPath.statusCode, 400, malformedProofPath.body);
+    assert.match(malformedProofPath.body, /Invalid tenant backup id/);
+    assert.doesNotMatch(malformedProofPath.body, /secret-admin-backup-path-token/);
+    assert.equal(restoreProofAuditCount(), beforeRestoreProofAudit);
+
+    const malformedDecodedProofPath = await app.inject({
+      method: "POST",
+      url: "/api/admin/backups/tenant-backup_guard_secret-admin-backup-path-token/restore-proof",
+      headers: { cookie }
+    });
+    assert.equal(malformedDecodedProofPath.statusCode, 400, malformedDecodedProofPath.body);
+    assert.match(malformedDecodedProofPath.body, /Invalid tenant backup id/);
+    assert.doesNotMatch(malformedDecodedProofPath.body, /secret-admin-backup-path-token/);
+    assert.equal(restoreProofAuditCount(), beforeRestoreProofAudit);
+
+    const missingProofPath = await app.inject({
+      method: "POST",
+      url: "/api/admin/backups/tenant-backup-missing-safe/restore-proof",
+      headers: { cookie }
+    });
+    assert.equal(missingProofPath.statusCode, 404, missingProofPath.body);
+    assert.match(missingProofPath.body, /Backup not found/);
+    assert.equal(restoreProofAuditCount(), beforeRestoreProofAudit);
+
     const proof = await app.inject({
       method: "POST",
       url: `/api/admin/backups/${body.backup.id}/restore-proof`,
@@ -18974,6 +19073,7 @@ test("owner can create sanitized tenant backup and restore proof", async () => {
     assert.equal(proofBody.restoreProof.secretScan.clean, true);
     assert.equal(proofBody.restoreProof.tableCounts.customers, body.backup.tableCounts.customers);
     assert.ok(proofBody.restoreProof.restorePlan.includes("restore-only-into-empty-tenant"));
+    assert.equal(restoreProofAuditCount(), beforeRestoreProofAudit + 1);
 
     const listed = await app.inject({ method: "GET", url: "/api/admin/backups", headers: { cookie } });
     assert.equal(listed.statusCode, 200, listed.body);

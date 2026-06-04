@@ -4773,7 +4773,7 @@ function getSessionInventory(db, orgId, currentToken = "") {
 }
 
 function revokeSessionByPublicId(db, user, sessionId, body, currentToken = "") {
-  const publicId = String(sessionId || "").trim();
+  const publicId = normalizeAdminSessionPathId(sessionId);
   const row = getOrgSessionRows(db, user.org_id).find(session => publicSessionId(session.token) === publicId);
   if (!row) {
     const err = new Error("Session not found");
@@ -4798,6 +4798,15 @@ function revokeSessionByPublicId(db, user, sessionId, body, currentToken = "") {
   }
   const updated = getOrgSessionRows(db, user.org_id).find(session => publicSessionId(session.token) === publicId);
   return formatSessionRecord(updated, currentToken);
+}
+
+function normalizeAdminSessionPathId(value) {
+  if (typeof value !== "string" || !/^[a-f0-9]{24}$/.test(value.trim())) {
+    const err = new Error("Invalid admin session id");
+    err.statusCode = 400;
+    throw err;
+  }
+  return value.trim();
 }
 
 function normalizeSessionRevokeBody(body) {
@@ -5044,13 +5053,32 @@ function getAuditExports(db, orgId) {
 }
 
 function getAuditExport(db, orgId, exportId, includePayload = false) {
+  const safeExportId = normalizeAdminEvidencePathId(exportId, "audit-export", "Invalid audit export id");
   const row = db.prepare(`
     SELECT audit_export_packets.*, users.name AS created_by_name
     FROM audit_export_packets
     LEFT JOIN users ON users.id = audit_export_packets.created_by_user_id
     WHERE audit_export_packets.org_id = ? AND audit_export_packets.id = ?
-  `).get(orgId, exportId);
+  `).get(orgId, safeExportId);
   return row ? formatAuditExport(row, includePayload) : null;
+}
+
+function normalizeAdminEvidencePathId(value, prefix, message) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidAdminEvidencePathId(message);
+  }
+  const text = value.trim();
+  const expectedPrefix = `${prefix}-`;
+  if (!text.startsWith(expectedPrefix) || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) {
+    throwInvalidAdminEvidencePathId(message);
+  }
+  return text;
+}
+
+function throwInvalidAdminEvidencePathId(message) {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
 }
 
 function formatAuditExport(row, includePayload = false) {
@@ -44199,12 +44227,13 @@ function getTenantBackups(db, orgId) {
 }
 
 function getTenantBackup(db, orgId, backupId, includePayload = false) {
+  const safeBackupId = normalizeAdminEvidencePathId(backupId, "tenant-backup", "Invalid tenant backup id");
   const row = db.prepare(`
     SELECT tenant_backup_packets.*, users.name AS created_by_name
     FROM tenant_backup_packets
     LEFT JOIN users ON users.id = tenant_backup_packets.created_by_user_id
     WHERE tenant_backup_packets.org_id = ? AND tenant_backup_packets.id = ?
-  `).get(orgId, backupId);
+  `).get(orgId, safeBackupId);
   return row ? formatTenantBackup(row, includePayload) : null;
 }
 
