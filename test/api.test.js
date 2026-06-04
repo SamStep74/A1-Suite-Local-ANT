@@ -7560,6 +7560,31 @@ test("sales can create clinic following renewal quote release packet after workf
 test("accountant can hand accepted following renewal quote into HayHashvapah invoice approval", async () => {
   await withApp(async app => {
     const proof = await createPilotFollowingRenewalQuoteReleasePacket(app);
+    const followingRenewalAcceptanceHandoffCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_following_renewal_quote_acceptance_handoff_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.following_renewal_quote_acceptance_handoff.created").count
+    });
+    const beforeMalformedFollowingRenewalAcceptance = followingRenewalAcceptanceHandoffCounts();
+
+    const malformedReleaseId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/following-renewal-quote-releases/badAsecret-clinic-following-renewal-release-token/acceptance-handoff",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-following-renewal-acceptance-body-token" }
+    });
+    assert.equal(malformedReleaseId.statusCode, 400, malformedReleaseId.body);
+    assert.match(malformedReleaseId.body, /Invalid clinic pilot following renewal quote release packet id/);
+    assert.doesNotMatch(malformedReleaseId.body, /badAsecret-clinic-following-renewal-release-token|secret-clinic-following-renewal-acceptance-body-token/);
+    assert.deepEqual(followingRenewalAcceptanceHandoffCounts(), beforeMalformedFollowingRenewalAcceptance);
+
+    const unknownSafeReleaseId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/following-renewal-quote-releases/pilot-following-renewal-quote-release-missing/acceptance-handoff",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing following renewal quote release remains missing." }
+    });
+    assert.equal(unknownSafeReleaseId.statusCode, 404, unknownSafeReleaseId.body);
+    assert.deepEqual(followingRenewalAcceptanceHandoffCounts(), beforeMalformedFollowingRenewalAcceptance);
 
     const supportDenied = await app.inject({
       method: "POST",

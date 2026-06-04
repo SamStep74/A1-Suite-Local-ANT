@@ -993,7 +993,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/pilots/clinic-wellness/following-renewal-quote-releases/:releaseId/acceptance-handoff", async request => {
     const user = await app.auth(request);
     requirePilotFollowingRenewalAcceptanceHandoffWriter(user);
-    return createClinicWellnessFollowingRenewalQuoteAcceptanceHandoff(db, user, request.params.releaseId, request.body || {});
+    const releaseId = normalizeClinicPilotFollowingRenewalQuoteReleasePacketId(request.params.releaseId);
+    return createClinicWellnessFollowingRenewalQuoteAcceptanceHandoff(db, user, releaseId, request.body || {});
   });
 
   app.get("/api/pilots/clinic-wellness/following-renewal-hayhashvapah-drafts", async request => {
@@ -52919,6 +52920,23 @@ function normalizeClinicPilotFollowingRenewalQuoteHandoffId(value) {
 
 function throwInvalidClinicPilotFollowingRenewalQuoteHandoffId() {
   const err = new Error("Invalid clinic pilot following renewal quote handoff id");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeClinicPilotFollowingRenewalQuoteReleasePacketId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidClinicPilotFollowingRenewalQuoteReleasePacketId();
+  }
+  const id = value.trim();
+  if (!id || id.length > 160 || !/^[a-z0-9-]+$/.test(id)) {
+    throwInvalidClinicPilotFollowingRenewalQuoteReleasePacketId();
+  }
+  return id;
+}
+
+function throwInvalidClinicPilotFollowingRenewalQuoteReleasePacketId() {
+  const err = new Error("Invalid clinic pilot following renewal quote release packet id");
   err.statusCode = 400;
   throw err;
 }
