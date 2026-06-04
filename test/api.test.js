@@ -10251,6 +10251,31 @@ test("sales can create clinic continuation renewal quote release packet after wo
 test("accountant can hand accepted continuation renewal quote into HayHashvapah invoice approval", async () => {
   await withApp(async app => {
     const proof = await createPilotContinuationRenewalQuoteReleasePacket(app);
+    const continuationRenewalAcceptanceHandoffCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_continuation_renewal_quote_acceptance_handoff_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.continuation_renewal_quote_acceptance_handoff.created").count
+    });
+    const beforeMalformedContinuationRenewalAcceptance = continuationRenewalAcceptanceHandoffCounts();
+
+    const malformedContinuationRenewalQuoteReleaseId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/continuation-renewal-quote-releases/badAsecret-clinic-continuation-renewal-release-token/acceptance-handoff",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-continuation-renewal-acceptance-body-token" }
+    });
+    assert.equal(malformedContinuationRenewalQuoteReleaseId.statusCode, 400, malformedContinuationRenewalQuoteReleaseId.body);
+    assert.match(malformedContinuationRenewalQuoteReleaseId.body, /Invalid clinic pilot continuation renewal quote release packet id/);
+    assert.doesNotMatch(malformedContinuationRenewalQuoteReleaseId.body, /badAsecret-clinic-continuation-renewal-release-token|secret-clinic-continuation-renewal-acceptance-body-token/);
+    assert.deepEqual(continuationRenewalAcceptanceHandoffCounts(), beforeMalformedContinuationRenewalAcceptance);
+
+    const unknownSafeContinuationRenewalQuoteReleaseId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/continuation-renewal-quote-releases/pilot-continuation-renewal-quote-release-missing/acceptance-handoff",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing continuation renewal quote release remains missing." }
+    });
+    assert.equal(unknownSafeContinuationRenewalQuoteReleaseId.statusCode, 404, unknownSafeContinuationRenewalQuoteReleaseId.body);
+    assert.deepEqual(continuationRenewalAcceptanceHandoffCounts(), beforeMalformedContinuationRenewalAcceptance);
 
     const supportDenied = await app.inject({
       method: "POST",
