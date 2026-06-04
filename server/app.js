@@ -4008,7 +4008,8 @@ ${controls}
 
   app.get("/api/customer-360/:id", async request => {
     const user = await app.auth(request);
-    const customer = db.prepare("SELECT * FROM customers WHERE org_id = ? AND id = ?").get(user.org_id, request.params.id);
+    const customerId = normalizeCustomer360PathId(request.params.id, request.raw?.url);
+    const customer = db.prepare("SELECT * FROM customers WHERE org_id = ? AND id = ?").get(user.org_id, customerId);
     if (!customer) {
       const err = new Error("Customer not found");
       err.statusCode = 404;
@@ -44297,6 +44298,29 @@ function assertCustomer(db, orgId, customerId) {
     err.statusCode = 404;
     throw err;
   }
+}
+
+function normalizeCustomer360PathId(value, rawUrl = "") {
+  const rawSegment = typeof rawUrl === "string"
+    ? rawUrl.match(/^\/api\/customer-360\/([^/?#]+)(?:[?#]|$)/)?.[1]
+    : "";
+  if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+    throwInvalidCustomer360PathId();
+  }
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCustomer360PathId();
+  }
+  const customerId = value.trim();
+  if (!customerId || customerId.length > 160 || !/^[a-z0-9-]+$/.test(customerId)) {
+    throwInvalidCustomer360PathId();
+  }
+  return customerId;
+}
+
+function throwInvalidCustomer360PathId() {
+  const err = new Error("Invalid customer id");
+  err.statusCode = 400;
+  throw err;
 }
 
 function normalizeServiceCaseCreateInput(body) {

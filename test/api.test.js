@@ -19809,6 +19809,57 @@ test("customer 360 joins CRM, finance, service, automation, and legal sources", 
     assert.ok(body.automation.some(rule => rule.trigger === "invoice.overdue"));
     assert.ok(body.approvals.some(approval => approval.riskLevel === "legal"));
     assert.ok(body.legalSources.some(source => source.id === "law-tax-code"));
+
+    const malformedIds = [
+      "cust_nare-secret-customer-360-path-token",
+      "Cust-nare-secret-customer-360-path-token"
+    ];
+    for (const malformedId of malformedIds) {
+      const rejected = await app.inject({
+        method: "GET",
+        url: `/api/customer-360/${malformedId}`,
+        headers: { cookie }
+      });
+      assert.equal(rejected.statusCode, 400, `${malformedId}: ${rejected.body}`);
+      assert.match(rejected.body, /Invalid customer id/);
+      assert.doesNotMatch(rejected.body, /secret-customer-360-/);
+    }
+
+    const encodedMalformedIds = [
+      "cust-nare%0Asecret-customer-360-control-token",
+      "%20%20"
+    ];
+    for (const malformedId of encodedMalformedIds) {
+      const rejected = await app.inject({
+        method: "GET",
+        url: `/api/customer-360/${malformedId}`,
+        headers: { cookie }
+      });
+      assert.ok([400, 404].includes(rejected.statusCode), `${malformedId}: ${rejected.body}`);
+      assert.doesNotMatch(rejected.body, /secret-customer-360-/);
+      if (rejected.statusCode === 400) {
+        assert.match(rejected.body, /Invalid customer id/);
+      }
+    }
+
+    const overlong = await app.inject({
+      method: "GET",
+      url: `/api/customer-360/${"a".repeat(161)}secret-customer-360-overlong-token`,
+      headers: { cookie }
+    });
+    assert.ok([400, 404].includes(overlong.statusCode), overlong.body);
+    assert.doesNotMatch(overlong.body, /secret-customer-360-/);
+    if (overlong.statusCode === 400) {
+      assert.match(overlong.body, /Invalid customer id/);
+    }
+
+    const missing = await app.inject({
+      method: "GET",
+      url: "/api/customer-360/cust-missing-safe",
+      headers: { cookie }
+    });
+    assert.equal(missing.statusCode, 404, missing.body);
+    assert.match(missing.body, /Customer not found/);
   });
 });
 
