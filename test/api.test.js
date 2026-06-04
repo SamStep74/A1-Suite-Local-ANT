@@ -14597,6 +14597,47 @@ test("accountant can hand accepted following ongoing renewal quote into HayHashv
     });
     assert.equal(premature.statusCode, 409);
 
+    const countAcceptanceHandoffs = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/following-ongoing-renewal-acceptance-handoffs?followingOngoingRenewalQuoteReleasePacketId=${proof.followingOngoingRenewalQuoteReleasePacket.id}`,
+        headers: { cookie: proof.ownerCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return list.json().packets.length;
+    };
+    const countAuditEvents = async () => {
+      const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: proof.ownerCookie } });
+      assert.equal(audit.statusCode, 200, audit.body);
+      return audit.json().events.length;
+    };
+    const beforeRejectedHandoffs = await countAcceptanceHandoffs();
+    const beforeRejectedAudit = await countAuditEvents();
+
+    const malformedId = "badAsecret-following-ongoing-acceptance-token";
+    const malformed = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/following-ongoing-renewal-quote-releases/${malformedId}/acceptance-handoff`,
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Secret following ongoing acceptance note should not leak." }
+    });
+    assert.equal(malformed.statusCode, 400, malformed.body);
+    assert.match(malformed.json().message, /Invalid clinic pilot following ongoing renewal quote release packet id/);
+    assert.doesNotMatch(malformed.body, /badAsecret/);
+    assert.doesNotMatch(malformed.body, /Secret following ongoing acceptance note/);
+    assert.equal(await countAcceptanceHandoffs(), beforeRejectedHandoffs);
+    assert.equal(await countAuditEvents(), beforeRejectedAudit);
+
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/following-ongoing-renewal-quote-releases/pilot-following-ongoing-renewal-quote-release-missing/acceptance-handoff",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing following ongoing quote release remains a not-found lookup." }
+    });
+    assert.equal(missing.statusCode, 404, missing.body);
+    assert.equal(await countAcceptanceHandoffs(), beforeRejectedHandoffs);
+    assert.equal(await countAuditEvents(), beforeRejectedAudit);
+
     const accepted = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${proof.followingOngoingRenewalQuote.publicToken}/accept`,
@@ -14805,6 +14846,47 @@ test("accountant can record following ongoing renewal HayHashvapah draft invoice
     assert.equal(executedBody.draftInvoice.subtotal, 800000);
     assert.equal(executedBody.draftInvoice.vat, 160000);
     assert.equal(executedBody.draftInvoice.periodKey, "2026-12");
+
+    const countDraftPackets = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/following-ongoing-renewal-hayhashvapah-drafts?followingOngoingRenewalAcceptanceHandoffId=${proof.followingOngoingRenewalAcceptanceHandoff.id}`,
+        headers: { cookie: proof.ownerCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return list.json().packets.length;
+    };
+    const countAuditEvents = async () => {
+      const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: proof.ownerCookie } });
+      assert.equal(audit.statusCode, 200, audit.body);
+      return audit.json().events.length;
+    };
+    const beforeRejectedDrafts = await countDraftPackets();
+    const beforeRejectedAudit = await countAuditEvents();
+
+    const malformedId = "badAsecret-following-ongoing-draft-token";
+    const malformed = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/following-ongoing-renewal-acceptance-handoffs/${malformedId}/draft-invoice-packet`,
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Secret following ongoing draft note should not leak." }
+    });
+    assert.equal(malformed.statusCode, 400, malformed.body);
+    assert.match(malformed.json().message, /Invalid clinic pilot following ongoing renewal acceptance handoff id/);
+    assert.doesNotMatch(malformed.body, /badAsecret/);
+    assert.doesNotMatch(malformed.body, /Secret following ongoing draft note/);
+    assert.equal(await countDraftPackets(), beforeRejectedDrafts);
+    assert.equal(await countAuditEvents(), beforeRejectedAudit);
+
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/following-ongoing-renewal-acceptance-handoffs/pilot-following-ongoing-renewal-acceptance-handoff-missing/draft-invoice-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing following ongoing acceptance handoff remains a not-found lookup." }
+    });
+    assert.equal(missing.statusCode, 404, missing.body);
+    assert.equal(await countDraftPackets(), beforeRejectedDrafts);
+    assert.equal(await countAuditEvents(), beforeRejectedAudit);
 
     const created = await app.inject({
       method: "POST",
