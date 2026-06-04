@@ -2215,8 +2215,10 @@ function registerApi(app, db, options = {}) {
 
   app.post("/api/crm/leads/:id/convert", async request => {
     const user = await app.auth(request);
+    requireAppAccess(db, user, "crm");
     requireCrmEditor(user);
-    return { ok: true, ...convertCrmLead(db, user, request.params.id, request.body) };
+    const leadId = normalizeCrmLeadPathId(request.params.id, request.raw?.url);
+    return { ok: true, ...convertCrmLead(db, user, leadId, request.body) };
   });
 
   app.post("/api/crm/deals/:id/forecast", async request => {
@@ -41955,6 +41957,29 @@ function normalizeCrmLeadEstimatedValue(body) {
 
 function throwInvalidCrmLeadMetadata(message = "Lead requires safe metadata") {
   const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeCrmLeadPathId(value, rawUrl = "") {
+  const rawSegment = typeof rawUrl === "string"
+    ? rawUrl.match(/^\/api\/crm\/leads\/([^/?#]+)\/convert(?:[?#]|$)/)?.[1]
+    : "";
+  if (rawSegment && !/^[a-z0-9-]+$/.test(rawSegment)) {
+    throwInvalidCrmLeadPathId();
+  }
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmLeadPathId();
+  }
+  const text = value.trim();
+  if (!text || !/^[a-z0-9-]+$/.test(text)) {
+    throwInvalidCrmLeadPathId();
+  }
+  return text;
+}
+
+function throwInvalidCrmLeadPathId() {
+  const err = new Error("Invalid CRM lead id");
   err.statusCode = 400;
   throw err;
 }

@@ -19144,6 +19144,7 @@ test("CRM list query filters reject malformed metadata before reads", async () =
 
 test("CRM lead conversion rejects malformed metadata before persistence", async () => {
   await withApp(async app => {
+    const ownerCookie = await login(app);
     const cookie = await login(app, "sales@armosphera.local");
     const created = await app.inject({
       method: "POST",
@@ -19180,6 +19181,59 @@ test("CRM lead conversion rejects malformed metadata before persistence", async 
       WHERE id = ?
     `).get(lead.id);
     const before = counts();
+    const malformedLeadIds = [
+      "badAsecret-crm-convert-lead-id-token",
+      "bad_secret-crm-convert-lead-id-token"
+    ];
+    for (const malformedLeadId of malformedLeadIds) {
+      const rejectedLeadId = await app.inject({
+        method: "POST",
+        url: `/api/crm/leads/${malformedLeadId}/convert`,
+        headers: { cookie },
+        payload: { dealTitle: "secret-crm-convert-route-id-body-token" }
+      });
+      assert.equal(rejectedLeadId.statusCode, 400, `${malformedLeadId}: ${rejectedLeadId.body}`);
+      assert.match(rejectedLeadId.body, /Invalid CRM lead id/);
+      assert.doesNotMatch(rejectedLeadId.body, /secret-crm-convert-/);
+      assert.deepEqual(counts(), before);
+    }
+
+    const overlongLeadId = await app.inject({
+      method: "POST",
+      url: `/api/crm/leads/${"a".repeat(161)}/convert`,
+      headers: { cookie },
+      payload: { dealTitle: "secret-crm-convert-overlong-route-id-body-token" }
+    });
+    assert.equal(overlongLeadId.statusCode, 404, overlongLeadId.body);
+    assert.doesNotMatch(overlongLeadId.body, /secret-crm-convert-/);
+    assert.deepEqual(counts(), before);
+
+    const encodedMalformedLeadIds = [
+      "bad%0Asecret-crm-convert-control-lead-id-token",
+      "%20%20"
+    ];
+    for (const malformedLeadId of encodedMalformedLeadIds) {
+      const rejectedLeadId = await app.inject({
+        method: "POST",
+        url: `/api/crm/leads/${malformedLeadId}/convert`,
+        headers: { cookie },
+        payload: { dealTitle: "secret-crm-convert-encoded-route-id-body-token" }
+      });
+      assert.ok([400, 404].includes(rejectedLeadId.statusCode), `${malformedLeadId}: ${rejectedLeadId.body}`);
+      assert.doesNotMatch(rejectedLeadId.body, /secret-crm-convert-/);
+      assert.deepEqual(counts(), before);
+    }
+
+    const missingLeadId = await app.inject({
+      method: "POST",
+      url: "/api/crm/leads/lead-missing/convert",
+      headers: { cookie },
+      payload: { dealTitle: "secret-crm-convert-missing-route-id-body-token" }
+    });
+    assert.equal(missingLeadId.statusCode, 404, missingLeadId.body);
+    assert.doesNotMatch(missingLeadId.body, /secret-crm-convert-missing-route-id-body-token/);
+    assert.deepEqual(counts(), before);
+
     const malformedPayloads = [
       { dealTitle: { value: "Object title", token: "secret-crm-convert-object-title-token" } },
       { dealTitle: "Conversion\nsecret-crm-convert-control-title-token" },
@@ -19252,6 +19306,39 @@ test("CRM lead conversion rejects malformed metadata before persistence", async 
     assert.equal(convertedMaxCompany.statusCode, 200, convertedMaxCompany.body);
     assert.equal(convertedMaxCompany.json().deal.title, `${"A".repeat(181)} onboarding package`);
     assert.equal(convertedMaxCompany.json().deal.title.length, 200);
+
+    const createdEntitlementLead = await app.inject({
+      method: "POST",
+      url: "/api/crm/leads",
+      headers: { cookie },
+      payload: {
+        companyName: "Conversion Entitlement Clinic",
+        contactName: "Nare Entitlement",
+        email: "conversion-entitlement@example.am",
+        phone: "+374 91 606060",
+        interest: "CRM conversion entitlement guard",
+        estimatedValue: 1500000
+      }
+    });
+    assert.equal(createdEntitlementLead.statusCode, 200, createdEntitlementLead.body);
+    const entitlementLead = createdEntitlementLead.json().lead;
+    const beforeEntitlementDenied = counts();
+
+    const disabledCrm = await app.inject({
+      method: "POST",
+      url: "/api/apps/crm/assign",
+      headers: { cookie: ownerCookie },
+      payload: { role: "Salesperson", enabled: false }
+    });
+    assert.equal(disabledCrm.statusCode, 200, disabledCrm.body);
+
+    const entitlementDenied = await app.inject({
+      method: "POST",
+      url: `/api/crm/leads/${entitlementLead.id}/convert`,
+      headers: { cookie }
+    });
+    assert.equal(entitlementDenied.statusCode, 403, entitlementDenied.body);
+    assert.deepEqual(counts(), beforeEntitlementDenied);
   });
 });
 
