@@ -16131,6 +16131,56 @@ test("accountant can hand accepted subsequent ongoing renewal quote into HayHash
     });
     assert.equal(premature.statusCode, 409);
 
+    const countAcceptanceHandoffs = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/subsequent-ongoing-renewal-acceptance-handoffs?subsequentOngoingRenewalQuoteReleasePacketId=${proof.subsequentOngoingRenewalQuoteReleasePacket.id}`,
+        headers: { cookie: proof.accountantCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return list.json().packets.length;
+    };
+    const orgId = app.db.prepare("SELECT org_id AS orgId FROM users WHERE email = ?").get(DEFAULT_EMAIL).orgId;
+    const auditContainsEvidence = (...needles) => {
+      const events = app.db.prepare("SELECT type, details FROM audit_events WHERE org_id = ? ORDER BY id DESC").all(orgId);
+      const serializedEvents = JSON.stringify(events);
+      return needles.some(needle => serializedEvents.includes(needle));
+    };
+    const countAcceptanceAuditEvents = () => app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?")
+      .get(orgId, "pilot.subsequent_ongoing_renewal_quote_acceptance_handoff.created").count;
+    const beforeRejectedHandoffs = await countAcceptanceHandoffs();
+    const beforeRejectedAudit = countAcceptanceAuditEvents();
+
+    const malformedId = "badAsecret-subsequent-ongoing-acceptance-release-token";
+    const malformed = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/subsequent-ongoing-renewal-quote-releases/${malformedId}/acceptance-handoff`,
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Secret subsequent ongoing acceptance handoff note should not leak." }
+    });
+    assert.equal(malformed.statusCode, 400, malformed.body);
+    assert.match(malformed.json().message, /Invalid clinic pilot subsequent ongoing renewal quote release packet id/);
+    assert.doesNotMatch(malformed.body, /badAsecret/);
+    assert.doesNotMatch(malformed.body, /Secret subsequent ongoing acceptance handoff note/);
+    assert.equal(await countAcceptanceHandoffs(), beforeRejectedHandoffs);
+    assert.equal(countAcceptanceAuditEvents(), beforeRejectedAudit);
+    assert.equal(auditContainsEvidence(malformedId, "Secret subsequent ongoing acceptance handoff note"), false);
+
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/subsequent-ongoing-renewal-quote-releases/pilot-subsequent-ongoing-renewal-quote-release-missing/acceptance-handoff",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing subsequent ongoing renewal quote release remains a not-found lookup." }
+    });
+    assert.equal(missing.statusCode, 404, missing.body);
+    assert.equal(await countAcceptanceHandoffs(), beforeRejectedHandoffs);
+    assert.equal(countAcceptanceAuditEvents(), beforeRejectedAudit);
+    assert.equal(auditContainsEvidence(
+      malformedId,
+      "Secret subsequent ongoing acceptance handoff note",
+      "Safe missing subsequent ongoing renewal quote release remains a not-found lookup"
+    ), false);
+
     const accepted = await app.inject({
       method: "POST",
       url: `/api/public/quotes/${proof.subsequentOngoingRenewalQuote.publicToken}/accept`,
