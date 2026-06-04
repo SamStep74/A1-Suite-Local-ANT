@@ -68,7 +68,7 @@ export function CopilotPanel({ customers, docs, people, appIds = [], onAsk, acti
           <span className="section-label">A1 Copilot</span>
           <h2>Իրավական եւ հաշվապահական Copilot</h2>
         </div>
-        <strong className="aging-badge">Gemini 3.5 Flash · hy</strong>
+        <strong className="aging-badge">OpenRouter · hy</strong>
       </div>
 
       <div className="copilot-controls">
@@ -132,7 +132,7 @@ function CopilotResult({ result }) {
       <div className="meta-row">
         <span>{result.intent}</span>
         <span>{result.riskLevel}</span>
-        <span>{modelPolicy.model || "gemini-3.5-flash"} · {modelPolicy.language || "hy-AM"}</span>
+        <span>{modelPolicy.model || "auto"} · {modelPolicy.language || "hy-AM"}</span>
         <span>{result.confidence}% վստահություն</span>
         <span>{result.reviewRequired ? "վերանայում պարտադիր է" : "վերանայումը ընտրովի է"}</span>
       </div>

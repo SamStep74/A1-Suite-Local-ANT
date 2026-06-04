@@ -7,6 +7,7 @@ import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
 import { PeopleEmployeeForm, PeopleRegistryPanel } from "./people.jsx";
 import { DocsCreateForm, DocsRegistryPanel } from "./docs.jsx";
 import { CopilotPanel } from "./copilot.jsx";
+import { AiOnboardingPanel } from "./ai-onboarding.jsx";
 import { ProductionReadinessPanel } from "./compliance.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
 import { FormCreateForm, FormsRegistryPanel } from "./forms.jsx";
@@ -3847,6 +3848,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           </div>
           {canUseCopilot && (
           <div id="suite-app-copilot" className="suite-app-anchor">
+            {suite.user.role === "Owner" && <AiOnboardingPanel api={api} />}
             <CopilotPanel
               customers={(serviceConsole && serviceConsole.customers) || []}
               docs={docs}

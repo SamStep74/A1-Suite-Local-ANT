@@ -55,8 +55,8 @@ function buildCopilotPacket(input) {
 
 function normalizeModelPolicy(value = {}) {
   return {
-    provider: String(value.provider || "gemini"),
-    model: String(value.model || "gemini-3.5-flash"),
+    provider: String(value.provider || "openrouter"),
+    model: String(value.model || "auto"),
     language: String(value.language || "hy-AM"),
     executionMode: String(value.executionMode || "offline-deterministic"),
     egress: String(value.egress || "blocked-by-default")

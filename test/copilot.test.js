@@ -3,6 +3,14 @@ const test = require("node:test");
 const assert = require("node:assert");
 const { buildApp } = require("../server/app");
 const { DEFAULT_EMAIL, DEFAULT_PASSWORD } = require("../server/db");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+// Isolate AI settings to an empty tmp dir so getCopilotModelPolicy() (which now
+// reads the local settings store) is deterministic regardless of any real
+// ai-settings.json on the dev machine. node:test runs each file in its own process.
+process.env.ARMOSPHERA_ONE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "aoc-copilot-data-"));
 
 async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
   const res = await app.inject({ method: "POST", url: "/api/login", payload: { email, password } });
@@ -115,8 +123,8 @@ test("VAT copilot returns cited legal/accounting guidance without creating SRC e
     assert.strictEqual(body.copilot.reviewRequired, true);
     assert.strictEqual(body.copilot.riskLevel, "legal");
     assert.deepStrictEqual(body.copilot.modelPolicy, {
-      provider: "gemini",
-      model: "gemini-3.5-flash",
+      provider: "openrouter",
+      model: "auto",
       language: "hy-AM",
       executionMode: "offline-deterministic",
       egress: "blocked-by-default"
@@ -181,7 +189,7 @@ test("copilot advisory generation records metadata-only timeline and audit event
     const auditEvent = audit.json().events.find(event => event.type === "copilot.advisory.generated");
     assert.ok(auditEvent);
     assert.strictEqual(auditEvent.details.copilotId, body.copilot.id);
-    assert.strictEqual(auditEvent.details.modelPolicy.model, "gemini-3.5-flash");
+    assert.strictEqual(auditEvent.details.modelPolicy.model, "auto");
     assert.ok(!JSON.stringify(auditEvent.details).includes(question), "audit details should not store raw question text");
     assert.ok(!JSON.stringify(auditEvent.details).includes(body.copilot.answer), "audit details should not store answer text");
   } finally {
