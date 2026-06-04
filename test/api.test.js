@@ -11314,6 +11314,39 @@ test("owner can close continuation renewal cycle and schedule ongoing renewal ta
 test("sales can create clinic ongoing renewal quote handoff from continuation closeout", async () => {
   await withApp(async app => {
     const proof = await createPilotContinuationRenewalCloseoutPacket(app);
+    const ongoingRenewalQuoteHandoffCounts = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: "/api/pilots/clinic-wellness/ongoing-renewal-quotes",
+        headers: { cookie: proof.ownerCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return {
+        handoffs: list.json().handoffs.length,
+        audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count
+      };
+    };
+    const beforeMalformedOngoingRenewalQuoteHandoff = await ongoingRenewalQuoteHandoffCounts();
+
+    const malformedContinuationRenewalCloseoutPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/continuation-renewal-closeouts/badAsecret-clinic-continuation-renewal-closeout-token/ongoing-renewal-quote-handoff",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "secret-clinic-ongoing-renewal-quote-handoff-body-token" }
+    });
+    assert.equal(malformedContinuationRenewalCloseoutPacketId.statusCode, 400, malformedContinuationRenewalCloseoutPacketId.body);
+    assert.match(malformedContinuationRenewalCloseoutPacketId.body, /Invalid clinic pilot continuation renewal closeout packet id/);
+    assert.doesNotMatch(malformedContinuationRenewalCloseoutPacketId.body, /badAsecret-clinic-continuation-renewal-closeout-token|secret-clinic-ongoing-renewal-quote-handoff-body-token/);
+    assert.deepEqual(await ongoingRenewalQuoteHandoffCounts(), beforeMalformedOngoingRenewalQuoteHandoff);
+
+    const unknownSafeContinuationRenewalCloseoutPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/continuation-renewal-closeouts/pilot-continuation-renewal-closeout-missing/ongoing-renewal-quote-handoff",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "Safe missing continuation renewal closeout remains missing." }
+    });
+    assert.equal(unknownSafeContinuationRenewalCloseoutPacketId.statusCode, 404, unknownSafeContinuationRenewalCloseoutPacketId.body);
+    assert.deepEqual(await ongoingRenewalQuoteHandoffCounts(), beforeMalformedOngoingRenewalQuoteHandoff);
 
     const supportDenied = await app.inject({
       method: "POST",
