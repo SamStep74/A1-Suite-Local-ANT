@@ -19204,7 +19204,8 @@ test("CRM lead conversion rejects malformed metadata before persistence", async 
       headers: { cookie },
       payload: { dealTitle: "secret-crm-convert-overlong-route-id-body-token" }
     });
-    assert.equal(overlongLeadId.statusCode, 404, overlongLeadId.body);
+    assert.equal(overlongLeadId.statusCode, 400, overlongLeadId.body);
+    assert.match(overlongLeadId.body, /Invalid CRM lead id/);
     assert.doesNotMatch(overlongLeadId.body, /secret-crm-convert-/);
     assert.deepEqual(counts(), before);
 

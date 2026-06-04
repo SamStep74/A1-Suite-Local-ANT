@@ -41965,14 +41965,14 @@ function normalizeCrmLeadPathId(value, rawUrl = "") {
   const rawSegment = typeof rawUrl === "string"
     ? rawUrl.match(/^\/api\/crm\/leads\/([^/?#]+)\/convert(?:[?#]|$)/)?.[1]
     : "";
-  if (rawSegment && !/^[a-z0-9-]+$/.test(rawSegment)) {
+  if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
     throwInvalidCrmLeadPathId();
   }
   if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
     throwInvalidCrmLeadPathId();
   }
   const text = value.trim();
-  if (!text || !/^[a-z0-9-]+$/.test(text)) {
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) {
     throwInvalidCrmLeadPathId();
   }
   return text;
