@@ -10899,6 +10899,31 @@ test("accountant can record continuation renewal official HayHashvapah invoice p
 test("accountant can record continuation renewal payment collection packet after HayHashvapah receipt", async () => {
   await withApp(async app => {
     const proof = await createPilotContinuationRenewalOfficialInvoicePostingPacket(app);
+    const continuationRenewalPaymentCollectionCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_continuation_renewal_hayhashvapah_payment_collection_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.continuation_renewal_hayhashvapah_payment_collection.created").count
+    });
+    const beforeMalformedContinuationRenewalPayment = continuationRenewalPaymentCollectionCounts();
+
+    const malformedContinuationRenewalPostingPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/continuation-renewal-official-invoices/badAsecret-clinic-continuation-renewal-posting-packet-token/payment-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-continuation-renewal-payment-body-token" }
+    });
+    assert.equal(malformedContinuationRenewalPostingPacketId.statusCode, 400, malformedContinuationRenewalPostingPacketId.body);
+    assert.match(malformedContinuationRenewalPostingPacketId.body, /Invalid clinic pilot continuation renewal HayHashvapah invoice posting packet id/);
+    assert.doesNotMatch(malformedContinuationRenewalPostingPacketId.body, /badAsecret-clinic-continuation-renewal-posting-packet-token|secret-clinic-continuation-renewal-payment-body-token/);
+    assert.deepEqual(continuationRenewalPaymentCollectionCounts(), beforeMalformedContinuationRenewalPayment);
+
+    const unknownSafeContinuationRenewalPostingPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/continuation-renewal-official-invoices/pilot-continuation-renewal-hayhashvapah-posting-missing/payment-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing continuation renewal posting packet remains missing." }
+    });
+    assert.equal(unknownSafeContinuationRenewalPostingPacketId.statusCode, 404, unknownSafeContinuationRenewalPostingPacketId.body);
+    assert.deepEqual(continuationRenewalPaymentCollectionCounts(), beforeMalformedContinuationRenewalPayment);
 
     const supportDenied = await app.inject({
       method: "POST",
