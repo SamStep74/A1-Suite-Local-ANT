@@ -7226,6 +7226,37 @@ test("owner can close next renewal cycle and schedule following renewal task aft
 test("sales can create clinic following renewal quote handoff from next renewal closeout", async () => {
   await withApp(async app => {
     const proof = await createPilotNextRenewalCloseoutPacket(app);
+    const followingRenewalQuoteHandoffCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_following_renewal_quote_handoff_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.following_renewal_quote_handoff.created").count
+    });
+    const beforeMalformedFollowingRenewalQuote = followingRenewalQuoteHandoffCounts();
+
+    const malformedCloseoutId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-renewal-closeouts/badAsecret-clinic-next-renewal-closeout-token/following-renewal-quote-handoff",
+      headers: { cookie: proof.salespersonCookie },
+      payload: {
+        validUntil: "2026-08-12",
+        note: "secret-clinic-following-renewal-quote-body-token"
+      }
+    });
+    assert.equal(malformedCloseoutId.statusCode, 400, malformedCloseoutId.body);
+    assert.match(malformedCloseoutId.body, /Invalid clinic pilot next renewal closeout packet id/);
+    assert.doesNotMatch(malformedCloseoutId.body, /badAsecret-clinic-next-renewal-closeout-token|secret-clinic-following-renewal-quote-body-token/);
+    assert.deepEqual(followingRenewalQuoteHandoffCounts(), beforeMalformedFollowingRenewalQuote);
+
+    const unknownSafeCloseoutId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-renewal-closeouts/pilot-next-renewal-closeout-missing/following-renewal-quote-handoff",
+      headers: { cookie: proof.salespersonCookie },
+      payload: {
+        validUntil: "2026-08-12",
+        note: "Safe missing next renewal closeout remains missing."
+      }
+    });
+    assert.equal(unknownSafeCloseoutId.statusCode, 404, unknownSafeCloseoutId.body);
+    assert.deepEqual(followingRenewalQuoteHandoffCounts(), beforeMalformedFollowingRenewalQuote);
 
     const supportDenied = await app.inject({
       method: "POST",
