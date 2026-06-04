@@ -15723,6 +15723,54 @@ test("sales can create clinic subsequent ongoing renewal quote handoff from foll
     });
     assert.equal(supportDenied.statusCode, 403);
 
+    const orgId = app.db.prepare("SELECT org_id AS orgId FROM users WHERE email = ?").get(DEFAULT_EMAIL).orgId;
+    const handoffCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_subsequent_ongoing_renewal_quote_handoff_packets WHERE org_id = ?")
+        .get(orgId).count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?")
+        .get(orgId, "pilot.subsequent_ongoing_renewal_quote_handoff.created").count
+    });
+    const auditContainsEvidence = (...needles) => {
+      const events = app.db.prepare("SELECT type, details FROM audit_events WHERE org_id = ? ORDER BY id DESC").all(orgId);
+      const serializedEvents = JSON.stringify(events);
+      return needles.some(needle => serializedEvents.includes(needle));
+    };
+    const beforeRejectedHandoffs = handoffCounts();
+
+    const malformedId = "badAsecret-subsequent-ongoing-quote-token";
+    const malformed = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/following-ongoing-renewal-closeouts/${malformedId}/subsequent-ongoing-renewal-quote-handoff`,
+      headers: { cookie: proof.salespersonCookie },
+      payload: {
+        validUntil: "2027-02-11",
+        note: "Secret subsequent ongoing quote handoff note should not leak."
+      }
+    });
+    assert.equal(malformed.statusCode, 400, malformed.body);
+    assert.match(malformed.json().message, /Invalid clinic pilot following ongoing renewal closeout packet id/);
+    assert.doesNotMatch(malformed.body, /badAsecret/);
+    assert.doesNotMatch(malformed.body, /Secret subsequent ongoing quote handoff note/);
+    assert.deepEqual(handoffCounts(), beforeRejectedHandoffs);
+    assert.equal(auditContainsEvidence(malformedId, "Secret subsequent ongoing quote handoff note"), false);
+
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/following-ongoing-renewal-closeouts/pilot-following-ongoing-renewal-closeout-missing/subsequent-ongoing-renewal-quote-handoff",
+      headers: { cookie: proof.salespersonCookie },
+      payload: {
+        validUntil: "2027-02-11",
+        note: "Safe missing following ongoing renewal closeout remains a not-found lookup."
+      }
+    });
+    assert.equal(missing.statusCode, 404, missing.body);
+    assert.deepEqual(handoffCounts(), beforeRejectedHandoffs);
+    assert.equal(auditContainsEvidence(
+      malformedId,
+      "Secret subsequent ongoing quote handoff note",
+      "Safe missing following ongoing renewal closeout remains a not-found lookup"
+    ), false);
+
     const created = await app.inject({
       method: "POST",
       url: `/api/pilots/clinic-wellness/following-ongoing-renewal-closeouts/${proof.followingOngoingRenewalCloseoutPacket.id}/subsequent-ongoing-renewal-quote-handoff`,
