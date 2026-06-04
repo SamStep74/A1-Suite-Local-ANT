@@ -370,15 +370,17 @@ function registerApi(app, db, options = {}) {
   app.post("/api/integrations/connectors/:key/configure", async request => {
     const user = await app.auth(request);
     requireIntegrationWriter(user);
-    const connector = configureIntegrationConnector(db, user, request.params.key, request.body || {});
+    const connectorKey = normalizeIntegrationConnectorKey(request.params.key);
+    const connector = configureIntegrationConnector(db, user, connectorKey, request.body || {});
     return { ok: true, connector };
   });
 
   app.post("/api/integrations/connectors/:key/health-check", async request => {
     const user = await app.auth(request);
     requireIntegrationWriter(user);
-    const check = runIntegrationConnectorHealthCheck(db, user, request.params.key, request.body || {});
-    return { ok: true, check, connector: getIntegrationConnector(db, user.org_id, request.params.key) };
+    const connectorKey = normalizeIntegrationConnectorKey(request.params.key);
+    const check = runIntegrationConnectorHealthCheck(db, user, connectorKey, request.body || {});
+    return { ok: true, check, connector: getIntegrationConnector(db, user.org_id, connectorKey) };
   });
 
   app.get("/api/pilots/templates/clinic-wellness", async request => {

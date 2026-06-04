@@ -1370,6 +1370,46 @@ test("integration connector rejects malformed path keys before mutation", async 
     assert.match(malformedHealth.body, /Invalid integration connector key/);
     assert.doesNotMatch(malformedHealth.body, /secret-connector-key-health-token/);
 
+    const decodedMalformedKeys = [
+      {
+        method: "POST",
+        url: "/api/integrations/connectors/Whatsapp-business-secret-connector-key-uppercase-token/configure",
+        payload: {
+          status: "connected",
+          endpointUrl: "https://graph.facebook.com/v20.0",
+          secret: "secret-connector-key-uppercase-body-token"
+        }
+      },
+      {
+        method: "POST",
+        url: "/api/integrations/connectors/telegram_bot-secret-connector-key-underscore-token/health-check",
+        payload: { note: "secret-connector-key-underscore-body-token" }
+      }
+    ];
+    for (const request of decodedMalformedKeys) {
+      const rejected = await app.inject({
+        method: request.method,
+        url: request.url,
+        headers: { cookie },
+        payload: request.payload
+      });
+      assert.equal(rejected.statusCode, 400, `${request.url}: ${rejected.body}`);
+      assert.match(rejected.body, /Invalid integration connector key/);
+      assert.doesNotMatch(rejected.body, /secret-connector-key-/);
+    }
+
+    const overlongHealth = await app.inject({
+      method: "POST",
+      url: `/api/integrations/connectors/${"a".repeat(121)}secret-connector-key-overlong-token/health-check`,
+      headers: { cookie },
+      payload: { note: "secret-connector-key-overlong-body-token" }
+    });
+    assert.ok([400, 404].includes(overlongHealth.statusCode), overlongHealth.body);
+    assert.doesNotMatch(overlongHealth.body, /secret-connector-key-/);
+    if (overlongHealth.statusCode === 400) {
+      assert.match(overlongHealth.body, /Invalid integration connector key/);
+    }
+
     const unknownSafe = await app.inject({
       method: "POST",
       url: "/api/integrations/connectors/unknown-connector/configure",
@@ -1377,6 +1417,15 @@ test("integration connector rejects malformed path keys before mutation", async 
       payload: { status: "connected" }
     });
     assert.equal(unknownSafe.statusCode, 404, unknownSafe.body);
+
+    const unknownHealth = await app.inject({
+      method: "POST",
+      url: "/api/integrations/connectors/unknown-connector/health-check",
+      headers: { cookie },
+      payload: { note: "secret-connector-key-unknown-health-body-token" }
+    });
+    assert.equal(unknownHealth.statusCode, 404, unknownHealth.body);
+    assert.doesNotMatch(unknownHealth.body, /secret-connector-key-/);
 
     const auditCountAfter = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type IN (?, ?)")
       .get("integration.connector.configured", "integration.connector.health_checked").count;
