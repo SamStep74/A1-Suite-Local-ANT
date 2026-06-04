@@ -8507,6 +8507,31 @@ test("owner can close following renewal cycle and schedule subsequent renewal ta
 test("sales can create clinic subsequent renewal quote handoff from following renewal closeout", async () => {
   await withApp(async app => {
     const proof = await createPilotFollowingRenewalCloseoutPacket(app);
+    const subsequentRenewalQuoteHandoffCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_subsequent_renewal_quote_handoff_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.subsequent_renewal_quote_handoff.created").count
+    });
+    const beforeMalformedSubsequentRenewalQuote = subsequentRenewalQuoteHandoffCounts();
+
+    const malformedFollowingRenewalCloseoutPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/following-renewal-closeouts/badAsecret-clinic-following-renewal-closeout-packet-token/subsequent-renewal-quote-handoff",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "secret-clinic-subsequent-renewal-quote-body-token" }
+    });
+    assert.equal(malformedFollowingRenewalCloseoutPacketId.statusCode, 400, malformedFollowingRenewalCloseoutPacketId.body);
+    assert.match(malformedFollowingRenewalCloseoutPacketId.body, /Invalid clinic pilot following renewal closeout packet id/);
+    assert.doesNotMatch(malformedFollowingRenewalCloseoutPacketId.body, /badAsecret-clinic-following-renewal-closeout-packet-token|secret-clinic-subsequent-renewal-quote-body-token/);
+    assert.deepEqual(subsequentRenewalQuoteHandoffCounts(), beforeMalformedSubsequentRenewalQuote);
+
+    const unknownSafeFollowingRenewalCloseoutPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/following-renewal-closeouts/pilot-following-renewal-closeout-missing/subsequent-renewal-quote-handoff",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "Safe missing following renewal closeout packet remains missing." }
+    });
+    assert.equal(unknownSafeFollowingRenewalCloseoutPacketId.statusCode, 404, unknownSafeFollowingRenewalCloseoutPacketId.body);
+    assert.deepEqual(subsequentRenewalQuoteHandoffCounts(), beforeMalformedSubsequentRenewalQuote);
 
     const supportDenied = await app.inject({
       method: "POST",
