@@ -12120,6 +12120,39 @@ test("accountant can record ongoing renewal HayHashvapah draft invoice packet af
 test("accountant can record ongoing renewal official HayHashvapah invoice posting packet from ongoing draft", async () => {
   await withApp(async app => {
     const proof = await createPilotOngoingRenewalHayhashvapahDraftPacket(app);
+    const ongoingRenewalPostingPacketCounts = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/ongoing-renewal-official-invoices?draftPacketId=${proof.ongoingRenewalDraftPacket.id}`,
+        headers: { cookie: proof.ownerCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return {
+        packets: list.json().packets.length,
+        audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count
+      };
+    };
+    const beforeMalformedOngoingRenewalPostingPacket = await ongoingRenewalPostingPacketCounts();
+
+    const malformedOngoingRenewalDraftPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/ongoing-renewal-hayhashvapah-drafts/badAsecret-clinic-ongoing-renewal-draft-token/posting-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { invoiceNumber: "secret-clinic-ongoing-renewal-posting-body-token" }
+    });
+    assert.equal(malformedOngoingRenewalDraftPacketId.statusCode, 400, malformedOngoingRenewalDraftPacketId.body);
+    assert.match(malformedOngoingRenewalDraftPacketId.body, /Invalid clinic pilot ongoing renewal HayHashvapah draft invoice packet id/);
+    assert.doesNotMatch(malformedOngoingRenewalDraftPacketId.body, /badAsecret-clinic-ongoing-renewal-draft-token|secret-clinic-ongoing-renewal-posting-body-token/);
+    assert.deepEqual(await ongoingRenewalPostingPacketCounts(), beforeMalformedOngoingRenewalPostingPacket);
+
+    const unknownSafeOngoingRenewalDraftPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/ongoing-renewal-hayhashvapah-drafts/pilot-ongoing-renewal-draft-packet-missing/posting-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing ongoing renewal draft packet remains missing." }
+    });
+    assert.equal(unknownSafeOngoingRenewalDraftPacketId.statusCode, 404, unknownSafeOngoingRenewalDraftPacketId.body);
+    assert.deepEqual(await ongoingRenewalPostingPacketCounts(), beforeMalformedOngoingRenewalPostingPacket);
 
     const supportDenied = await app.inject({
       method: "POST",
