@@ -17544,6 +17544,66 @@ test("sales can create clinic next recurring ongoing renewal quote release packe
     });
     assert.equal(premature.statusCode, 409);
 
+    const countReleasePackets = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-quote-releases?nextRecurringOngoingRenewalHandoffId=${proof.nextRecurringOngoingRenewalQuoteHandoff.id}`,
+        headers: { cookie: proof.salespersonCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return list.json().packets.length;
+    };
+    const orgId = app.db.prepare("SELECT org_id AS orgId FROM users WHERE email = ?").get(DEFAULT_EMAIL).orgId;
+    const auditContainsEvidence = (...needles) => {
+      const events = app.db.prepare("SELECT type, details FROM audit_events WHERE org_id = ? ORDER BY id DESC").all(orgId);
+      const serializedEvents = JSON.stringify(events);
+      return needles.some(needle => serializedEvents.includes(needle));
+    };
+    const countReleaseAuditEvents = () => app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?")
+      .get(orgId, "pilot.next_recurring_ongoing_renewal_quote_release.created").count;
+    const beforeRejectedReleasePackets = await countReleasePackets();
+    const beforeRejectedAudit = countReleaseAuditEvents();
+
+    const malformedHandoffRequests = [
+      { id: "badAsecret-next-recurring-ongoing-release-handoff-token", evidence: "badAsecret" },
+      { id: "bad_secret-next-recurring-ongoing-release-handoff-token", evidence: "bad_secret" }
+    ];
+    const malformedHandoffEvidence = [];
+    for (const { id, evidence } of malformedHandoffRequests) {
+      malformedHandoffEvidence.push(id, evidence);
+      const malformedHandoff = await app.inject({
+        method: "POST",
+        url: `/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-quotes/${id}/release-packet`,
+        headers: { cookie: proof.salespersonCookie },
+        payload: { note: "Secret next recurring ongoing release note should not leak." }
+      });
+      assert.equal(malformedHandoff.statusCode, 400, `${id}: ${malformedHandoff.body}`);
+      assert.match(malformedHandoff.json().message, /Invalid clinic pilot next recurring ongoing renewal quote handoff id/);
+      assert.equal(malformedHandoff.body.includes(evidence), false);
+      assert.doesNotMatch(malformedHandoff.body, /Secret next recurring ongoing release note/);
+      assert.equal(await countReleasePackets(), beforeRejectedReleasePackets);
+      assert.equal(countReleaseAuditEvents(), beforeRejectedAudit);
+    }
+    assert.equal(auditContainsEvidence(
+      ...malformedHandoffEvidence,
+      "Secret next recurring ongoing release note"
+    ), false);
+
+    const missingHandoff = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-quotes/pilot-next-recurring-ongoing-renewal-quote-handoff-missing/release-packet",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "Safe missing next recurring ongoing quote handoff remains a not-found lookup." }
+    });
+    assert.equal(missingHandoff.statusCode, 404, missingHandoff.body);
+    assert.equal(await countReleasePackets(), beforeRejectedReleasePackets);
+    assert.equal(countReleaseAuditEvents(), beforeRejectedAudit);
+    assert.equal(auditContainsEvidence(
+      ...malformedHandoffEvidence,
+      "Secret next recurring ongoing release note",
+      "Safe missing next recurring ongoing quote handoff remains a not-found lookup"
+    ), false);
+
     const decision = await app.inject({
       method: "POST",
       url: `/api/workflow/approvals/${proof.nextRecurringOngoingRenewalQuoteApproval.id}/decision`,

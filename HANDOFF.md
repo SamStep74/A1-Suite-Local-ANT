@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-04 · clinic next recurring ongoing renewal quote subsequent ongoing closeout id guard · 87 tags · **465 tests verified**_
+_Last updated: 2026-06-04 · clinic next recurring ongoing renewal quote release handoff id guard · 87 tags · **465 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 195 slices)
+### Hardening (production-readiness pass — 196 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -274,6 +274,8 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
+- Current clinic next recurring ongoing renewal quote release handoff id guard checkpoint: pending commit on `codex/suite-dashboard-route-normalization` (validates clinic/wellness next-recurring-ongoing-renewal quote handoff path IDs before next-recurring-ongoing-renewal quote release packet creation).
+- Latest clinic next recurring ongoing renewal quote release handoff id guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic next-recurring-ongoing-renewal quote release packet regression (`sales can create clinic next recurring ongoing renewal quote release packet after workflow executes`) pass (1 target test across 48 files); read-only subagent review pass (no findings); full `node --test test/api.test.js` pass (231 pass, 0 fail, 0 cancelled); dashboard/sidebar route proof plus route/tax/VAT verification pass (`node --test test/suite-dashboard-sidebar-openability.test.mjs test/suite-routes.test.mjs test/tax-rate-versioning.test.js test/vat-rate-versioning.test.js`, 15 pass, 0 fail, 0 cancelled); full `npm test` pass (465 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-next-recurring-ongoing-renewal-quote-release-handoff-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
 - Current clinic next recurring ongoing renewal quote subsequent ongoing closeout id guard checkpoint: `844d481` (`Harden clinic next recurring quote closeout ids`), pushed on `codex/suite-dashboard-route-normalization` (validates clinic/wellness subsequent-ongoing-renewal closeout packet path IDs before next-recurring-ongoing-renewal quote handoff creation).
 - Latest clinic next recurring ongoing renewal quote subsequent ongoing closeout id guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic next-recurring-ongoing-renewal quote handoff regression (`sales can create clinic next recurring ongoing renewal quote handoff from subsequent ongoing closeout`) pass (1 target test across 48 files); read-only subagent review pass (no findings); full `node --test test/api.test.js` pass (231 pass, 0 fail, 0 cancelled); dashboard/sidebar route proof plus route/tax/VAT verification pass (`node --test test/suite-dashboard-sidebar-openability.test.mjs test/suite-routes.test.mjs test/tax-rate-versioning.test.js test/vat-rate-versioning.test.js`, 15 pass, 0 fail, 0 cancelled); full `npm test` pass (465 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-next-recurring-ongoing-renewal-quote-closeout-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
 - Current clinic subsequent ongoing renewal closeout payment collection id guard checkpoint: `840f291` (`Harden clinic subsequent ongoing closeout ids`), pushed on `codex/suite-dashboard-route-normalization` (validates clinic/wellness subsequent-ongoing-renewal payment-collection packet path IDs before subsequent-ongoing-renewal closeout packet creation).
