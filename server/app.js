@@ -3486,7 +3486,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/workflow/runs/:id/retry", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const run = getWorkflowRun(db, user.org_id, request.params.id);
+    const runId = normalizeWorkflowRunPathId(request.params.id);
+    const run = getWorkflowRun(db, user.org_id, runId);
     if (!run) {
       const err = new Error("Workflow run not found");
       err.statusCode = 404;
@@ -3718,7 +3719,8 @@ ${controls}
   app.post("/api/finance/draft-invoices/:id/post", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const draftInvoice = getFinanceDraftInvoice(db, user.org_id, request.params.id);
+    const draftInvoiceId = normalizeFinanceDraftInvoicePathId(request.params.id);
+    const draftInvoice = getFinanceDraftInvoice(db, user.org_id, draftInvoiceId);
     if (!draftInvoice) {
       const err = new Error("Draft invoice not found");
       err.statusCode = 404;
@@ -3753,7 +3755,8 @@ ${controls}
   app.post("/api/finance/bank-transactions/:id/reconcile", async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
-    const result = await reconcileFinanceBankTransaction(db, user, request.params.id);
+    const transactionId = normalizeFinanceBankTransactionPathId(request.params.id);
+    const result = await reconcileFinanceBankTransaction(db, user, transactionId);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.transaction.customerId) };
   });
 
@@ -3773,7 +3776,8 @@ ${controls}
   app.post("/api/finance/invoices/:id/payments", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const invoice = getInvoice(db, user.org_id, request.params.id);
+    const invoiceId = normalizeFinanceInvoicePathId(request.params.id);
+    const invoice = getInvoice(db, user.org_id, invoiceId);
     if (!invoice) {
       const err = new Error("Invoice not found");
       err.statusCode = 404;
