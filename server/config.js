@@ -142,9 +142,43 @@ const ai = Object.freeze({
   provider: process.env.AI_PROVIDER || "local",
   localBaseUrl: process.env.LOCAL_AI_BASE_URL || "http://127.0.0.1:11434/v1",
   localModel: process.env.LOCAL_AI_MODEL || "gemma3:4b",
-  copilotProvider: process.env.COPILOT_PROVIDER || "gemini",
-  copilotModel: process.env.COPILOT_MODEL || "gemini-3.5-flash",
+  // OpenRouter is the single cloud provider; the concrete model comes from the
+  // live model menu selected during onboarding (empty default = "auto / pick one").
+  copilotProvider: process.env.COPILOT_PROVIDER || "openrouter",
+  copilotModel: process.env.COPILOT_MODEL || "",
   copilotLanguage: process.env.COPILOT_LANGUAGE || "hy-AM"
+});
+
+// OpenRouter — the one cloud aggregator. Its model catalog is fetched live so the
+// onboarding dropdown always reflects up-to-date selections (see server/aiProvider.js).
+const OPENROUTER_HOST = "openrouter.ai";
+const openrouter = Object.freeze({
+  host: OPENROUTER_HOST,
+  baseUrl: (process.env.OPENROUTER_BASE_URL || "https://openrouter.ai/api/v1").replace(/\/+$/, ""),
+  modelsUrl: process.env.OPENROUTER_MODELS_URL || "https://openrouter.ai/api/v1/models",
+  // Optional attribution headers OpenRouter recommends for ranking/analytics.
+  referer: process.env.OPENROUTER_REFERER || "https://a1.am",
+  title: process.env.OPENROUTER_TITLE || "A1 Suite"
+});
+
+// Per-aspect model policy. Empty string = inherit `default`; empty `default` =
+// "auto" until the user picks a model from the live menu. Module overrides
+// (finance/crm/docs) win over the per-aspect ones (copilot/transform).
+const aiModels = Object.freeze({
+  default: process.env.A1_MODEL_DEFAULT || "",
+  copilot: process.env.A1_MODEL_COPILOT || "",
+  transform: process.env.A1_MODEL_TRANSFORM || "",
+  finance: process.env.A1_MODEL_FINANCE || "",
+  crm: process.env.A1_MODEL_CRM || "",
+  docs: process.env.A1_MODEL_DOCS || ""
+});
+
+// Open Notebook (lfnovo/open-notebook) — opt-in AI source that sits *beside* the
+// local RAG. We connect to a self-hosted instance over its REST API; we never
+// bundle its Python/SurrealDB runtime. The API key lives in the local settings store.
+const openNotebook = Object.freeze({
+  enabled: process.env.OPEN_NOTEBOOK_ENABLED === "1",
+  baseUrl: (process.env.OPEN_NOTEBOOK_BASE_URL || "").replace(/\/+$/, "")
 });
 
 const lawEmbed = Object.freeze({
@@ -152,11 +186,18 @@ const lawEmbed = Object.freeze({
   baseUrl: (process.env.LAW_EMBED_BASE || "http://127.0.0.1:11434").replace(/\/+$/, "")
 });
 
+// OpenRouter outbound is allowed only when egress is globally enabled AND
+// openrouter.ai is explicitly allowlisted (deny-until-listed — same gate as safeFetch).
+function isOpenRouterEgressAllowed(env = process.env) {
+  return allowEgress(env) && egressAllowlist(env).includes(OPENROUTER_HOST);
+}
+
 module.exports = {
   PRODUCT,
   computeDataDir, ensureDir, resolveDataDir, resolveDbPath, resolveLawsDbPath,
   allowEgress, egressAllowlist, assertEgressAllowed, EgressBlockedError,
   publicTrustedProxyIps, publicClientIpHeader, resolvePublicClientIp, resolvePublicClientIpDetails,
   safeFetch, setFetchImpl,
-  ai, lawEmbed
+  isOpenRouterEgressAllowed,
+  ai, openrouter, aiModels, openNotebook, lawEmbed
 };

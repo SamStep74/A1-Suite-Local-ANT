@@ -19,6 +19,21 @@ function requiredAppForIntent(intent) {
   return intent === "personal-data" ? "crm" : "finance";
 }
 
+// --- Open Notebook supplemental sources (opt-in, advisory-only) --------------
+// The ranking/dedupe/cap policy now lives in the shared @a1/ai core (vendored at
+// ./vendor/a1-ai) so every A1 product handles supplemental sources identically.
+// Advisory-only: they never enter the law-* citation set, status/sourceReady, or
+// confidence — that gate is enforced below in buildCopilotPacket.
+const { normalizeSupplementalSources, MAX_SUPPLEMENTAL_SOURCES } = require("./vendor/a1-ai");
+
+// Append a clearly-labeled, non-authoritative note. The curated "Աղբյուրներ:"
+// line built by buildAnswer() remains the source of record.
+function withSupplementalNote(answer, supplementalSources) {
+  if (!supplementalSources.length) return answer;
+  const titles = supplementalSources.map(source => source.title).join("; ");
+  return `${answer} Լրացուցիչ ոչ-պաշտոնական աղբյուրներ (Open Notebook, ընտրովի) դիտարկվել են միայն համատեքստի համար եւ պաշտոնական իրավական մեջբերում չեն. ${titles}:`;
+}
+
 function buildCopilotPacket(input) {
   const now = input.now || new Date().toISOString();
   const intent = normalizeIntent(input.intent, input.question);
@@ -34,12 +49,17 @@ function buildCopilotPacket(input) {
   const status = citationRequired && legal.length === 0 ? "blocked-missing-citation" : "draft";
   const riskLevel = intent === "payroll" || intent === "month-close" ? "financial" : "legal";
   const reviewRequired = true;
+  const supplementalSources = normalizeSupplementalSources(input.supplementalSources);
+  const answer = withSupplementalNote(
+    buildAnswer({ intent, question: input.question, citations, calculations, context, sourceReady }),
+    supplementalSources
+  );
   return {
     id: input.id,
     intent,
     status,
     modelPolicy: normalizeModelPolicy(input.modelPolicy),
-    answer: buildAnswer({ intent, question: input.question, citations, calculations, context, sourceReady }),
+    answer,
     confidence: confidenceForIntent(intent, citations, calculations),
     riskLevel,
     reviewRequired,
@@ -47,6 +67,7 @@ function buildCopilotPacket(input) {
     citations,
     calculations,
     context,
+    supplementalSources,
     proposedActions: buildProposedActions({ intent, context, sourceReady }),
     guardrails: buildGuardrails(intent),
     createdAt: now
@@ -55,8 +76,8 @@ function buildCopilotPacket(input) {
 
 function normalizeModelPolicy(value = {}) {
   return {
-    provider: String(value.provider || "gemini"),
-    model: String(value.model || "gemini-3.5-flash"),
+    provider: String(value.provider || "openrouter"),
+    model: String(value.model || "auto"),
     language: String(value.language || "hy-AM"),
     executionMode: String(value.executionMode || "offline-deterministic"),
     egress: String(value.egress || "blocked-by-default")
@@ -197,5 +218,7 @@ module.exports = {
   INTENTS,
   normalizeIntent,
   requiredAppForIntent,
-  buildCopilotPacket
+  buildCopilotPacket,
+  normalizeSupplementalSources,
+  MAX_SUPPLEMENTAL_SOURCES
 };

@@ -3,6 +3,14 @@ const test = require("node:test");
 const assert = require("node:assert");
 const { buildApp } = require("../server/app");
 const { DEFAULT_EMAIL, DEFAULT_PASSWORD } = require("../server/db");
+const fs = require("node:fs");
+const os = require("node:os");
+const path = require("node:path");
+
+// Isolate AI settings to an empty tmp dir so getCopilotModelPolicy() (which now
+// reads the local settings store) is deterministic regardless of any real
+// ai-settings.json on the dev machine. node:test runs each file in its own process.
+process.env.ARMOSPHERA_ONE_DATA_DIR = fs.mkdtempSync(path.join(os.tmpdir(), "aoc-copilot-data-"));
 
 async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
   const res = await app.inject({ method: "POST", url: "/api/login", payload: { email, password } });
@@ -115,8 +123,8 @@ test("VAT copilot returns cited legal/accounting guidance without creating SRC e
     assert.strictEqual(body.copilot.reviewRequired, true);
     assert.strictEqual(body.copilot.riskLevel, "legal");
     assert.deepStrictEqual(body.copilot.modelPolicy, {
-      provider: "gemini",
-      model: "gemini-3.5-flash",
+      provider: "openrouter",
+      model: "auto",
       language: "hy-AM",
       executionMode: "offline-deterministic",
       egress: "blocked-by-default"
@@ -181,7 +189,7 @@ test("copilot advisory generation records metadata-only timeline and audit event
     const auditEvent = audit.json().events.find(event => event.type === "copilot.advisory.generated");
     assert.ok(auditEvent);
     assert.strictEqual(auditEvent.details.copilotId, body.copilot.id);
-    assert.strictEqual(auditEvent.details.modelPolicy.model, "gemini-3.5-flash");
+    assert.strictEqual(auditEvent.details.modelPolicy.model, "auto");
     assert.ok(!JSON.stringify(auditEvent.details).includes(question), "audit details should not store raw question text");
     assert.ok(!JSON.stringify(auditEvent.details).includes(body.copilot.answer), "audit details should not store answer text");
   } finally {
@@ -536,6 +544,63 @@ test("copilot returns 404 for unknown customer or document", async () => {
     });
     assert.strictEqual(badDoc.statusCode, 404);
   } finally {
+    await app.close();
+  }
+});
+
+test("Open Notebook supplemental sources are opt-in: empty when off, merged when on, never moving the legal gate", async () => {
+  const config = require("../server/config");
+  const settingsStore = require("../server/settingsStore");
+  const realFetch = config.safeFetch;
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app); // Owner
+
+    // Make the VAT legal source review-ready so the answer is a normal "draft"
+    // (not blocked) — this proves supplemental doesn't alter a non-blocked gate either.
+    await reviewSource(app, cookie, "law-tax-code", "ՀՀ հարկային օրենսգիրք — ԱԱՀ", "Տարեկան վերանայում");
+
+    const ask = () => app.inject({
+      method: "POST",
+      url: "/api/copilot/questions",
+      headers: { cookie },
+      payload: { intent: "vat", customerId: "cust-nare", periodKey: "2026-05", question: "Բացատրեք ԱԱՀ ուղեցույցը 2026-05 ժամանակաշրջանի համար մանրամասն:" }
+    });
+
+    // OFF by default → no supplemental sources, no Open Notebook note in the answer.
+    const off = (await ask()).json().copilot;
+    assert.deepStrictEqual(off.supplementalSources, []);
+    assert.ok(!off.answer.includes("Open Notebook"));
+
+    // Enable Open Notebook and stub the egress fetch with canned hits (one
+    // duplicate URL + one lower-scored row to exercise dedupe + ordering).
+    settingsStore.updateSettings({ openNotebook: { enabled: true, baseUrl: "https://nb.a1.am", apiKey: "on-key" } });
+    config.safeFetch = async () => ({
+      ok: true,
+      json: async () => ({ results: [
+        { title: "Պրակտիկ նշում", content: "ԱԱՀ ժամկետների գործնական քննարկում:", score: 0.82, url: "https://nb.a1.am/n/7" },
+        { title: "Կրկնօրինակ", content: "նույն աղբյուրը", score: 0.40, url: "https://nb.a1.am/n/7" },
+        { title: "Բլոգ", content: "լրացուցիչ համատեքստ", score: 0.55, url: "https://nb.a1.am/n/9" }
+      ] })
+    });
+
+    const on = (await ask()).json().copilot;
+    // Supplemental merged + clearly labeled
+    assert.ok(on.supplementalSources.length >= 1, "supplemental merged when enabled");
+    assert.ok(on.supplementalSources.every(s => s.origin === "open-notebook" && s.advisory === true));
+    // Dedupe by URL collapsed the duplicate → 2 unique, highest score first
+    assert.strictEqual(on.supplementalSources.length, 2);
+    assert.strictEqual(on.supplementalSources[0].title, "Պրակտիկ նշում");
+    assert.ok(on.answer.includes("Open Notebook"), "answer carries the opt-in supplemental note");
+
+    // The compliance-critical surfaces are identical with and without supplemental.
+    assert.strictEqual(on.status, off.status);
+    assert.strictEqual(on.confidence, off.confidence);
+    assert.deepStrictEqual(on.citations, off.citations);
+  } finally {
+    config.safeFetch = realFetch;
+    settingsStore.updateSettings({ openNotebook: { enabled: false, baseUrl: "", apiKey: "" } });
     await app.close();
   }
 });

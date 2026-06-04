@@ -350,6 +350,14 @@ textarea {
 .meta-row span { background: var(--surface-soft); color: var(--muted); }
 .meta-row a { background: var(--brand); color: #fff; }
 
+/* Open Notebook supplemental sources — visually subdued + clearly non-authoritative,
+   set apart from the curated "Աղբյուրներ" (citations) block above it. */
+.copilot-supplemental { border-left: 2px solid var(--line); padding-left: 0.6rem; }
+.copilot-supplemental h3 { color: var(--muted); }
+.supplemental-note { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.5rem; }
+.supplemental-title { display: block; }
+.supplemental-excerpt { display: block; font-style: italic; color: var(--muted); font-size: 0.85rem; margin-top: 0.15rem; }
+
 .workflow-strip {
   display: grid;
   align-content: start;
@@ -12531,3 +12539,16 @@ textarea {
   background: rgba(178, 58, 72, 0.1);
   color: var(--ruby);
 }
+
+/* AI onboarding panel — OpenRouter provider + live model menu + Open Notebook opt-in */
+.ai-onboarding-panel .field { display: flex; flex-direction: column; gap: 4px; margin: 10px 0; }
+.ai-onboarding-panel .field > span,
+.ai-onboarding-panel .field > label { font-size: 12px; color: var(--muted); }
+.ai-onboarding-panel input,
+.ai-onboarding-panel select { padding: 8px 10px; border: 1px solid var(--line); border-radius: var(--radius); background: var(--surface); }
+.ai-onboarding-panel small { color: var(--muted); font-size: 11px; }
+.ai-model-grid { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px 16px; margin: 12px 0; }
+.ai-open-notebook { border-top: 1px solid var(--line); margin-top: 12px; padding-top: 12px; }
+.ai-toggle { display: flex; align-items: center; gap: 8px; font-size: 13px; }
+.ai-toggle input { width: auto; }
+@media (max-width: 720px) { .ai-model-grid { grid-template-columns: 1fr; } }

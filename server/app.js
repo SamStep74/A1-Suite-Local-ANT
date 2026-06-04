@@ -122,6 +122,9 @@ const accounting = require("./accounting");
 const ledger = require("./ledger");
 const payroll = require("./payroll");
 const copilot = require("./copilot");
+const settingsStore = require("./settingsStore");
+const aiProvider = require("./aiProvider");
+const openNotebook = require("./openNotebook");
 const {
   assertPlatformTenantUser,
   attachPlatformTenant,
@@ -3883,6 +3886,51 @@ ${controls}
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8) };
   });
 
+  // --- OpenRouter (single cloud provider) + AI settings --------------------
+  // Live model menu for the onboarding dropdown. Always renders: degrades to a
+  // bundled fallback list when egress to openrouter.ai is not allowlisted.
+  app.get("/api/ai/models", async request => {
+    const user = await app.auth(request);
+    requireOwner(user);
+    const settings = settingsStore.getSettings();
+    const result = await aiProvider.listModels({ apiKey: settings.openrouterApiKey });
+    return {
+      provider: "openrouter",
+      online: result.online,
+      source: result.source,
+      reason: result.reason || null,
+      egressAllowed: config.isOpenRouterEgressAllowed(),
+      openrouterHost: config.openrouter.host,
+      models: result.models
+    };
+  });
+
+  // Read AI settings (secrets redacted to *Set booleans).
+  app.get("/api/ai/settings", async request => {
+    const user = await app.auth(request);
+    requireOwner(user);
+    return {
+      provider: "openrouter",
+      egressAllowed: config.isOpenRouterEgressAllowed(),
+      openrouterHost: config.openrouter.host,
+      settings: settingsStore.redactedForClient()
+    };
+  });
+
+  // Save the OpenRouter key, per-aspect model policy, and Open Notebook opt-in.
+  app.put("/api/ai/settings", async request => {
+    const user = await app.auth(request);
+    requireOwner(user);
+    const next = settingsStore.updateSettings(normalizeAiSettingsBody(request.body || {}));
+    audit(db, user.org_id, user.id, "ai.settings.updated", {
+      openrouterApiKeySet: Boolean(next.openrouterApiKey),
+      models: next.models,
+      openNotebookEnabled: next.openNotebook.enabled,
+      openNotebookConfigured: Boolean(next.openNotebook.baseUrl)
+    });
+    return { ok: true, settings: settingsStore.redactedForClient(next) };
+  });
+
   app.get("/api/customer-360/:id", async request => {
     const user = await app.auth(request);
     const customer = db.prepare("SELECT * FROM customers WHERE org_id = ? AND id = ?").get(user.org_id, request.params.id);
@@ -4004,7 +4052,7 @@ ${controls}
 
   app.post("/api/copilot/questions", async request => {
     const user = await app.auth(request);
-    const result = createCopilotQuestion(db, user, request.body || {});
+    const result = await createCopilotQuestion(db, user, request.body || {});
     return {
       ok: true,
       copilot: result,
@@ -45802,7 +45850,7 @@ function formatAutomationRule(db, orgId, row) {
   };
 }
 
-function createCopilotQuestion(db, user, body) {
+async function createCopilotQuestion(db, user, body) {
   const input = normalizeCopilotQuestionInput(body);
   const question = input.question;
   if (question.length < 8) {
@@ -45817,6 +45865,7 @@ function createCopilotQuestion(db, user, body) {
   const context = buildCopilotContext(db, user, intent, input, customer);
   const citations = getCopilotCitations(db, user.org_id, intent, question);
   const calculations = getCopilotCalculations(db, user.org_id, intent, input, context);
+  const supplementalSources = await getCopilotSupplementalSources(question);
   const packet = copilot.buildCopilotPacket({
     id: randomId("copilot"),
     intent,
@@ -45824,11 +45873,25 @@ function createCopilotQuestion(db, user, body) {
     citations,
     calculations,
     context,
+    supplementalSources,
     modelPolicy: getCopilotModelPolicy(),
     now: new Date().toISOString()
   });
   recordCopilotAdvisory(db, user, packet, question);
   return packet;
+}
+
+// Opt-in Open Notebook retrieval beside the curated legal registry. Disabled
+// unless the user has configured it; egress-gated + non-throwing so the copilot
+// degrades to local-only retrieval on any error (network, parse, blocked egress).
+async function getCopilotSupplementalSources(question) {
+  try {
+    const settings = settingsStore.getSettings();
+    if (!openNotebook.isEnabled(settings)) return [];
+    return await openNotebook.search(question, { settings, k: 6 });
+  } catch {
+    return [];
+  }
 }
 
 function normalizeCopilotQuestionInput(body) {
@@ -45925,15 +45988,58 @@ function throwInvalidCopilotMetadata(message = "Copilot question requires safe m
 }
 
 function getCopilotModelPolicy() {
-  const geminiHostAllowed = config.egressAllowlist().some(host => /(^|\.)googleapis\.com$|^generativelanguage\.googleapis\.com$/.test(host));
-  const externalReady = config.allowEgress() && geminiHostAllowed;
+  // OpenRouter is the single cloud provider. External execution is "ready" only
+  // when egress to openrouter.ai is explicitly allowlisted; otherwise the copilot
+  // stays offline-deterministic. The concrete model is resolved from the stored
+  // per-aspect policy (copilot aspect), falling back to "auto" until one is picked.
+  const externalReady = config.isOpenRouterEgressAllowed();
+  const policy = settingsStore.resolveModelPolicy();
+  const model = aiProvider.resolveModelForRequest(policy, { aspect: "copilot" }) || config.ai.copilotModel || "auto";
   return {
     provider: config.ai.copilotProvider,
-    model: config.ai.copilotModel,
+    model,
     language: config.ai.copilotLanguage,
     executionMode: externalReady ? "external-opt-in" : "offline-deterministic",
     egress: externalReady ? "allowlisted" : "blocked-by-default"
   };
+}
+
+// Boundary validation for PUT /api/ai/settings — reject control chars / wrong types
+// with 400, return a clean partial patch (only provided fields) for deep-merge.
+function normalizeAiSettingsBody(body) {
+  if (!body || typeof body !== "object") return {};
+  const bad = msg => { const e = new Error(msg); e.statusCode = 400; throw e; };
+  const safeStr = (value, max, label) => {
+    if (typeof value !== "string") bad(`${label} must be a string`);
+    if (/[\x00-\x1f\x7f]/.test(value)) bad(`${label} contains control characters`);
+    return value.trim().slice(0, max);
+  };
+  const patch = {};
+  if (Object.prototype.hasOwnProperty.call(body, "openrouterApiKey")) {
+    patch.openrouterApiKey = safeStr(body.openrouterApiKey, 400, "openrouterApiKey");
+  }
+  if (body.models && typeof body.models === "object") {
+    patch.models = {};
+    for (const key of settingsStore.MODEL_KEYS) {
+      if (Object.prototype.hasOwnProperty.call(body.models, key)) {
+        patch.models[key] = safeStr(body.models[key], 120, `models.${key}`);
+      }
+    }
+  }
+  if (body.openNotebook && typeof body.openNotebook === "object") {
+    const on = body.openNotebook;
+    patch.openNotebook = {};
+    if (Object.prototype.hasOwnProperty.call(on, "enabled")) patch.openNotebook.enabled = Boolean(on.enabled);
+    if (Object.prototype.hasOwnProperty.call(on, "baseUrl")) {
+      const url = safeStr(on.baseUrl, 300, "openNotebook.baseUrl");
+      if (url && !/^https?:\/\//i.test(url)) bad("openNotebook.baseUrl must be an http(s) URL");
+      patch.openNotebook.baseUrl = url;
+    }
+    if (Object.prototype.hasOwnProperty.call(on, "apiKey")) {
+      patch.openNotebook.apiKey = safeStr(on.apiKey, 400, "openNotebook.apiKey");
+    }
+  }
+  return patch;
 }
 
 function recordCopilotAdvisory(db, user, packet, question) {
