@@ -189,7 +189,8 @@ test("platform tenant request host is sent through explicit header with real fet
     const address = server.address();
     const env = {
       A1_PLATFORM_TENANT_RESOLUTION: "1",
-      A1_PLATFORM_API_URL: `http://127.0.0.1:${address.port}`
+      A1_PLATFORM_API_URL: `http://127.0.0.1:${address.port}`,
+      A1_PLATFORM_TENANT_TIMEOUT_MS: "5000"
     };
     const tenant = await resolvePlatformTenant(
       { headers: { host: "demo-client.a1suite.am" } },
