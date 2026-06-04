@@ -708,8 +708,20 @@ Current checkpoint:
 ### ⚠ ENV CAVEAT — old OneDrive copy was flaky
 `node --test` previously stalled / reported `cancelled` in the OneDrive-synced folder because of filesystem contention around the large `app.js`. The local `~/dev/A1-Suite-Local` checkout is the reliable working tree. If a future run regresses only in a synced/cloud folder, verify from this local checkout before treating it as a code failure. Reliable fallback patterns:
 - **Per-file**: `node --test test/<one>.test.js` (one short invocation).
-- **Clean worktree**: `git worktree add --detach /tmp/run HEAD && ln -s "$PWD/node_modules" /tmp/run/ && cd /tmp/run && node --test test/*.test.js`.
-- Last clean full-suite run from `~/dev/A1-Suite-Local` at app-assignment default-enable contract checkpoint: **361 tests / 361 pass / 0 fail / 0 cancelled**.
+- **Clean worktree** (the reliable recipe when parallel agents churn the main tree): symlink BOTH `node_modules` **and the built `public/`**, then run:
+  ```bash
+  git worktree add --detach /tmp/run HEAD
+  ln -s "$PWD/node_modules" /tmp/run/node_modules
+  ln -s "$PWD/web/node_modules" /tmp/run/web/node_modules
+  ln -s "$PWD/public" /tmp/run/public          # ⚠ REQUIRED — see below
+  cd /tmp/run && npm test
+  ```
+  - **⚠ `public/` is gitignored, so a fresh worktree has no built SPA.** `server/app.js` registers `@fastify/static` **and `setNotFoundHandler` only when `public/index.html` exists** (`if (fs.existsSync(...))`). Omit the `public/` symlink and you get **spurious failures that look like real regressions**: SPA-route tests 404 (`/app/finance`, `/f/*`), AND security tests that assert sanitized 404s fail — because without the custom not-found handler, Fastify's default echoes the raw URL (e.g. the `customer-360` overlong-token test). One missing artifact → 3 distinct-looking failures, one root cause. If `public/` is stale, `npm run build:ui` in the main tree first.
+  - **Two concurrent `npm test` runs on one tree deadlock** (per-file worker processes contend on shared SQLite WAL / vite cache). If a run stalls for many minutes with live `node --test` PIDs, a parallel agent likely started its own suite — kill ONLY yours and verify in the isolated worktree.
+- Last clean full-suite run from an isolated worktree (with `public/` linked) at HEAD `1581b35`: **508 tests / 508 pass / 0 fail / 0 cancelled** (3 transient failures before linking `public/` were purely the missing build artifact).
+
+### ⚠ OPS NOTE — Ollama model store cleanup (content-addressed; reference-count first)
+If freeing disk by removing Ollama models: the blob store is **content-addressed and deduplicated** — a layer blob can be shared by several models. **Never** delete a blob just because "the model I'm removing references it"; first confirm **no OTHER manifest references that digest** (`grep <digest> $(find ~/.ollama/models -path '*manifests*' -type f)`). Deleting a shared layer silently corrupts unrelated models. `ollama list` reads *manifests*, so it can under-report (a misplaced/nested manifest tree from a bad `cp -r` will still "work" but hide other models). Safe reclaim = remove a model's **exclusive** blobs only, keep shared ones.
 
 ---
 
