@@ -16618,6 +16618,56 @@ test("accountant can record subsequent ongoing renewal official HayHashvapah inv
     });
     assert.equal(premature.statusCode, 409);
 
+    const countPostingPackets = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/subsequent-ongoing-renewal-official-invoices?draftPacketId=${proof.subsequentOngoingRenewalDraftPacket.id}`,
+        headers: { cookie: proof.accountantCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return list.json().packets.length;
+    };
+    const orgId = app.db.prepare("SELECT org_id AS orgId FROM users WHERE email = ?").get(DEFAULT_EMAIL).orgId;
+    const auditContainsEvidence = (...needles) => {
+      const events = app.db.prepare("SELECT type, details FROM audit_events WHERE org_id = ? ORDER BY id DESC").all(orgId);
+      const serializedEvents = JSON.stringify(events);
+      return needles.some(needle => serializedEvents.includes(needle));
+    };
+    const countPostingAuditEvents = () => app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?")
+      .get(orgId, "pilot.subsequent_ongoing_renewal_hayhashvapah_invoice_posting.created").count;
+    const beforeRejectedPostingPackets = await countPostingPackets();
+    const beforeRejectedAudit = countPostingAuditEvents();
+
+    const malformedDraftPacketId = "badAsecret-subsequent-ongoing-official-draft-packet-token";
+    const malformedDraftPacket = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/subsequent-ongoing-renewal-hayhashvapah-drafts/${malformedDraftPacketId}/posting-packet`,
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Secret subsequent ongoing official invoice note should not leak." }
+    });
+    assert.equal(malformedDraftPacket.statusCode, 400, malformedDraftPacket.body);
+    assert.match(malformedDraftPacket.json().message, /Invalid clinic pilot subsequent ongoing renewal HayHashvapah draft invoice packet id/);
+    assert.doesNotMatch(malformedDraftPacket.body, /badAsecret/);
+    assert.doesNotMatch(malformedDraftPacket.body, /Secret subsequent ongoing official invoice note/);
+    assert.equal(await countPostingPackets(), beforeRejectedPostingPackets);
+    assert.equal(countPostingAuditEvents(), beforeRejectedAudit);
+    assert.equal(auditContainsEvidence(malformedDraftPacketId, "Secret subsequent ongoing official invoice note"), false);
+
+    const missingDraftPacket = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/subsequent-ongoing-renewal-hayhashvapah-drafts/pilot-subsequent-ongoing-renewal-draft-packet-missing/posting-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing subsequent ongoing renewal draft packet remains a not-found lookup." }
+    });
+    assert.equal(missingDraftPacket.statusCode, 404, missingDraftPacket.body);
+    assert.equal(await countPostingPackets(), beforeRejectedPostingPackets);
+    assert.equal(countPostingAuditEvents(), beforeRejectedAudit);
+    assert.equal(auditContainsEvidence(
+      malformedDraftPacketId,
+      "Secret subsequent ongoing official invoice note",
+      "Safe missing subsequent ongoing renewal draft packet remains a not-found lookup"
+    ), false);
+
     const posted = await app.inject({
       method: "POST",
       url: `/api/finance/draft-invoices/${proof.subsequentOngoingRenewalDraftInvoice.id}/post`,
