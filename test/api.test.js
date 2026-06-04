@@ -6532,6 +6532,31 @@ test("accountant can hand accepted next renewal quote into HayHashvapah invoice 
 test("accountant can record next renewal HayHashvapah draft invoice packet after owner executes finance approval", async () => {
   await withApp(async app => {
     const proof = await createPilotNextRenewalAcceptanceHandoff(app);
+    const nextRenewalDraftPacketCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_next_renewal_hayhashvapah_draft_invoice_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.next_renewal_hayhashvapah_draft_invoice.created").count
+    });
+    const beforeMalformedNextRenewalDraft = nextRenewalDraftPacketCounts();
+
+    const malformedHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-renewal-acceptance-handoffs/badAsecret-clinic-next-renewal-acceptance-handoff-token/draft-invoice-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-next-renewal-draft-body-token" }
+    });
+    assert.equal(malformedHandoffId.statusCode, 400, malformedHandoffId.body);
+    assert.match(malformedHandoffId.body, /Invalid clinic pilot next renewal acceptance handoff id/);
+    assert.doesNotMatch(malformedHandoffId.body, /badAsecret-clinic-next-renewal-acceptance-handoff-token|secret-clinic-next-renewal-draft-body-token/);
+    assert.deepEqual(nextRenewalDraftPacketCounts(), beforeMalformedNextRenewalDraft);
+
+    const unknownSafeHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-renewal-acceptance-handoffs/pilot-next-renewal-acceptance-handoff-missing/draft-invoice-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing next renewal acceptance handoff remains missing." }
+    });
+    assert.equal(unknownSafeHandoffId.statusCode, 404, unknownSafeHandoffId.body);
+    assert.deepEqual(nextRenewalDraftPacketCounts(), beforeMalformedNextRenewalDraft);
 
     const supportDenied = await app.inject({
       method: "POST",
