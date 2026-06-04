@@ -6889,6 +6889,31 @@ test("accountant can record next renewal official HayHashvapah invoice posting p
 test("accountant can record next renewal payment collection packet after HayHashvapah receipt", async () => {
   await withApp(async app => {
     const proof = await createPilotNextRenewalOfficialInvoicePostingPacket(app);
+    const nextRenewalPaymentCollectionCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_next_renewal_hayhashvapah_payment_collection_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.next_renewal_hayhashvapah_payment_collection.created").count
+    });
+    const beforeMalformedNextRenewalPayment = nextRenewalPaymentCollectionCounts();
+
+    const malformedPostingPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-renewal-official-invoices/badAsecret-clinic-next-renewal-posting-packet-token/payment-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-next-renewal-payment-body-token" }
+    });
+    assert.equal(malformedPostingPacketId.statusCode, 400, malformedPostingPacketId.body);
+    assert.match(malformedPostingPacketId.body, /Invalid clinic pilot next renewal HayHashvapah posting packet id/);
+    assert.doesNotMatch(malformedPostingPacketId.body, /badAsecret-clinic-next-renewal-posting-packet-token|secret-clinic-next-renewal-payment-body-token/);
+    assert.deepEqual(nextRenewalPaymentCollectionCounts(), beforeMalformedNextRenewalPayment);
+
+    const unknownSafePostingPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-renewal-official-invoices/pilot-next-renewal-hayhashvapah-posting-missing/payment-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing next renewal posting packet remains missing." }
+    });
+    assert.equal(unknownSafePostingPacketId.statusCode, 404, unknownSafePostingPacketId.body);
+    assert.deepEqual(nextRenewalPaymentCollectionCounts(), beforeMalformedNextRenewalPayment);
 
     const supportDenied = await app.inject({
       method: "POST",
