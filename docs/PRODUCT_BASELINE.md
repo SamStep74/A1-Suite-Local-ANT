@@ -3057,3 +3057,12 @@ Status: shipped in the local prototype on 2026-05-28.
 - Safe unknown next-ongoing-renewal payment-collection packet IDs still preserve the existing `404` behavior, and valid collected next-ongoing-renewal payment packets continue creating governed next-ongoing-renewal closeout packets.
 - Rejected malformed next-ongoing-renewal payment-collection packet ID requests return `400`, keep submitted path/body secrets out of error bodies, and valid next-ongoing closeout, backup, Customer 360, and audit behavior remains unchanged.
 - Verification for the checkpoint: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic next-ongoing-renewal closeout packet regression (`owner can close next ongoing renewal cycle and schedule following ongoing renewal task after payment collection`) pass (1 test); full `npm test` pass (465 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-next-ongoing-renewal-closeout-payment-collection-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
+
+### Slice 300 - Clinic Following Ongoing Renewal Quote Next Ongoing Closeout ID Guard
+
+- Clinic/wellness following-ongoing-renewal quote handoff mutations now reject malformed next-ongoing-renewal closeout packet path IDs before closeout lookup or following-ongoing quote handoff creation.
+- Submitted next-ongoing-renewal closeout packet IDs must be structurally safe before they can become following-ongoing quote, workflow approval, backup, suite-event, or audit inputs.
+- Clinic next-ongoing-renewal closeout packet IDs must be lowercase alphanumeric/hyphen strings; control-character strings, empty values, overlong values, or unsafe characters are rejected instead of being treated as missing next-ongoing-renewal closeout packets.
+- Safe unknown next-ongoing-renewal closeout packet IDs still preserve the existing `404` behavior, and valid closed next-ongoing-renewal closeout packet IDs continue creating governed following-ongoing-renewal quote handoffs.
+- Rejected malformed next-ongoing-renewal closeout packet ID requests return `400`, keep submitted path/body secrets out of error bodies, and valid following-ongoing quote handoff, workflow approval, backup, and audit behavior remains unchanged.
+- Verification for the checkpoint: pending local validation.
