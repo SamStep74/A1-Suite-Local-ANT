@@ -6357,6 +6357,31 @@ test("sales can create clinic next renewal quote release packet after workflow e
 test("accountant can hand accepted next renewal quote into HayHashvapah invoice approval", async () => {
   await withApp(async app => {
     const proof = await createPilotNextRenewalQuoteReleasePacket(app);
+    const nextRenewalAcceptanceHandoffCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_next_renewal_quote_acceptance_handoff_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.next_renewal_quote_acceptance_handoff.created").count
+    });
+    const beforeMalformedNextRenewalAcceptance = nextRenewalAcceptanceHandoffCounts();
+
+    const malformedReleaseId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-renewal-quote-releases/badAsecret-clinic-next-renewal-release-token/acceptance-handoff",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-next-renewal-acceptance-body-token" }
+    });
+    assert.equal(malformedReleaseId.statusCode, 400, malformedReleaseId.body);
+    assert.match(malformedReleaseId.body, /Invalid clinic pilot next renewal quote release packet id/);
+    assert.doesNotMatch(malformedReleaseId.body, /badAsecret-clinic-next-renewal-release-token|secret-clinic-next-renewal-acceptance-body-token/);
+    assert.deepEqual(nextRenewalAcceptanceHandoffCounts(), beforeMalformedNextRenewalAcceptance);
+
+    const unknownSafeReleaseId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-renewal-quote-releases/pilot-next-renewal-quote-release-missing/acceptance-handoff",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing next renewal quote release remains missing." }
+    });
+    assert.equal(unknownSafeReleaseId.statusCode, 404, unknownSafeReleaseId.body);
+    assert.deepEqual(nextRenewalAcceptanceHandoffCounts(), beforeMalformedNextRenewalAcceptance);
 
     const supportDenied = await app.inject({
       method: "POST",
