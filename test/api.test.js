@@ -10061,6 +10061,31 @@ test("sales can create clinic continuation renewal quote handoff from subsequent
 test("sales can create clinic continuation renewal quote release packet after workflow executes", async () => {
   await withApp(async app => {
     const proof = await createPilotContinuationRenewalQuoteHandoff(app);
+    const continuationRenewalQuoteReleaseCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_continuation_renewal_quote_release_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.continuation_renewal_quote_release.created").count
+    });
+    const beforeMalformedContinuationRenewalQuoteRelease = continuationRenewalQuoteReleaseCounts();
+
+    const malformedContinuationRenewalQuoteHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/continuation-renewal-quotes/badAsecret-clinic-continuation-renewal-quote-handoff-token/release-packet",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "secret-clinic-continuation-renewal-release-body-token" }
+    });
+    assert.equal(malformedContinuationRenewalQuoteHandoffId.statusCode, 400, malformedContinuationRenewalQuoteHandoffId.body);
+    assert.match(malformedContinuationRenewalQuoteHandoffId.body, /Invalid clinic pilot continuation renewal quote handoff id/);
+    assert.doesNotMatch(malformedContinuationRenewalQuoteHandoffId.body, /badAsecret-clinic-continuation-renewal-quote-handoff-token|secret-clinic-continuation-renewal-release-body-token/);
+    assert.deepEqual(continuationRenewalQuoteReleaseCounts(), beforeMalformedContinuationRenewalQuoteRelease);
+
+    const unknownSafeContinuationRenewalQuoteHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/continuation-renewal-quotes/pilot-continuation-renewal-quote-handoff-missing/release-packet",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "Safe missing continuation renewal quote handoff remains missing." }
+    });
+    assert.equal(unknownSafeContinuationRenewalQuoteHandoffId.statusCode, 404, unknownSafeContinuationRenewalQuoteHandoffId.body);
+    assert.deepEqual(continuationRenewalQuoteReleaseCounts(), beforeMalformedContinuationRenewalQuoteRelease);
 
     const supportDenied = await app.inject({
       method: "POST",
