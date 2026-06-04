@@ -12922,6 +12922,40 @@ test("sales can create clinic next ongoing renewal quote release packet after wo
   await withApp(async app => {
     const proof = await createPilotNextOngoingRenewalQuoteHandoff(app);
 
+    const nextOngoingRenewalReleaseCounts = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/next-ongoing-renewal-quote-releases?nextOngoingRenewalHandoffId=${proof.nextOngoingRenewalQuoteHandoff.id}`,
+        headers: { cookie: proof.ownerCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return {
+        packets: list.json().packets.length,
+        audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count
+      };
+    };
+    const beforeMalformedNextOngoingRenewalRelease = await nextOngoingRenewalReleaseCounts();
+
+    const malformedNextOngoingRenewalHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-ongoing-renewal-quotes/badAsecret-clinic-next-ongoing-renewal-handoff-token/release-packet",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "secret-clinic-next-ongoing-renewal-release-body-token" }
+    });
+    assert.equal(malformedNextOngoingRenewalHandoffId.statusCode, 400, malformedNextOngoingRenewalHandoffId.body);
+    assert.match(malformedNextOngoingRenewalHandoffId.body, /Invalid clinic pilot next ongoing renewal quote handoff id/);
+    assert.doesNotMatch(malformedNextOngoingRenewalHandoffId.body, /badAsecret-clinic-next-ongoing-renewal-handoff-token|secret-clinic-next-ongoing-renewal-release-body-token/);
+    assert.deepEqual(await nextOngoingRenewalReleaseCounts(), beforeMalformedNextOngoingRenewalRelease);
+
+    const unknownSafeNextOngoingRenewalHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-ongoing-renewal-quotes/pilot-next-ongoing-renewal-quote-handoff-missing/release-packet",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "Safe missing next ongoing renewal quote handoff remains missing." }
+    });
+    assert.equal(unknownSafeNextOngoingRenewalHandoffId.statusCode, 404, unknownSafeNextOngoingRenewalHandoffId.body);
+    assert.deepEqual(await nextOngoingRenewalReleaseCounts(), beforeMalformedNextOngoingRenewalRelease);
+
     const supportDenied = await app.inject({
       method: "POST",
       url: `/api/pilots/clinic-wellness/next-ongoing-renewal-quotes/${proof.nextOngoingRenewalQuoteHandoff.id}/release-packet`,
