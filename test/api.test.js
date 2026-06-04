@@ -21262,6 +21262,7 @@ test("draft CRM quote requires governed approval before public release", async (
 test("CRM quote creation and release approval reject malformed metadata before persistence", async () => {
   await withApp(async app => {
     const salesCookie = await login(app, "sales@armosphera.local");
+    const ownerCookie = await login(app);
     const basePayload = {
       customerId: "cust-van",
       dealId: "deal-van-season",
@@ -21365,6 +21366,87 @@ test("CRM quote creation and release approval reject malformed metadata before p
       { note: `${"N".repeat(1001)}secret-crm-quote-long-release-note-token` },
       ["secret-crm-quote-array-release-body-token"]
     ];
+    const malformedQuoteIds = [
+      "badAsecret-crm-quote-release-id-token",
+      "bad_secret-crm-quote-release-id-token"
+    ];
+    for (const malformedQuoteId of malformedQuoteIds) {
+      const rejectedQuoteId = await app.inject({
+        method: "POST",
+        url: `/api/crm/quotes/${malformedQuoteId}/request-approval`,
+        headers: { cookie: salesCookie },
+        payload: { note: "secret-crm-quote-release-route-id-body-token" }
+      });
+      assert.equal(rejectedQuoteId.statusCode, 400, `${malformedQuoteId}: ${rejectedQuoteId.body}`);
+      assert.match(rejectedQuoteId.body, /Invalid CRM quote id/);
+      assert.doesNotMatch(rejectedQuoteId.body, /secret-crm-quote-/);
+      assert.deepEqual(approvalCounts(), beforeApprovals);
+    }
+
+    const overlongQuoteId = await app.inject({
+      method: "POST",
+      url: `/api/crm/quotes/${"a".repeat(161)}/request-approval`,
+      headers: { cookie: salesCookie },
+      payload: { note: "secret-crm-quote-release-overlong-route-id-body-token" }
+    });
+    assert.ok([400, 404].includes(overlongQuoteId.statusCode), overlongQuoteId.body);
+    if (overlongQuoteId.statusCode === 400) {
+      assert.match(overlongQuoteId.body, /Invalid CRM quote id/);
+    }
+    assert.doesNotMatch(overlongQuoteId.body, /secret-crm-quote-/);
+    assert.deepEqual(approvalCounts(), beforeApprovals);
+
+    const encodedMalformedQuoteIds = [
+      "bad%0Asecret-crm-quote-release-control-id-token",
+      "%20%20"
+    ];
+    for (const malformedQuoteId of encodedMalformedQuoteIds) {
+      const rejectedQuoteId = await app.inject({
+        method: "POST",
+        url: `/api/crm/quotes/${malformedQuoteId}/request-approval`,
+        headers: { cookie: salesCookie },
+        payload: { note: "secret-crm-quote-release-encoded-route-id-body-token" }
+      });
+      assert.ok([400, 404].includes(rejectedQuoteId.statusCode), `${malformedQuoteId}: ${rejectedQuoteId.body}`);
+      assert.doesNotMatch(rejectedQuoteId.body, /secret-crm-quote-/);
+      assert.deepEqual(approvalCounts(), beforeApprovals);
+    }
+
+    const missingQuoteId = await app.inject({
+      method: "POST",
+      url: "/api/crm/quotes/quote-missing/request-approval",
+      headers: { cookie: salesCookie },
+      payload: { note: "secret-crm-quote-release-missing-route-id-body-token" }
+    });
+    assert.equal(missingQuoteId.statusCode, 404, missingQuoteId.body);
+    assert.doesNotMatch(missingQuoteId.body, /secret-crm-quote-release-missing-route-id-body-token/);
+    assert.deepEqual(approvalCounts(), beforeApprovals);
+
+    const disabledCrm = await app.inject({
+      method: "POST",
+      url: "/api/apps/crm/assign",
+      headers: { cookie: ownerCookie },
+      payload: { role: "Salesperson", enabled: false }
+    });
+    assert.equal(disabledCrm.statusCode, 200, disabledCrm.body);
+
+    const entitlementDenied = await app.inject({
+      method: "POST",
+      url: `/api/crm/quotes/${quote.id}/request-approval`,
+      headers: { cookie: salesCookie },
+      payload: { note: "secret-crm-quote-release-entitlement-denied-token" }
+    });
+    assert.equal(entitlementDenied.statusCode, 403, entitlementDenied.body);
+    assert.doesNotMatch(entitlementDenied.body, /secret-crm-quote-/);
+    assert.deepEqual(approvalCounts(), beforeApprovals);
+
+    const enabledCrm = await app.inject({
+      method: "POST",
+      url: "/api/apps/crm/assign",
+      headers: { cookie: ownerCookie },
+      payload: { role: "Salesperson", enabled: true }
+    });
+    assert.equal(enabledCrm.statusCode, 200, enabledCrm.body);
 
     const rejectedNullApproval = await app.inject({
       method: "POST",

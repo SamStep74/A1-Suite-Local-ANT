@@ -2113,8 +2113,10 @@ function registerApi(app, db, options = {}) {
 
   app.post("/api/crm/quotes/:id/request-approval", async request => {
     const user = await app.auth(request);
+    requireAppAccess(db, user, "crm");
     requireCrmEditor(user);
-    const result = requestQuoteReleaseApproval(db, user, request.params.id, request.body === undefined ? {} : request.body);
+    const quoteId = normalizeCrmQuotePathId(request.params.id, request.raw?.url);
+    const result = requestQuoteReleaseApproval(db, user, quoteId, request.body === undefined ? {} : request.body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.approval.customerId) };
   });
 
@@ -42005,6 +42007,29 @@ function normalizeCrmDealPathId(value, rawUrl = "") {
 
 function throwInvalidCrmDealPathId() {
   const err = new Error("Invalid CRM deal id");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeCrmQuotePathId(value, rawUrl = "") {
+  const rawSegment = typeof rawUrl === "string"
+    ? rawUrl.match(/^\/api\/crm\/quotes\/([^/?#]+)\/request-approval(?:[?#]|$)/)?.[1]
+    : "";
+  if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+    throwInvalidCrmQuotePathId();
+  }
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmQuotePathId();
+  }
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) {
+    throwInvalidCrmQuotePathId();
+  }
+  return text;
+}
+
+function throwInvalidCrmQuotePathId() {
+  const err = new Error("Invalid CRM quote id");
   err.statusCode = 400;
   throw err;
 }
