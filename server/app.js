@@ -4188,7 +4188,8 @@ ${controls}
   app.post("/api/finance/bills/:id/pay", async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
-    const bill = db.prepare("SELECT * FROM bills WHERE org_id = ? AND id = ?").get(user.org_id, request.params.id);
+    const billId = normalizeFinanceBillPathId(request.params.id);
+    const bill = db.prepare("SELECT * FROM bills WHERE org_id = ? AND id = ?").get(user.org_id, billId);
     if (!bill) { const e = new Error("Bill not found"); e.statusCode = 404; throw e; }
     return payFinanceBill(db, user, bill, request.body === undefined ? {} : request.body);
   });
@@ -55802,6 +55803,10 @@ function normalizeFinanceInvoicePathId(value) {
 
 function normalizeFinanceBankTransactionPathId(value) {
   return normalizeFinancePathId(value, "Invalid finance bank transaction id");
+}
+
+function normalizeFinanceBillPathId(value) {
+  return normalizeFinancePathId(value, "Invalid finance bill id");
 }
 
 function normalizeFinancePathId(value, message) {

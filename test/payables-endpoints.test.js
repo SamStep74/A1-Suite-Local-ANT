@@ -224,6 +224,43 @@ test("bill payment rejects malformed metadata before persistence", async () => {
       method: "bank-transfer",
       reference: "WIRE-guard"
     };
+
+    const malformedPath = await app.inject({
+      method: "POST",
+      url: `/api/finance/bills/${billId}%0Asecret-bill-payment-path-token/pay`,
+      headers: { cookie },
+      payload: {
+        ...basePayload,
+        reference: "secret-bill-payment-path-body-token"
+      }
+    });
+    assert.strictEqual(malformedPath.statusCode, 400, malformedPath.body);
+    assert.match(malformedPath.body, /Invalid finance bill id/);
+    assert.doesNotMatch(malformedPath.body, /secret-bill-payment-path-/);
+
+    const malformedDecodedPath = await app.inject({
+      method: "POST",
+      url: "/api/finance/bills/bill_guard_secret-bill-payment-path-token/pay",
+      headers: { cookie },
+      payload: basePayload
+    });
+    assert.strictEqual(malformedDecodedPath.statusCode, 400, malformedDecodedPath.body);
+    assert.match(malformedDecodedPath.body, /Invalid finance bill id/);
+    assert.doesNotMatch(malformedDecodedPath.body, /secret-bill-payment-path-token/);
+
+    const missingPath = await app.inject({
+      method: "POST",
+      url: "/api/finance/bills/bill-missing-safe/pay",
+      headers: { cookie },
+      payload: {
+        ...basePayload,
+        reference: "secret-bill-payment-missing-body-token"
+      }
+    });
+    assert.strictEqual(missingPath.statusCode, 404, missingPath.body);
+    assert.match(missingPath.body, /Bill not found/);
+    assert.doesNotMatch(missingPath.body, /secret-bill-payment-missing/);
+
     const malformedRequests = [
       null,
       { ...basePayload, amount: ["600"], reference: "secret-bill-payment-array-amount-token" },
