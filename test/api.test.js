@@ -22700,12 +22700,40 @@ test("failed webhook delivery can be retried manually", async () => {
       assert.match(malformedRetry.body, /Invalid webhook delivery id/);
       assert.doesNotMatch(malformedRetry.body, /secret-webhook-delivery-token/);
 
+      const decodedMalformedRetry = await app.inject({
+        method: "POST",
+        url: `/api/integrations/webhook-deliveries/${failed.id}_secret-webhook-delivery-decoded-token/retry`,
+        headers: { cookie },
+        payload: { note: "secret-webhook-delivery-decoded-body-token" }
+      });
+      assert.equal(decodedMalformedRetry.statusCode, 400, decodedMalformedRetry.body);
+      assert.match(decodedMalformedRetry.body, /Invalid webhook delivery id/);
+      assert.doesNotMatch(decodedMalformedRetry.body, /secret-webhook-delivery-/);
+
+      const overlongRetry = await app.inject({
+        method: "POST",
+        url: `/api/integrations/webhook-deliveries/${"a".repeat(161)}secret-webhook-delivery-overlong-token/retry`,
+        headers: { cookie },
+        payload: { note: "secret-webhook-delivery-overlong-body-token" }
+      });
+      assert.ok([400, 404].includes(overlongRetry.statusCode), overlongRetry.body);
+      assert.doesNotMatch(overlongRetry.body, /secret-webhook-delivery-/);
+      if (overlongRetry.statusCode === 400) {
+        assert.match(overlongRetry.body, /Invalid webhook delivery id/);
+      }
+
       const unknownSafeRetry = await app.inject({
         method: "POST",
         url: "/api/integrations/webhook-deliveries/delivery-unknown/retry",
         headers: { cookie }
       });
       assert.equal(unknownSafeRetry.statusCode, 404, unknownSafeRetry.body);
+
+      deliveries = await app.inject({ method: "GET", url: "/api/integrations/webhook-deliveries", headers: { cookie } });
+      assert.equal(deliveries.statusCode, 200, deliveries.body);
+      const stillFailed = deliveries.json().deliveries.find(delivery => delivery.id === failed.id);
+      assert.equal(stillFailed.status, "failed");
+      assert.equal(stillFailed.attemptCount, 1);
 
       receiver.statusCode = 200;
       const retried = await app.inject({

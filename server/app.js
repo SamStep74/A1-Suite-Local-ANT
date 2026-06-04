@@ -2085,7 +2085,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/integrations/webhook-deliveries/:id/retry", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const delivery = getWebhookDelivery(db, user.org_id, request.params.id);
+    const deliveryId = normalizeWebhookDeliveryId(request.params.id);
+    const delivery = getWebhookDelivery(db, user.org_id, deliveryId);
     if (!delivery) {
       const err = new Error("Webhook delivery not found");
       err.statusCode = 404;
