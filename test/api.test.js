@@ -334,13 +334,25 @@ test("app assignment rejects malformed metadata before mutation", async () => {
       FROM app_assignments
       WHERE org_id = ? AND app_id = ?
     `).get("org-armosphera-demo", "flow").count;
+    const totalAssignmentCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM app_assignments
+      WHERE org_id = ?
+    `).get("org-armosphera-demo").count;
     const countAudits = () => app.db.prepare(`
       SELECT COUNT(*) AS count
       FROM audit_events
       WHERE type = ? AND json_extract(details, '$.appId') = ?
     `).get("app.assignment.updated", "flow").count;
+    const totalAssignmentAuditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("app.assignment.updated").count;
     const beforeAssignments = countAssignments();
+    const beforeTotalAssignments = totalAssignmentCount();
     const beforeAudits = countAudits();
+    const beforeTotalAssignmentAudits = totalAssignmentAuditCount();
 
     const rejectedNull = await app.inject({
       method: "POST",
@@ -349,6 +361,40 @@ test("app assignment rejects malformed metadata before mutation", async () => {
       payload: "null"
     });
     assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
+
+    const malformedPath = await app.inject({
+      method: "POST",
+      url: "/api/apps/flow%0Asecret-app-assignment-path-token/assign",
+      headers: { cookie },
+      payload: { role: "Support", enabled: true }
+    });
+    assert.equal(malformedPath.statusCode, 400, malformedPath.body);
+    assert.match(malformedPath.body, /Invalid app id/);
+    assert.doesNotMatch(malformedPath.body, /secret-app-assignment-path-token/);
+
+    const malformedDecodedPath = await app.inject({
+      method: "POST",
+      url: "/api/apps/flow_secret-app-assignment-path-token/assign",
+      headers: { cookie },
+      payload: { role: "Support", enabled: true }
+    });
+    assert.equal(malformedDecodedPath.statusCode, 400, malformedDecodedPath.body);
+    assert.match(malformedDecodedPath.body, /Invalid app id/);
+    assert.doesNotMatch(malformedDecodedPath.body, /secret-app-assignment-path-token/);
+
+    const safeUnknownPath = await app.inject({
+      method: "POST",
+      url: "/api/apps/unknown-safe-app/assign",
+      headers: { cookie },
+      payload: { role: "Support", enabled: true }
+    });
+    assert.equal(safeUnknownPath.statusCode, 404, safeUnknownPath.body);
+    assert.match(safeUnknownPath.body, /Unknown app/);
+
+    assert.equal(countAssignments(), beforeAssignments);
+    assert.equal(totalAssignmentCount(), beforeTotalAssignments);
+    assert.equal(countAudits(), beforeAudits);
+    assert.equal(totalAssignmentAuditCount(), beforeTotalAssignmentAudits);
 
     const malformedPayloads = [
       ["secret-app-assignment-array-body-token"],
@@ -370,7 +416,9 @@ test("app assignment rejects malformed metadata before mutation", async () => {
       assert.equal(rejected.statusCode, 400, rejected.body);
       assert.doesNotMatch(rejected.body, /secret-app-assignment-/);
       assert.equal(countAssignments(), beforeAssignments);
+      assert.equal(totalAssignmentCount(), beforeTotalAssignments);
       assert.equal(countAudits(), beforeAudits);
+      assert.equal(totalAssignmentAuditCount(), beforeTotalAssignmentAudits);
     }
 
     const valid = await app.inject({
@@ -382,6 +430,8 @@ test("app assignment rejects malformed metadata before mutation", async () => {
     assert.equal(valid.statusCode, 200, valid.body);
     assert.equal(countAssignments(), beforeAssignments + 1);
     assert.equal(countAudits(), beforeAudits + 1);
+    assert.equal(totalAssignmentCount(), beforeTotalAssignments + 1);
+    assert.equal(totalAssignmentAuditCount(), beforeTotalAssignmentAudits + 1);
   });
 });
 
@@ -26236,6 +26286,11 @@ test("finance period close rejects malformed metadata before persistence", async
       FROM finance_periods
       WHERE period_key = ?
     `).get("2026-05");
+    const closedPeriodState = () => app.db.prepare(`
+      SELECT status, reason, closed_at AS closedAt, closed_by_user_id AS closedByUserId
+      FROM finance_periods
+      WHERE period_key = ?
+    `).get("2026-04");
     const suiteCloseEventCount = () => app.db.prepare(`
       SELECT COUNT(*) AS count
       FROM suite_events
@@ -26246,13 +26301,27 @@ test("finance period close rejects malformed metadata before persistence", async
       FROM audit_events
       WHERE type = ?
     `).get("finance.period.closed").count;
+    const suiteReopenEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE event_type = ?
+    `).get("finance.period.reopened").count;
+    const auditReopenEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("finance.period.reopened").count;
 
     const beforePeriod = periodState();
+    const beforeClosedPeriod = closedPeriodState();
     assert.equal(beforePeriod.status, "open");
     assert.equal(beforePeriod.closedAt, null);
     assert.equal(beforePeriod.closedByUserId, null);
+    assert.equal(beforeClosedPeriod.status, "closed");
     const suiteEventCountBefore = suiteCloseEventCount();
     const auditCountBefore = auditCloseEventCount();
+    const suiteReopenEventCountBefore = suiteReopenEventCount();
+    const auditReopenCountBefore = auditReopenEventCount();
     const malformedRequests = [
       {
         reason: ["Period submitted"],
@@ -26286,13 +26355,57 @@ test("finance period close rejects malformed metadata before persistence", async
       assert.doesNotMatch(rejected.body, /secret-finance-period-close-/);
     }
 
+    const malformedClosePath = await app.inject({
+      method: "POST",
+      url: "/api/finance/periods/2026-05%0Asecret-finance-period-close-path-token/close",
+      headers: { cookie },
+      payload: { reason: "Close requested without leaking secret-finance-period-close-path-token." }
+    });
+    assert.equal(malformedClosePath.statusCode, 400, malformedClosePath.body);
+    assert.match(malformedClosePath.body, /Invalid finance period key/);
+    assert.doesNotMatch(malformedClosePath.body, /secret-finance-period-close-path-token/);
+
+    const missingClosePath = await app.inject({
+      method: "POST",
+      url: "/api/finance/periods/2030-12/close",
+      headers: { cookie },
+      payload: { reason: "Close requested without leaking secret-finance-period-close-missing-token." }
+    });
+    assert.equal(missingClosePath.statusCode, 404, missingClosePath.body);
+    assert.match(missingClosePath.body, /Finance period not found/);
+    assert.doesNotMatch(missingClosePath.body, /secret-finance-period-close-missing-token/);
+
+    const malformedReopenPath = await app.inject({
+      method: "POST",
+      url: "/api/finance/periods/2026-04%0Asecret-finance-period-reopen-path-token/reopen",
+      headers: { cookie }
+    });
+    assert.equal(malformedReopenPath.statusCode, 400, malformedReopenPath.body);
+    assert.match(malformedReopenPath.body, /Invalid finance period key/);
+    assert.doesNotMatch(malformedReopenPath.body, /secret-finance-period-reopen-path-token/);
+
+    const missingReopenPath = await app.inject({
+      method: "POST",
+      url: "/api/finance/periods/2030-11/reopen",
+      headers: { cookie }
+    });
+    assert.equal(missingReopenPath.statusCode, 404, missingReopenPath.body);
+    assert.match(missingReopenPath.body, /Finance period not found/);
+
     const afterRejectedPeriod = periodState();
+    const afterRejectedClosedPeriod = closedPeriodState();
     assert.equal(afterRejectedPeriod.status, beforePeriod.status);
     assert.equal(afterRejectedPeriod.reason, beforePeriod.reason);
     assert.equal(afterRejectedPeriod.closedAt, beforePeriod.closedAt);
     assert.equal(afterRejectedPeriod.closedByUserId, beforePeriod.closedByUserId);
+    assert.equal(afterRejectedClosedPeriod.status, beforeClosedPeriod.status);
+    assert.equal(afterRejectedClosedPeriod.reason, beforeClosedPeriod.reason);
+    assert.equal(afterRejectedClosedPeriod.closedAt, beforeClosedPeriod.closedAt);
+    assert.equal(afterRejectedClosedPeriod.closedByUserId, beforeClosedPeriod.closedByUserId);
     assert.equal(suiteCloseEventCount(), suiteEventCountBefore);
     assert.equal(auditCloseEventCount(), auditCountBefore);
+    assert.equal(suiteReopenEventCount(), suiteReopenEventCountBefore);
+    assert.equal(auditReopenEventCount(), auditReopenCountBefore);
 
     const closed = await app.inject({
       method: "POST",

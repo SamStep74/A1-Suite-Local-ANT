@@ -3181,7 +3181,7 @@ function registerApi(app, db, options = {}) {
   app.post("/api/apps/:id/assign", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const appId = request.params.id;
+    const appId = normalizeAppAssignmentPathId(request.params.id, request.raw?.url);
     const { role: requestedRole, enabled: requestedEnabled } = normalizeAppAssignmentBody(request.body === undefined ? {} : request.body);
     const role = validateAssignableAppRole(db, user.org_id, requestedRole);
     const enabled = normalizeAppAssignmentEnabled(requestedEnabled);
@@ -3643,8 +3643,9 @@ ${controls}
   app.post("/api/finance/periods/:periodKey/close", async request => {
     const user = await app.auth(request);
     requireOwner(user);
+    const periodKey = normalizeFinancePeriodPathKey(request.params.periodKey);
     const { reason } = normalizeFinancePeriodCloseBody(request.body === undefined ? {} : request.body);
-    const period = getFinancePeriod(db, user.org_id, request.params.periodKey);
+    const period = getFinancePeriod(db, user.org_id, periodKey);
     if (!period) {
       const err = new Error("Finance period not found");
       err.statusCode = 404;
@@ -3672,7 +3673,8 @@ ${controls}
   app.post("/api/finance/periods/:periodKey/reopen", async request => {
     const user = await app.auth(request);
     requireOwner(user);
-    const period = getFinancePeriod(db, user.org_id, request.params.periodKey);
+    const periodKey = normalizeFinancePeriodPathKey(request.params.periodKey);
+    const period = getFinancePeriod(db, user.org_id, periodKey);
     if (!period) {
       const err = new Error("Finance period not found");
       err.statusCode = 404;
@@ -5123,6 +5125,29 @@ function normalizeAppAssignmentEnabled(value) {
   if (value === undefined) return true;
   if (typeof value === "boolean") return value;
   const err = new Error("enabled must be true or false");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeAppAssignmentPathId(value, rawUrl = "") {
+  const rawSegment = typeof rawUrl === "string"
+    ? rawUrl.match(/^\/api\/apps\/([^/?#]+)\/assign(?:[?#]|$)/)?.[1]
+    : "";
+  if (rawSegment && (rawSegment.length > 80 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+    throwInvalidAppAssignmentPathId();
+  }
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidAppAssignmentPathId();
+  }
+  const appId = value.trim();
+  if (!appId || appId.length > 80 || !/^[a-z0-9-]+$/.test(appId)) {
+    throwInvalidAppAssignmentPathId();
+  }
+  return appId;
+}
+
+function throwInvalidAppAssignmentPathId() {
+  const err = new Error("Invalid app id");
   err.statusCode = 400;
   throw err;
 }
@@ -55609,12 +55634,13 @@ function getFinancePeriods(db, orgId) {
 }
 
 function getFinancePeriod(db, orgId, periodKey) {
+  const safePeriodKey = normalizeFinancePeriodPathKey(periodKey);
   const row = db.prepare(`
     SELECT finance_periods.*, users.name AS closed_by_name
     FROM finance_periods
     LEFT JOIN users ON users.id = finance_periods.closed_by_user_id
     WHERE finance_periods.org_id = ? AND finance_periods.period_key = ?
-  `).get(orgId, periodKey);
+  `).get(orgId, safePeriodKey);
   return row ? formatFinancePeriod(row) : null;
 }
 
@@ -55685,6 +55711,23 @@ function normalizeFinancePeriodCloseText(body, field, options = {}) {
     throwInvalidFinancePeriodClose();
   }
   return text;
+}
+
+function normalizeFinancePeriodPathKey(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinancePeriodPathKey();
+  }
+  const periodKey = value.trim();
+  if (!/^\d{4}-(0[1-9]|1[0-2])$/.test(periodKey)) {
+    throwInvalidFinancePeriodPathKey();
+  }
+  return periodKey;
+}
+
+function throwInvalidFinancePeriodPathKey() {
+  const err = new Error("Invalid finance period key");
+  err.statusCode = 400;
+  throw err;
 }
 
 function throwInvalidFinancePeriodClose() {
