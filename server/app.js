@@ -3058,7 +3058,8 @@ function registerApi(app, db, options = {}) {
   app.get("/api/forms/:id", async request => {
     const user = await app.auth(request);
     requireFormsReader(db, user);
-    const form = getForm(db, user.org_id, request.params.id);
+    const formId = normalizeFormId(request.params.id);
+    const form = getForm(db, user.org_id, formId);
     if (!form) { const e = new Error("Form not found"); e.statusCode = 404; throw e; }
     form.submissions = db.prepare("SELECT id, data, lead_id AS leadId, created_at AS createdAt FROM form_submissions WHERE org_id = ? AND form_id = ? ORDER BY created_at DESC LIMIT 100").all(user.org_id, form.id).map(s => ({ ...s, data: (() => { try { return JSON.parse(s.data); } catch { return {}; } })() }));
     return { form };
@@ -3081,7 +3082,8 @@ function registerApi(app, db, options = {}) {
   app.patch("/api/forms/:id", async request => {
     const user = await app.auth(request);
     requireFormsWriter(user);
-    const form = getForm(db, user.org_id, request.params.id);
+    const formId = normalizeFormId(request.params.id);
+    const form = getForm(db, user.org_id, formId);
     if (!form) { const e = new Error("Form not found"); e.statusCode = 404; throw e; }
     const input = normalizeFormDefinitionUpdateBody(request.body === undefined ? {} : request.body);
     const sets = [];

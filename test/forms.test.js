@@ -204,6 +204,48 @@ test("forms: rejects malformed metadata before persistence", async () => {
     assert.doesNotMatch(malformedPatchPath.body, /secret-forms-patch-path-token|secret-forms-patch-path-body-token/);
     assert.deepStrictEqual(counts(), afterCreate);
 
+    const decodedMalformedDetailPath = await app.inject({
+      method: "GET",
+      url: `/api/forms/${formId}_secret-forms-detail-decoded-token`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(decodedMalformedDetailPath.statusCode, 400, decodedMalformedDetailPath.body);
+    assert.match(decodedMalformedDetailPath.body, /Invalid form id/);
+    assert.doesNotMatch(decodedMalformedDetailPath.body, /secret-forms-detail-decoded-token/);
+    assert.deepStrictEqual(counts(), afterCreate);
+
+    const decodedMalformedPatchPath = await app.inject({
+      method: "PATCH",
+      url: `/api/forms/${formId}_secret-forms-patch-decoded-token`,
+      headers: { cookie: owner },
+      payload: { title: "secret-forms-patch-decoded-body-token" }
+    });
+    assert.strictEqual(decodedMalformedPatchPath.statusCode, 400, decodedMalformedPatchPath.body);
+    assert.match(decodedMalformedPatchPath.body, /Invalid form id/);
+    assert.doesNotMatch(decodedMalformedPatchPath.body, /secret-forms-patch-decoded-/);
+    assert.deepStrictEqual(counts(), afterCreate);
+
+    const overlongPatchPath = await app.inject({
+      method: "PATCH",
+      url: `/api/forms/${"a".repeat(161)}secret-forms-patch-overlong-token`,
+      headers: { cookie: owner },
+      payload: { title: "secret-forms-patch-overlong-body-token" }
+    });
+    assert.ok([400, 404].includes(overlongPatchPath.statusCode), overlongPatchPath.body);
+    assert.doesNotMatch(overlongPatchPath.body, /secret-forms-patch-overlong-/);
+    if (overlongPatchPath.statusCode === 400) {
+      assert.match(overlongPatchPath.body, /Invalid form id/);
+    }
+    assert.deepStrictEqual(counts(), afterCreate);
+
+    const unknownSafeDetailPath = await app.inject({
+      method: "GET",
+      url: "/api/forms/form-unknown-safe",
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(unknownSafeDetailPath.statusCode, 404, unknownSafeDetailPath.body);
+    assert.deepStrictEqual(counts(), afterCreate);
+
     await rejectedJsonLiteral("PATCH", `/api/forms/${formId}`, "[]");
     for (const payload of [
       ["secret-forms-patch-array-token"],
