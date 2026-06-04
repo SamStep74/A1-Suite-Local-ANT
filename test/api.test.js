@@ -13755,6 +13755,40 @@ test("accountant can record next ongoing renewal payment collection packet after
   await withApp(async app => {
     const proof = await createPilotNextOngoingRenewalOfficialInvoicePostingPacket(app);
 
+    const nextOngoingRenewalPaymentCounts = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/next-ongoing-renewal-payment-collections?postingPacketId=${proof.nextOngoingRenewalPostingPacket.id}`,
+        headers: { cookie: proof.ownerCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return {
+        packets: list.json().packets.length,
+        audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count
+      };
+    };
+    const beforeMalformedNextOngoingRenewalPayment = await nextOngoingRenewalPaymentCounts();
+
+    const malformedNextOngoingRenewalPostingPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-ongoing-renewal-official-invoices/badAsecret-clinic-next-ongoing-renewal-posting-token/payment-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-next-ongoing-renewal-payment-body-token" }
+    });
+    assert.equal(malformedNextOngoingRenewalPostingPacketId.statusCode, 400, malformedNextOngoingRenewalPostingPacketId.body);
+    assert.match(malformedNextOngoingRenewalPostingPacketId.body, /Invalid clinic pilot next ongoing renewal HayHashvapah invoice posting packet id/);
+    assert.doesNotMatch(malformedNextOngoingRenewalPostingPacketId.body, /badAsecret-clinic-next-ongoing-renewal-posting-token|secret-clinic-next-ongoing-renewal-payment-body-token/);
+    assert.deepEqual(await nextOngoingRenewalPaymentCounts(), beforeMalformedNextOngoingRenewalPayment);
+
+    const unknownSafeNextOngoingRenewalPostingPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-ongoing-renewal-official-invoices/pilot-next-ongoing-renewal-hayhashvapah-posting-missing/payment-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing next ongoing renewal posting packet remains missing." }
+    });
+    assert.equal(unknownSafeNextOngoingRenewalPostingPacketId.statusCode, 404, unknownSafeNextOngoingRenewalPostingPacketId.body);
+    assert.deepEqual(await nextOngoingRenewalPaymentCounts(), beforeMalformedNextOngoingRenewalPayment);
+
     const supportDenied = await app.inject({
       method: "POST",
       url: `/api/pilots/clinic-wellness/next-ongoing-renewal-official-invoices/${proof.nextOngoingRenewalPostingPacket.id}/payment-packet`,
