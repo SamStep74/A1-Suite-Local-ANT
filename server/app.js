@@ -2251,13 +2251,15 @@ function registerApi(app, db, options = {}) {
   app.post("/api/crm/collection-promises/:id/send-reminder", async request => {
     const user = await app.auth(request);
     requireCollectionEditor(user);
-    return sendCollectionReminder(db, user, request.params.id, request.body === undefined ? {} : request.body);
+    const promiseId = normalizeCollectionPromisePathId(request.params.id, request.raw?.url);
+    return sendCollectionReminder(db, user, promiseId, request.body === undefined ? {} : request.body);
   });
 
   app.post("/api/crm/tasks/:id/payment-promise", async request => {
     const user = await app.auth(request);
     requireCollectionEditor(user);
-    return createCollectionPromiseForTask(db, user, request.params.id, request.body === undefined ? {} : request.body);
+    const taskId = normalizeCollectionTaskPathId(request.params.id, request.raw?.url);
+    return createCollectionPromiseForTask(db, user, taskId, request.body === undefined ? {} : request.body);
   });
 
   app.get("/api/docs/signature-packets", async request => {
@@ -54863,6 +54865,43 @@ function normalizeCollectionListQuery(query) {
   return {
     customerId: normalizeCollectionQueryText(query, "customerId", { maxLength: 160 })
   };
+}
+
+function normalizeCollectionTaskPathId(value, rawUrl = "") {
+  const rawSegment = typeof rawUrl === "string"
+    ? rawUrl.match(/^\/api\/crm\/tasks\/([^/?#]+)\/payment-promise(?:[?#]|$)/)?.[1]
+    : "";
+  if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+    throwInvalidCollectionPathId("Invalid collection task id");
+  }
+  return normalizeCollectionPathId(value, "Invalid collection task id");
+}
+
+function normalizeCollectionPromisePathId(value, rawUrl = "") {
+  const rawSegment = typeof rawUrl === "string"
+    ? rawUrl.match(/^\/api\/crm\/collection-promises\/([^/?#]+)\/send-reminder(?:[?#]|$)/)?.[1]
+    : "";
+  if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+    throwInvalidCollectionPathId("Invalid collection promise id");
+  }
+  return normalizeCollectionPathId(value, "Invalid collection promise id");
+}
+
+function normalizeCollectionPathId(value, message) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCollectionPathId(message);
+  }
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) {
+    throwInvalidCollectionPathId(message);
+  }
+  return text;
+}
+
+function throwInvalidCollectionPathId(message) {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
 }
 
 function normalizeCollectionQueryText(query, field, options = {}) {

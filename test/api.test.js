@@ -25146,6 +25146,86 @@ test("collection promise and reminder reject malformed metadata before persisten
 
     const countsBeforePromise = counts();
     const taskBeforePromise = taskRow();
+    const malformedTaskIds = [
+      "badAsecret-collection-task-id-token",
+      "bad_secret-collection-task-id-token"
+    ];
+    for (const malformedTaskId of malformedTaskIds) {
+      const rejectedTaskId = await app.inject({
+        method: "POST",
+        url: `/api/crm/tasks/${malformedTaskId}/payment-promise`,
+        headers: { cookie },
+        payload: {
+          promisedAmount: 960000,
+          promisedOn: "2026-05-30",
+          reminderChannel: "WhatsApp",
+          note: "secret-collection-task-route-id-body-token"
+        }
+      });
+      assert.equal(rejectedTaskId.statusCode, 400, `${malformedTaskId}: ${rejectedTaskId.body}`);
+      assert.match(rejectedTaskId.body, /Invalid collection task id/);
+      assert.doesNotMatch(rejectedTaskId.body, /secret-collection-/);
+      assert.deepEqual(counts(), countsBeforePromise);
+      assert.deepEqual(taskRow(), taskBeforePromise);
+    }
+
+    const overlongTaskId = await app.inject({
+      method: "POST",
+      url: `/api/crm/tasks/${"a".repeat(161)}/payment-promise`,
+      headers: { cookie },
+      payload: {
+        promisedAmount: 960000,
+        promisedOn: "2026-05-30",
+        reminderChannel: "WhatsApp",
+        note: "secret-collection-task-overlong-route-id-body-token"
+      }
+    });
+    assert.ok([400, 404].includes(overlongTaskId.statusCode), overlongTaskId.body);
+    if (overlongTaskId.statusCode === 400) {
+      assert.match(overlongTaskId.body, /Invalid collection task id/);
+    }
+    assert.doesNotMatch(overlongTaskId.body, /secret-collection-/);
+    assert.deepEqual(counts(), countsBeforePromise);
+    assert.deepEqual(taskRow(), taskBeforePromise);
+
+    const encodedMalformedTaskIds = [
+      "bad%0Asecret-collection-task-control-id-token",
+      "%20%20"
+    ];
+    for (const malformedTaskId of encodedMalformedTaskIds) {
+      const rejectedTaskId = await app.inject({
+        method: "POST",
+        url: `/api/crm/tasks/${malformedTaskId}/payment-promise`,
+        headers: { cookie },
+        payload: {
+          promisedAmount: 960000,
+          promisedOn: "2026-05-30",
+          reminderChannel: "WhatsApp",
+          note: "secret-collection-task-encoded-route-id-body-token"
+        }
+      });
+      assert.ok([400, 404].includes(rejectedTaskId.statusCode), `${malformedTaskId}: ${rejectedTaskId.body}`);
+      assert.doesNotMatch(rejectedTaskId.body, /secret-collection-/);
+      assert.deepEqual(counts(), countsBeforePromise);
+      assert.deepEqual(taskRow(), taskBeforePromise);
+    }
+
+    const missingTaskId = await app.inject({
+      method: "POST",
+      url: "/api/crm/tasks/task-missing/payment-promise",
+      headers: { cookie },
+      payload: {
+        promisedAmount: 960000,
+        promisedOn: "2026-05-30",
+        reminderChannel: "WhatsApp",
+        note: "secret-collection-task-missing-route-id-body-token"
+      }
+    });
+    assert.equal(missingTaskId.statusCode, 404, missingTaskId.body);
+    assert.doesNotMatch(missingTaskId.body, /secret-collection-task-missing-route-id-body-token/);
+    assert.deepEqual(counts(), countsBeforePromise);
+    assert.deepEqual(taskRow(), taskBeforePromise);
+
     const malformedPromises = [
       {
         promisedAmount: { value: 960000, token: "secret-collection-promise-amount-token" },
@@ -25231,6 +25311,70 @@ test("collection promise and reminder reject malformed metadata before persisten
       .get(promise.id);
     const promiseBeforeReminder = promiseRow();
     const taskBeforeReminder = taskRow();
+    const malformedPromiseIds = [
+      "badAsecret-collection-promise-id-token",
+      "bad_secret-collection-promise-id-token"
+    ];
+    for (const malformedPromiseId of malformedPromiseIds) {
+      const rejectedPromiseId = await app.inject({
+        method: "POST",
+        url: `/api/crm/collection-promises/${malformedPromiseId}/send-reminder`,
+        headers: { cookie },
+        payload: { provider: "secret-collection-promise-route-id-body-token" }
+      });
+      assert.equal(rejectedPromiseId.statusCode, 400, `${malformedPromiseId}: ${rejectedPromiseId.body}`);
+      assert.match(rejectedPromiseId.body, /Invalid collection promise id/);
+      assert.doesNotMatch(rejectedPromiseId.body, /secret-collection-/);
+      assert.deepEqual(counts(), countsBeforeReminder);
+      assert.deepEqual(promiseRow(), promiseBeforeReminder);
+      assert.deepEqual(taskRow(), taskBeforeReminder);
+    }
+
+    const overlongPromiseId = await app.inject({
+      method: "POST",
+      url: `/api/crm/collection-promises/${"a".repeat(161)}/send-reminder`,
+      headers: { cookie },
+      payload: { provider: "secret-collection-promise-overlong-route-id-body-token" }
+    });
+    assert.ok([400, 404].includes(overlongPromiseId.statusCode), overlongPromiseId.body);
+    if (overlongPromiseId.statusCode === 400) {
+      assert.match(overlongPromiseId.body, /Invalid collection promise id/);
+    }
+    assert.doesNotMatch(overlongPromiseId.body, /secret-collection-/);
+    assert.deepEqual(counts(), countsBeforeReminder);
+    assert.deepEqual(promiseRow(), promiseBeforeReminder);
+    assert.deepEqual(taskRow(), taskBeforeReminder);
+
+    const encodedMalformedPromiseIds = [
+      "bad%0Asecret-collection-promise-control-id-token",
+      "%20%20"
+    ];
+    for (const malformedPromiseId of encodedMalformedPromiseIds) {
+      const rejectedPromiseId = await app.inject({
+        method: "POST",
+        url: `/api/crm/collection-promises/${malformedPromiseId}/send-reminder`,
+        headers: { cookie },
+        payload: { provider: "secret-collection-promise-encoded-route-id-body-token" }
+      });
+      assert.ok([400, 404].includes(rejectedPromiseId.statusCode), `${malformedPromiseId}: ${rejectedPromiseId.body}`);
+      assert.doesNotMatch(rejectedPromiseId.body, /secret-collection-/);
+      assert.deepEqual(counts(), countsBeforeReminder);
+      assert.deepEqual(promiseRow(), promiseBeforeReminder);
+      assert.deepEqual(taskRow(), taskBeforeReminder);
+    }
+
+    const missingPromiseId = await app.inject({
+      method: "POST",
+      url: "/api/crm/collection-promises/promise-missing/send-reminder",
+      headers: { cookie },
+      payload: { provider: "secret-collection-promise-missing-route-id-body-token" }
+    });
+    assert.equal(missingPromiseId.statusCode, 404, missingPromiseId.body);
+    assert.doesNotMatch(missingPromiseId.body, /secret-collection-promise-missing-route-id-body-token/);
+    assert.deepEqual(counts(), countsBeforeReminder);
+    assert.deepEqual(promiseRow(), promiseBeforeReminder);
+    assert.deepEqual(taskRow(), taskBeforeReminder);
+
     const malformedReminders = [
       { channel: { value: "WhatsApp", token: "secret-collection-reminder-channel-token" } },
       { channel: "WhatsApp\nsecret-collection-reminder-channel-control-token" },
