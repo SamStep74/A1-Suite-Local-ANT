@@ -23648,8 +23648,6 @@ test("workflow approval decision rejects malformed metadata before persistence",
       assert.doesNotMatch(rejected.body, /secret-workflow-approval-/);
     }
 
-
-
     const malformedPathRequests = [
       {
         method: "POST",

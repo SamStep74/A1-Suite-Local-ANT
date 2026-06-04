@@ -52687,7 +52687,7 @@ function throwInvalidWorkflowRuleChange() {
 }
 
 function normalizeWorkflowApprovalPathId(value) {
-  if (typeof value !== "string" || /[ -]/.test(value)) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
     throwInvalidWorkflowApprovalPathId();
   }
   const text = value.trim();
@@ -52704,7 +52704,7 @@ function throwInvalidWorkflowApprovalPathId() {
 }
 
 function normalizeWorkflowRunPathId(value) {
-  if (typeof value !== "string" || /[ -]/.test(value)) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
     throwInvalidWorkflowRunPathId();
   }
   const text = value.trim();
