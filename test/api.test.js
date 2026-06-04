@@ -14001,14 +14001,14 @@ test("owner can close next ongoing renewal cycle and schedule following ongoing 
       assert.equal(list.statusCode, 200, list.body);
       return list.json().packets.length;
     };
-    const auditContainsEvidence = async (...needles) => {
-      const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: proof.ownerCookie } });
-      assert.equal(audit.statusCode, 200, audit.body);
-      const serializedEvents = JSON.stringify(audit.json().events || []);
+    const orgId = app.db.prepare("SELECT org_id AS orgId FROM users WHERE email = ?").get(DEFAULT_EMAIL).orgId;
+    const auditContainsEvidence = (...needles) => {
+      const events = app.db.prepare("SELECT type, details FROM audit_events WHERE org_id = ? ORDER BY id DESC").all(orgId);
+      const serializedEvents = JSON.stringify(events);
       return needles.some(needle => serializedEvents.includes(needle));
     };
-    const countCloseoutAuditEvents = () => app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?")
-      .get("pilot.next_ongoing_renewal_closeout.created").count;
+    const countCloseoutAuditEvents = () => app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?")
+      .get(orgId, "pilot.next_ongoing_renewal_closeout.created").count;
     const beforeRejectedCloseouts = await countCloseoutPackets();
     const beforeRejectedAudit = countCloseoutAuditEvents();
 
@@ -14028,7 +14028,7 @@ test("owner can close next ongoing renewal cycle and schedule following ongoing 
     assert.doesNotMatch(malformed.body, /Secret next ongoing renewal closeout note/);
     assert.equal(await countCloseoutPackets(), beforeRejectedCloseouts);
     assert.equal(countCloseoutAuditEvents(), beforeRejectedAudit);
-    assert.equal(await auditContainsEvidence(malformedId, "Secret next ongoing renewal closeout note"), false);
+    assert.equal(auditContainsEvidence(malformedId, "Secret next ongoing renewal closeout note"), false);
 
     const missing = await app.inject({
       method: "POST",
@@ -14042,7 +14042,7 @@ test("owner can close next ongoing renewal cycle and schedule following ongoing 
     assert.equal(missing.statusCode, 404, missing.body);
     assert.equal(await countCloseoutPackets(), beforeRejectedCloseouts);
     assert.equal(countCloseoutAuditEvents(), beforeRejectedAudit);
-    assert.equal(await auditContainsEvidence(
+    assert.equal(auditContainsEvidence(
       malformedId,
       "Secret next ongoing renewal closeout note",
       "Safe missing next ongoing renewal payment collection remains a not-found lookup"
