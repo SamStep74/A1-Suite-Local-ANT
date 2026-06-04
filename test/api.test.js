@@ -10459,6 +10459,31 @@ test("accountant can hand accepted continuation renewal quote into HayHashvapah 
 test("accountant can record continuation renewal HayHashvapah draft invoice packet after owner executes finance approval", async () => {
   await withApp(async app => {
     const proof = await createPilotContinuationRenewalQuoteAcceptanceHandoff(app);
+    const continuationRenewalDraftInvoiceCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_continuation_renewal_hayhashvapah_draft_invoice_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.continuation_renewal_hayhashvapah_draft_invoice.created").count
+    });
+    const beforeMalformedContinuationRenewalDraft = continuationRenewalDraftInvoiceCounts();
+
+    const malformedContinuationRenewalAcceptanceHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/continuation-renewal-acceptance-handoffs/badAsecret-clinic-continuation-renewal-acceptance-handoff-token/draft-invoice-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-continuation-renewal-draft-body-token" }
+    });
+    assert.equal(malformedContinuationRenewalAcceptanceHandoffId.statusCode, 400, malformedContinuationRenewalAcceptanceHandoffId.body);
+    assert.match(malformedContinuationRenewalAcceptanceHandoffId.body, /Invalid clinic pilot continuation renewal acceptance handoff id/);
+    assert.doesNotMatch(malformedContinuationRenewalAcceptanceHandoffId.body, /badAsecret-clinic-continuation-renewal-acceptance-handoff-token|secret-clinic-continuation-renewal-draft-body-token/);
+    assert.deepEqual(continuationRenewalDraftInvoiceCounts(), beforeMalformedContinuationRenewalDraft);
+
+    const unknownSafeContinuationRenewalAcceptanceHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/continuation-renewal-acceptance-handoffs/pilot-continuation-renewal-acceptance-handoff-missing/draft-invoice-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing continuation renewal acceptance handoff remains missing." }
+    });
+    assert.equal(unknownSafeContinuationRenewalAcceptanceHandoffId.statusCode, 404, unknownSafeContinuationRenewalAcceptanceHandoffId.body);
+    assert.deepEqual(continuationRenewalDraftInvoiceCounts(), beforeMalformedContinuationRenewalDraft);
 
     const supportDenied = await app.inject({
       method: "POST",

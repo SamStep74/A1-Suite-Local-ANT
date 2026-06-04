@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-04 · clinic continuation renewal acceptance release id guard · 87 tags · **465 tests verified**_
+_Last updated: 2026-06-04 · clinic continuation renewal draft acceptance handoff id guard · 87 tags · **465 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 162 slices)
+### Hardening (production-readiness pass — 163 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -197,6 +197,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 160. **Clinic continuation renewal quote subsequent closeout id guard** validates clinic/wellness subsequent-renewal closeout packet path IDs before continuation-renewal quote handoff creation, rejecting malformed subsequent-renewal closeout metadata instead of treating unsafe IDs as missing subsequent-renewal closeout packets.
 161. **Clinic continuation renewal release handoff id guard** validates clinic/wellness continuation-renewal quote handoff path IDs before continuation-renewal quote release packet creation, rejecting malformed continuation-renewal handoff metadata instead of treating unsafe IDs as missing continuation-renewal quote handoffs.
 162. **Clinic continuation renewal acceptance release id guard** validates clinic/wellness continuation-renewal quote release packet path IDs before continuation-renewal quote acceptance handoff creation, rejecting malformed continuation-renewal release metadata instead of treating unsafe IDs as missing continuation-renewal release packets.
+163. **Clinic continuation renewal draft acceptance handoff id guard** validates clinic/wellness continuation-renewal quote acceptance handoff path IDs before continuation-renewal HayHashvapah draft-invoice packet creation, rejecting malformed continuation-renewal acceptance metadata instead of treating unsafe IDs as missing continuation-renewal acceptance handoffs.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -244,7 +245,9 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
-- Current clinic continuation renewal acceptance release id guard checkpoint: pending commit on `codex/suite-dashboard-route-normalization` (validates clinic/wellness continuation-renewal quote release packet path IDs before continuation-renewal quote acceptance handoff creation).
+- Current clinic continuation renewal draft acceptance handoff id guard checkpoint: pending commit on `codex/suite-dashboard-route-normalization` (validates clinic/wellness continuation-renewal quote acceptance handoff path IDs before continuation-renewal HayHashvapah draft-invoice packet creation).
+- Latest clinic continuation renewal draft acceptance handoff id guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic continuation-renewal draft-invoice packet regression (`accountant can record continuation renewal HayHashvapah draft invoice packet after owner executes finance approval`) pass (1 test); full `npm test` pass (465 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-continuation-renewal-draft-acceptance-handoff-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
+- Latest clinic continuation renewal acceptance release id guard checkpoint: `8bdb50f` (`Harden clinic continuation renewal acceptance ids`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest clinic continuation renewal acceptance release id guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic continuation-renewal acceptance handoff regression (`accountant can hand accepted continuation renewal quote into HayHashvapah invoice approval`) pass (1 test); full `npm test` pass (465 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-continuation-renewal-acceptance-release-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
 - Latest clinic continuation renewal release handoff id guard checkpoint: `41dddc8` (`Harden clinic continuation renewal release ids`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest clinic continuation renewal release handoff id guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic continuation-renewal quote release packet regression (`sales can create clinic continuation renewal quote release packet after workflow executes`) pass (1 test); full `npm test` pass (465 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-continuation-renewal-release-handoff-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
