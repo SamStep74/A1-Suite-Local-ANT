@@ -268,7 +268,7 @@ test("project-billing: malformed project path ids are rejected before billing si
     for (const request of [
       { method: "GET", url: "/api/projects/badAsecret-project-billing-path-preview-id-token/billing-preview?hourlyRate=10000" },
       { method: "POST", url: "/api/projects/bad_secret-project-billing-path-bill-id-token/bill-time", payload: { hourlyRate: 10000, issueDate: "2026-05-15", note: "secret-project-billing-path-body-token" } },
-      { method: "GET", url: `/api/projects/${"a".repeat(161)}/billing-preview?hourlyRate=10000` },
+      { method: "GET", url: `/api/projects/${"a".repeat(161)}/billing-preview?hourlyRate=10000`, statusCode: 404 },
       { method: "POST", url: "/api/projects/bad%0Asecret-project-billing-path-control-id-token/bill-time", payload: { hourlyRate: 10000, issueDate: "2026-05-15" } }
     ]) {
       await expectPathRejected(request);
