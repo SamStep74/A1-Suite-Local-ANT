@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-04 · clinic following ongoing renewal payment collection posting packet id guard · 87 tags · **465 tests verified**_
+_Last updated: 2026-06-04 · OpenRouter/Open Notebook AI core refactor · 87 tags · **504 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -265,9 +265,11 @@ MAC_IP=$(ipconfig getifaddr en0 || ipconfig getifaddr en1)
 printf 'http://%s:4178/\n' "$MAC_IP"
 ```
 
-The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
+The Copilot slice is Armenian-first and now uses OpenRouter as the single opt-in cloud provider (`COPILOT_PROVIDER=openrouter`, `COPILOT_LANGUAGE=hy-AM`) with a live model menu plus local-first fallback. Open Notebook is an opt-in supplemental-source connector only; it sits beside the in-process sovereign RAG layer and cannot satisfy legal citation or professional-review gates. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
+- Current OpenRouter/Open Notebook AI core refactor checkpoint: `4bf4760` (`refactor: Suite consumes shared @a1/ai core (vendored) — no behavior change`), pushed on `feat/suite-consume-a1-ai` (the suite consumes a vendored `server/vendor/a1-ai` core through thin local adapters for model catalog, model policy, settings storage, supplemental-source policy, and Open Notebook search).
+- Latest OpenRouter/Open Notebook AI core refactor verification from `~/dev/A1-Suite-Local-or`: AI syntax checks pass (`node --check server/config.js server/aiProvider.js server/openNotebook.js server/copilot.js server/settingsStore.js server/app.js` plus AI test files); targeted AI/OpenRouter/Open Notebook suite pass (`node --test test/ai-config.test.js test/ai-provider.test.js test/settings-store.test.js test/open-notebook.test.js test/copilot.test.js test/ai-endpoints.test.js test/copilot-supplemental.test.js`, 52 pass, 0 fail, 0 cancelled); read-only subagent code review pass (no findings); standalone `node --test test/api.test.js` pass (231 pass, 0 fail, 0 cancelled); full `npm test` pass (504 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-or-ai-refactor-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
 - Current clinic following ongoing renewal payment collection posting packet id guard checkpoint: `b832a9b` (`Harden clinic following ongoing payment ids`), pushed on `codex/suite-dashboard-route-normalization` (validates clinic/wellness following-ongoing-renewal official-invoice posting packet path IDs before following-ongoing-renewal HayHashvapah payment-collection packet creation).
 - Latest clinic following ongoing renewal payment collection posting packet id guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic following-ongoing-renewal payment collection packet regression (`accountant can record following ongoing renewal payment collection packet after HayHashvapah receipt`) pass (1 target test across 48 files); full `npm test` pass (465 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-following-ongoing-renewal-payment-collection-posting-packet-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
 - Latest clinic following ongoing renewal official invoice draft packet id guard checkpoint: `44a35fe` (`Harden clinic following ongoing posting ids`), pushed on `codex/suite-dashboard-route-normalization`.
