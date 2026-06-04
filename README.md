@@ -68,9 +68,29 @@ With no argument it looks for an existing HayHashvapah build at
 copied to `~/Library/Application Support/ArmospheraOneClaude/laws.sqlite` (override
 with `ARMOSPHERA_ONE_LAWS_DB`). Query it via `GET /api/legal/law-search?q=...`.
 
-Rebuilding from source PDFs (chunk by `Հոդված`, then embed with `bge-m3`) is the
-operator path documented in the HayHashvapah project; it requires `pdftotext` and a
-local Ollama embedder.
+### Build the KB from raw law text (in-repo, zero dependencies)
+
+A1 Suite can build the knowledge base directly from plain-text legislation — no
+external tools, no network. Put one law per `.txt`/`.md` file in a directory (the
+filename becomes the law title), then:
+
+```bash
+node scripts/ingest-laws.js <source-dir> [dest.sqlite]          # BM25-only (offline default)
+node scripts/ingest-laws.js <source-dir> [dest.sqlite] --embed  # + local vector embeddings
+```
+
+The ingest splits each file into article-aware chunks on `Հոդված N` / `Article N`
+markers (the article number is captured for precise retrieval), writes the canonical
+`law_chunks` table, and is idempotent (content-hashed chunk ids — re-running only fills
+gaps). With no `dest`, it writes to `ARMOSPHERA_ONE_LAWS_DB` / the default data dir.
+
+`--embed` is **opt-in and failure-tolerant**: it calls the local Ollama embedder
+(`bge-m3`) over loopback to populate vectors for hybrid search. If the embedder is not
+running, the rows stay lexical (BM25) and the command still succeeds — the KB is never
+left in a broken state.
+
+> **PDF sources:** convert to text first (e.g. `pdftotext`), then run `ingest-laws.js`.
+> Native PDF extraction is a planned follow-up; plain-text/Markdown laws are first-class today.
 
 ## Configuration
 
