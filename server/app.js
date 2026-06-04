@@ -4038,7 +4038,7 @@ ${controls}
 
   app.post("/api/copilot/questions", async request => {
     const user = await app.auth(request);
-    const result = createCopilotQuestion(db, user, request.body || {});
+    const result = await createCopilotQuestion(db, user, request.body || {});
     return {
       ok: true,
       copilot: result,
@@ -45836,7 +45836,7 @@ function formatAutomationRule(db, orgId, row) {
   };
 }
 
-function createCopilotQuestion(db, user, body) {
+async function createCopilotQuestion(db, user, body) {
   const input = normalizeCopilotQuestionInput(body);
   const question = input.question;
   if (question.length < 8) {
@@ -45851,6 +45851,7 @@ function createCopilotQuestion(db, user, body) {
   const context = buildCopilotContext(db, user, intent, input, customer);
   const citations = getCopilotCitations(db, user.org_id, intent, question);
   const calculations = getCopilotCalculations(db, user.org_id, intent, input, context);
+  const supplementalSources = await getCopilotSupplementalSources(question);
   const packet = copilot.buildCopilotPacket({
     id: randomId("copilot"),
     intent,
@@ -45858,11 +45859,25 @@ function createCopilotQuestion(db, user, body) {
     citations,
     calculations,
     context,
+    supplementalSources,
     modelPolicy: getCopilotModelPolicy(),
     now: new Date().toISOString()
   });
   recordCopilotAdvisory(db, user, packet, question);
   return packet;
+}
+
+// Opt-in Open Notebook retrieval beside the curated legal registry. Disabled
+// unless the user has configured it; egress-gated + non-throwing so the copilot
+// degrades to local-only retrieval on any error (network, parse, blocked egress).
+async function getCopilotSupplementalSources(question) {
+  try {
+    const settings = settingsStore.getSettings();
+    if (!openNotebook.isEnabled(settings)) return [];
+    return await openNotebook.search(question, { settings, k: 6 });
+  } catch {
+    return [];
+  }
 }
 
 function normalizeCopilotQuestionInput(body) {

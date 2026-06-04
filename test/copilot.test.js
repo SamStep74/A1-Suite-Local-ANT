@@ -547,3 +547,60 @@ test("copilot returns 404 for unknown customer or document", async () => {
     await app.close();
   }
 });
+
+test("Open Notebook supplemental sources are opt-in: empty when off, merged when on, never moving the legal gate", async () => {
+  const config = require("../server/config");
+  const settingsStore = require("../server/settingsStore");
+  const realFetch = config.safeFetch;
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app); // Owner
+
+    // Make the VAT legal source review-ready so the answer is a normal "draft"
+    // (not blocked) — this proves supplemental doesn't alter a non-blocked gate either.
+    await reviewSource(app, cookie, "law-tax-code", "ՀՀ հարկային օրենսգիրք — ԱԱՀ", "Տարեկան վերանայում");
+
+    const ask = () => app.inject({
+      method: "POST",
+      url: "/api/copilot/questions",
+      headers: { cookie },
+      payload: { intent: "vat", customerId: "cust-nare", periodKey: "2026-05", question: "Բացատրեք ԱԱՀ ուղեցույցը 2026-05 ժամանակաշրջանի համար մանրամասն:" }
+    });
+
+    // OFF by default → no supplemental sources, no Open Notebook note in the answer.
+    const off = (await ask()).json().copilot;
+    assert.deepStrictEqual(off.supplementalSources, []);
+    assert.ok(!off.answer.includes("Open Notebook"));
+
+    // Enable Open Notebook and stub the egress fetch with canned hits (one
+    // duplicate URL + one lower-scored row to exercise dedupe + ordering).
+    settingsStore.updateSettings({ openNotebook: { enabled: true, baseUrl: "https://nb.a1.am", apiKey: "on-key" } });
+    config.safeFetch = async () => ({
+      ok: true,
+      json: async () => ({ results: [
+        { title: "Պրակտիկ նշում", content: "ԱԱՀ ժամկետների գործնական քննարկում:", score: 0.82, url: "https://nb.a1.am/n/7" },
+        { title: "Կրկնօրինակ", content: "նույն աղբյուրը", score: 0.40, url: "https://nb.a1.am/n/7" },
+        { title: "Բլոգ", content: "լրացուցիչ համատեքստ", score: 0.55, url: "https://nb.a1.am/n/9" }
+      ] })
+    });
+
+    const on = (await ask()).json().copilot;
+    // Supplemental merged + clearly labeled
+    assert.ok(on.supplementalSources.length >= 1, "supplemental merged when enabled");
+    assert.ok(on.supplementalSources.every(s => s.origin === "open-notebook" && s.advisory === true));
+    // Dedupe by URL collapsed the duplicate → 2 unique, highest score first
+    assert.strictEqual(on.supplementalSources.length, 2);
+    assert.strictEqual(on.supplementalSources[0].title, "Պրակտիկ նշում");
+    assert.ok(on.answer.includes("Open Notebook"), "answer carries the opt-in supplemental note");
+
+    // The compliance-critical surfaces are identical with and without supplemental.
+    assert.strictEqual(on.status, off.status);
+    assert.strictEqual(on.confidence, off.confidence);
+    assert.deepStrictEqual(on.citations, off.citations);
+  } finally {
+    config.safeFetch = realFetch;
+    settingsStore.updateSettings({ openNotebook: { enabled: false, baseUrl: "", apiKey: "" } });
+    await app.close();
+  }
+});

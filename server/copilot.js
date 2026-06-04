@@ -19,6 +19,54 @@ function requiredAppForIntent(intent) {
   return intent === "personal-data" ? "crm" : "finance";
 }
 
+// --- Open Notebook supplemental sources (opt-in, advisory-only) --------------
+//
+// These come from the user's self-hosted Open Notebook beside the curated
+// Armenian legal registry. They are NEVER authoritative: they do not enter the
+// law-* citation set, do not change `status`/`sourceReady`, and do not move
+// `confidence`. They are surfaced (clearly labeled) so a reviewer can see what
+// general material was consulted. This policy — cap, dedupe key, ordering,
+// excerpt length — is the one knob with real product/compliance judgment.
+const MAX_SUPPLEMENTAL_SOURCES = 3;
+const SUPPLEMENTAL_EXCERPT_MAX = 280;
+
+function normalizeSupplementalSources(raw, { max = MAX_SUPPLEMENTAL_SOURCES } = {}) {
+  if (!Array.isArray(raw)) return [];
+  const cleaned = raw
+    .map(row => {
+      const r = row || {};
+      return {
+        title: String(r.title || "Open Notebook").replace(/\s+/g, " ").trim() || "Open Notebook",
+        excerpt: String(r.text || r.excerpt || "").replace(/\s+/g, " ").trim().slice(0, SUPPLEMENTAL_EXCERPT_MAX),
+        sourceUrl: typeof r.sourceUrl === "string" ? r.sourceUrl : "",
+        score: Number.isFinite(r.score) ? r.score : 0,
+        origin: "open-notebook",
+        advisory: true
+      };
+    })
+    .filter(row => row.excerpt.length > 0)
+    .sort((a, b) => b.score - a.score);
+  // Dedupe on sourceUrl when present, else title; keep the highest-scored hit.
+  const seen = new Set();
+  const out = [];
+  for (const row of cleaned) {
+    const key = (row.sourceUrl || row.title).toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(row);
+    if (out.length >= max) break;
+  }
+  return out;
+}
+
+// Append a clearly-labeled, non-authoritative note. The curated "Աղբյուրներ:"
+// line built by buildAnswer() remains the source of record.
+function withSupplementalNote(answer, supplementalSources) {
+  if (!supplementalSources.length) return answer;
+  const titles = supplementalSources.map(source => source.title).join("; ");
+  return `${answer} Լրացուցիչ ոչ-պաշտոնական աղբյուրներ (Open Notebook, ընտրովի) դիտարկվել են միայն համատեքստի համար եւ պաշտոնական իրավական մեջբերում չեն. ${titles}:`;
+}
+
 function buildCopilotPacket(input) {
   const now = input.now || new Date().toISOString();
   const intent = normalizeIntent(input.intent, input.question);
@@ -34,12 +82,17 @@ function buildCopilotPacket(input) {
   const status = citationRequired && legal.length === 0 ? "blocked-missing-citation" : "draft";
   const riskLevel = intent === "payroll" || intent === "month-close" ? "financial" : "legal";
   const reviewRequired = true;
+  const supplementalSources = normalizeSupplementalSources(input.supplementalSources);
+  const answer = withSupplementalNote(
+    buildAnswer({ intent, question: input.question, citations, calculations, context, sourceReady }),
+    supplementalSources
+  );
   return {
     id: input.id,
     intent,
     status,
     modelPolicy: normalizeModelPolicy(input.modelPolicy),
-    answer: buildAnswer({ intent, question: input.question, citations, calculations, context, sourceReady }),
+    answer,
     confidence: confidenceForIntent(intent, citations, calculations),
     riskLevel,
     reviewRequired,
@@ -47,6 +100,7 @@ function buildCopilotPacket(input) {
     citations,
     calculations,
     context,
+    supplementalSources,
     proposedActions: buildProposedActions({ intent, context, sourceReady }),
     guardrails: buildGuardrails(intent),
     createdAt: now
@@ -197,5 +251,7 @@ module.exports = {
   INTENTS,
   normalizeIntent,
   requiredAppForIntent,
-  buildCopilotPacket
+  buildCopilotPacket,
+  normalizeSupplementalSources,
+  MAX_SUPPLEMENTAL_SOURCES
 };
