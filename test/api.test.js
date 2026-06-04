@@ -23779,6 +23779,7 @@ test("service case mutations reject malformed metadata before persistence", asyn
       { method: "POST", url: "/api/service/cases/case-nare-vat/replies", cookie: ownerCookie, payload: { body: { text: "secret-service-reply-object" } } },
       { method: "POST", url: "/api/service/cases/case-nare-vat/replies", cookie: ownerCookie, payload: { body: "secret-service-reply-control\u0000" } },
       { method: "POST", url: "/api/service/cases/case-nare-vat%0Asecret-service-reply-path-token/replies", cookie: ownerCookie, payload: { body: "secret-service-reply-path-body-token" } },
+      { method: "POST", url: `/api/service/cases/${"a".repeat(161)}secret-service-reply-overlong-path-token/replies`, cookie: ownerCookie, payload: { body: "secret-service-reply-overlong-body-token" }, statusCodes: [400, 404] },
       { method: "PATCH", url: "/api/service/cases/case-nare-vat", cookie: ownerCookie, payload: { status: ["closed"] } },
       { method: "PATCH", url: "/api/service/cases/case-nare-vat", cookie: ownerCookie, payload: { priority: "urgent" } },
       { method: "PATCH", url: "/api/service/cases/case-nare-vat", cookie: ownerCookie, payload: { ownerUserId: { id: "user-owner" } } },
@@ -23802,8 +23803,11 @@ test("service case mutations reject malformed metadata before persistence", asyn
         headers: { cookie: request.cookie },
         payload: request.payload
       });
-      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.ok((request.statusCodes || [400]).includes(rejected.statusCode), rejected.body);
       assert.doesNotMatch(rejected.body, /secret-service-/);
+      if (request.statusCodes && rejected.statusCode === 400) {
+        assert.match(rejected.body, /Invalid service case id|Service request requires safe metadata/);
+      }
     }
 
     const safeUnknownRequests = [

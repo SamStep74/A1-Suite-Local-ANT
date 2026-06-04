@@ -3306,7 +3306,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/service/cases/:id/escalate", async request => {
     const user = await app.auth(request);
     requireServiceSupervisor(user);
-    const serviceCase = getServiceCase(db, user.org_id, request.params.id);
+    const serviceCaseId = normalizeServiceCasePathId(request.params.id);
+    const serviceCase = getServiceCase(db, user.org_id, serviceCaseId);
     if (!serviceCase) {
       const err = new Error("Service case not found");
       err.statusCode = 404;
@@ -3318,7 +3319,8 @@ function registerApi(app, db, options = {}) {
 
   app.post("/api/service/cases/:id/resolve", async request => {
     const user = await app.auth(request);
-    const serviceCase = getServiceCase(db, user.org_id, request.params.id);
+    const serviceCaseId = normalizeServiceCasePathId(request.params.id);
+    const serviceCase = getServiceCase(db, user.org_id, serviceCaseId);
     if (!serviceCase) {
       const err = new Error("Service case not found");
       err.statusCode = 404;
@@ -3331,7 +3333,8 @@ function registerApi(app, db, options = {}) {
 
   app.post("/api/service/cases/:id/replies", async request => {
     const user = await app.auth(request);
-    const serviceCase = getServiceCase(db, user.org_id, request.params.id);
+    const serviceCaseId = normalizeServiceCasePathId(request.params.id);
+    const serviceCase = getServiceCase(db, user.org_id, serviceCaseId);
     if (!serviceCase) {
       const err = new Error("Service case not found");
       err.statusCode = 404;
@@ -3367,7 +3370,8 @@ function registerApi(app, db, options = {}) {
 
   app.patch("/api/service/cases/:id", async request => {
     const user = await app.auth(request);
-    const serviceCase = getServiceCase(db, user.org_id, request.params.id);
+    const serviceCaseId = normalizeServiceCasePathId(request.params.id);
+    const serviceCase = getServiceCase(db, user.org_id, serviceCaseId);
     if (!serviceCase) { const err = new Error("Service case not found"); err.statusCode = 404; throw err; }
     // Escalation is supervisor-governed: every exit from the escalated state
     // (resolve already guards this) must also gate generic field changes, so a
