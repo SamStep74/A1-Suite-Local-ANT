@@ -6715,6 +6715,31 @@ test("accountant can record next renewal HayHashvapah draft invoice packet after
 test("accountant can record next renewal official HayHashvapah invoice posting packet from next renewal draft", async () => {
   await withApp(async app => {
     const proof = await createPilotNextRenewalHayhashvapahDraftPacket(app);
+    const nextRenewalPostingPacketCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_next_renewal_hayhashvapah_invoice_posting_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.next_renewal_hayhashvapah_invoice_posting.created").count
+    });
+    const beforeMalformedNextRenewalPosting = nextRenewalPostingPacketCounts();
+
+    const malformedDraftPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-renewal-hayhashvapah-drafts/badAsecret-clinic-next-renewal-draft-packet-token/posting-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-next-renewal-posting-body-token" }
+    });
+    assert.equal(malformedDraftPacketId.statusCode, 400, malformedDraftPacketId.body);
+    assert.match(malformedDraftPacketId.body, /Invalid clinic pilot next renewal HayHashvapah draft invoice packet id/);
+    assert.doesNotMatch(malformedDraftPacketId.body, /badAsecret-clinic-next-renewal-draft-packet-token|secret-clinic-next-renewal-posting-body-token/);
+    assert.deepEqual(nextRenewalPostingPacketCounts(), beforeMalformedNextRenewalPosting);
+
+    const unknownSafeDraftPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-renewal-hayhashvapah-drafts/pilot-next-renewal-hayhashvapah-draft-missing/posting-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing next renewal draft packet remains missing." }
+    });
+    assert.equal(unknownSafeDraftPacketId.statusCode, 404, unknownSafeDraftPacketId.body);
+    assert.deepEqual(nextRenewalPostingPacketCounts(), beforeMalformedNextRenewalPosting);
 
     const supportDenied = await app.inject({
       method: "POST",
