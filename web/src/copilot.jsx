@@ -125,6 +125,7 @@ function CopilotResult({ result }) {
   const citations = result.citations || [];
   const calculations = result.calculations || [];
   const actions = result.proposedActions || [];
+  const supplementalSources = result.supplementalSources || [];
   const modelPolicy = result.modelPolicy || {};
   return (
     <div className="copilot-result">
@@ -162,6 +163,21 @@ function CopilotResult({ result }) {
           ))}
         </div>
       )}
+      {supplementalSources.length > 0 && (
+        <div className="copilot-block copilot-supplemental">
+          <h3>Լրացուցիչ աղբյուրներ · ոչ պաշտոնական</h3>
+          <p className="supplemental-note">Open Notebook-ից (ընտրովի). Սրանք պաշտոնական իրավական մեջբերումներ չեն եւ չեն փոխարինում մասնագիտորեն վերանայված աղբյուրները:</p>
+          {supplementalSources.map((source, index) => (
+            <div className="row supplemental-row" key={source.sourceUrl || `${source.title}-${index}`}>
+              <span>
+                <strong className="supplemental-title">{source.title}</strong>
+                {source.excerpt ? <em className="supplemental-excerpt">{source.excerpt}</em> : null}
+                <SupplementalLink url={source.sourceUrl} />
+              </span>
+            </div>
+          ))}
+        </div>
+      )}
       {actions.length > 0 && (
         <div className="copilot-block">
           <h3>Առաջարկվող քայլեր</h3>
@@ -185,6 +201,20 @@ function SourceLink({ source }) {
     <a className="source-link" href={link.href} target="_blank" rel="noopener noreferrer">
       <span>Բացել աղբյուրը</span>
       <small>{link.host}</small>
+    </a>
+  );
+}
+
+// Open Notebook rows carry a plain sourceUrl string (not the citation shape).
+// Only render http(s) links, and never auto-open — same posture as SourceLink.
+function SupplementalLink({ url }) {
+  if (typeof url !== "string" || !/^https?:\/\//i.test(url)) return null;
+  let host = url;
+  try { host = new URL(url).host; } catch { /* keep raw url as label */ }
+  return (
+    <a className="source-link" href={url} target="_blank" rel="noopener noreferrer">
+      <span>Բացել Open Notebook աղբյուրը</span>
+      <small>{host}</small>
     </a>
   );
 }

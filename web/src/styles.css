@@ -350,6 +350,14 @@ textarea {
 .meta-row span { background: var(--surface-soft); color: var(--muted); }
 .meta-row a { background: var(--brand); color: #fff; }
 
+/* Open Notebook supplemental sources — visually subdued + clearly non-authoritative,
+   set apart from the curated "Աղբյուրներ" (citations) block above it. */
+.copilot-supplemental { border-left: 2px solid var(--line); padding-left: 0.6rem; }
+.copilot-supplemental h3 { color: var(--muted); }
+.supplemental-note { font-size: 0.8rem; color: var(--muted); margin: 0 0 0.5rem; }
+.supplemental-title { display: block; }
+.supplemental-excerpt { display: block; font-style: italic; color: var(--muted); font-size: 0.85rem; margin-top: 0.15rem; }
+
 .workflow-strip {
   display: grid;
   align-content: start;
