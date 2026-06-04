@@ -20,44 +20,11 @@ function requiredAppForIntent(intent) {
 }
 
 // --- Open Notebook supplemental sources (opt-in, advisory-only) --------------
-//
-// These come from the user's self-hosted Open Notebook beside the curated
-// Armenian legal registry. They are NEVER authoritative: they do not enter the
-// law-* citation set, do not change `status`/`sourceReady`, and do not move
-// `confidence`. They are surfaced (clearly labeled) so a reviewer can see what
-// general material was consulted. This policy — cap, dedupe key, ordering,
-// excerpt length — is the one knob with real product/compliance judgment.
-const MAX_SUPPLEMENTAL_SOURCES = 3;
-const SUPPLEMENTAL_EXCERPT_MAX = 280;
-
-function normalizeSupplementalSources(raw, { max = MAX_SUPPLEMENTAL_SOURCES } = {}) {
-  if (!Array.isArray(raw)) return [];
-  const cleaned = raw
-    .map(row => {
-      const r = row || {};
-      return {
-        title: String(r.title || "Open Notebook").replace(/\s+/g, " ").trim() || "Open Notebook",
-        excerpt: String(r.text || r.excerpt || "").replace(/\s+/g, " ").trim().slice(0, SUPPLEMENTAL_EXCERPT_MAX),
-        sourceUrl: typeof r.sourceUrl === "string" ? r.sourceUrl : "",
-        score: Number.isFinite(r.score) ? r.score : 0,
-        origin: "open-notebook",
-        advisory: true
-      };
-    })
-    .filter(row => row.excerpt.length > 0)
-    .sort((a, b) => b.score - a.score);
-  // Dedupe on sourceUrl when present, else title; keep the highest-scored hit.
-  const seen = new Set();
-  const out = [];
-  for (const row of cleaned) {
-    const key = (row.sourceUrl || row.title).toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(row);
-    if (out.length >= max) break;
-  }
-  return out;
-}
+// The ranking/dedupe/cap policy now lives in the shared @a1/ai core (vendored at
+// ./vendor/a1-ai) so every A1 product handles supplemental sources identically.
+// Advisory-only: they never enter the law-* citation set, status/sourceReady, or
+// confidence — that gate is enforced below in buildCopilotPacket.
+const { normalizeSupplementalSources, MAX_SUPPLEMENTAL_SOURCES } = require("./vendor/a1-ai");
 
 // Append a clearly-labeled, non-authoritative note. The curated "Աղբյուրներ:"
 // line built by buildAnswer() remains the source of record.
