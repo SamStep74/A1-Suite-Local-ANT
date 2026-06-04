@@ -3144,7 +3144,7 @@ Status: shipped in the local prototype on 2026-05-28.
 
 ### Slice 309 - Clinic Subsequent Ongoing Renewal Draft Acceptance Handoff ID Guard
 
-- Clinic/wellness subsequent-ongoing-renewal HayHashvapah draft-invoice packet mutations now reject malformed subsequent-ongoing-renewal quote acceptance handoff path IDs before handoff lookup or draft-invoice packet creation.
+- Clinic/wellness subsequent-ongoing-renewal HayHashvapah draft-invoice packet mutations now reject malformed subsequent-ongoing-renewal acceptance handoff path IDs before handoff lookup or draft-invoice packet creation.
 - Submitted subsequent-ongoing-renewal acceptance handoff IDs must be structurally safe before they can become HayHashvapah draft evidence, finance workflow proof, backup, suite-event, or audit inputs.
 - Clinic subsequent-ongoing-renewal acceptance handoff IDs must be lowercase alphanumeric/hyphen strings; control-character strings, empty values, overlong values, or unsafe characters are rejected instead of being treated as missing subsequent-ongoing-renewal acceptance handoffs.
 - Safe unknown subsequent-ongoing-renewal acceptance handoff IDs still preserve the existing `404` behavior, and valid owner-executed subsequent-ongoing-renewal acceptance handoffs continue creating governed HayHashvapah draft-invoice packets.
