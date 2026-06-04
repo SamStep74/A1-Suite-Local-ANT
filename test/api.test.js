@@ -23457,17 +23457,21 @@ test("service case mutations reject malformed metadata before persistence", asyn
       { method: "POST", url: "/api/service/cases", cookie: ownerCookie, payload: { customerId: "cust-ani", subject: "Client asks for package support", priority: "high", channel: { value: "Email" } } },
       { method: "POST", url: "/api/service/cases/case-nare-vat/replies", cookie: ownerCookie, payload: { body: { text: "secret-service-reply-object" } } },
       { method: "POST", url: "/api/service/cases/case-nare-vat/replies", cookie: ownerCookie, payload: { body: "secret-service-reply-control\u0000" } },
+      { method: "POST", url: "/api/service/cases/case-nare-vat%0Asecret-service-reply-path-token/replies", cookie: ownerCookie, payload: { body: "secret-service-reply-path-body-token" } },
       { method: "PATCH", url: "/api/service/cases/case-nare-vat", cookie: ownerCookie, payload: { status: ["closed"] } },
       { method: "PATCH", url: "/api/service/cases/case-nare-vat", cookie: ownerCookie, payload: { priority: "urgent" } },
       { method: "PATCH", url: "/api/service/cases/case-nare-vat", cookie: ownerCookie, payload: { ownerUserId: { id: "user-owner" } } },
+      { method: "PATCH", url: "/api/service/cases/case-nare-vat_bad-secret-service-patch-path-token", cookie: ownerCookie, payload: { status: "closed" } },
       { method: "POST", url: "/api/service/cases/case-nare-vat/escalate", cookie: managerCookie, payload: null },
       { method: "POST", url: "/api/service/cases/case-nare-vat/escalate", cookie: managerCookie, payload: { severity: { value: "sla-risk" }, reason: "secret-service-escalation-severity-object" } },
       { method: "POST", url: "/api/service/cases/case-nare-vat/escalate", cookie: managerCookie, payload: { severity: "sla-risk", reason: "secret-service-escalation-control\u0000" } },
+      { method: "POST", url: "/api/service/cases/case-nare-vat%0Asecret-service-escalation-path-token/escalate", cookie: managerCookie, payload: { severity: "sla-risk", reason: "Valid escalation reason after path guard checks." } },
       { method: "POST", url: "/api/service/cases/case-nare-vat/resolve", cookie: ownerCookie, payload: { resolutionCode: ["customer-confirmed"], summary: "secret-service-resolution-code-array" } },
       { method: "POST", url: "/api/service/cases/case-nare-vat/resolve", cookie: ownerCookie, payload: { resolutionCode: "customer-confirmed", summary: { text: "secret-service-resolution-summary-object" } } },
       { method: "POST", url: "/api/service/cases/case-nare-vat/resolve", cookie: ownerCookie, payload: { resolutionCode: "customer-confirmed", summary: "Customer confirmed support closure with enough detail.", satisfactionScore: { value: 5 } } },
       { method: "POST", url: "/api/service/cases/case-nare-vat/resolve", cookie: ownerCookie, payload: { resolutionCode: "customer-confirmed", summary: "Customer confirmed support closure with enough detail.", satisfactionScore: "5e0" } },
-      { method: "POST", url: "/api/service/cases/case-nare-vat/resolve", cookie: ownerCookie, payload: { resolutionCode: "customer-confirmed", summary: "Customer confirmed support closure with enough detail.", customerConfirmedAt: { at: "2026-05-26T18:30:00.000Z" } } }
+      { method: "POST", url: "/api/service/cases/case-nare-vat/resolve", cookie: ownerCookie, payload: { resolutionCode: "customer-confirmed", summary: "Customer confirmed support closure with enough detail.", customerConfirmedAt: { at: "2026-05-26T18:30:00.000Z" } } },
+      { method: "POST", url: "/api/service/cases/case-nare-vat_bad-secret-service-resolution-path-token/resolve", cookie: ownerCookie, payload: { resolutionCode: "customer-confirmed", summary: "Customer confirmed support closure with enough detail after path guard checks.", satisfactionScore: 5 } }
     ];
 
     for (const request of malformedRequests) {
@@ -23479,6 +23483,24 @@ test("service case mutations reject malformed metadata before persistence", asyn
       });
       assert.equal(rejected.statusCode, 400, rejected.body);
       assert.doesNotMatch(rejected.body, /secret-service-/);
+    }
+
+    const safeUnknownRequests = [
+      { method: "POST", url: "/api/service/cases/case-missing-safe/replies", cookie: ownerCookie, payload: { body: "secret-service-missing-reply-body-token" } },
+      { method: "PATCH", url: "/api/service/cases/case-missing-safe", cookie: ownerCookie, payload: { status: "closed", priority: "low" } },
+      { method: "POST", url: "/api/service/cases/case-missing-safe/escalate", cookie: managerCookie, payload: { severity: "sla-risk", reason: "secret-service-missing-escalation-body-token" } },
+      { method: "POST", url: "/api/service/cases/case-missing-safe/resolve", cookie: ownerCookie, payload: { resolutionCode: "customer-confirmed", summary: "Customer confirmed safe unknown case path should stay missing without side effects.", satisfactionScore: 5 } }
+    ];
+
+    for (const request of safeUnknownRequests) {
+      const missing = await app.inject({
+        method: request.method,
+        url: request.url,
+        headers: { cookie: request.cookie },
+        payload: request.payload
+      });
+      assert.equal(missing.statusCode, 404, missing.body);
+      assert.doesNotMatch(missing.body, /secret-service-/);
     }
 
     assert.equal(count("service_cases"), before.cases);

@@ -262,6 +262,89 @@ test("people-hr: rejects malformed employee metadata before persistence", async 
   } finally { await app.close(); }
 });
 
+test("people-hr: malformed employee path ids are rejected before payroll side effects", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const orgId = app.db.prepare("SELECT org_id FROM users WHERE email = ?").get(DEFAULT_EMAIL).org_id;
+
+    const counts = () => ({
+      employees: app.db.prepare("SELECT COUNT(*) AS count FROM people_employees WHERE org_id = ?").get(orgId).count,
+      payrollRuns: app.db.prepare("SELECT COUNT(*) AS count FROM payroll_runs WHERE org_id = ?").get(orgId).count,
+      ledgerRows: app.db.prepare("SELECT COUNT(*) AS count FROM ledger_journal WHERE org_id = ?").get(orgId).count,
+      peopleAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type LIKE ?").get(orgId, "people.%").count,
+      payrollAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?").get(orgId, "payroll.run.posted").count
+    });
+    const davitRow = () => app.db.prepare(`
+      SELECT position, department, gross_salary AS grossSalary, employment_status AS employmentStatus, email
+      FROM people_employees
+      WHERE org_id = ? AND id = ?
+    `).get(orgId, "emp-davit");
+    const before = counts();
+    const beforeDavit = davitRow();
+
+    const expectRejected = async ({ method, url, payload, statusCode = 400, statusCodes }) => {
+      const request = { method, url, headers: { cookie: owner } };
+      if (payload !== undefined) request.payload = payload;
+      const response = await app.inject(request);
+      const allowedStatuses = statusCodes || [statusCode];
+      assert.ok(allowedStatuses.includes(response.statusCode), `${url}: ${response.body}`);
+      if (response.statusCode === 400) {
+        assert.match(response.body, /Invalid employee id/);
+      }
+      assert.doesNotMatch(response.body, /secret-people-path-/);
+      assert.deepStrictEqual(counts(), before);
+      assert.deepStrictEqual(davitRow(), beforeDavit);
+    };
+
+    for (const request of [
+      { method: "PATCH", url: "/api/people/employees/badAsecret-people-path-patch-id-token", payload: { position: "secret-people-path-patch-body-token" } },
+      { method: "POST", url: "/api/people/employees/bad_secret-people-path-payroll-id-token/run-payroll", payload: { runDate: "2099-03-15", token: "secret-people-path-payroll-body-token" } },
+      { method: "GET", url: "/api/people/employees/badAsecret-people-path-history-id-token/payroll-runs" },
+      { method: "PATCH", url: `/api/people/employees/${"a".repeat(161)}`, payload: { position: "secret-people-path-overlong-body-token" }, statusCodes: [400, 404] },
+      { method: "POST", url: "/api/people/employees/bad%0Asecret-people-path-control-id-token/run-payroll", payload: { runDate: "2099-03-15" }, statusCodes: [400, 404] },
+      { method: "GET", url: "/api/people/employees/%20%20/payroll-runs", statusCodes: [400, 404] }
+    ]) {
+      await expectRejected(request);
+    }
+
+    for (const request of [
+      { method: "PATCH", url: "/api/people/employees/emp-missing", payload: { position: "secret-people-path-missing-patch-body-token" }, statusCode: 404 },
+      { method: "POST", url: "/api/people/employees/emp-missing/run-payroll", payload: { runDate: "2099-03-15", token: "secret-people-path-missing-payroll-body-token" }, statusCode: 404 },
+      { method: "GET", url: "/api/people/employees/emp-missing/payroll-runs", statusCode: 404 }
+    ]) {
+      await expectRejected(request);
+    }
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: "/api/people/employees/emp-davit",
+      headers: { cookie: owner },
+      payload: { position: "Path Guarded Accountant" }
+    });
+    assert.strictEqual(patched.statusCode, 200, patched.body);
+    assert.strictEqual(patched.json().employee.position, "Path Guarded Accountant");
+
+    const run = await app.inject({
+      method: "POST",
+      url: "/api/people/employees/emp-davit/run-payroll",
+      headers: { cookie: owner },
+      payload: { runDate: "2099-03-15" }
+    });
+    assert.strictEqual(run.statusCode, 200, run.body);
+    assert.strictEqual(run.json().run.employeeId, "emp-davit");
+
+    const history = await app.inject({
+      method: "GET",
+      url: "/api/people/employees/emp-davit/payroll-runs",
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(history.statusCode, 200, history.body);
+    assert.ok(history.json().runs.some(r => r.employeeId === "emp-davit"));
+  } finally { await app.close(); }
+});
+
 test("people-hr: cross-org isolation — a foreign employee is invisible (404, not 403)", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

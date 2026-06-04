@@ -4244,7 +4244,8 @@ ${controls}
   app.patch("/api/people/employees/:id", async request => {
     const user = await app.auth(request);
     requirePeopleWriter(user);
-    const employee = getEmployee(db, user.org_id, request.params.id);
+    const employeeId = normalizePeopleEmployeePathId(request.params.id, request.raw?.url);
+    const employee = getEmployee(db, user.org_id, employeeId);
     if (!employee) { const e = new Error("Employee not found"); e.statusCode = 404; throw e; }
     return updatePeopleEmployee(db, user, employee, request.body === undefined ? {} : request.body);
   });
@@ -4252,7 +4253,8 @@ ${controls}
   app.post("/api/people/employees/:id/run-payroll", async request => {
     const user = await app.auth(request);
     requirePeopleWriter(user);
-    const employee = getEmployee(db, user.org_id, request.params.id);
+    const employeeId = normalizePeopleEmployeePathId(request.params.id, request.raw?.url);
+    const employee = getEmployee(db, user.org_id, employeeId);
     if (!employee) { const e = new Error("Employee not found"); e.statusCode = 404; throw e; }
     if (employee.employmentStatus === "terminated") { const e = new Error("Cannot run payroll for a terminated employee"); e.statusCode = 409; throw e; }
     return postPeopleEmployeePayrollRun(db, user, employee, request.body === undefined ? {} : request.body);
@@ -4260,7 +4262,8 @@ ${controls}
 
   app.get("/api/people/employees/:id/payroll-runs", async request => {
     const user = await app.auth(request);
-    const employee = getEmployee(db, user.org_id, request.params.id);
+    const employeeId = normalizePeopleEmployeePathId(request.params.id, request.raw?.url);
+    const employee = getEmployee(db, user.org_id, employeeId);
     if (!employee) { const e = new Error("Employee not found"); e.statusCode = 404; throw e; }
     // History resolves by FK (employee_id), not by name — so a renamed employee keeps their runs.
     const runs = db.prepare("SELECT id, employee_id AS employeeId, employee_name AS employeeName, gross, income_tax AS incomeTax, pension, stamp_duty AS stampDuty, total_deductions AS totalDeductions, net, run_date AS runDate, period_key AS periodKey FROM payroll_runs WHERE org_id = ? AND employee_id = ? ORDER BY run_date DESC, created_at DESC").all(user.org_id, employee.id);
@@ -5139,6 +5142,29 @@ function requirePeopleWriter(user) {
     err.statusCode = 403;
     throw err;
   }
+}
+
+function normalizePeopleEmployeePathId(value, rawUrl = "") {
+  const rawSegment = typeof rawUrl === "string"
+    ? rawUrl.match(/^\/api\/people\/employees\/([^/?#]+)(?:\/(?:run-payroll|payroll-runs))?(?:[?#]|$)/)?.[1]
+    : "";
+  if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+    throwInvalidPeopleEmployeePathId();
+  }
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidPeopleEmployeePathId();
+  }
+  const employeeId = value.trim();
+  if (!employeeId || employeeId.length > 160 || !/^[a-z0-9-]+$/.test(employeeId)) {
+    throwInvalidPeopleEmployeePathId();
+  }
+  return employeeId;
+}
+
+function throwInvalidPeopleEmployeePathId() {
+  const err = new Error("Invalid employee id");
+  err.statusCode = 400;
+  throw err;
 }
 
 function createPeopleEmployee(db, user, body) {
@@ -44349,6 +44375,23 @@ function throwInvalidServiceMetadata(message = "Service request requires safe me
   throw err;
 }
 
+function normalizeServiceCasePathId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidServiceCasePathId();
+  }
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) {
+    throwInvalidServiceCasePathId();
+  }
+  return text;
+}
+
+function throwInvalidServiceCasePathId() {
+  const err = new Error("Invalid service case id");
+  err.statusCode = 400;
+  throw err;
+}
+
 function normalizeAiAdvisoryInput(body, idField, promptFallback, options = {}) {
   const { promptRequired = false, promptMinLength = 0, promptMaxLength = 2000 } = options;
   if (!isPlainObject(body)) {
@@ -48900,6 +48943,7 @@ function getServiceCases(db, orgId, customerId = "") {
 }
 
 function getServiceCase(db, orgId, caseId) {
+  const safeCaseId = normalizeServiceCasePathId(caseId);
   const row = db.prepare(`
     SELECT service_cases.*, customers.name AS customer_name, customers.tax_id,
       users.name AS owner_name,
@@ -48913,7 +48957,7 @@ function getServiceCase(db, orgId, caseId) {
     JOIN customers ON customers.id = service_cases.customer_id
     LEFT JOIN users ON users.id = service_cases.owner_user_id
     WHERE service_cases.org_id = ? AND service_cases.id = ?
-  `).get(orgId, caseId);
+  `).get(orgId, safeCaseId);
   return row ? formatServiceCase(row) : null;
 }
 
