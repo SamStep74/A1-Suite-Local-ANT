@@ -3783,7 +3783,8 @@ ${controls}
   app.get("/api/workflow/rules/:id/versions", async request => {
     const user = await app.auth(request);
     requireWorkflowOperator(user);
-    const rule = getAutomationRule(db, user.org_id, request.params.id);
+    const ruleId = normalizeWorkflowRulePathId(request.params.id, request.raw?.url);
+    const rule = getAutomationRule(db, user.org_id, ruleId);
     if (!rule) {
       const err = new Error("Workflow rule not found");
       err.statusCode = 404;
@@ -3795,16 +3796,18 @@ ${controls}
   app.post("/api/workflow/rules/:id/state", async request => {
     const user = await app.auth(request);
     requireOwner(user);
+    const ruleId = normalizeWorkflowRulePathId(request.params.id, request.raw?.url);
     const body = request.body === undefined ? {} : request.body;
-    const result = updateAutomationRuleState(db, user, request.params.id, body);
+    const result = updateAutomationRuleState(db, user, ruleId, body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8) };
   });
 
   app.post("/api/workflow/rules/:id/rollback", async request => {
     const user = await app.auth(request);
     requireOwner(user);
+    const ruleId = normalizeWorkflowRulePathId(request.params.id, request.raw?.url);
     const body = request.body === undefined ? {} : request.body;
-    const result = rollbackAutomationRuleVersion(db, user, request.params.id, body);
+    const result = rollbackAutomationRuleVersion(db, user, ruleId, body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8) };
   });
 
@@ -3827,16 +3830,18 @@ ${controls}
   app.post("/api/workflow/rules/:id/dry-run", async request => {
     const user = await app.auth(request);
     requireWorkflowOperator(user);
+    const ruleId = normalizeWorkflowRulePathId(request.params.id, request.raw?.url);
     const body = request.body === undefined ? {} : request.body;
-    const result = createWorkflowDryRun(db, user, request.params.id, body);
+    const result = createWorkflowDryRun(db, user, ruleId, body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.dryRun.customerId) };
   });
 
   app.post("/api/workflow/rules/:id/test-event", async request => {
     const user = await app.auth(request);
     requireWorkflowOperator(user);
+    const ruleId = normalizeWorkflowRulePathId(request.params.id, request.raw?.url);
     const body = request.body === undefined ? {} : request.body;
-    const result = createWorkflowTestEvent(db, user, request.params.id, body);
+    const result = createWorkflowTestEvent(db, user, ruleId, body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8, result.testEvent.customerId) };
   });
 
@@ -52778,6 +52783,29 @@ function normalizeWorkflowRollbackVersionValue(value) {
     throw err;
   }
   return value;
+}
+
+function normalizeWorkflowRulePathId(value, rawUrl = "") {
+  const rawSegment = typeof rawUrl === "string"
+    ? rawUrl.match(/^\/api\/workflow\/rules\/([^/?#]+)(?:\/(?:versions|state|rollback|dry-run|test-event))?(?:[?#]|$)/)?.[1]
+    : "";
+  if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+    throwInvalidWorkflowRulePathId();
+  }
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidWorkflowRulePathId();
+  }
+  const ruleId = value.trim();
+  if (!ruleId || ruleId.length > 160 || !/^[a-z0-9-]+$/.test(ruleId)) {
+    throwInvalidWorkflowRulePathId();
+  }
+  return ruleId;
+}
+
+function throwInvalidWorkflowRulePathId() {
+  const err = new Error("Invalid workflow rule id");
+  err.statusCode = 400;
+  throw err;
 }
 
 function throwWorkflowRuleChangeError(message) {

@@ -25235,6 +25235,88 @@ test("workflow rule state and rollback reject malformed metadata before persiste
     const versionCountBeforeState = versionCount();
     const suiteEventCountBeforeState = suiteRuleEventCount();
     const auditCountBeforeState = auditRuleEventCount();
+    const dryRunCountBeforePath = app.db.prepare("SELECT COUNT(*) AS count FROM workflow_dry_runs").get().count;
+    const testEventCountBeforePath = app.db.prepare("SELECT COUNT(*) AS count FROM workflow_test_events").get().count;
+
+    const malformedRulePaths = [
+      {
+        method: "GET",
+        url: "/api/workflow/rules/rule-overdue-task_secret-workflow-rule-path-token/versions"
+      },
+      {
+        method: "POST",
+        url: "/api/workflow/rules/Rule-overdue-task-secret-workflow-rule-state-token/state",
+        payload: {
+          enabled: false,
+          reason: "Malformed workflow rule paths must not pause automation."
+        }
+      },
+      {
+        method: "POST",
+        url: "/api/workflow/rules/rule-overdue-task%0Asecret-workflow-rule-rollback-token/rollback",
+        payload: {
+          versionNumber: 1,
+          reason: "Malformed workflow rule paths must not rollback automation."
+        }
+      },
+      {
+        method: "POST",
+        url: "/api/workflow/rules/rule-overdue-task_secret-workflow-rule-dry-run-token/dry-run",
+        payload: { customerId: "cust-nare", invoiceId: "inv-1007" }
+      },
+      {
+        method: "POST",
+        url: "/api/workflow/rules/rule-overdue-task%0Asecret-workflow-rule-test-event-token/test-event",
+        payload: {
+          eventType: "invoice.overdue",
+          payload: { customerId: "cust-nare", invoiceId: "inv-1007" }
+        }
+      }
+    ];
+    for (const request of malformedRulePaths) {
+      const rejected = await app.inject({
+        method: request.method,
+        url: request.url,
+        headers: { cookie: ownerCookie },
+        payload: request.payload
+      });
+      assert.equal(rejected.statusCode, 400, `${request.url}: ${rejected.body}`);
+      assert.match(rejected.body, /Invalid workflow rule id/);
+      assert.doesNotMatch(rejected.body, /secret-workflow-rule-/);
+    }
+
+    const overlongRulePath = await app.inject({
+      method: "POST",
+      url: `/api/workflow/rules/${"a".repeat(161)}secret-workflow-rule-overlong-token/state`,
+      headers: { cookie: ownerCookie },
+      payload: {
+        enabled: false,
+        reason: "Overlong workflow rule paths must not pause automation."
+      }
+    });
+    assert.ok([400, 404].includes(overlongRulePath.statusCode), overlongRulePath.body);
+    assert.doesNotMatch(overlongRulePath.body, /secret-workflow-rule-/);
+    if (overlongRulePath.statusCode === 400) {
+      assert.match(overlongRulePath.body, /Invalid workflow rule id/);
+    }
+
+    const missingRulePath = await app.inject({
+      method: "POST",
+      url: "/api/workflow/rules/rule-missing-safe/state",
+      headers: { cookie: ownerCookie },
+      payload: {
+        enabled: false,
+        reason: "Safe missing workflow rule ids still return not found."
+      }
+    });
+    assert.equal(missingRulePath.statusCode, 404, missingRulePath.body);
+    assert.doesNotMatch(missingRulePath.body, /Safe missing workflow rule ids/);
+
+    assert.equal(versionCount(), versionCountBeforeState);
+    assert.equal(suiteRuleEventCount(), suiteEventCountBeforeState);
+    assert.equal(auditRuleEventCount(), auditCountBeforeState);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM workflow_dry_runs").get().count, dryRunCountBeforePath);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM workflow_test_events").get().count, testEventCountBeforePath);
 
     const malformedStateRequests = [
       {
