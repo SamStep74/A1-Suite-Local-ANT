@@ -14401,6 +14401,47 @@ test("sales can create clinic following ongoing renewal quote release packet aft
     });
     assert.equal(premature.statusCode, 409);
 
+    const countReleasePackets = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/following-ongoing-renewal-quote-releases?followingOngoingRenewalHandoffId=${proof.followingOngoingRenewalQuoteHandoff.id}`,
+        headers: { cookie: proof.ownerCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return list.json().packets.length;
+    };
+    const countAuditEvents = async () => {
+      const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: proof.ownerCookie } });
+      assert.equal(audit.statusCode, 200, audit.body);
+      return audit.json().events.length;
+    };
+    const beforeRejectedReleases = await countReleasePackets();
+    const beforeRejectedAudit = await countAuditEvents();
+
+    const malformedId = "badAsecret-following-ongoing-release-token";
+    const malformed = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/following-ongoing-renewal-quotes/${malformedId}/release-packet`,
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "Secret following ongoing release note should not leak." }
+    });
+    assert.equal(malformed.statusCode, 400, malformed.body);
+    assert.match(malformed.json().message, /Invalid clinic pilot following ongoing renewal quote handoff id/);
+    assert.doesNotMatch(malformed.body, /badAsecret/);
+    assert.doesNotMatch(malformed.body, /Secret following ongoing release note/);
+    assert.equal(await countReleasePackets(), beforeRejectedReleases);
+    assert.equal(await countAuditEvents(), beforeRejectedAudit);
+
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/following-ongoing-renewal-quotes/pilot-following-ongoing-renewal-quote-handoff-missing/release-packet",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "Safe missing following ongoing quote handoff remains a not-found lookup." }
+    });
+    assert.equal(missing.statusCode, 404, missing.body);
+    assert.equal(await countReleasePackets(), beforeRejectedReleases);
+    assert.equal(await countAuditEvents(), beforeRejectedAudit);
+
     const decision = await app.inject({
       method: "POST",
       url: `/api/workflow/approvals/${proof.followingOngoingRenewalQuoteApproval.id}/decision`,

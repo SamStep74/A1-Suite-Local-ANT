@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-04 · clinic following ongoing renewal quote next ongoing closeout id guard · 87 tags · **465 tests verified**_
+_Last updated: 2026-06-04 · clinic following ongoing renewal release handoff id guard · 87 tags · **465 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -216,6 +216,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 179. **Clinic next ongoing renewal payment collection posting packet id guard** validates clinic/wellness next-ongoing-renewal official-invoice posting packet path IDs before next-ongoing-renewal payment-collection packet creation, rejecting malformed next-ongoing-renewal posting packet metadata instead of treating unsafe IDs as missing next-ongoing-renewal posting packets.
 180. **Clinic next ongoing renewal closeout payment collection id guard** validates clinic/wellness next-ongoing-renewal payment-collection packet path IDs before next-ongoing-renewal closeout packet creation, rejecting malformed next-ongoing-renewal payment-collection metadata instead of treating unsafe IDs as missing next-ongoing-renewal payment-collection packets.
 181. **Clinic following ongoing renewal quote next ongoing closeout id guard** validates clinic/wellness next-ongoing-renewal closeout packet path IDs before following-ongoing-renewal quote handoff creation, rejecting malformed next-ongoing-renewal closeout metadata instead of treating unsafe IDs as missing next-ongoing-renewal closeout packets.
+182. **Clinic following ongoing renewal release handoff id guard** validates clinic/wellness following-ongoing-renewal quote handoff path IDs before following-ongoing-renewal quote release packet creation, rejecting malformed following-ongoing-renewal handoff metadata instead of treating unsafe IDs as missing following-ongoing-renewal quote handoffs.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -263,6 +264,8 @@ printf 'http://%s:4178/\n' "$MAC_IP"
 The Copilot slice is Armenian-first and exposes `COPILOT_PROVIDER=gemini`, `COPILOT_MODEL=gemini-3.5-flash`, and `COPILOT_LANGUAGE=hy-AM` in the response model policy. Local verification keeps execution deterministic with outbound disabled by default.
 
 Current checkpoint:
+- Current clinic following ongoing renewal release handoff id guard checkpoint: pending commit on `codex/suite-dashboard-route-normalization` (validates clinic/wellness following-ongoing-renewal quote handoff path IDs before following-ongoing-renewal quote release packet creation).
+- Latest clinic following ongoing renewal release handoff id guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic following-ongoing-renewal quote release packet regression (`sales can create clinic following ongoing renewal quote release packet after workflow executes`) pass (1 test); full `npm test` pass (465 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-following-ongoing-renewal-release-handoff-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
 - Latest clinic following ongoing renewal quote next ongoing closeout id guard checkpoint: `589e418` (`Harden clinic next ongoing renewal closeout ids`), pushed on `codex/suite-dashboard-route-normalization`.
 - Latest clinic following ongoing renewal quote next ongoing closeout id guard verification from `~/dev/A1-Suite-Local`: `node --check server/app.js` pass; `node --check test/api.test.js` pass; `git diff --check` pass; focused clinic following-ongoing-renewal quote handoff regression (`sales can create clinic following ongoing renewal quote handoff from next ongoing closeout`) pass (1 test); full `npm test` pass (465 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-clinic-following-ongoing-renewal-quote-next-ongoing-closeout-id-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
 - Latest clinic next ongoing renewal closeout payment collection id guard checkpoint: `589e418` (`Harden clinic next ongoing renewal closeout ids`), pushed on `codex/suite-dashboard-route-normalization`.
