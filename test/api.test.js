@@ -16855,6 +16855,56 @@ test("accountant can record subsequent ongoing renewal payment collection packet
     });
     assert.equal(premature.statusCode, 409);
 
+    const countPaymentPackets = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/subsequent-ongoing-renewal-payment-collections?postingPacketId=${proof.subsequentOngoingRenewalPostingPacket.id}`,
+        headers: { cookie: proof.accountantCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return list.json().packets.length;
+    };
+    const orgId = app.db.prepare("SELECT org_id AS orgId FROM users WHERE email = ?").get(DEFAULT_EMAIL).orgId;
+    const auditContainsEvidence = (...needles) => {
+      const events = app.db.prepare("SELECT type, details FROM audit_events WHERE org_id = ? ORDER BY id DESC").all(orgId);
+      const serializedEvents = JSON.stringify(events);
+      return needles.some(needle => serializedEvents.includes(needle));
+    };
+    const countPaymentAuditEvents = () => app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?")
+      .get(orgId, "pilot.subsequent_ongoing_renewal_hayhashvapah_payment_collection.created").count;
+    const beforeRejectedPaymentPackets = await countPaymentPackets();
+    const beforeRejectedAudit = countPaymentAuditEvents();
+
+    const malformedPostingPacketId = "badAsecret-subsequent-ongoing-payment-posting-packet-token";
+    const malformedPostingPacket = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/subsequent-ongoing-renewal-official-invoices/${malformedPostingPacketId}/payment-packet`,
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Secret subsequent ongoing payment collection note should not leak." }
+    });
+    assert.equal(malformedPostingPacket.statusCode, 400, malformedPostingPacket.body);
+    assert.match(malformedPostingPacket.json().message, /Invalid clinic pilot subsequent ongoing renewal HayHashvapah invoice posting packet id/);
+    assert.doesNotMatch(malformedPostingPacket.body, /badAsecret/);
+    assert.doesNotMatch(malformedPostingPacket.body, /Secret subsequent ongoing payment collection note/);
+    assert.equal(await countPaymentPackets(), beforeRejectedPaymentPackets);
+    assert.equal(countPaymentAuditEvents(), beforeRejectedAudit);
+    assert.equal(auditContainsEvidence(malformedPostingPacketId, "Secret subsequent ongoing payment collection note"), false);
+
+    const missingPostingPacket = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/subsequent-ongoing-renewal-official-invoices/pilot-subsequent-ongoing-renewal-posting-packet-missing/payment-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing subsequent ongoing renewal posting packet remains a not-found lookup." }
+    });
+    assert.equal(missingPostingPacket.statusCode, 404, missingPostingPacket.body);
+    assert.equal(await countPaymentPackets(), beforeRejectedPaymentPackets);
+    assert.equal(countPaymentAuditEvents(), beforeRejectedAudit);
+    assert.equal(auditContainsEvidence(
+      malformedPostingPacketId,
+      "Secret subsequent ongoing payment collection note",
+      "Safe missing subsequent ongoing renewal posting packet remains a not-found lookup"
+    ), false);
+
     const paid = await app.inject({
       method: "POST",
       url: `/api/finance/invoices/${proof.subsequentOngoingRenewalInvoice.id}/payments`,
