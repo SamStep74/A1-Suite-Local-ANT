@@ -72,9 +72,32 @@ test("docs-export: unknown id and cross-org access both 404 (no leak)", async ()
   try {
     await app.ready();
     const owner = await login(app);
+    const documentCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM documents").get().count;
+    const before = documentCount();
+
+    const malformed = await app.inject({
+      method: "GET",
+      url: "/api/docs/documents/badAsecret-docs-document-path-export-id-token/export",
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(malformed.statusCode, 400, malformed.body);
+    assert.match(malformed.body, /Invalid document id/);
+    assert.doesNotMatch(malformed.body, /secret-docs-document-path-/);
+    assert.strictEqual(documentCount(), before);
+
+    const encodedMalformed = await app.inject({
+      method: "GET",
+      url: "/api/docs/documents/bad%0Asecret-docs-document-path-export-control-id-token/export",
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(encodedMalformed.statusCode, 400, encodedMalformed.body);
+    assert.match(encodedMalformed.body, /Invalid document id/);
+    assert.doesNotMatch(encodedMalformed.body, /secret-docs-document-path-/);
+    assert.strictEqual(documentCount(), before);
 
     const unknown = await app.inject({ method: "GET", url: "/api/docs/documents/doc-nope/export", headers: { cookie: owner } });
     assert.strictEqual(unknown.statusCode, 404);
+    assert.strictEqual(documentCount(), before);
 
     // Seed a foreign-org sealed-looking document; the owner must not be able to export it.
     const now = new Date().toISOString();

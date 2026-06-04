@@ -315,6 +315,46 @@ test("docs-sign: malformed document metadata is rejected before persistence", as
     const signUrl = `/api/docs/documents/${docId}/sign`;
     const voidUrl = `/api/docs/documents/${voidDocId}/void`;
 
+    const rejectedDocumentPath = async ({ method, path, payload, expectedStatus = 400, expectedStatuses }) => {
+      const request = { method, url: path, headers: { cookie: owner } };
+      if (payload !== undefined) request.payload = payload;
+      const response = await app.inject(request);
+      const allowedStatuses = expectedStatuses || [expectedStatus];
+      assert.ok(allowedStatuses.includes(response.statusCode), `${path}: ${response.body}`);
+      if (response.statusCode === 400) {
+        assert.match(response.body, /Invalid document id/);
+      }
+      assert.doesNotMatch(response.body, /secret-docs-document-path-/);
+      assert.deepStrictEqual(counts(), before);
+      assert.strictEqual(getDocumentStatus(sendDocId), "draft");
+    };
+    const malformedDocumentPathRequests = [
+      { method: "GET", path: "/api/docs/documents/badAsecret-docs-document-path-read-id-token" },
+      { method: "PATCH", path: "/api/docs/documents/bad_secret-docs-document-path-patch-id-token", payload: { title: "secret-docs-document-path-patch-body-token" } },
+      { method: "POST", path: "/api/docs/documents/badAsecret-docs-document-path-signer-id-token/signers", payload: { signerName: "Route Guard Signer", signerEmail: "route-guard@armosphera.local" } },
+      { method: "POST", path: "/api/docs/documents/bad_secret-docs-document-path-send-id-token/send", payload: { note: "secret-docs-document-path-send-body-token" } },
+      { method: "POST", path: "/api/docs/documents/badAsecret-docs-document-path-sign-id-token/sign", payload: { signerId } },
+      { method: "POST", path: "/api/docs/documents/bad_secret-docs-document-path-void-id-token/void", payload: { reason: "secret-docs-document-path-void-body-token" } },
+      { method: "GET", path: `/api/docs/documents/${"a".repeat(161)}`, expectedStatuses: [400, 404] },
+      { method: "POST", path: "/api/docs/documents/bad%0Asecret-docs-document-path-control-id-token/send", payload: { note: "secret-docs-document-path-encoded-send-body-token" }, expectedStatuses: [400, 404] },
+      { method: "POST", path: "/api/docs/documents/%20%20/sign", payload: { signerId: "secret-docs-document-path-encoded-signer-token" }, expectedStatuses: [400, 404] }
+    ];
+    for (const request of malformedDocumentPathRequests) {
+      await rejectedDocumentPath(request);
+    }
+
+    const missingDocumentPathRequests = [
+      { method: "GET", path: "/api/docs/documents/doc-missing", expectedStatus: 404 },
+      { method: "PATCH", path: "/api/docs/documents/doc-missing", payload: { title: "secret-docs-document-path-missing-patch-body-token" }, expectedStatus: 404 },
+      { method: "POST", path: "/api/docs/documents/doc-missing/signers", payload: { signerName: "Route Guard Signer" }, expectedStatus: 404 },
+      { method: "POST", path: "/api/docs/documents/doc-missing/send", payload: {}, expectedStatus: 404 },
+      { method: "POST", path: "/api/docs/documents/doc-missing/sign", payload: { signerId: "secret-docs-document-path-missing-signer-token" }, expectedStatus: 404 },
+      { method: "POST", path: "/api/docs/documents/doc-missing/void", payload: { reason: "secret-docs-document-path-missing-void-body-token" }, expectedStatus: 404 }
+    ];
+    for (const request of missingDocumentPathRequests) {
+      await rejectedDocumentPath(request);
+    }
+
     await rejectedNull({ method: "POST", path: createUrl });
     await rejectedNull({ method: "PATCH", path: patchUrl });
     await rejectedNull({ method: "POST", path: signerUrl });
@@ -384,6 +424,122 @@ test("docs-sign: malformed document metadata is rejected before persistence", as
     });
     assert.strictEqual(voided.statusCode, 200, voided.body);
     assert.strictEqual(voided.json().document.status, "voided");
+  } finally { await app.close(); }
+});
+
+test("docs-sign: malformed document path ids are rejected before lifecycle side effects", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/docs/documents",
+      headers: { cookie: owner },
+      payload: {
+        title: "Path guarded agreement",
+        body: "Path guard body",
+        docType: "agreement"
+      }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    const docId = created.json().document.id;
+
+    const counts = () => ({
+      documents: app.db.prepare("SELECT COUNT(*) AS count FROM documents WHERE org_id = ?").get("org-armosphera-demo").count,
+      signers: app.db.prepare("SELECT COUNT(*) AS count FROM document_signers WHERE org_id = ?").get("org-armosphera-demo").count,
+      signedSigners: app.db.prepare("SELECT COUNT(*) AS count FROM document_signers WHERE org_id = ? AND status = ?").get("org-armosphera-demo", "signed").count,
+      voidedDocuments: app.db.prepare("SELECT COUNT(*) AS count FROM documents WHERE org_id = ? AND status = ?").get("org-armosphera-demo", "voided").count,
+      suiteEvents: app.db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM suite_events
+        WHERE org_id = ?
+          AND event_type IN (?, ?, ?)
+      `).get("org-armosphera-demo", "docs.document.sent", "docs.document.signed", "docs.document.voided").count,
+      auditEvents: app.db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM audit_events
+        WHERE org_id = ?
+          AND type IN (?, ?, ?, ?, ?, ?)
+      `).get(
+        "org-armosphera-demo",
+        "docs.document.updated",
+        "docs.signer.added",
+        "docs.document.sent",
+        "docs.document.signed",
+        "docs.document.sealed",
+        "docs.document.voided"
+      ).count
+    });
+    const snapshotDocument = () =>
+      app.db.prepare("SELECT title, body, doc_type AS docType, status FROM documents WHERE org_id = ? AND id = ?")
+        .get("org-armosphera-demo", docId);
+    const before = counts();
+    const beforeDocument = snapshotDocument();
+
+    const routes = [
+      { method: "GET", suffix: "" },
+      { method: "PATCH", suffix: "", payload: { title: "secret-doc-path-patch-token" } },
+      { method: "POST", suffix: "/signers", payload: { signerName: "secret-doc-path-signer-token" } },
+      { method: "POST", suffix: "/send", payload: {} },
+      { method: "POST", suffix: "/sign", payload: { signerId: "secret-doc-path-signer-id-token" } },
+      { method: "POST", suffix: "/void", payload: { reason: "secret-doc-path-void-token" } },
+      { method: "GET", suffix: "/export" }
+    ];
+    const malformedIds = [
+      "badAsecret-doc-path-token",
+      "bad_secret-doc-path-token",
+      "a".repeat(161),
+      "bad%0Asecret-doc-path-control-token",
+      "%20%20"
+    ];
+
+    for (const id of malformedIds) {
+      for (const route of routes) {
+        const response = await app.inject({
+          method: route.method,
+          url: `/api/docs/documents/${id}${route.suffix}`,
+          headers: { cookie: owner },
+          payload: route.payload
+        });
+        assert.ok([400, 404].includes(response.statusCode), `${route.method} ${id}${route.suffix} -> ${response.statusCode}: ${response.body}`);
+        if (response.statusCode === 400) {
+          assert.match(response.body, /Invalid document id/);
+        }
+        assert.doesNotMatch(response.body, /secret-doc-path-/);
+      }
+    }
+
+    for (const route of routes) {
+      const response = await app.inject({
+        method: route.method,
+        url: `/api/docs/documents/doc-missing-path-guard${route.suffix}`,
+        headers: { cookie: owner },
+        payload: route.payload
+      });
+      assert.strictEqual(response.statusCode, 404, response.body);
+      assert.doesNotMatch(response.body, /secret-doc-path-/);
+    }
+
+    assert.deepStrictEqual(counts(), before);
+    assert.deepStrictEqual(snapshotDocument(), beforeDocument);
+
+    const validPatch = await app.inject({
+      method: "PATCH",
+      url: `/api/docs/documents/${docId}`,
+      headers: { cookie: owner },
+      payload: { title: "Path guarded agreement patched" }
+    });
+    assert.strictEqual(validPatch.statusCode, 200, validPatch.body);
+    assert.strictEqual(validPatch.json().document.title, "Path guarded agreement patched");
+
+    const exportDraft = await app.inject({
+      method: "GET",
+      url: `/api/docs/documents/${docId}/export`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(exportDraft.statusCode, 200, exportDraft.body);
+    assert.match(exportDraft.body, /Path guarded agreement patched/);
   } finally { await app.close(); }
 });
 

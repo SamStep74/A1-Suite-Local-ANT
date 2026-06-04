@@ -2298,7 +2298,8 @@ function registerApi(app, db, options = {}) {
 
   app.get("/api/docs/documents/:id", async request => {
     const user = await app.auth(request);
-    const document = getDocument(db, user.org_id, request.params.id);
+    const documentId = normalizeDocsDocumentPathId(request.params.id, request.raw?.url);
+    const document = getDocument(db, user.org_id, documentId);
     if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
     return { document };
   });
@@ -2321,7 +2322,8 @@ function registerApi(app, db, options = {}) {
   app.patch("/api/docs/documents/:id", async request => {
     const user = await app.auth(request);
     requireDocsWriter(user);
-    const document = getDocument(db, user.org_id, request.params.id);
+    const documentId = normalizeDocsDocumentPathId(request.params.id, request.raw?.url);
+    const document = getDocument(db, user.org_id, documentId);
     if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
     if (document.status !== "draft") { const e = new Error("Only draft documents can be edited"); e.statusCode = 409; throw e; }
     const input = normalizeDocsDocumentUpdateBody(request.body === undefined ? {} : request.body);
@@ -2347,7 +2349,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/docs/documents/:id/signers", async request => {
     const user = await app.auth(request);
     requireDocsWriter(user);
-    const document = getDocument(db, user.org_id, request.params.id);
+    const documentId = normalizeDocsDocumentPathId(request.params.id, request.raw?.url);
+    const document = getDocument(db, user.org_id, documentId);
     if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
     if (document.status !== "draft") { const e = new Error("Signers can only be added while the document is a draft"); e.statusCode = 409; throw e; }
     const input = normalizeDocsSignerBody(request.body === undefined ? {} : request.body);
@@ -2378,8 +2381,9 @@ function registerApi(app, db, options = {}) {
   app.post("/api/docs/documents/:id/send", async request => {
     const user = await app.auth(request);
     requireDocsWriter(user);
+    const documentId = normalizeDocsDocumentPathId(request.params.id, request.raw?.url);
     normalizeDocsSendBody(request.body === undefined ? {} : request.body);
-    const document = getDocument(db, user.org_id, request.params.id);
+    const document = getDocument(db, user.org_id, documentId);
     if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
     if (document.status !== "draft") { const e = new Error("Only draft documents can be sent for signature"); e.statusCode = 409; throw e; }
     if (document.signers.length === 0) { const e = new Error("Add at least one signer before sending"); e.statusCode = 409; throw e; }
@@ -2393,7 +2397,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/docs/documents/:id/sign", async request => {
     const user = await app.auth(request);
     requireDocsSigner(user); // read-only Auditor must never forge consent evidence
-    const document = getDocument(db, user.org_id, request.params.id);
+    const documentId = normalizeDocsDocumentPathId(request.params.id, request.raw?.url);
+    const document = getDocument(db, user.org_id, documentId);
     if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
     if (document.status !== "out-for-signature") { const e = new Error("Document is not out for signature"); e.statusCode = 409; throw e; }
     const { signerId } = normalizeDocsSignBody(request.body === undefined ? {} : request.body);
@@ -2442,7 +2447,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/docs/documents/:id/void", async request => {
     const user = await app.auth(request);
     requireDocsWriter(user);
-    const document = getDocument(db, user.org_id, request.params.id);
+    const documentId = normalizeDocsDocumentPathId(request.params.id, request.raw?.url);
+    const document = getDocument(db, user.org_id, documentId);
     if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
     if (document.status === "signed" || document.status === "voided") { const e = new Error("A signed or voided document cannot be voided"); e.statusCode = 409; throw e; }
     const { reason } = normalizeDocsVoidBody(request.body === undefined ? {} : request.body);
@@ -2461,7 +2467,8 @@ function registerApi(app, db, options = {}) {
   // sign/seal flow already computed — it derives no new evidence.
   app.get("/api/docs/documents/:id/export", async (request, reply) => {
     const user = await app.auth(request);
-    const document = getDocument(db, user.org_id, request.params.id);
+    const documentId = normalizeDocsDocumentPathId(request.params.id, request.raw?.url);
+    const document = getDocument(db, user.org_id, documentId);
     if (!document) { const e = new Error("Document not found"); e.statusCode = 404; throw e; }
     const org = getOrganization(db, user.org_id);
     const customer = document.customerId
@@ -5506,6 +5513,29 @@ function normalizeDocumentTemplateId(value) {
 
 function throwInvalidDocumentTemplateId() {
   const err = new Error("Invalid document template id");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeDocsDocumentPathId(value, rawUrl = "") {
+  const rawSegment = typeof rawUrl === "string"
+    ? rawUrl.match(/^\/api\/docs\/documents\/([^/?#]+)(?:\/(?:signers|send|sign|void|export))?(?:[?#]|$)/)?.[1]
+    : "";
+  if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+    throwInvalidDocsDocumentPathId();
+  }
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidDocsDocumentPathId();
+  }
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) {
+    throwInvalidDocsDocumentPathId();
+  }
+  return text;
+}
+
+function throwInvalidDocsDocumentPathId() {
+  const err = new Error("Invalid document id");
   err.statusCode = 400;
   throw err;
 }
