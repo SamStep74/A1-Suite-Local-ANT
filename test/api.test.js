@@ -20836,6 +20836,11 @@ test("legal source review rejects malformed metadata before persistence", async 
       WHERE event_type IN (?, ?)
         AND subject_id = ?
     `).get("legal.source.reviewed", "legal.source.review.blocked", "law-tax-code").count;
+    const totalLegalReviewEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE event_type IN (?, ?)
+    `).get("legal.source.reviewed", "legal.source.review.blocked").count;
     const reviewAuditCount = () => app.db.prepare(`
       SELECT COUNT(*) AS count
       FROM audit_events
@@ -20845,6 +20850,7 @@ test("legal source review rejects malformed metadata before persistence", async 
     const sourceBefore = sourceRow();
     const reviewCountBefore = reviewCount();
     const reviewedEventCountBefore = reviewedEventCount();
+    const totalLegalReviewEventCountBefore = totalLegalReviewEventCount();
     const reviewAuditCountBefore = reviewAuditCount();
     const basePayload = {
       title: "RA Tax Code Article 63 VAT rate - accountant reviewed",
@@ -20891,6 +20897,42 @@ test("legal source review rejects malformed metadata before persistence", async 
     });
     assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
 
+    const malformedPath = await app.inject({
+      method: "POST",
+      url: "/api/legal/sources/law-tax-code%0Asecret-legal-source-path-token/reviews",
+      headers: { cookie },
+      payload: {
+        ...basePayload,
+        reviewNote: "Accountant confirmed this official source without leaking secret-legal-source-path-token."
+      }
+    });
+    assert.equal(malformedPath.statusCode, 400, malformedPath.body);
+    assert.match(malformedPath.body, /Invalid legal source id/);
+    assert.doesNotMatch(malformedPath.body, /secret-legal-source-path-token/);
+
+    const malformedDecodedPath = await app.inject({
+      method: "POST",
+      url: "/api/legal/sources/law_tax_code_secret-legal-source-path-token/reviews",
+      headers: { cookie },
+      payload: basePayload
+    });
+    assert.equal(malformedDecodedPath.statusCode, 400, malformedDecodedPath.body);
+    assert.match(malformedDecodedPath.body, /Invalid legal source id/);
+    assert.doesNotMatch(malformedDecodedPath.body, /secret-legal-source-path-token/);
+
+    const missingSafePath = await app.inject({
+      method: "POST",
+      url: "/api/legal/sources/law-missing-safe/reviews",
+      headers: { cookie },
+      payload: {
+        ...basePayload,
+        reviewNote: "Accountant confirmed this official source without leaking secret-legal-source-missing-token."
+      }
+    });
+    assert.equal(missingSafePath.statusCode, 404, missingSafePath.body);
+    assert.match(missingSafePath.body, /Legal source not found/);
+    assert.doesNotMatch(missingSafePath.body, /secret-legal-source-missing-token/);
+
     for (const payload of malformedPayloads) {
       const rejected = await app.inject({
         method: "POST",
@@ -20905,6 +20947,7 @@ test("legal source review rejects malformed metadata before persistence", async 
     assert.deepEqual(sourceRow(), sourceBefore);
     assert.equal(reviewCount(), reviewCountBefore);
     assert.equal(reviewedEventCount(), reviewedEventCountBefore);
+    assert.equal(totalLegalReviewEventCount(), totalLegalReviewEventCountBefore);
     assert.equal(reviewAuditCount(), reviewAuditCountBefore);
 
     const accepted = await app.inject({

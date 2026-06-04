@@ -4286,8 +4286,9 @@ ${controls}
 
   app.post("/api/legal/sources/:id/reviews", async request => {
     const user = await app.auth(request);
-    requireLegalSourceReviewer(user, request.params.id);
-    const result = createLegalSourceReview(db, user, request.params.id, request.body === undefined ? {} : request.body);
+    const sourceId = normalizeLegalSourcePathId(request.params.id, request.raw?.url);
+    requireLegalSourceReviewer(user, sourceId);
+    const result = createLegalSourceReview(db, user, sourceId, request.body === undefined ? {} : request.body);
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8) };
   });
 
@@ -46629,6 +46630,29 @@ function getLegalSource(db, orgId, sourceId) {
   return row ? formatLegalSource(db, orgId, row) : null;
 }
 
+function normalizeLegalSourcePathId(value, rawUrl = "") {
+  const rawSegment = typeof rawUrl === "string"
+    ? rawUrl.match(/^\/api\/legal\/sources\/([^/?#]+)\/reviews(?:[?#]|$)/)?.[1]
+    : "";
+  if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+    throwInvalidLegalSourcePathId();
+  }
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidLegalSourcePathId();
+  }
+  const sourceId = value.trim();
+  if (!sourceId || sourceId.length > 160 || !/^[a-z0-9-]+$/.test(sourceId)) {
+    throwInvalidLegalSourcePathId();
+  }
+  return sourceId;
+}
+
+function throwInvalidLegalSourcePathId() {
+  const err = new Error("Invalid legal source id");
+  err.statusCode = 400;
+  throw err;
+}
+
 function formatLegalSource(db, orgId, row) {
   return {
     id: row.id,
@@ -46644,7 +46668,8 @@ function formatLegalSource(db, orgId, row) {
 }
 
 function createLegalSourceReview(db, user, sourceId, body) {
-  const current = db.prepare("SELECT * FROM legal_sources WHERE org_id = ? AND id = ?").get(user.org_id, sourceId);
+  const legalSourceId = normalizeLegalSourcePathId(sourceId);
+  const current = db.prepare("SELECT * FROM legal_sources WHERE org_id = ? AND id = ?").get(user.org_id, legalSourceId);
   if (!current) {
     const err = new Error("Legal source not found");
     err.statusCode = 404;
