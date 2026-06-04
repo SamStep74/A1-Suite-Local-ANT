@@ -259,6 +259,111 @@ test("projects: rejects malformed metadata before persistence", async () => {
   } finally { await app.close(); }
 });
 
+test("projects: malformed path ids are rejected before lifecycle side effects", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie: owner },
+      payload: { name: "Path guarded project", status: "active", dueDate: "2026-08-01" }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    const projectId = created.json().project.id;
+
+    const task = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks`,
+      headers: { cookie: owner },
+      payload: { title: "Path guarded task", dueDate: "2026-07-01" }
+    });
+    assert.strictEqual(task.statusCode, 200, task.body);
+    const taskId = task.json().project.tasks[0].id;
+
+    const milestone = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/milestones`,
+      headers: { cookie: owner },
+      payload: { title: "Path guarded milestone", dueDate: "2026-07-15" }
+    });
+    assert.strictEqual(milestone.statusCode, 200, milestone.body);
+    const milestoneId = milestone.json().project.milestones[0].id;
+
+    const counts = () => ({
+      projects: app.db.prepare("SELECT COUNT(*) AS count FROM projects WHERE org_id = ?").get("org-armosphera-demo").count,
+      tasks: app.db.prepare("SELECT COUNT(*) AS count FROM project_tasks WHERE org_id = ?").get("org-armosphera-demo").count,
+      milestones: app.db.prepare("SELECT COUNT(*) AS count FROM project_milestones WHERE org_id = ?").get("org-armosphera-demo").count,
+      timeEntries: app.db.prepare("SELECT COUNT(*) AS count FROM project_time_entries WHERE org_id = ?").get("org-armosphera-demo").count,
+      audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type LIKE ?").get("org-armosphera-demo", "projects.%").count
+    });
+    const projectRow = () => app.db.prepare("SELECT name, description, status, due_date AS dueDate FROM projects WHERE org_id = ? AND id = ?").get("org-armosphera-demo", projectId);
+    const taskRow = () => app.db.prepare("SELECT title, status, due_date AS dueDate FROM project_tasks WHERE org_id = ? AND id = ?").get("org-armosphera-demo", taskId);
+    const milestoneRow = () => app.db.prepare("SELECT title, reached, due_date AS dueDate FROM project_milestones WHERE org_id = ? AND id = ?").get("org-armosphera-demo", milestoneId);
+    const before = counts();
+    const beforeProject = projectRow();
+    const beforeTask = taskRow();
+    const beforeMilestone = milestoneRow();
+
+    const expectRejected = async ({ method, url, payload, statusCode = 400, statusCodes, message = /Invalid project id/ }) => {
+      const request = { method, url, headers: { cookie: owner } };
+      if (payload !== undefined) request.payload = payload;
+      const response = await app.inject(request);
+      const allowedStatuses = statusCodes || [statusCode];
+      assert.ok(allowedStatuses.includes(response.statusCode), `${url}: ${response.body}`);
+      if (response.statusCode === 400) assert.match(response.body, message);
+      assert.doesNotMatch(response.body, /secret-projects-path-/);
+      assert.deepStrictEqual(counts(), before);
+      assert.deepStrictEqual(projectRow(), beforeProject);
+      assert.deepStrictEqual(taskRow(), beforeTask);
+      assert.deepStrictEqual(milestoneRow(), beforeMilestone);
+    };
+
+    for (const request of [
+      { method: "GET", url: "/api/projects/badAsecret-projects-path-read-id-token" },
+      { method: "PATCH", url: "/api/projects/bad_secret-projects-path-patch-id-token", payload: { name: "secret-projects-path-patch-body-token" } },
+      { method: "POST", url: "/api/projects/badAsecret-projects-path-task-parent-token/tasks", payload: { title: "secret-projects-path-task-body-token" } },
+      { method: "POST", url: "/api/projects/bad_secret-projects-path-milestone-parent-token/milestones", payload: { title: "secret-projects-path-milestone-body-token" } },
+      { method: "POST", url: "/api/projects/badAsecret-projects-path-time-parent-token/time-entries", payload: { minutes: 30, note: "secret-projects-path-time-body-token" } },
+      { method: "GET", url: "/api/projects/bad_secret-projects-path-preview-parent-token/billing-preview?hourlyRate=10000" },
+      { method: "POST", url: "/api/projects/badAsecret-projects-path-bill-parent-token/bill-time", payload: { hourlyRate: 10000, issueDate: "2026-05-15", token: "secret-projects-path-bill-body-token" } },
+      { method: "GET", url: `/api/projects/${"a".repeat(161)}` },
+      { method: "POST", url: "/api/projects/bad%0Asecret-projects-path-control-parent-token/tasks", payload: { title: "secret-projects-path-encoded-task-body-token" } },
+      { method: "POST", url: "/api/projects/%20%20/time-entries", payload: { minutes: 30, note: "secret-projects-path-encoded-time-body-token" } },
+      { method: "PATCH", url: `/api/projects/${projectId}/tasks/badAsecret-projects-path-task-id-token`, payload: { status: "done" }, message: /Invalid project task id/ },
+      { method: "PATCH", url: `/api/projects/${projectId}/tasks/bad%0Asecret-projects-path-task-control-token`, payload: { title: "secret-projects-path-task-encoded-body-token" }, message: /Invalid project task id/ },
+      { method: "PATCH", url: `/api/projects/${projectId}/milestones/bad_secret-projects-path-milestone-id-token`, payload: { reached: true }, message: /Invalid project milestone id/ },
+      { method: "PATCH", url: `/api/projects/${projectId}/milestones/%20%20`, payload: { title: "secret-projects-path-milestone-encoded-body-token" }, message: /Invalid project milestone id/ }
+    ]) {
+      await expectRejected(request);
+    }
+
+    for (const request of [
+      { method: "GET", url: "/api/projects/proj-missing", statusCode: 404 },
+      { method: "PATCH", url: "/api/projects/proj-missing", payload: { name: "secret-projects-path-missing-patch-body-token" }, statusCode: 404 },
+      { method: "POST", url: "/api/projects/proj-missing/tasks", payload: { title: "secret-projects-path-missing-task-body-token" }, statusCode: 404 },
+      { method: "POST", url: "/api/projects/proj-missing/milestones", payload: { title: "secret-projects-path-missing-milestone-body-token" }, statusCode: 404 },
+      { method: "POST", url: "/api/projects/proj-missing/time-entries", payload: { minutes: 30, note: "secret-projects-path-missing-time-body-token" }, statusCode: 404 },
+      { method: "GET", url: "/api/projects/proj-missing/billing-preview?hourlyRate=10000", statusCode: 404 },
+      { method: "POST", url: "/api/projects/proj-missing/bill-time", payload: { hourlyRate: 10000, issueDate: "2026-05-15", token: "secret-projects-path-missing-bill-body-token" }, statusCode: 404 },
+      { method: "PATCH", url: `/api/projects/${projectId}/tasks/ptask-missing`, payload: { status: "done" }, statusCode: 404 },
+      { method: "PATCH", url: `/api/projects/${projectId}/milestones/pms-missing`, payload: { reached: true }, statusCode: 404 }
+    ]) {
+      await expectRejected(request);
+    }
+
+    const time = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/time-entries`,
+      headers: { cookie: owner },
+      payload: { minutes: 30, taskId, note: "Valid path guard proof", entryDate: "2026-06-03" }
+    });
+    assert.strictEqual(time.statusCode, 200, time.body);
+    assert.strictEqual(time.json().project.totalMinutes, 30);
+  } finally { await app.close(); }
+});
+
 test("projects: write-gate (Auditor 403) and cross-org isolation (404)", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

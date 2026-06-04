@@ -2539,7 +2539,8 @@ function registerApi(app, db, options = {}) {
 
   app.get("/api/projects/:id", async request => {
     const user = await app.auth(request);
-    const project = getProject(db, user.org_id, request.params.id);
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, user.org_id, projectId);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
     return { project };
   });
@@ -2569,7 +2570,8 @@ function registerApi(app, db, options = {}) {
   app.patch("/api/projects/:id", async request => {
     const user = await app.auth(request);
     requireProjectsWriter(user);
-    const project = getProject(db, user.org_id, request.params.id);
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, user.org_id, projectId);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
     const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
     const sets = [];
@@ -2593,7 +2595,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/projects/:id/tasks", async request => {
     const user = await app.auth(request);
     requireProjectsWriter(user);
-    const project = getProject(db, user.org_id, request.params.id);
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, user.org_id, projectId);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
     const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
     const title = normalizeProjectText(body, "title", { required: true, minLength: 2, maxLength: 200, error: "Task title is required" });
@@ -2618,9 +2621,11 @@ function registerApi(app, db, options = {}) {
   app.patch("/api/projects/:id/tasks/:taskId", async request => {
     const user = await app.auth(request);
     requireProjectsWriter(user);
-    const project = getProject(db, user.org_id, request.params.id);
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, user.org_id, projectId);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
-    const task = db.prepare("SELECT id FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(user.org_id, project.id, String(request.params.taskId || ""));
+    const taskId = normalizeProjectTaskPathId(request.params.taskId, request.raw?.url);
+    const task = db.prepare("SELECT id FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(user.org_id, project.id, taskId);
     if (!task) { const e = new Error("Task not found"); e.statusCode = 404; throw e; }
     const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
     const sets = [];
@@ -2653,7 +2658,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/projects/:id/milestones", async request => {
     const user = await app.auth(request);
     requireProjectsWriter(user);
-    const project = getProject(db, user.org_id, request.params.id);
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, user.org_id, projectId);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
     const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
     const title = normalizeProjectText(body, "title", { required: true, minLength: 2, maxLength: 200, error: "Milestone title is required" });
@@ -2670,9 +2676,11 @@ function registerApi(app, db, options = {}) {
   app.patch("/api/projects/:id/milestones/:milestoneId", async request => {
     const user = await app.auth(request);
     requireProjectsWriter(user);
-    const project = getProject(db, user.org_id, request.params.id);
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, user.org_id, projectId);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
-    const milestone = db.prepare("SELECT id FROM project_milestones WHERE org_id = ? AND project_id = ? AND id = ?").get(user.org_id, project.id, String(request.params.milestoneId || ""));
+    const milestoneId = normalizeProjectMilestonePathId(request.params.milestoneId, request.raw?.url);
+    const milestone = db.prepare("SELECT id FROM project_milestones WHERE org_id = ? AND project_id = ? AND id = ?").get(user.org_id, project.id, milestoneId);
     if (!milestone) { const e = new Error("Milestone not found"); e.statusCode = 404; throw e; }
     const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
     const sets = [];
@@ -2693,7 +2701,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/projects/:id/time-entries", async request => {
     const user = await app.auth(request);
     requireProjectsWriter(user);
-    const project = getProject(db, user.org_id, request.params.id);
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, user.org_id, projectId);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
     const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
     const minutes = normalizeProjectMinutes(body, "minutes");
@@ -2910,10 +2919,58 @@ function registerApi(app, db, options = {}) {
     throw err;
   }
 
+  function normalizeProjectPathId(value, rawUrl = "") {
+    const rawSegment = typeof rawUrl === "string"
+      ? rawUrl.match(/^\/api\/projects\/([^/?#]+)(?:\/(?:tasks(?:\/[^/?#]+)?|milestones(?:\/[^/?#]+)?|time-entries|billing-preview|bill-time))?(?:[?#]|$)/)?.[1]
+      : "";
+    if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+      throwInvalidProjectPathId("Invalid project id");
+    }
+    return normalizeProjectRouteId(value, "Invalid project id");
+  }
+
+  function normalizeProjectTaskPathId(value, rawUrl = "") {
+    const rawSegment = typeof rawUrl === "string"
+      ? rawUrl.match(/^\/api\/projects\/[^/?#]+\/tasks\/([^/?#]+)(?:[?#]|$)/)?.[1]
+      : "";
+    if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+      throwInvalidProjectPathId("Invalid project task id");
+    }
+    return normalizeProjectRouteId(value, "Invalid project task id");
+  }
+
+  function normalizeProjectMilestonePathId(value, rawUrl = "") {
+    const rawSegment = typeof rawUrl === "string"
+      ? rawUrl.match(/^\/api\/projects\/[^/?#]+\/milestones\/([^/?#]+)(?:[?#]|$)/)?.[1]
+      : "";
+    if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+      throwInvalidProjectPathId("Invalid project milestone id");
+    }
+    return normalizeProjectRouteId(value, "Invalid project milestone id");
+  }
+
+  function normalizeProjectRouteId(value, message) {
+    if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidProjectPathId(message);
+    }
+    const text = value.trim();
+    if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) {
+      throwInvalidProjectPathId(message);
+    }
+    return text;
+  }
+
+  function throwInvalidProjectPathId(message) {
+    const err = new Error(message);
+    err.statusCode = 400;
+    throw err;
+  }
+
   // Billing seam: preview the unbilled time on a project (minutes → hours → amount at a rate).
   app.get("/api/projects/:id/billing-preview", async request => {
     const user = await app.auth(request);
-    const project = getProject(db, user.org_id, request.params.id);
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, user.org_id, projectId);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
     const { hourlyRate, asOf } = normalizeProjectBillingPreviewQuery(request.query, new Date().toISOString());
     const agg = db.prepare("SELECT COALESCE(SUM(minutes), 0) AS minutes, COUNT(*) AS entries FROM project_time_entries WHERE org_id = ? AND project_id = ? AND billed_invoice_id IS NULL").get(user.org_id, project.id);
@@ -2933,7 +2990,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/projects/:id/bill-time", async request => {
     const user = await app.auth(request);
     requireFinanceOperator(user);
-    const project = getProject(db, user.org_id, request.params.id);
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, user.org_id, projectId);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
     if (!project.customerId) { const e = new Error("Project has no customer to invoice"); e.statusCode = 400; throw e; }
     assertCustomer(db, user.org_id, project.customerId);

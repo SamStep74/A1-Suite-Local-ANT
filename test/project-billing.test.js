@@ -218,6 +218,80 @@ test("project-billing: rejects malformed billing-preview query before quoting", 
   } finally { await app.close(); }
 });
 
+test("project-billing: malformed project path ids are rejected before billing side effects", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const proj = await createBillableProject(app, owner);
+    const orgId = app.db.prepare("SELECT org_id FROM users WHERE email = ?").get(DEFAULT_EMAIL).org_id;
+    const draftInvoiceCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM finance_draft_invoices
+      WHERE org_id = ?
+        AND source_key LIKE ?
+    `).get(orgId, "project-time:%").count;
+    const invoiceCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM invoices WHERE org_id = ?").get(orgId).count;
+    const ledgerCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM ledger_journal WHERE org_id = ?").get(orgId).count;
+    const billedEntryCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM project_time_entries
+      WHERE org_id = ?
+        AND project_id = ?
+        AND billed_invoice_id IS NOT NULL
+    `).get(orgId, proj).count;
+    const billedAuditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE org_id = ?
+        AND type = ?
+    `).get(orgId, "projects.time.billed").count;
+    const current = () => ({
+      draftInvoices: draftInvoiceCount(),
+      invoices: invoiceCount(),
+      ledger: ledgerCount(),
+      billedEntries: billedEntryCount(),
+      auditEvents: billedAuditCount()
+    });
+    const before = current();
+
+    const expectPathRejected = async ({ method, url, payload, statusCode = 400, message = /Invalid project id/ }) => {
+      const request = { method, url, headers: { cookie: owner } };
+      if (payload !== undefined) request.payload = payload;
+      const response = await app.inject(request);
+      assert.strictEqual(response.statusCode, statusCode, `${url}: ${response.body}`);
+      if (statusCode === 400) assert.match(response.body, message);
+      assert.doesNotMatch(response.body, /secret-project-billing-path-/);
+      assert.deepStrictEqual(current(), before);
+    };
+
+    for (const request of [
+      { method: "GET", url: "/api/projects/badAsecret-project-billing-path-preview-id-token/billing-preview?hourlyRate=10000" },
+      { method: "POST", url: "/api/projects/bad_secret-project-billing-path-bill-id-token/bill-time", payload: { hourlyRate: 10000, issueDate: "2026-05-15", note: "secret-project-billing-path-body-token" } },
+      { method: "GET", url: `/api/projects/${"a".repeat(161)}/billing-preview?hourlyRate=10000` },
+      { method: "POST", url: "/api/projects/bad%0Asecret-project-billing-path-control-id-token/bill-time", payload: { hourlyRate: 10000, issueDate: "2026-05-15" } }
+    ]) {
+      await expectPathRejected(request);
+    }
+
+    for (const request of [
+      { method: "GET", url: "/api/projects/proj-missing/billing-preview?hourlyRate=10000", statusCode: 404 },
+      { method: "POST", url: "/api/projects/proj-missing/bill-time", payload: { hourlyRate: 10000, issueDate: "2026-05-15", note: "secret-project-billing-path-missing-body-token" }, statusCode: 404 }
+    ]) {
+      await expectPathRejected(request);
+    }
+
+    const preview = await app.inject({
+      method: "GET",
+      url: `/api/projects/${proj}/billing-preview?hourlyRate=10000`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(preview.statusCode, 200, preview.body);
+    assert.strictEqual(preview.json().preview.unbilledMinutes, 180);
+    assert.deepStrictEqual(current(), before);
+  } finally { await app.close(); }
+});
+
 test("project-billing: cannot bill into a closed finance period (409 PERIOD_LOCKED)", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
