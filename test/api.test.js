@@ -12549,6 +12549,40 @@ test("owner can close ongoing renewal cycle and schedule next ongoing renewal ta
   await withApp(async app => {
     const proof = await createPilotOngoingRenewalPaymentCollectionPacket(app);
 
+    const ongoingRenewalCloseoutCounts = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/ongoing-renewal-closeouts?paymentCollectionPacketId=${proof.ongoingRenewalPaymentCollectionPacket.id}`,
+        headers: { cookie: proof.ownerCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return {
+        packets: list.json().packets.length,
+        audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events").get().count
+      };
+    };
+    const beforeMalformedOngoingRenewalCloseout = await ongoingRenewalCloseoutCounts();
+
+    const malformedOngoingRenewalPaymentCollectionPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/ongoing-renewal-payment-collections/badAsecret-clinic-ongoing-renewal-payment-token/closeout-packet",
+      headers: { cookie: proof.ownerCookie },
+      payload: { note: "secret-clinic-ongoing-renewal-closeout-body-token" }
+    });
+    assert.equal(malformedOngoingRenewalPaymentCollectionPacketId.statusCode, 400, malformedOngoingRenewalPaymentCollectionPacketId.body);
+    assert.match(malformedOngoingRenewalPaymentCollectionPacketId.body, /Invalid clinic pilot ongoing renewal HayHashvapah payment collection packet id/);
+    assert.doesNotMatch(malformedOngoingRenewalPaymentCollectionPacketId.body, /badAsecret-clinic-ongoing-renewal-payment-token|secret-clinic-ongoing-renewal-closeout-body-token/);
+    assert.deepEqual(await ongoingRenewalCloseoutCounts(), beforeMalformedOngoingRenewalCloseout);
+
+    const unknownSafeOngoingRenewalPaymentCollectionPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/ongoing-renewal-payment-collections/pilot-ongoing-renewal-payment-collection-packet-missing/closeout-packet",
+      headers: { cookie: proof.ownerCookie },
+      payload: { note: "Safe missing ongoing renewal payment collection remains missing." }
+    });
+    assert.equal(unknownSafeOngoingRenewalPaymentCollectionPacketId.statusCode, 404, unknownSafeOngoingRenewalPaymentCollectionPacketId.body);
+    assert.deepEqual(await ongoingRenewalCloseoutCounts(), beforeMalformedOngoingRenewalCloseout);
+
     const supportDenied = await app.inject({
       method: "POST",
       url: `/api/pilots/clinic-wellness/ongoing-renewal-payment-collections/${proof.ongoingRenewalPaymentCollectionPacket.id}/closeout-packet`,
