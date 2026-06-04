@@ -8855,6 +8855,31 @@ test("sales can create clinic subsequent renewal quote release packet after work
 test("accountant can hand accepted subsequent renewal quote into HayHashvapah invoice approval", async () => {
   await withApp(async app => {
     const proof = await createPilotSubsequentRenewalQuoteReleasePacket(app);
+    const subsequentRenewalAcceptanceHandoffCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_subsequent_renewal_quote_acceptance_handoff_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.subsequent_renewal_quote_acceptance_handoff.created").count
+    });
+    const beforeMalformedSubsequentRenewalAcceptance = subsequentRenewalAcceptanceHandoffCounts();
+
+    const malformedReleaseId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/subsequent-renewal-quote-releases/badAsecret-clinic-subsequent-renewal-release-packet-token/acceptance-handoff",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-subsequent-renewal-acceptance-body-token" }
+    });
+    assert.equal(malformedReleaseId.statusCode, 400, malformedReleaseId.body);
+    assert.match(malformedReleaseId.body, /Invalid clinic pilot subsequent renewal quote release packet id/);
+    assert.doesNotMatch(malformedReleaseId.body, /badAsecret-clinic-subsequent-renewal-release-packet-token|secret-clinic-subsequent-renewal-acceptance-body-token/);
+    assert.deepEqual(subsequentRenewalAcceptanceHandoffCounts(), beforeMalformedSubsequentRenewalAcceptance);
+
+    const unknownSafeReleaseId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/subsequent-renewal-quote-releases/pilot-subsequent-renewal-quote-release-missing/acceptance-handoff",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing subsequent renewal quote release remains missing." }
+    });
+    assert.equal(unknownSafeReleaseId.statusCode, 404, unknownSafeReleaseId.body);
+    assert.deepEqual(subsequentRenewalAcceptanceHandoffCounts(), beforeMalformedSubsequentRenewalAcceptance);
 
     const supportDenied = await app.inject({
       method: "POST",
