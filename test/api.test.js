@@ -17328,6 +17328,69 @@ test("sales can create clinic next recurring ongoing renewal quote handoff from 
     });
     assert.equal(supportDenied.statusCode, 403);
 
+    const countHandoffs = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-quotes?subsequentOngoingRenewalCloseoutPacketId=${proof.subsequentOngoingRenewalCloseoutPacket.id}`,
+        headers: { cookie: proof.salespersonCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return list.json().handoffs.length;
+    };
+    const orgId = app.db.prepare("SELECT org_id AS orgId FROM users WHERE email = ?").get(DEFAULT_EMAIL).orgId;
+    const auditContainsEvidence = (...needles) => {
+      const events = app.db.prepare("SELECT type, details FROM audit_events WHERE org_id = ? ORDER BY id DESC").all(orgId);
+      const serializedEvents = JSON.stringify(events);
+      return needles.some(needle => serializedEvents.includes(needle));
+    };
+    const countHandoffAuditEvents = () => app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?")
+      .get(orgId, "pilot.next_recurring_ongoing_renewal_quote_handoff.created").count;
+    const beforeRejectedHandoffs = await countHandoffs();
+    const beforeRejectedAudit = countHandoffAuditEvents();
+
+    const malformedCloseoutPacketRequests = [
+      { id: "badAsecret-subsequent-ongoing-closeout-quote-handoff-token", evidence: "badAsecret" },
+      { id: "%20%20%20", evidence: "%20%20%20" },
+      { id: "a".repeat(161), evidence: "a".repeat(80) },
+      { id: "bad_secret-subsequent-ongoing-closeout-quote-handoff-token", evidence: "bad_secret" },
+      { id: "bad%D5%A1unicode-subsequent-ongoing-closeout-token", evidence: "bad%D5%A1unicode" }
+    ];
+    const malformedCloseoutPacketEvidence = [];
+    for (const { id, evidence } of malformedCloseoutPacketRequests) {
+      malformedCloseoutPacketEvidence.push(id, evidence);
+      const malformedCloseoutPacket = await app.inject({
+        method: "POST",
+        url: `/api/pilots/clinic-wellness/subsequent-ongoing-renewal-closeouts/${id}/next-recurring-ongoing-renewal-quote-handoff`,
+        headers: { cookie: proof.salespersonCookie },
+        payload: { note: "Secret next recurring ongoing quote handoff note should not leak." }
+      });
+      assert.equal(malformedCloseoutPacket.statusCode, 400, malformedCloseoutPacket.body);
+      assert.match(malformedCloseoutPacket.json().message, /Invalid clinic pilot subsequent ongoing renewal closeout packet id/);
+      assert.equal(malformedCloseoutPacket.body.includes(evidence), false);
+      assert.doesNotMatch(malformedCloseoutPacket.body, /Secret next recurring ongoing quote handoff note/);
+      assert.equal(await countHandoffs(), beforeRejectedHandoffs);
+      assert.equal(countHandoffAuditEvents(), beforeRejectedAudit);
+    }
+    assert.equal(auditContainsEvidence(
+      ...malformedCloseoutPacketEvidence,
+      "Secret next recurring ongoing quote handoff note"
+    ), false);
+
+    const missingCloseoutPacket = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/subsequent-ongoing-renewal-closeouts/pilot-subsequent-ongoing-renewal-closeout-missing/next-recurring-ongoing-renewal-quote-handoff",
+      headers: { cookie: proof.salespersonCookie },
+      payload: { note: "Safe missing subsequent ongoing renewal closeout remains a not-found lookup." }
+    });
+    assert.equal(missingCloseoutPacket.statusCode, 404, missingCloseoutPacket.body);
+    assert.equal(await countHandoffs(), beforeRejectedHandoffs);
+    assert.equal(countHandoffAuditEvents(), beforeRejectedAudit);
+    assert.equal(auditContainsEvidence(
+      ...malformedCloseoutPacketEvidence,
+      "Secret next recurring ongoing quote handoff note",
+      "Safe missing subsequent ongoing renewal closeout remains a not-found lookup"
+    ), false);
+
     const created = await app.inject({
       method: "POST",
       url: `/api/pilots/clinic-wellness/subsequent-ongoing-renewal-closeouts/${proof.subsequentOngoingRenewalCloseoutPacket.id}/next-recurring-ongoing-renewal-quote-handoff`,
