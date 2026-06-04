@@ -18207,6 +18207,66 @@ test("accountant can record next recurring ongoing renewal official HayHashvapah
     });
     assert.equal(premature.statusCode, 409);
 
+    const countPostingPackets = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-official-invoices?draftPacketId=${proof.nextRecurringOngoingRenewalDraftPacket.id}`,
+        headers: { cookie: proof.accountantCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return list.json().packets.length;
+    };
+    const orgId = app.db.prepare("SELECT org_id AS orgId FROM users WHERE email = ?").get(DEFAULT_EMAIL).orgId;
+    const auditContainsEvidence = (...needles) => {
+      const events = app.db.prepare("SELECT type, details FROM audit_events WHERE org_id = ? ORDER BY id DESC").all(orgId);
+      const serializedEvents = JSON.stringify(events);
+      return needles.some(needle => serializedEvents.includes(needle));
+    };
+    const countPostingAuditEvents = () => app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?")
+      .get(orgId, "pilot.next_recurring_ongoing_renewal_hayhashvapah_invoice_posting.created").count;
+    const beforeRejectedPostingPackets = await countPostingPackets();
+    const beforeRejectedAudit = countPostingAuditEvents();
+
+    const malformedDraftPacketRequests = [
+      { id: "badAsecret-next-recurring-ongoing-posting-draft-token", evidence: "badAsecret" },
+      { id: "bad_secret-next-recurring-ongoing-posting-draft-token", evidence: "bad_secret" }
+    ];
+    const malformedDraftPacketEvidence = [];
+    for (const { id, evidence } of malformedDraftPacketRequests) {
+      malformedDraftPacketEvidence.push(id, evidence);
+      const malformedDraftPacket = await app.inject({
+        method: "POST",
+        url: `/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-hayhashvapah-drafts/${id}/posting-packet`,
+        headers: { cookie: proof.accountantCookie },
+        payload: { note: "Secret next recurring ongoing posting note should not leak." }
+      });
+      assert.equal(malformedDraftPacket.statusCode, 400, `${id}: ${malformedDraftPacket.body}`);
+      assert.match(malformedDraftPacket.json().message, /Invalid clinic pilot next recurring ongoing renewal HayHashvapah draft packet id/);
+      assert.equal(malformedDraftPacket.body.includes(evidence), false);
+      assert.doesNotMatch(malformedDraftPacket.body, /Secret next recurring ongoing posting note/);
+      assert.equal(await countPostingPackets(), beforeRejectedPostingPackets);
+      assert.equal(countPostingAuditEvents(), beforeRejectedAudit);
+    }
+    assert.equal(auditContainsEvidence(
+      ...malformedDraftPacketEvidence,
+      "Secret next recurring ongoing posting note"
+    ), false);
+
+    const missingDraftPacket = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-hayhashvapah-drafts/pilot-next-recurring-ongoing-renewal-draft-packet-missing/posting-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing next recurring ongoing draft packet remains a not-found lookup." }
+    });
+    assert.equal(missingDraftPacket.statusCode, 404, missingDraftPacket.body);
+    assert.equal(await countPostingPackets(), beforeRejectedPostingPackets);
+    assert.equal(countPostingAuditEvents(), beforeRejectedAudit);
+    assert.equal(auditContainsEvidence(
+      ...malformedDraftPacketEvidence,
+      "Secret next recurring ongoing posting note",
+      "Safe missing next recurring ongoing draft packet remains a not-found lookup"
+    ), false);
+
     const posted = await app.inject({
       method: "POST",
       url: `/api/finance/draft-invoices/${proof.nextRecurringOngoingRenewalDraftInvoice.id}/post`,
