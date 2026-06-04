@@ -2223,8 +2223,10 @@ function registerApi(app, db, options = {}) {
 
   app.post("/api/crm/deals/:id/forecast", async request => {
     const user = await app.auth(request);
+    requireAppAccess(db, user, "crm");
     requireCrmEditor(user);
-    const dealForecast = updateCrmDealForecast(db, user, request.params.id, request.body);
+    const dealId = normalizeCrmDealPathId(request.params.id, request.raw?.url);
+    const dealForecast = updateCrmDealForecast(db, user, dealId, request.body);
     return { ok: true, dealForecast, forecast: getCrmForecastSummary(db, user.org_id, user) };
   });
 
@@ -41980,6 +41982,29 @@ function normalizeCrmLeadPathId(value, rawUrl = "") {
 
 function throwInvalidCrmLeadPathId() {
   const err = new Error("Invalid CRM lead id");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeCrmDealPathId(value, rawUrl = "") {
+  const rawSegment = typeof rawUrl === "string"
+    ? rawUrl.match(/^\/api\/crm\/deals\/([^/?#]+)\/forecast(?:[?#]|$)/)?.[1]
+    : "";
+  if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+    throwInvalidCrmDealPathId();
+  }
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmDealPathId();
+  }
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) {
+    throwInvalidCrmDealPathId();
+  }
+  return text;
+}
+
+function throwInvalidCrmDealPathId() {
+  const err = new Error("Invalid CRM deal id");
   err.statusCode = 400;
   throw err;
 }

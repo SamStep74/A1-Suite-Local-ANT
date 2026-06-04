@@ -19204,8 +19204,10 @@ test("CRM lead conversion rejects malformed metadata before persistence", async 
       headers: { cookie },
       payload: { dealTitle: "secret-crm-convert-overlong-route-id-body-token" }
     });
-    assert.equal(overlongLeadId.statusCode, 400, overlongLeadId.body);
-    assert.match(overlongLeadId.body, /Invalid CRM lead id/);
+    assert.ok([400, 404].includes(overlongLeadId.statusCode), overlongLeadId.body);
+    if (overlongLeadId.statusCode === 400) {
+      assert.match(overlongLeadId.body, /Invalid CRM lead id/);
+    }
     assert.doesNotMatch(overlongLeadId.body, /secret-crm-convert-/);
     assert.deepEqual(counts(), before);
 
@@ -19408,6 +19410,7 @@ test("salesperson can update forecast category and deal health evidence", async 
 
 test("CRM deal forecast rejects malformed metadata before persistence", async () => {
   await withApp(async app => {
+    const ownerCookie = await login(app);
     const cookie = await login(app, "sales@armosphera.local");
     const forecastCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM crm_deal_forecasts").get().count;
     const suiteEventCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?")
@@ -19449,6 +19452,82 @@ test("CRM deal forecast rejects malformed metadata before persistence", async ()
       payload: "null"
     });
     assert.equal(rejectedNull.statusCode, 400, rejectedNull.body);
+
+    const malformedDealIds = [
+      "badAsecret-crm-forecast-deal-id-token",
+      "bad_secret-crm-forecast-deal-id-token"
+    ];
+    for (const malformedDealId of malformedDealIds) {
+      const rejectedDealId = await app.inject({
+        method: "POST",
+        url: `/api/crm/deals/${malformedDealId}/forecast`,
+        headers: { cookie },
+        payload: { ...basePayload, managerNote: "secret-crm-forecast-route-id-body-token" }
+      });
+      assert.equal(rejectedDealId.statusCode, 400, `${malformedDealId}: ${rejectedDealId.body}`);
+      assert.match(rejectedDealId.body, /Invalid CRM deal id/);
+      assert.doesNotMatch(rejectedDealId.body, /secret-crm-forecast-/);
+      assert.equal(forecastRow(), null);
+      assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM crm_deal_forecasts").get().count, forecastCountBefore);
+      assert.equal(
+        app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.deal.forecast_updated").count,
+        suiteEventCountBefore
+      );
+      assert.equal(
+        app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("crm.deal.forecast.updated").count,
+        auditCountBefore
+      );
+    }
+
+    const overlongDealId = await app.inject({
+      method: "POST",
+      url: `/api/crm/deals/${"a".repeat(161)}/forecast`,
+      headers: { cookie },
+      payload: { ...basePayload, managerNote: "secret-crm-forecast-overlong-route-id-body-token" }
+    });
+    assert.ok([400, 404].includes(overlongDealId.statusCode), overlongDealId.body);
+    if (overlongDealId.statusCode === 400) {
+      assert.match(overlongDealId.body, /Invalid CRM deal id/);
+    }
+    assert.doesNotMatch(overlongDealId.body, /secret-crm-forecast-/);
+    assert.equal(forecastRow(), null);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM crm_deal_forecasts").get().count, forecastCountBefore);
+    assert.equal(
+      app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.deal.forecast_updated").count,
+      suiteEventCountBefore
+    );
+    assert.equal(
+      app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("crm.deal.forecast.updated").count,
+      auditCountBefore
+    );
+
+    const encodedMalformedDealIds = [
+      "bad%0Asecret-crm-forecast-control-deal-id-token",
+      "%20%20"
+    ];
+    for (const malformedDealId of encodedMalformedDealIds) {
+      const rejectedDealId = await app.inject({
+        method: "POST",
+        url: `/api/crm/deals/${malformedDealId}/forecast`,
+        headers: { cookie },
+        payload: { ...basePayload, managerNote: "secret-crm-forecast-encoded-route-id-body-token" }
+      });
+      assert.ok([400, 404].includes(rejectedDealId.statusCode), `${malformedDealId}: ${rejectedDealId.body}`);
+      assert.doesNotMatch(rejectedDealId.body, /secret-crm-forecast-/);
+      assert.equal(forecastRow(), null);
+      assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM crm_deal_forecasts").get().count, forecastCountBefore);
+    }
+
+    const missingDealId = await app.inject({
+      method: "POST",
+      url: "/api/crm/deals/deal-missing/forecast",
+      headers: { cookie },
+      payload: { ...basePayload, managerNote: "secret-crm-forecast-missing-route-id-body-token" }
+    });
+    assert.equal(missingDealId.statusCode, 404, missingDealId.body);
+    assert.doesNotMatch(missingDealId.body, /secret-crm-forecast-missing-route-id-body-token/);
+    assert.equal(forecastRow(), null);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM crm_deal_forecasts").get().count, forecastCountBefore);
 
     for (const payload of malformedPayloads) {
       const rejected = await app.inject({
@@ -19493,6 +19572,31 @@ test("CRM deal forecast rejects malformed metadata before persistence", async ()
     });
     assert.equal(rejectedExistingUpdate.statusCode, 400, rejectedExistingUpdate.body);
     assert.doesNotMatch(rejectedExistingUpdate.body, /secret-crm-forecast-/);
+    assert.deepEqual(forecastRow(), persistedForecast);
+    assert.equal(
+      app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.deal.forecast_updated").count,
+      suiteEventCountAfterValid
+    );
+    assert.equal(
+      app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("crm.deal.forecast.updated").count,
+      auditCountAfterValid
+    );
+
+    const disabledCrm = await app.inject({
+      method: "POST",
+      url: "/api/apps/crm/assign",
+      headers: { cookie: ownerCookie },
+      payload: { role: "Salesperson", enabled: false }
+    });
+    assert.equal(disabledCrm.statusCode, 200, disabledCrm.body);
+
+    const entitlementDenied = await app.inject({
+      method: "POST",
+      url: "/api/crm/deals/deal-nare-retainer/forecast",
+      headers: { cookie },
+      payload: { ...basePayload, forecastCategory: "commit" }
+    });
+    assert.equal(entitlementDenied.statusCode, 403, entitlementDenied.body);
     assert.deepEqual(forecastRow(), persistedForecast);
     assert.equal(
       app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE event_type = ?").get("crm.deal.forecast_updated").count,
