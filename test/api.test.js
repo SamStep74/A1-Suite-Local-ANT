@@ -7744,6 +7744,31 @@ test("accountant can hand accepted following renewal quote into HayHashvapah inv
 test("accountant can record following renewal HayHashvapah draft invoice packet after owner executes finance approval", async () => {
   await withApp(async app => {
     const proof = await createPilotFollowingRenewalAcceptanceHandoff(app);
+    const followingRenewalDraftPacketCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_following_renewal_hayhashvapah_draft_invoice_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.following_renewal_hayhashvapah_draft_invoice.created").count
+    });
+    const beforeMalformedFollowingRenewalDraft = followingRenewalDraftPacketCounts();
+
+    const malformedHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/following-renewal-acceptance-handoffs/badAsecret-clinic-following-renewal-acceptance-handoff-token/draft-invoice-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "secret-clinic-following-renewal-draft-body-token" }
+    });
+    assert.equal(malformedHandoffId.statusCode, 400, malformedHandoffId.body);
+    assert.match(malformedHandoffId.body, /Invalid clinic pilot following renewal acceptance handoff id/);
+    assert.doesNotMatch(malformedHandoffId.body, /badAsecret-clinic-following-renewal-acceptance-handoff-token|secret-clinic-following-renewal-draft-body-token/);
+    assert.deepEqual(followingRenewalDraftPacketCounts(), beforeMalformedFollowingRenewalDraft);
+
+    const unknownSafeHandoffId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/following-renewal-acceptance-handoffs/pilot-following-renewal-acceptance-handoff-missing/draft-invoice-packet",
+      headers: { cookie: proof.accountantCookie },
+      payload: { note: "Safe missing following renewal acceptance handoff remains missing." }
+    });
+    assert.equal(unknownSafeHandoffId.statusCode, 404, unknownSafeHandoffId.body);
+    assert.deepEqual(followingRenewalDraftPacketCounts(), beforeMalformedFollowingRenewalDraft);
 
     const supportDenied = await app.inject({
       method: "POST",
