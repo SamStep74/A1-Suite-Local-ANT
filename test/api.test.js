@@ -11109,6 +11109,31 @@ test("accountant can record continuation renewal payment collection packet after
 test("owner can close continuation renewal cycle and schedule ongoing renewal task after payment collection", async () => {
   await withApp(async app => {
     const proof = await createPilotContinuationRenewalPaymentCollectionPacket(app);
+    const continuationRenewalCloseoutCounts = () => ({
+      packets: app.db.prepare("SELECT COUNT(*) AS count FROM pilot_continuation_renewal_closeout_packets").get().count,
+      audit: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("pilot.continuation_renewal_closeout.created").count
+    });
+    const beforeMalformedContinuationRenewalCloseout = continuationRenewalCloseoutCounts();
+
+    const malformedContinuationRenewalPaymentCollectionPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/continuation-renewal-payment-collections/badAsecret-clinic-continuation-renewal-payment-collection-token/closeout-packet",
+      headers: { cookie: proof.ownerCookie },
+      payload: { note: "secret-clinic-continuation-renewal-closeout-body-token" }
+    });
+    assert.equal(malformedContinuationRenewalPaymentCollectionPacketId.statusCode, 400, malformedContinuationRenewalPaymentCollectionPacketId.body);
+    assert.match(malformedContinuationRenewalPaymentCollectionPacketId.body, /Invalid clinic pilot continuation renewal payment collection packet id/);
+    assert.doesNotMatch(malformedContinuationRenewalPaymentCollectionPacketId.body, /badAsecret-clinic-continuation-renewal-payment-collection-token|secret-clinic-continuation-renewal-closeout-body-token/);
+    assert.deepEqual(continuationRenewalCloseoutCounts(), beforeMalformedContinuationRenewalCloseout);
+
+    const unknownSafeContinuationRenewalPaymentCollectionPacketId = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/continuation-renewal-payment-collections/pilot-continuation-renewal-payment-collection-missing/closeout-packet",
+      headers: { cookie: proof.ownerCookie },
+      payload: { note: "Safe missing continuation renewal payment collection remains missing." }
+    });
+    assert.equal(unknownSafeContinuationRenewalPaymentCollectionPacketId.statusCode, 404, unknownSafeContinuationRenewalPaymentCollectionPacketId.body);
+    assert.deepEqual(continuationRenewalCloseoutCounts(), beforeMalformedContinuationRenewalCloseout);
 
     const supportDenied = await app.inject({
       method: "POST",

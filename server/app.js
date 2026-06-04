@@ -1353,7 +1353,8 @@ function registerApi(app, db, options = {}) {
   app.post("/api/pilots/clinic-wellness/continuation-renewal-payment-collections/:paymentCollectionPacketId/closeout-packet", async request => {
     const user = await app.auth(request);
     requirePilotContinuationRenewalCloseoutWriter(user);
-    return createClinicWellnessContinuationRenewalCloseoutPacket(db, user, request.params.paymentCollectionPacketId, request.body || {});
+    const paymentCollectionPacketId = normalizeClinicPilotContinuationRenewalPaymentCollectionPacketId(request.params.paymentCollectionPacketId);
+    return createClinicWellnessContinuationRenewalCloseoutPacket(db, user, paymentCollectionPacketId, request.body || {});
   });
 
   app.get("/api/pilots/clinic-wellness/ongoing-renewal-quotes", async request => {
@@ -53243,6 +53244,23 @@ function normalizeClinicPilotContinuationRenewalHayhashvapahInvoicePostingPacket
 
 function throwInvalidClinicPilotContinuationRenewalHayhashvapahInvoicePostingPacketId() {
   const err = new Error("Invalid clinic pilot continuation renewal HayHashvapah invoice posting packet id");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeClinicPilotContinuationRenewalPaymentCollectionPacketId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidClinicPilotContinuationRenewalPaymentCollectionPacketId();
+  }
+  const id = value.trim();
+  if (!id || id.length > 160 || !/^[a-z0-9-]+$/.test(id)) {
+    throwInvalidClinicPilotContinuationRenewalPaymentCollectionPacketId();
+  }
+  return id;
+}
+
+function throwInvalidClinicPilotContinuationRenewalPaymentCollectionPacketId() {
+  const err = new Error("Invalid clinic pilot continuation renewal payment collection packet id");
   err.statusCode = 400;
   throw err;
 }
