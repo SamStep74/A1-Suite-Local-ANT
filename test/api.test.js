@@ -15492,6 +15492,53 @@ test("owner can close following ongoing renewal cycle and schedule subsequent on
     });
     assert.equal(accountantDenied.statusCode, 403);
 
+    const countCloseoutPackets = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/following-ongoing-renewal-closeouts?paymentCollectionPacketId=${proof.followingOngoingRenewalPaymentCollectionPacket.id}`,
+        headers: { cookie: proof.ownerCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return list.json().packets.length;
+    };
+    const countAuditEvents = async () => {
+      const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie: proof.ownerCookie } });
+      assert.equal(audit.statusCode, 200, audit.body);
+      return audit.json().events.length;
+    };
+    const beforeRejectedCloseouts = await countCloseoutPackets();
+    const beforeRejectedAudit = await countAuditEvents();
+
+    const malformedId = "badAsecret-following-ongoing-renewal-closeout-token";
+    const malformed = await app.inject({
+      method: "POST",
+      url: `/api/pilots/clinic-wellness/following-ongoing-renewal-payment-collections/${malformedId}/closeout-packet`,
+      headers: { cookie: proof.ownerCookie },
+      payload: {
+        note: "Secret following ongoing renewal closeout note should not leak.",
+        subsequentOngoingRenewalDueDate: "2027-01-28"
+      }
+    });
+    assert.equal(malformed.statusCode, 400, malformed.body);
+    assert.match(malformed.json().message, /Invalid clinic pilot following ongoing renewal HayHashvapah payment collection packet id/);
+    assert.doesNotMatch(malformed.body, /badAsecret/);
+    assert.doesNotMatch(malformed.body, /Secret following ongoing renewal closeout note/);
+    assert.equal(await countCloseoutPackets(), beforeRejectedCloseouts);
+    assert.equal(await countAuditEvents(), beforeRejectedAudit);
+
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/following-ongoing-renewal-payment-collections/pilot-following-ongoing-renewal-payment-collection-missing/closeout-packet",
+      headers: { cookie: proof.ownerCookie },
+      payload: {
+        note: "Safe missing following ongoing renewal payment collection remains a not-found lookup.",
+        subsequentOngoingRenewalDueDate: "2027-01-28"
+      }
+    });
+    assert.equal(missing.statusCode, 404, missing.body);
+    assert.equal(await countCloseoutPackets(), beforeRejectedCloseouts);
+    assert.equal(await countAuditEvents(), beforeRejectedAudit);
+
     const created = await app.inject({
       method: "POST",
       url: `/api/pilots/clinic-wellness/following-ongoing-renewal-payment-collections/${proof.followingOngoingRenewalPaymentCollectionPacket.id}/closeout-packet`,
