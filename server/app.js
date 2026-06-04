@@ -49181,13 +49181,14 @@ function getWorkflowApprovals(db, orgId, status = "", customerId = "") {
 }
 
 function getWorkflowApproval(db, orgId, approvalId) {
+  const safeApprovalId = normalizeWorkflowApprovalPathId(approvalId);
   const row = db.prepare(`
     SELECT workflow_approvals.*, customers.name AS customer_name, users.name AS requested_by_name
     FROM workflow_approvals
     LEFT JOIN customers ON customers.id = workflow_approvals.customer_id
     LEFT JOIN users ON users.id = workflow_approvals.requested_by_user_id
     WHERE workflow_approvals.org_id = ? AND workflow_approvals.id = ?
-  `).get(orgId, approvalId);
+  `).get(orgId, safeApprovalId);
   return row ? formatWorkflowApproval(row) : null;
 }
 
@@ -52685,6 +52686,40 @@ function throwInvalidWorkflowRuleChange() {
   throwWorkflowRuleChangeError("Invalid workflow rule change");
 }
 
+function normalizeWorkflowApprovalPathId(value) {
+  if (typeof value !== "string" || /[ -]/.test(value)) {
+    throwInvalidWorkflowApprovalPathId();
+  }
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) {
+    throwInvalidWorkflowApprovalPathId();
+  }
+  return text;
+}
+
+function throwInvalidWorkflowApprovalPathId() {
+  const err = new Error("Invalid workflow approval id");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeWorkflowRunPathId(value) {
+  if (typeof value !== "string" || /[ -]/.test(value)) {
+    throwInvalidWorkflowRunPathId();
+  }
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) {
+    throwInvalidWorkflowRunPathId();
+  }
+  return text;
+}
+
+function throwInvalidWorkflowRunPathId() {
+  const err = new Error("Invalid workflow run id");
+  err.statusCode = 400;
+  throw err;
+}
+
 function normalizeWorkflowApprovalDecisionBody(body) {
   if (!isPlainObject(body)) {
     throwInvalidWorkflowApprovalDecision();
@@ -55653,6 +55688,7 @@ function getFinanceDraftInvoices(db, orgId, customerId = "") {
 }
 
 function getFinanceDraftInvoice(db, orgId, draftInvoiceId) {
+  const safeDraftInvoiceId = normalizeFinanceDraftInvoicePathId(draftInvoiceId);
   const row = db.prepare(`
     SELECT finance_draft_invoices.*, customers.name AS customer_name,
       deals.title AS deal_title, users.name AS created_by_name
@@ -55661,7 +55697,7 @@ function getFinanceDraftInvoice(db, orgId, draftInvoiceId) {
     LEFT JOIN deals ON deals.id = finance_draft_invoices.deal_id
     LEFT JOIN users ON users.id = finance_draft_invoices.created_by_user_id
     WHERE finance_draft_invoices.org_id = ? AND finance_draft_invoices.id = ?
-  `).get(orgId, draftInvoiceId);
+  `).get(orgId, safeDraftInvoiceId);
   return row ? formatFinanceDraftInvoice(row) : null;
 }
 
@@ -55688,13 +55724,43 @@ function formatFinanceDraftInvoice(row) {
   };
 }
 
+function normalizeFinanceDraftInvoicePathId(value) {
+  return normalizeFinancePathId(value, "Invalid finance draft invoice id");
+}
+
+function normalizeFinanceInvoicePathId(value) {
+  return normalizeFinancePathId(value, "Invalid finance invoice id");
+}
+
+function normalizeFinanceBankTransactionPathId(value) {
+  return normalizeFinancePathId(value, "Invalid finance bank transaction id");
+}
+
+function normalizeFinancePathId(value, message) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinancePathId(message);
+  }
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) {
+    throwInvalidFinancePathId(message);
+  }
+  return text;
+}
+
+function throwInvalidFinancePathId(message) {
+  const err = new Error(message);
+  err.statusCode = 400;
+  throw err;
+}
+
 function getInvoice(db, orgId, invoiceId) {
+  const safeInvoiceId = normalizeFinanceInvoicePathId(invoiceId);
   const row = db.prepare(`
     SELECT invoices.*, customers.name AS customer_name
     FROM invoices
     JOIN customers ON customers.id = invoices.customer_id
     WHERE invoices.org_id = ? AND invoices.id = ?
-  `).get(orgId, invoiceId);
+  `).get(orgId, safeInvoiceId);
   return row ? formatInvoice(row) : null;
 }
 
@@ -55871,6 +55937,7 @@ function getFinanceBankTransactions(db, orgId, customerId = "") {
 }
 
 function getFinanceBankTransaction(db, orgId, transactionId) {
+  const safeTransactionId = normalizeFinanceBankTransactionPathId(transactionId);
   const row = db.prepare(`
     SELECT finance_bank_transactions.*, customers.name AS customer_name,
       invoices.number AS invoice_number, finance_payments.reference AS payment_reference,
@@ -55881,7 +55948,7 @@ function getFinanceBankTransaction(db, orgId, transactionId) {
     LEFT JOIN finance_payments ON finance_payments.id = finance_bank_transactions.payment_id
     LEFT JOIN users ON users.id = finance_bank_transactions.imported_by_user_id
     WHERE finance_bank_transactions.org_id = ? AND finance_bank_transactions.id = ?
-  `).get(orgId, transactionId);
+  `).get(orgId, safeTransactionId);
   return row ? formatFinanceBankTransaction(row) : null;
 }
 
@@ -55962,12 +56029,13 @@ function getWorkflowRuns(db, orgId, customerId = "") {
 }
 
 function getWorkflowRun(db, orgId, runId) {
+  const safeRunId = normalizeWorkflowRunPathId(runId);
   const row = db.prepare(`
     SELECT workflow_runs.*, customers.name AS customer_name
     FROM workflow_runs
     LEFT JOIN customers ON customers.id = workflow_runs.customer_id
     WHERE workflow_runs.org_id = ? AND workflow_runs.id = ?
-  `).get(orgId, runId);
+  `).get(orgId, safeRunId);
   return row ? formatWorkflowRun(row) : null;
 }
 

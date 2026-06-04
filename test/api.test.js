@@ -23601,6 +23601,7 @@ test("workflow approval decision rejects malformed metadata before persistence",
       FROM audit_events
       WHERE type IN ('workflow.approval.approved', 'workflow.approval.rejected')
     `).get().count;
+    const workflowRunCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM workflow_runs").get().count;
 
     const beforeApproval = approvalStatus();
     assert.equal(beforeApproval.status, "pending");
@@ -23608,6 +23609,7 @@ test("workflow approval decision rejects malformed metadata before persistence",
     assert.equal(beforeApproval.decidedAt, null);
     const suiteEventCountBefore = suiteApprovalEventCount();
     const auditCountBefore = auditApprovalEventCount();
+    const workflowRunCountBefore = workflowRunCount();
     const malformedRequests = [
       {
         decision: ["approved"],
@@ -23646,12 +23648,71 @@ test("workflow approval decision rejects malformed metadata before persistence",
       assert.doesNotMatch(rejected.body, /secret-workflow-approval-/);
     }
 
+
+
+    const malformedPathRequests = [
+      {
+        method: "POST",
+        url: "/api/workflow/approvals/approval-overdue-nare%0Asecret-workflow-approval-path-token/decision",
+        payload: { decision: "approved", note: "secret-workflow-approval-path-body-token" },
+        message: /Invalid workflow approval id/
+      },
+      {
+        method: "POST",
+        url: "/api/workflow/approvals/approval-overdue-nare_bad-secret-workflow-approval-execute-path-token/execute",
+        message: /Invalid workflow approval id/
+      },
+      {
+        method: "POST",
+        url: "/api/workflow/runs/run-overdue-nare%0Asecret-workflow-run-path-token/retry",
+        message: /Invalid workflow run id/
+      }
+    ];
+    for (const request of malformedPathRequests) {
+      const rejected = await app.inject({
+        method: request.method,
+        url: request.url,
+        headers: { cookie },
+        payload: request.payload
+      });
+      assert.equal(rejected.statusCode, 400, rejected.body);
+      assert.match(rejected.body, request.message);
+      assert.doesNotMatch(rejected.body, /secret-workflow-/);
+    }
+
+    const safeUnknownRequests = [
+      {
+        method: "POST",
+        url: "/api/workflow/approvals/approval-missing-safe/decision",
+        payload: { decision: "approved", note: "secret-workflow-approval-missing-body-token" }
+      },
+      {
+        method: "POST",
+        url: "/api/workflow/approvals/approval-missing-safe/execute"
+      },
+      {
+        method: "POST",
+        url: "/api/workflow/runs/run-missing-safe/retry"
+      }
+    ];
+    for (const request of safeUnknownRequests) {
+      const missing = await app.inject({
+        method: request.method,
+        url: request.url,
+        headers: { cookie },
+        payload: request.payload
+      });
+      assert.equal(missing.statusCode, 404, missing.body);
+      assert.doesNotMatch(missing.body, /secret-workflow-/);
+    }
+
     const afterRejectedApprovals = approvalStatus();
     assert.equal(afterRejectedApprovals.status, "pending");
     assert.equal(afterRejectedApprovals.decidedByUserId, null);
     assert.equal(afterRejectedApprovals.decidedAt, null);
     assert.equal(suiteApprovalEventCount(), suiteEventCountBefore);
     assert.equal(auditApprovalEventCount(), auditCountBefore);
+    assert.equal(workflowRunCount(), workflowRunCountBefore);
 
     const decision = await app.inject({
       method: "POST",
@@ -25938,6 +25999,72 @@ test("bank transaction import rejects malformed metadata before persistence", as
     assert.equal(imported.json().transaction.reference, "AMERIA-HHV-1007");
     assert.equal(imported.json().transaction.status, "matched");
     assert.equal(imported.json().match.invoiceId, "inv-1007");
+
+    const transactionId = imported.json().transaction.id;
+    const transactionStatus = () => app.db.prepare(`
+      SELECT status
+      FROM finance_bank_transactions
+      WHERE id = ?
+    `).get(transactionId).status;
+    const paymentCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM finance_payments
+      WHERE invoice_id = ?
+    `).get("inv-1007").count;
+    const ledgerPaymentCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM ledger_journal
+      WHERE source_type = ?
+        AND source_id LIKE ?
+    `).get("payment", "payment-%").count;
+    const suiteReconciledEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE event_type = ?
+    `).get("finance.bank_transaction.reconciled").count;
+    const auditReconciledEventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+    `).get("finance.bank_transaction.reconciled").count;
+    const paymentCountBefore = paymentCount();
+    const ledgerPaymentCountBefore = ledgerPaymentCount();
+    const suiteReconciledEventCountBefore = suiteReconciledEventCount();
+    const auditReconciledEventCountBefore = auditReconciledEventCount();
+
+    const malformedPath = await app.inject({
+      method: "POST",
+      url: `/api/finance/bank-transactions/${transactionId}%0Asecret-bank-reconcile-path-token/reconcile`,
+      headers: { cookie }
+    });
+    assert.equal(malformedPath.statusCode, 400, malformedPath.body);
+    assert.match(malformedPath.body, /Invalid finance bank transaction id/);
+    assert.doesNotMatch(malformedPath.body, /secret-bank-reconcile-path-token/);
+    assert.equal(transactionStatus(), "matched");
+    assert.equal(paymentCount(), paymentCountBefore);
+    assert.equal(ledgerPaymentCount(), ledgerPaymentCountBefore);
+    assert.equal(suiteReconciledEventCount(), suiteReconciledEventCountBefore);
+    assert.equal(auditReconciledEventCount(), auditReconciledEventCountBefore);
+
+    const missingPath = await app.inject({
+      method: "POST",
+      url: "/api/finance/bank-transactions/banktx-missing-safe/reconcile",
+      headers: { cookie }
+    });
+    assert.equal(missingPath.statusCode, 404, missingPath.body);
+    assert.equal(transactionStatus(), "matched");
+    assert.equal(paymentCount(), paymentCountBefore);
+    assert.equal(ledgerPaymentCount(), ledgerPaymentCountBefore);
+    assert.equal(suiteReconciledEventCount(), suiteReconciledEventCountBefore);
+    assert.equal(auditReconciledEventCount(), auditReconciledEventCountBefore);
+
+    const reconciled = await app.inject({
+      method: "POST",
+      url: `/api/finance/bank-transactions/${transactionId}/reconcile`,
+      headers: { cookie }
+    });
+    assert.equal(reconciled.statusCode, 200, reconciled.body);
+    assert.equal(reconciled.json().transaction.status, "reconciled");
   });
 });
 
@@ -26603,6 +26730,38 @@ test("draft invoice posting rejects malformed metadata before persistence", asyn
     const ledgerCountBefore = ledgerCount();
     const suiteEventCountBefore = suitePostedEventCount();
     const auditCountBefore = auditPostedEventCount();
+
+    const malformedDraftPath = await app.inject({
+      method: "POST",
+      url: `/api/finance/draft-invoices/${draft.id}%0Asecret-draft-invoice-post-path-token/post`,
+      headers: { cookie },
+      payload: { number: "secret-draft-invoice-post-path-body-token" }
+    });
+    assert.equal(malformedDraftPath.statusCode, 400, malformedDraftPath.body);
+    assert.match(malformedDraftPath.body, /Invalid finance draft invoice id/);
+    assert.doesNotMatch(malformedDraftPath.body, /secret-draft-invoice-post-path-/);
+    assert.equal(draftStatus(), "draft");
+    assert.equal(invoiceCount(), 0);
+    assert.equal(linkCount(), 0);
+    assert.equal(ledgerCount(), ledgerCountBefore);
+    assert.equal(suitePostedEventCount(), suiteEventCountBefore);
+    assert.equal(auditPostedEventCount(), auditCountBefore);
+
+    const missingDraftPath = await app.inject({
+      method: "POST",
+      url: "/api/finance/draft-invoices/draft-missing-safe/post",
+      headers: { cookie },
+      payload: { number: "secret-draft-invoice-post-missing-body-token" }
+    });
+    assert.equal(missingDraftPath.statusCode, 404, missingDraftPath.body);
+    assert.doesNotMatch(missingDraftPath.body, /secret-draft-invoice-post-missing/);
+    assert.equal(draftStatus(), "draft");
+    assert.equal(invoiceCount(), 0);
+    assert.equal(linkCount(), 0);
+    assert.equal(ledgerCount(), ledgerCountBefore);
+    assert.equal(suitePostedEventCount(), suiteEventCountBefore);
+    assert.equal(auditPostedEventCount(), auditCountBefore);
+
     const malformedRequests = [
       {
         number: ["HHV-2026-OBJECT"],
@@ -26801,6 +26960,50 @@ test("payment receipt rejects malformed metadata before persistence", async () =
     const suiteEventCountBefore = suitePaymentEventCount();
     const auditCountBefore = auditPaymentEventCount();
     const webhookDeliveryCountBefore = webhookDeliveryCount();
+
+    const malformedInvoicePath = await app.inject({
+      method: "POST",
+      url: `/api/finance/invoices/${invoiceId}%0Asecret-payment-receipt-path-token/payments`,
+      headers: { cookie },
+      payload: {
+        amount: 3200000,
+        paidAt: "2026-05-27",
+        method: "bank-transfer",
+        reference: "secret-payment-receipt-path-body-token"
+      }
+    });
+    assert.equal(malformedInvoicePath.statusCode, 400, malformedInvoicePath.body);
+    assert.match(malformedInvoicePath.body, /Invalid finance invoice id/);
+    assert.doesNotMatch(malformedInvoicePath.body, /secret-payment-receipt-path-/);
+    assert.equal(invoiceStatus(), invoiceStatusBefore);
+    assert.equal(paymentCount(), 0);
+    assert.equal(paymentSecretCount(), 0);
+    assert.equal(ledgerCount(), ledgerCountBefore);
+    assert.equal(suitePaymentEventCount(), suiteEventCountBefore);
+    assert.equal(auditPaymentEventCount(), auditCountBefore);
+    assert.equal(webhookDeliveryCount(), webhookDeliveryCountBefore);
+
+    const missingInvoicePath = await app.inject({
+      method: "POST",
+      url: "/api/finance/invoices/inv-missing-safe/payments",
+      headers: { cookie },
+      payload: {
+        amount: 3200000,
+        paidAt: "2026-05-27",
+        method: "bank-transfer",
+        reference: "secret-payment-receipt-missing-body-token"
+      }
+    });
+    assert.equal(missingInvoicePath.statusCode, 404, missingInvoicePath.body);
+    assert.doesNotMatch(missingInvoicePath.body, /secret-payment-receipt-missing/);
+    assert.equal(invoiceStatus(), invoiceStatusBefore);
+    assert.equal(paymentCount(), 0);
+    assert.equal(paymentSecretCount(), 0);
+    assert.equal(ledgerCount(), ledgerCountBefore);
+    assert.equal(suitePaymentEventCount(), suiteEventCountBefore);
+    assert.equal(auditPaymentEventCount(), auditCountBefore);
+    assert.equal(webhookDeliveryCount(), webhookDeliveryCountBefore);
+
     const malformedRequests = [
       {
         amount: ["3200000"],
