@@ -18661,6 +18661,66 @@ test("owner can close next recurring ongoing renewal cycle and schedule followin
     });
     assert.equal(accountantDenied.statusCode, 403);
 
+    const countCloseoutPackets = async () => {
+      const list = await app.inject({
+        method: "GET",
+        url: `/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-closeouts?paymentCollectionPacketId=${proof.nextRecurringOngoingRenewalPaymentCollectionPacket.id}`,
+        headers: { cookie: proof.ownerCookie }
+      });
+      assert.equal(list.statusCode, 200, list.body);
+      return list.json().packets.length;
+    };
+    const orgId = app.db.prepare("SELECT org_id AS orgId FROM users WHERE email = ?").get(DEFAULT_EMAIL).orgId;
+    const auditContainsEvidence = (...needles) => {
+      const events = app.db.prepare("SELECT type, details FROM audit_events WHERE org_id = ? ORDER BY id DESC").all(orgId);
+      const serializedEvents = JSON.stringify(events);
+      return needles.some(needle => serializedEvents.includes(needle));
+    };
+    const countCloseoutAuditEvents = () => app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?")
+      .get(orgId, "pilot.next_recurring_ongoing_renewal_closeout.created").count;
+    const beforeRejectedCloseouts = await countCloseoutPackets();
+    const beforeRejectedAudit = countCloseoutAuditEvents();
+
+    const malformedPaymentCollectionRequests = [
+      { id: "badAsecret-next-recurring-ongoing-closeout-payment-token", evidence: "badAsecret" },
+      { id: "bad_secret-next-recurring-ongoing-closeout-payment-token", evidence: "bad_secret" }
+    ];
+    const malformedPaymentCollectionEvidence = [];
+    for (const { id, evidence } of malformedPaymentCollectionRequests) {
+      malformedPaymentCollectionEvidence.push(id, evidence);
+      const malformedPaymentCollection = await app.inject({
+        method: "POST",
+        url: `/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-payment-collections/${id}/closeout-packet`,
+        headers: { cookie: proof.ownerCookie },
+        payload: { note: "Secret next recurring ongoing closeout note should not leak." }
+      });
+      assert.equal(malformedPaymentCollection.statusCode, 400, `${id}: ${malformedPaymentCollection.body}`);
+      assert.match(malformedPaymentCollection.json().message, /Invalid clinic pilot next recurring ongoing renewal HayHashvapah payment collection packet id/);
+      assert.equal(malformedPaymentCollection.body.includes(evidence), false);
+      assert.doesNotMatch(malformedPaymentCollection.body, /Secret next recurring ongoing closeout note/);
+      assert.equal(await countCloseoutPackets(), beforeRejectedCloseouts);
+      assert.equal(countCloseoutAuditEvents(), beforeRejectedAudit);
+    }
+    assert.equal(auditContainsEvidence(
+      ...malformedPaymentCollectionEvidence,
+      "Secret next recurring ongoing closeout note"
+    ), false);
+
+    const missingPaymentCollection = await app.inject({
+      method: "POST",
+      url: "/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-payment-collections/pilot-next-recurring-ongoing-renewal-payment-collection-missing/closeout-packet",
+      headers: { cookie: proof.ownerCookie },
+      payload: { note: "Safe missing next recurring ongoing payment collection remains a not-found lookup." }
+    });
+    assert.equal(missingPaymentCollection.statusCode, 404, missingPaymentCollection.body);
+    assert.equal(await countCloseoutPackets(), beforeRejectedCloseouts);
+    assert.equal(countCloseoutAuditEvents(), beforeRejectedAudit);
+    assert.equal(auditContainsEvidence(
+      ...malformedPaymentCollectionEvidence,
+      "Secret next recurring ongoing closeout note",
+      "Safe missing next recurring ongoing payment collection remains a not-found lookup"
+    ), false);
+
     const created = await app.inject({
       method: "POST",
       url: `/api/pilots/clinic-wellness/next-recurring-ongoing-renewal-payment-collections/${proof.nextRecurringOngoingRenewalPaymentCollectionPacket.id}/closeout-packet`,
