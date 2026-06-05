@@ -45,6 +45,10 @@ function readSources(dir, options = {}) {
   const sources = [];
   for (const f of entries) {
     const full = path.join(dir, f);
+    if (!fs.statSync(full).isFile()) {
+      onSkip(f, "not-a-file");
+      continue;
+    }
     if (/\.pdf$/i.test(f)) {
       if (pdfAvailable === undefined) pdfAvailable = isPdftotextAvailable();
       if (!pdfAvailable) { onSkip(f, "pdftotext-unavailable"); continue; }
