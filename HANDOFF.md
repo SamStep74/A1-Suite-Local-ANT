@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-05 · Legal source regular-file guard · 38 tags · **550 tests verified**_
+_Last updated: 2026-06-05 · Legal source symlink guard · 39 tags · **551 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 221 slices)
+### Hardening (production-readiness pass — 222 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -256,6 +256,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 219. **PDF extractor unavailable skip hardening** canonicalizes extractor-level `PdftotextUnavailableError` failures to the same `pdftotext-unavailable` skip reason as the preflight probe, keeping CLI install guidance and no-crash PDF skip behavior stable if the binary disappears or becomes unavailable between probe and extraction.
 220. **PDF extraction spawn unavailable hardening** maps blocked or missing `pdftotext` extraction spawn errors (`ENOENT`, `EACCES`, `EPERM`) to `PdftotextUnavailableError`, keeping late binary-permission changes on the same typed legal-PDF skip path while preserving non-zero parse failures as real extraction errors.
 221. **Legal source regular-file guard** skips extension-named directories or other non-file entries before `.txt`/`.md` reads or `.pdf` extraction, preventing malformed law-source folders from crashing offline KB ingestion or invoking `pdftotext` on directories.
+222. **Legal source symlink guard** skips extension-named symlinks before `.txt`/`.md` reads or `.pdf` extraction, preventing linked law-source entries from escaping the selected source directory or invoking PDF extraction on symlink targets.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -304,6 +305,8 @@ The Copilot slice is Armenian-first and now uses OpenRouter as the single opt-in
 
 Current checkpoint:
 - Current test runner safety checkpoint: `ee82f1e` (`chore(test): cap node --test concurrency to prevent OOM disk-fill`) on `main` and `codex/suite-dashboard-route-normalization` (runs `npm test` as `node --test --test-concurrency=4 --test-timeout=60000`, preventing the previous unbounded full-suite worker fan-out from exhausting disk/memory on this Mac).
+- Current Legal source symlink guard checkpoint: `b53c091` (`Harden law source symlink filtering`) on `codex/law-source-symlink-guard` (skips extension-named symlinks before text reads or PDF extraction, keeping offline law-source ingestion scoped to regular source files).
+- Latest Legal source symlink guard verification from `~/dev/A1-Suite-Local`: `node --check scripts/ingest-laws.js && node --check test/pdf-text.test.js && node --check server/pdfText.js` pass; focused PDF/source-reader suite pass (`node --test test/pdf-text.test.js`, 11 pass, 0 fail, 0 cancelled); broader legal/RAG ingest suite pass (`node --test test/pdf-text.test.js test/law-ingest.test.js test/law-ingest-homoglyph.test.js test/law-ingest-build.test.js test/law-embed.test.js test/rag.test.js test/legal-search.test.js test/legal-grounding.test.js`, 39 pass, 0 fail, 0 cancelled); read-only subagent review unavailable because the agent thread limit was reached; local diff review found no issues; `git diff --check` pass; capped full `npm test` pass (551 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-law-source-symlink-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
 - Current Legal source regular-file guard checkpoint: `ddc91b2` (`Harden law source regular file filtering`) (skips extension-named directories/non-files before text reads or PDF extraction, preserving offline law-source ingestion when source folders contain archive directories or other non-regular entries).
 - Latest Legal source regular-file guard verification from `~/dev/A1-Suite-Local`: `node --check scripts/ingest-laws.js && node --check test/pdf-text.test.js && node --check server/pdfText.js` pass; focused PDF/source-reader suite pass (`node --test test/pdf-text.test.js`, 10 pass, 0 fail, 0 cancelled); broader legal/RAG ingest suite pass (`node --test test/pdf-text.test.js test/law-ingest.test.js test/law-ingest-homoglyph.test.js test/law-ingest-build.test.js test/law-embed.test.js test/rag.test.js test/legal-search.test.js test/legal-grounding.test.js`, 38 pass, 0 fail, 0 cancelled); `git diff --check` pass; capped full `npm test` pass (550 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-law-source-regular-file-guard-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
 - Previous PDF extraction spawn unavailable hardening checkpoint: `ecaa6e2` (`Harden PDF extraction spawn unavailable errors`) (maps missing or blocked `pdftotext` extraction spawn errors to typed `PdftotextUnavailableError`, preserving canonical legal-PDF skip behavior if binary availability changes after the probe).
