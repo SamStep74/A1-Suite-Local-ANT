@@ -54,71 +54,76 @@ async function verifyRoleNavigation(baseUrl, browser, email) {
   assert.ok(Array.isArray(suite.apps), `suite.apps invalid for ${email}`);
 
   const context = await browser.newContext();
-  await context.addCookies([{
-    name,
-    value,
-    domain: "127.0.0.1",
-    path: "/",
-    httpOnly: true,
-    secure: false,
-    sameSite: "Lax"
-  }]);
-  const page = await context.newPage();
-  await page.goto(`${baseUrl}/app/crm`, { waitUntil: "domcontentloaded" });
-  await page.waitForSelector("nav.app-nav button");
+  try {
+    await context.addCookies([{
+      name,
+      value,
+      domain: "127.0.0.1",
+      path: "/",
+      httpOnly: true,
+      secure: false,
+      sameSite: "Lax"
+    }]);
+    const page = await context.newPage();
+    await page.goto(`${baseUrl}/app/crm`, { waitUntil: "domcontentloaded" });
+    await page.waitForSelector("nav.app-nav button");
 
-  const sidebarButtons = await page.$$eval("nav.app-nav button", buttons =>
-    buttons.map(button => ({
-      appId: button.dataset.appId || "",
-      targetAppId: button.dataset.targetAppId || "",
-      label: button.textContent.trim()
-    }))
-  );
+    const sidebarButtons = await page.$$eval("nav.app-nav button", buttons =>
+      buttons.map(button => ({
+        appId: button.dataset.appId || "",
+        targetAppId: button.dataset.targetAppId || "",
+        label: button.textContent.trim()
+      }))
+    );
 
-  const assignedAppIds = suite.apps.map(app => app.id);
-  assert.equal(sidebarButtons.length, suite.apps.length, `sidebar button count mismatch for ${email}`);
+    const assignedAppIds = suite.apps.map(app => app.id);
+    assert.equal(sidebarButtons.length, suite.apps.length, `sidebar button count mismatch for ${email}`);
 
-  for (let index = 0; index < suite.apps.length; index += 1) {
-    const suiteApp = suite.apps[index];
-    const button = sidebarButtons[index];
-    const expectedTargetAppId = normalizeSuiteAppId(suiteApp.id, assignedAppIds);
-    const selector = `nav.app-nav button:nth-child(${index + 1})`;
+    for (let index = 0; index < suite.apps.length; index += 1) {
+      const suiteApp = suite.apps[index];
+      const button = sidebarButtons[index];
+      const expectedTargetAppId = normalizeSuiteAppId(suiteApp.id, assignedAppIds);
+      const selector = `nav.app-nav button:nth-child(${index + 1})`;
 
-    if (button.appId) {
-      assert.equal(button.appId, suiteApp.id, `sidebar button order mismatch for ${email}`);
-      assert.equal(button.targetAppId, expectedTargetAppId, `sidebar target mismatch for ${suiteApp.id} (${email})`);
+      if (button.appId) {
+        assert.equal(button.appId, suiteApp.id, `sidebar button order mismatch for ${email}`);
+        assert.equal(button.targetAppId, expectedTargetAppId, `sidebar target mismatch for ${suiteApp.id} (${email})`);
+      }
+
+      const expectedPath = `/app/${expectedTargetAppId}`;
+      const currentPath = new URL(page.url()).pathname;
+      if (currentPath === expectedPath) {
+        await page.locator(selector).click();
+        await page.waitForTimeout(120);
+      } else {
+        await Promise.all([
+          page.locator(selector).first().click(),
+          page.waitForURL(new RegExp(`${expectedPath.replace("/", "\\/")}(\\?|#|$)`), { timeout: 1500 })
+        ]);
+      }
+
+      const path = new URL(page.url()).pathname;
+      assert.equal(path, expectedPath, `${email} failed to open ${suiteApp.id}`);
+      const anchorVisible = await page.locator(`#suite-app-${expectedTargetAppId}`).count();
+      assert.equal(anchorVisible, 1, `${suiteApp.id} anchor missing for ${email}`);
     }
-
-    const expectedPath = `/app/${expectedTargetAppId}`;
-    const currentPath = new URL(page.url()).pathname;
-    if (currentPath === expectedPath) {
-      await page.locator(selector).click();
-      await page.waitForTimeout(120);
-    } else {
-      await Promise.all([
-        page.locator(selector).first().click(),
-        page.waitForURL(new RegExp(`${expectedPath.replace("/", "\\/")}(\\?|#|$)`), { timeout: 1500 })
-      ]);
-    }
-
-    const path = new URL(page.url()).pathname;
-    assert.equal(path, expectedPath, `${email} failed to open ${suiteApp.id}`);
-    const anchorVisible = await page.locator(`#suite-app-${expectedTargetAppId}`).count();
-    assert.equal(anchorVisible, 1, `${suiteApp.id} anchor missing for ${email}`);
+  } finally {
+    await context.close();
   }
-
-  await context.close();
 }
 
 test("dashboard sidebar opens every assigned app for all seeded roles", async () => {
   const { app, baseUrl } = await startServer();
-  const browser = await chromium.launch({ headless: true });
+  let browser;
   try {
+    browser = await chromium.launch({ headless: true });
     for (const email of USERS) {
       await verifyRoleNavigation(baseUrl, browser, email);
     }
   } finally {
-    await browser.close();
+    if (browser) {
+      await browser.close();
+    }
     await app.close();
   }
 });
