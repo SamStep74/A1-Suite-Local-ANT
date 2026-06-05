@@ -89,8 +89,10 @@ gaps). With no `dest`, it writes to `ARMOSPHERA_ONE_LAWS_DB` / the default data 
 running, the rows stay lexical (BM25) and the command still succeeds — the KB is never
 left in a broken state.
 
-> **PDF sources:** convert to text first (e.g. `pdftotext`), then run `ingest-laws.js`.
-> Native PDF extraction is a planned follow-up; plain-text/Markdown laws are first-class today.
+> **PDF sources:** `.pdf` files are accepted directly when the local `pdftotext`
+> binary is available. If it is missing, PDFs are skipped with a warning while
+> `.txt` / `.md` sources still ingest normally; install Poppler or pre-convert PDFs
+> to text on hosts where native extraction is not available.
 
 ## Configuration
 
