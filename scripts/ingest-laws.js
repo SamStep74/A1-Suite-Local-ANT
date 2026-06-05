@@ -44,6 +44,10 @@ function readSources(dir, options = {}) {
   let pdfAvailable = options.pdfAvailable;
   const sources = [];
   for (const f of entries) {
+    if (f.startsWith(".")) {
+      onSkip(f, "hidden-file");
+      continue;
+    }
     const full = path.join(dir, f);
     const entryStat = fs.lstatSync(full);
     if (entryStat.isSymbolicLink()) {

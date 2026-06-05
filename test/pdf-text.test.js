@@ -160,3 +160,26 @@ test("pdf-text: readSources skips extension-named symlinks before text or PDF ex
     assert.deepStrictEqual(skipped, [{ file: "Linked.pdf", reason: "symlink" }]);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("pdf-text: readSources skips hidden extension-named sidecars before text or PDF extraction", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pdf-src6-"));
+  try {
+    fs.writeFileSync(path.join(dir, "Tax.txt"), "Հոդված 1. Տեքստ");
+    fs.writeFileSync(path.join(dir, "._Tax.pdf"), "AppleDouble sidecar");
+    fs.writeFileSync(path.join(dir, ".Draft.md"), "hidden draft");
+    const skipped = [];
+    const sources = readSources(dir, {
+      pdfAvailable: true,
+      extractPdf: () => { throw new Error("hidden sidecar should not be extracted"); },
+      onSkip: (file, reason) => skipped.push({ file, reason }),
+    });
+    assert.strictEqual(sources.length, 1, "only visible regular source files are ingested");
+    assert.deepStrictEqual(
+      skipped,
+      [
+        { file: ".Draft.md", reason: "hidden-file" },
+        { file: "._Tax.pdf", reason: "hidden-file" },
+      ]
+    );
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
