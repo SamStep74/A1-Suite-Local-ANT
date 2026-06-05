@@ -38,6 +38,15 @@ test("pdf-text: a missing binary (ENOENT) raises a typed PdftotextUnavailableErr
   );
 });
 
+test("pdf-text: a blocked binary raises the same typed unavailable error", () => {
+  const runner = fakeRunner({ error: Object.assign(new Error("spawn pdftotext EACCES"), { code: "EACCES" }) });
+  assert.throws(
+    () => extractPdfText("/laws/Code.pdf", { runner }),
+    (e) => e instanceof PdftotextUnavailableError,
+    "blocked pdftotext spawn → PdftotextUnavailableError"
+  );
+});
+
 test("pdf-text: a non-zero exit is a real failure (distinct from 'unavailable')", () => {
   const runner = fakeRunner({ status: 1, stdout: "", stderr: "Syntax Error: not a PDF" });
   assert.throws(
