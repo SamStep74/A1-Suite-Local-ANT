@@ -1747,6 +1747,19 @@ textarea {
   margin-bottom: 12px;
 }
 
+.finance-localization-tools-panel .inline-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(145px, 1fr));
+  gap: 8px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.finance-localization-tools-panel .mini-action {
+  min-width: 0;
+  width: 100%;
+}
+
 .aging-buckets {
   display: grid;
   gap: 8px;

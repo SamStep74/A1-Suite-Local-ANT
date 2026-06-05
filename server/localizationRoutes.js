@@ -5,8 +5,7 @@
 // policy. Registered from buildApp via registerLocalizationRoutes(app), kept in its
 // own module to minimize the footprint inside the large app.js.
 //
-// Engines that may not yet be on main (e.g. armeniaPayroll, PR #34) are required
-// lazily inside the handler so the rest of the routes work regardless.
+// Payroll stays lazily required so this module remains isolated from app boot.
 
 const localization = require("./localization");
 const regions = require("./armeniaRegions");
@@ -15,11 +14,125 @@ const coa = require("./armeniaChartOfAccounts");
 const vatReturn = require("./vatReturn");
 const einvoice = require("./einvoice");
 
+const MAX_QUERY_TEXT_LENGTH = 160;
+const MAX_JSON_STRING_LENGTH = 1000;
+const MAX_JSON_ARRAY_LENGTH = 100;
+const MAX_JSON_KEYS = 80;
+const MAX_JSON_DEPTH = 8;
+const MAX_PAYROLL_GROSS = 1000000000;
+
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function hasControlCharacters(value) {
+  return /[\u0000-\u001f\u007f]/.test(value);
+}
+
+function invalidLocalizationMetadata(message = "Localization request requires safe metadata") {
+  const error = new Error(message);
+  error.statusCode = 400;
+  error.code = "INVALID_LOCALIZATION_METADATA";
+  return error;
+}
+
+function normalizeOptionalQueryText(query, key) {
+  const value = query && query[key];
+  if (value == null || value === "") return "";
+  if (typeof value !== "string") throw invalidLocalizationMetadata();
+  const trimmed = value.trim();
+  if (!trimmed || trimmed.length > MAX_QUERY_TEXT_LENGTH || hasControlCharacters(trimmed)) {
+    throw invalidLocalizationMetadata();
+  }
+  return trimmed;
+}
+
+function assertSafeJson(value, depth = 0) {
+  if (depth > MAX_JSON_DEPTH) throw invalidLocalizationMetadata();
+  if (value == null || typeof value === "boolean") return;
+  if (typeof value === "number") {
+    if (!Number.isFinite(value) || Math.abs(value) > Number.MAX_SAFE_INTEGER) throw invalidLocalizationMetadata();
+    return;
+  }
+  if (typeof value === "string") {
+    if (value.length > MAX_JSON_STRING_LENGTH || hasControlCharacters(value)) throw invalidLocalizationMetadata();
+    return;
+  }
+  if (Array.isArray(value)) {
+    if (value.length > MAX_JSON_ARRAY_LENGTH) throw invalidLocalizationMetadata();
+    for (const item of value) assertSafeJson(item, depth + 1);
+    return;
+  }
+  if (!isPlainObject(value)) throw invalidLocalizationMetadata();
+  const entries = Object.entries(value);
+  if (entries.length > MAX_JSON_KEYS) throw invalidLocalizationMetadata();
+  for (const [key, child] of entries) {
+    if (typeof key !== "string" || key.length > MAX_QUERY_TEXT_LENGTH || hasControlCharacters(key)) {
+      throw invalidLocalizationMetadata();
+    }
+    assertSafeJson(child, depth + 1);
+  }
+}
+
+function normalizeBodyObject(body) {
+  const value = body === undefined || body === null ? {} : body;
+  if (!isPlainObject(value)) throw invalidLocalizationMetadata();
+  assertSafeJson(value);
+  return value;
+}
+
+function normalizePayrollGross(body) {
+  const value = normalizeBodyObject(body).gross;
+  const gross = typeof value === "number" ? value : (typeof value === "string" && value.trim() ? Number(value) : NaN);
+  if (!Number.isFinite(gross) || gross < 0 || gross > MAX_PAYROLL_GROSS) {
+    throw invalidLocalizationMetadata("Payroll gross must be a safe non-negative AMD amount");
+  }
+  return gross;
+}
+
+function normalizePlainObjectArray(body, key) {
+  const value = body[key];
+  if (value == null) return [];
+  if (!Array.isArray(value) || value.length > MAX_JSON_ARRAY_LENGTH) {
+    throw invalidLocalizationMetadata();
+  }
+  for (const item of value) {
+    if (!isPlainObject(item)) throw invalidLocalizationMetadata();
+  }
+  return value;
+}
+
+function normalizeOptionalPlainObject(body, key) {
+  const value = body[key];
+  if (value === undefined) return {};
+  if (!isPlainObject(value)) throw invalidLocalizationMetadata();
+  return value;
+}
+
+function normalizeVatReturnPeriod(body) {
+  const period = normalizeBodyObject(body);
+  return {
+    ...period,
+    sales: normalizePlainObjectArray(period, "sales"),
+    purchases: normalizePlainObjectArray(period, "purchases")
+  };
+}
+
+function normalizeEInvoiceBody(body) {
+  const invoice = normalizeBodyObject(body);
+  return {
+    ...invoice,
+    supplier: normalizeOptionalPlainObject(invoice, "supplier"),
+    buyer: normalizeOptionalPlainObject(invoice, "buyer"),
+    lines: normalizePlainObjectArray(invoice, "lines")
+  };
+}
+
 function registerLocalizationRoutes(app) {
   // Full RA chart of accounts, or a single code via ?code=
   app.get("/api/localization/chart-of-accounts", async (request) => {
     await app.auth(request);
-    const code = request.query && request.query.code;
+    const code = normalizeOptionalQueryText(request.query, "code");
     if (code) {
       const account = coa.accountByCode(code);
       return account
@@ -31,7 +144,7 @@ function registerLocalizationRoutes(app) {
 
   app.get("/api/localization/hvhh", async (request) => {
     await app.auth(request);
-    return localization.validateHvhh(request.query && request.query.value);
+    return localization.validateHvhh(normalizeOptionalQueryText(request.query, "value"));
   });
 
   app.get("/api/localization/regions", async (request) => {
@@ -41,7 +154,7 @@ function registerLocalizationRoutes(app) {
 
   app.get("/api/localization/phone", async (request) => {
     await app.auth(request);
-    const value = request.query && request.query.value;
+    const value = normalizeOptionalQueryText(request.query, "value");
     return {
       valid: phone.isValidArmenianPhone(value),
       e164: phone.e164(value),
@@ -51,7 +164,7 @@ function registerLocalizationRoutes(app) {
 
   app.post("/api/finance/vat-return/compute", async (request) => {
     await app.auth(request);
-    const period = request.body || {};
+    const period = normalizeVatReturnPeriod(request.body);
     return { summary: vatReturn.computeVatReturn(period), form: vatReturn.vatReturnForm(period).lines };
   });
 
@@ -61,9 +174,9 @@ function registerLocalizationRoutes(app) {
     try {
       payroll = require("./armeniaPayroll");
     } catch {
-      return { error: "payroll engine pending merge" };
+      return { error: "payroll engine unavailable" };
     }
-    return payroll.computePayroll(Number(request.body && request.body.gross));
+    return payroll.computePayroll(normalizePayrollGross(request.body));
   });
 
   app.post("/api/finance/einvoice/build", async (request, reply) => {
@@ -71,7 +184,7 @@ function registerLocalizationRoutes(app) {
     if (reply && typeof reply.header === "function") {
       reply.header("content-type", "application/xml; charset=utf-8");
     }
-    return einvoice.buildEInvoiceXml(request.body || {});
+    return einvoice.buildEInvoiceXml(normalizeEInvoiceBody(request.body));
   });
 }
 

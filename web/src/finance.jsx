@@ -1,6 +1,7 @@
 import React, { useState } from "react";
 
 const amd = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
+const numericInput = value => Math.round(Number(value) || 0);
 
 export function FinanceTrialBalancePanel({ data }) {
   if (!data) return null;
@@ -155,6 +156,125 @@ export function FinanceChartOfAccountsPanel({ data }) {
           </div>
         ))}
       </div>
+    </article>
+  );
+}
+
+export function FinanceLocalizationToolsPanel({ request }) {
+  const [hvhh, setHvhh] = useState("00123456");
+  const [phone, setPhone] = useState("+374 91 123456");
+  const [gross, setGross] = useState("600000");
+  const [salesNet, setSalesNet] = useState("1000000");
+  const [purchaseNet, setPurchaseNet] = useState("300000");
+  const [results, setResults] = useState({});
+  const [busy, setBusy] = useState("");
+  const [error, setError] = useState("");
+  const isBusy = Boolean(busy);
+
+  async function run(key, task) {
+    if (!request || busy) return;
+    setBusy(key);
+    setError("");
+    try {
+      const value = await task();
+      setResults(prev => ({ ...prev, [key]: value }));
+    } catch (err) {
+      setError((err && err.message) || "Localization request failed");
+    } finally {
+      setBusy("");
+    }
+  }
+
+  const hvhhResult = results.hvhh;
+  const phoneResult = results.phone;
+  const payroll = results.payroll || {};
+  const vat = results.vat || {};
+  const vatSummary = vat.summary || {};
+  const vatForm = vat.form || {};
+  const vatLineValue = line => {
+    const item = vatForm[line] || {};
+    if (line === "23") return `${amd(item.payable)} / ${amd(item.recoverable)}`;
+    if (line === "21") return amd(item.vat);
+    return `${amd(item.base)} / ${amd(item.vat)}`;
+  };
+
+  return (
+    <article className="panel finance-localization-tools-panel">
+      <div className="panel-head">
+        <div>
+          <span className="section-label">HayHashvapah Finance</span>
+          <h2>RA localization tools</h2>
+        </div>
+        <strong className="aging-badge">local</strong>
+      </div>
+
+      <div className="inline-form">
+        <input value={hvhh} onChange={event => setHvhh(event.target.value)} placeholder="ՀՎՀՀ" />
+        <button className="mini-action" type="button" disabled={isBusy} onClick={() => run("hvhh", () => request(`/api/localization/hvhh?value=${encodeURIComponent(hvhh)}`))}>
+          {busy === "hvhh" ? "Checking" : "Check ՀՎՀՀ"}
+        </button>
+        <input value={phone} onChange={event => setPhone(event.target.value)} placeholder="Հեռախոս" />
+        <button className="mini-action" type="button" disabled={isBusy} onClick={() => run("phone", () => request(`/api/localization/phone?value=${encodeURIComponent(phone)}`))}>
+          {busy === "phone" ? "Checking" : "Normalize phone"}
+        </button>
+      </div>
+
+      {(hvhhResult || phoneResult) && (
+        <div className="rows">
+          {hvhhResult && (
+            <div className="row">
+              <span>ՀՎՀՀ · {hvhhResult.normalized || "—"}</span>
+              <strong>{hvhhResult.ok ? "valid" : hvhhResult.error || "invalid"}</strong>
+            </div>
+          )}
+          {phoneResult && (
+            <div className="row">
+              <span>Phone · {phoneResult.formatted || "—"}</span>
+              <strong>{phoneResult.valid ? phoneResult.e164 : "invalid"}</strong>
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className="inline-form">
+        <input value={gross} onChange={event => setGross(event.target.value)} inputMode="numeric" placeholder="Համախառն աշխատավարձ" />
+        <button className="mini-action" type="button" disabled={isBusy} onClick={() => run("payroll", () => request("/api/finance/payroll/compute", { method: "POST", body: { gross: numericInput(gross) } }))}>
+          {busy === "payroll" ? "Computing" : "Payroll preview"}
+        </button>
+        <input value={salesNet} onChange={event => setSalesNet(event.target.value)} inputMode="numeric" placeholder="Վաճառք առանց ԱԱՀ" />
+        <input value={purchaseNet} onChange={event => setPurchaseNet(event.target.value)} inputMode="numeric" placeholder="Գնում առանց ԱԱՀ" />
+        <button className="mini-action" type="button" disabled={isBusy} onClick={() => run("vat", () => request("/api/finance/vat-return/compute", {
+          method: "POST",
+          body: {
+            sales: numericInput(salesNet) > 0 ? [{ netAmount: numericInput(salesNet), vatRate: 20 }] : [],
+            purchases: numericInput(purchaseNet) > 0 ? [{ netAmount: numericInput(purchaseNet), vatRate: 20, source: "domestic" }] : []
+          }
+        }))}>
+          {busy === "vat" ? "Computing" : "VAT form preview"}
+        </button>
+      </div>
+
+      {(results.payroll || results.vat) && (
+        <div className="aging-summary">
+          {results.payroll && <div className="metric"><span>income tax</span><strong>{amd(payroll.incomeTax)}</strong></div>}
+          {results.payroll && <div className="metric"><span>pension</span><strong>{amd(payroll.pension)}</strong></div>}
+          {results.payroll && <div className="metric"><span>net salary</span><strong>{amd(payroll.net)}</strong></div>}
+          {results.vat && <div className="metric"><span>VAT payable</span><strong>{amd(vatSummary.payable)}</strong></div>}
+        </div>
+      )}
+
+      {results.vat && (
+        <div className="rows">
+          {["7", "16", "18", "21", "23"].map(line => (
+            <div className="row" key={line}>
+              <span>VAT form line {line}</span>
+              <strong>{vatLineValue(line)}</strong>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error && <p className="action-status">{error}</p>}
     </article>
   );
 }

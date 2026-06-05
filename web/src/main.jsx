@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
-import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel, FinanceOpeningBalancesPanel, FinanceOpeningBalancesForm, FinanceExpenseListPanel, FinanceBillListPanel, FinancePayrollRunsPanel, FinanceTaxRatesPanel, FinanceChartOfAccountsPanel } from "./finance.jsx";
+import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel, FinanceOpeningBalancesPanel, FinanceOpeningBalancesForm, FinanceExpenseListPanel, FinanceBillListPanel, FinancePayrollRunsPanel, FinanceTaxRatesPanel, FinanceChartOfAccountsPanel, FinanceLocalizationToolsPanel } from "./finance.jsx";
 import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm, CrmActivityPanel } from "./crm.jsx";
 import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
 import { PeopleEmployeeForm, PeopleRegistryPanel } from "./people.jsx";
@@ -3904,6 +3904,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               <FinanceVatPanel data={finance.vat} />
               <FinanceTaxRatesPanel data={finance.taxRates} />
               <FinanceChartOfAccountsPanel data={finance.chartOfAccounts} />
+              <FinanceLocalizationToolsPanel request={api} />
               <FinanceExpenseForm onCreate={createExpense} actionState={actionState} />
               <FinanceBillForm onCreate={createBill} actionState={actionState} />
               <FinancePayrollForm onRun={runPayroll} actionState={actionState} />
