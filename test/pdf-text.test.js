@@ -183,3 +183,22 @@ test("pdf-text: readSources skips hidden extension-named sidecars before text or
     );
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("pdf-text: readSources skips text read failures without aborting the whole source set", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pdf-src7-"));
+  try {
+    fs.writeFileSync(path.join(dir, "Broken.md"), "unreadable placeholder");
+    fs.writeFileSync(path.join(dir, "Tax.txt"), "Հոդված 1. Տեքստ");
+    const skipped = [];
+    const sources = readSources(dir, {
+      readText: (file) => {
+        if (path.basename(file) === "Broken.md") throw new Error("permission denied");
+        return fs.readFileSync(file, "utf8");
+      },
+      onSkip: (file, reason) => skipped.push({ file, reason }),
+    });
+    assert.strictEqual(sources.length, 1, "readable source files still ingest");
+    assert.strictEqual(sources[0].lawTitle, "Tax");
+    assert.deepStrictEqual(skipped, [{ file: "Broken.md", reason: "read-failed" }]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
