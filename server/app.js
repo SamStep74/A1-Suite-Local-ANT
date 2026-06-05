@@ -420,6 +420,33 @@ function registerApi(app, db, options = {}) {
     return { ok: true, item };
   });
 
+  app.get("/api/inventory/locations", async request => {
+    const user = await app.auth(request);
+    requireInventoryReader(user);
+    return { locations: getStockLocations(db, user.org_id) };
+  });
+
+  app.get("/api/inventory/stock", async request => {
+    const user = await app.auth(request);
+    requireInventoryReader(user);
+    const filters = normalizeInventoryQuery(request.query || {});
+    return { stock: getStockQuants(db, user.org_id, filters), locations: getStockLocations(db, user.org_id) };
+  });
+
+  app.get("/api/inventory/moves", async request => {
+    const user = await app.auth(request);
+    requireInventoryReader(user);
+    const filters = normalizeInventoryQuery(request.query || {});
+    return { moves: getStockMoves(db, user.org_id, filters) };
+  });
+
+  app.post("/api/inventory/moves", async request => {
+    const user = await app.auth(request);
+    requireInventoryWriter(user);
+    const move = createStockMove(db, user, request.body === undefined ? {} : request.body);
+    return { ok: true, move, stock: getStockQuants(db, user.org_id, { catalogItemId: move.catalogItemId }) };
+  });
+
   app.get("/api/pilots/templates/clinic-wellness", async request => {
     const user = await app.auth(request);
     requirePilotTemplateReader(user);
@@ -7605,6 +7632,22 @@ function requireCatalogReader(user) {
 function requireCatalogWriter(user) {
   if (!["Owner", "Admin", "Operator", "Salesperson"].includes(user.role)) {
     const err = new Error("Catalog writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requireInventoryReader(user) {
+  if (!["Owner", "Admin", "Operator", "Accountant", "Auditor"].includes(user.role)) {
+    const err = new Error("Inventory reader role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requireInventoryWriter(user) {
+  if (!["Owner", "Admin", "Operator", "Accountant"].includes(user.role)) {
+    const err = new Error("Inventory writer role required");
     err.statusCode = 403;
     throw err;
   }
@@ -41722,6 +41765,9 @@ const ORG_BACKUP_TABLES = [
   "app_assignments",
   "catalog_categories",
   "catalog_items",
+  "stock_locations",
+  "stock_quants",
+  "stock_moves",
   "integration_connectors",
   "integration_connector_checks",
   "pilot_template_installs",
@@ -44245,8 +44291,7 @@ function buildTenantBackupPayload(db, orgId, createdAt) {
     users: db.prepare("SELECT id, org_id, email, name, role, created_at FROM users WHERE org_id = ? ORDER BY id").all(orgId)
   };
   for (const table of ORG_BACKUP_TABLES) {
-    tables[table] = db.prepare(`SELECT * FROM ${table} WHERE org_id = ? ORDER BY ${backupOrderColumn(table)}`).all(orgId)
-      .map(row => sanitizeBackupRow(table, row));
+    tables[table] = loadBackupRows(db, table, orgId).map(row => sanitizeBackupRow(table, row));
   }
   return {
     kind: "armosphera-one-tenant-backup",
@@ -44260,9 +44305,28 @@ function buildTenantBackupPayload(db, orgId, createdAt) {
   };
 }
 
+function loadBackupRows(db, table, orgId) {
+  const rows = db.prepare(`SELECT * FROM ${table} WHERE org_id = ? ORDER BY ${backupOrderColumn(table)}`).all(orgId);
+  return table === "stock_locations" ? sortStockLocationsForRestore(rows) : rows;
+}
+
 function backupOrderColumn(table) {
   if (table === "app_assignments") return "role, app_id";
   return table === "audit_events" ? "id" : "id";
+}
+
+function sortStockLocationsForRestore(rows) {
+  const byId = new Map(rows.map(row => [row.id, row]));
+  const visited = new Set();
+  const sorted = [];
+  const visit = row => {
+    if (!row || visited.has(row.id)) return;
+    if (row.parent_location_id && byId.has(row.parent_location_id)) visit(byId.get(row.parent_location_id));
+    visited.add(row.id);
+    sorted.push(row);
+  };
+  for (const row of rows) visit(row);
+  return sorted;
 }
 
 function sanitizeBackupRow(table, row) {
@@ -48232,6 +48296,460 @@ function throwInvalidCatalogItemPathId() {
 
 function throwInvalidCatalogMetadata() {
   const err = new Error("Catalog request requires safe metadata");
+  err.statusCode = 400;
+  throw err;
+}
+
+function getStockLocations(db, orgId) {
+  return db.prepare(`
+    SELECT stock_locations.*, users.name AS created_by_name
+    FROM stock_locations
+    LEFT JOIN users ON users.id = stock_locations.created_by_user_id
+    WHERE stock_locations.org_id = ?
+    ORDER BY stock_locations.status = 'archived', stock_locations.location_type, stock_locations.code
+  `).all(orgId).map(formatStockLocation);
+}
+
+function getStockLocation(db, orgId, locationId) {
+  const row = db.prepare(`
+    SELECT stock_locations.*, users.name AS created_by_name
+    FROM stock_locations
+    LEFT JOIN users ON users.id = stock_locations.created_by_user_id
+    WHERE stock_locations.org_id = ? AND stock_locations.id = ?
+  `).get(orgId, normalizeInventoryPathId(locationId));
+  return row ? formatStockLocation(row) : null;
+}
+
+function getStockLocationByCode(db, orgId, code) {
+  const row = db.prepare(`
+    SELECT stock_locations.*, users.name AS created_by_name
+    FROM stock_locations
+    LEFT JOIN users ON users.id = stock_locations.created_by_user_id
+    WHERE stock_locations.org_id = ? AND stock_locations.code = ?
+  `).get(orgId, code);
+  return row ? formatStockLocation(row) : null;
+}
+
+function formatStockLocation(row) {
+  return {
+    id: row.id,
+    code: row.code,
+    name: row.name,
+    locationType: row.location_type,
+    status: row.status,
+    parentLocationId: row.parent_location_id || "",
+    createdByUserId: row.created_by_user_id,
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function getStockQuants(db, orgId, filters = {}) {
+  const where = ["stock_quants.org_id = ?"];
+  const params = [orgId];
+  if (filters.catalogItemId) {
+    where.push("stock_quants.catalog_item_id = ?");
+    params.push(filters.catalogItemId);
+  }
+  if (filters.locationId) {
+    where.push("stock_quants.location_id = ?");
+    params.push(filters.locationId);
+  }
+  where.push("stock_locations.location_type = 'internal'");
+  return db.prepare(`
+    SELECT stock_quants.*, catalog_items.sku AS catalog_sku, catalog_items.name AS catalog_name,
+      stock_locations.code AS location_code, stock_locations.name AS location_name,
+      stock_locations.location_type AS location_type
+    FROM stock_quants
+    JOIN catalog_items ON catalog_items.id = stock_quants.catalog_item_id
+      AND catalog_items.org_id = stock_quants.org_id
+    JOIN stock_locations ON stock_locations.id = stock_quants.location_id
+      AND stock_locations.org_id = stock_quants.org_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY catalog_items.sku, stock_locations.code
+  `).all(...params).map(formatStockQuant);
+}
+
+function formatStockQuant(row) {
+  return {
+    id: row.id,
+    catalogItemId: row.catalog_item_id,
+    catalogSku: row.catalog_sku,
+    catalogName: row.catalog_name,
+    locationId: row.location_id,
+    locationCode: row.location_code,
+    locationName: row.location_name,
+    locationType: row.location_type,
+    quantity: row.quantity,
+    reservedQuantity: row.reserved_quantity,
+    availableQuantity: row.quantity - row.reserved_quantity,
+    averageCost: row.average_cost,
+    updatedAt: row.updated_at
+  };
+}
+
+function getStockMoves(db, orgId, filters = {}) {
+  const where = ["stock_moves.org_id = ?"];
+  const params = [orgId];
+  if (filters.catalogItemId) {
+    where.push("stock_moves.catalog_item_id = ?");
+    params.push(filters.catalogItemId);
+  }
+  if (filters.locationId) {
+    where.push("(stock_moves.source_location_id = ? OR stock_moves.destination_location_id = ?)");
+    params.push(filters.locationId, filters.locationId);
+  }
+  return db.prepare(`
+    SELECT stock_moves.*, catalog_items.sku AS catalog_sku, catalog_items.name AS catalog_name,
+      source_locations.code AS source_location_code, source_locations.name AS source_location_name,
+      source_locations.location_type AS source_location_type,
+      destination_locations.code AS destination_location_code, destination_locations.name AS destination_location_name,
+      destination_locations.location_type AS destination_location_type,
+      users.name AS created_by_name
+    FROM stock_moves
+    JOIN catalog_items ON catalog_items.id = stock_moves.catalog_item_id
+      AND catalog_items.org_id = stock_moves.org_id
+    LEFT JOIN stock_locations AS source_locations ON source_locations.id = stock_moves.source_location_id
+      AND source_locations.org_id = stock_moves.org_id
+    LEFT JOIN stock_locations AS destination_locations ON destination_locations.id = stock_moves.destination_location_id
+      AND destination_locations.org_id = stock_moves.org_id
+    LEFT JOIN users ON users.id = stock_moves.created_by_user_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY stock_moves.created_at DESC, stock_moves.id DESC
+  `).all(...params).map(formatStockMove);
+}
+
+function getStockMove(db, orgId, moveId) {
+  const row = db.prepare(`
+    SELECT stock_moves.*, catalog_items.sku AS catalog_sku, catalog_items.name AS catalog_name,
+      source_locations.code AS source_location_code, source_locations.name AS source_location_name,
+      source_locations.location_type AS source_location_type,
+      destination_locations.code AS destination_location_code, destination_locations.name AS destination_location_name,
+      destination_locations.location_type AS destination_location_type,
+      users.name AS created_by_name
+    FROM stock_moves
+    JOIN catalog_items ON catalog_items.id = stock_moves.catalog_item_id
+      AND catalog_items.org_id = stock_moves.org_id
+    LEFT JOIN stock_locations AS source_locations ON source_locations.id = stock_moves.source_location_id
+      AND source_locations.org_id = stock_moves.org_id
+    LEFT JOIN stock_locations AS destination_locations ON destination_locations.id = stock_moves.destination_location_id
+      AND destination_locations.org_id = stock_moves.org_id
+    LEFT JOIN users ON users.id = stock_moves.created_by_user_id
+    WHERE stock_moves.org_id = ? AND stock_moves.id = ?
+  `).get(orgId, moveId);
+  return row ? formatStockMove(row) : null;
+}
+
+function formatStockMove(row) {
+  return {
+    id: row.id,
+    catalogItemId: row.catalog_item_id,
+    catalogSku: row.catalog_sku,
+    catalogName: row.catalog_name,
+    sourceLocationId: row.source_location_id || "",
+    sourceLocationCode: row.source_location_code || "",
+    sourceLocationName: row.source_location_name || "",
+    sourceLocationType: row.source_location_type || "",
+    destinationLocationId: row.destination_location_id || "",
+    destinationLocationCode: row.destination_location_code || "",
+    destinationLocationName: row.destination_location_name || "",
+    destinationLocationType: row.destination_location_type || "",
+    moveType: row.move_type,
+    quantity: row.quantity,
+    unitCost: row.unit_cost,
+    totalCost: row.total_cost,
+    status: row.status,
+    reason: row.reason,
+    reference: row.reference,
+    createdByUserId: row.created_by_user_id,
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at
+  };
+}
+
+function createStockMove(db, user, body) {
+  const input = normalizeStockMoveBody(body);
+  const item = getCatalogItem(db, user.org_id, input.catalogItemId);
+  if (!item) {
+    const err = new Error("Catalog item not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (item.status !== "active" || !item.trackStock) {
+    const err = new Error("Stock-tracked active catalog item required");
+    err.statusCode = 422;
+    throw err;
+  }
+  const { sourceLocation, destinationLocation } = resolveStockMoveLocations(db, user.org_id, input);
+  assertStockMoveLocations(input, sourceLocation, destinationLocation);
+  if (isInternalStockLocation(sourceLocation)) assertStockAvailable(db, user.org_id, item.id, sourceLocation.id, input.quantity);
+
+  const now = new Date().toISOString();
+  const unitCost = resolveStockMoveUnitCost(db, user.org_id, item, input, sourceLocation);
+  const totalCost = input.quantity * unitCost;
+  const moveId = randomId("stockmove");
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      INSERT INTO stock_moves (
+        id, org_id, catalog_item_id, source_location_id, destination_location_id,
+        move_type, quantity, unit_cost, total_cost, status, reason, reference,
+        created_by_user_id, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      moveId,
+      user.org_id,
+      item.id,
+      sourceLocation ? sourceLocation.id : null,
+      destinationLocation ? destinationLocation.id : null,
+      input.moveType,
+      input.quantity,
+      unitCost,
+      totalCost,
+      "posted",
+      input.reason,
+      input.reference,
+      user.id,
+      now
+    );
+    if (isInternalStockLocation(sourceLocation)) adjustStockQuant(db, user.org_id, item.id, sourceLocation.id, -input.quantity, unitCost, now);
+    if (isInternalStockLocation(destinationLocation)) adjustStockQuant(db, user.org_id, item.id, destinationLocation.id, input.quantity, unitCost, now);
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "inventory.stock_move.posted",
+      subjectType: "stock_move",
+      subjectId: moveId,
+      status: "posted",
+      payload: { catalogItemId: item.id, sku: item.sku, moveType: input.moveType, quantity: input.quantity, unitCost, totalCost }
+    });
+    audit(db, user.org_id, user.id, "inventory.stock_move.posted", { moveId, catalogItemId: item.id, moveType: input.moveType, quantity: input.quantity });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return getStockMove(db, user.org_id, moveId);
+}
+
+function resolveStockMoveLocations(db, orgId, input) {
+  let sourceLocation = input.sourceLocationId ? getStockLocation(db, orgId, input.sourceLocationId) : null;
+  let destinationLocation = input.destinationLocationId ? getStockLocation(db, orgId, input.destinationLocationId) : null;
+  if (!sourceLocation && !input.sourceLocationId) {
+    if (["inbound", "receipt"].includes(input.moveType)) sourceLocation = requireDefaultStockLocation(db, orgId, "SUPPLIERS");
+    if (input.moveType === "adjustment") sourceLocation = requireDefaultStockLocation(db, orgId, "INV/ADJUST");
+  }
+  if (!destinationLocation && !input.destinationLocationId) {
+    if (["outbound", "delivery"].includes(input.moveType)) destinationLocation = requireDefaultStockLocation(db, orgId, "CUSTOMERS");
+    if (input.moveType === "scrap") destinationLocation = requireDefaultStockLocation(db, orgId, "SCRAP");
+  }
+  return { sourceLocation, destinationLocation };
+}
+
+function requireDefaultStockLocation(db, orgId, code) {
+  const location = getStockLocationByCode(db, orgId, code);
+  if (!location || location.status !== "active") throwStockLocationNotFound();
+  return location;
+}
+
+function isInternalStockLocation(location) {
+  return Boolean(location && location.locationType === "internal");
+}
+
+function resolveStockMoveUnitCost(db, orgId, item, input, sourceLocation) {
+  if (isInternalStockLocation(sourceLocation)) {
+    const quant = db.prepare(`
+      SELECT average_cost FROM stock_quants
+      WHERE org_id = ? AND catalog_item_id = ? AND location_id = ?
+    `).get(orgId, item.id, sourceLocation.id);
+    return quant ? quant.average_cost : item.standardCost || 0;
+  }
+  return input.unitCost || item.standardCost || 0;
+}
+
+function adjustStockQuant(db, orgId, catalogItemId, locationId, quantityDelta, unitCost, now) {
+  const location = db.prepare(`
+    SELECT location_type FROM stock_locations
+    WHERE org_id = ? AND id = ?
+  `).get(orgId, locationId);
+  if (!location || location.location_type !== "internal") return;
+  const existing = db.prepare(`
+    SELECT * FROM stock_quants
+    WHERE org_id = ? AND catalog_item_id = ? AND location_id = ?
+  `).get(orgId, catalogItemId, locationId);
+  if (!existing) {
+    if (quantityDelta < 0) {
+      const err = new Error("Insufficient stock available");
+      err.statusCode = 409;
+      throw err;
+    }
+    db.prepare(`
+      INSERT INTO stock_quants (
+        id, org_id, catalog_item_id, location_id, quantity, reserved_quantity,
+        average_cost, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(randomId("stockquant"), orgId, catalogItemId, locationId, quantityDelta, 0, unitCost, now);
+    return;
+  }
+  const nextQuantity = existing.quantity + quantityDelta;
+  if (nextQuantity < existing.reserved_quantity || nextQuantity < 0) {
+    const err = new Error("Insufficient stock available");
+    err.statusCode = 409;
+    throw err;
+  }
+  const nextAverageCost = quantityDelta > 0 && unitCost > 0 && nextQuantity > 0
+    ? Math.round(((existing.quantity * existing.average_cost) + (quantityDelta * unitCost)) / nextQuantity)
+    : existing.average_cost;
+  db.prepare(`
+    UPDATE stock_quants
+    SET quantity = ?, average_cost = ?, updated_at = ?
+    WHERE org_id = ? AND catalog_item_id = ? AND location_id = ?
+  `).run(nextQuantity, nextAverageCost, now, orgId, catalogItemId, locationId);
+}
+
+function assertStockAvailable(db, orgId, catalogItemId, locationId, quantity) {
+  const row = db.prepare(`
+    SELECT quantity, reserved_quantity FROM stock_quants
+    WHERE org_id = ? AND catalog_item_id = ? AND location_id = ?
+  `).get(orgId, catalogItemId, locationId);
+  const available = row ? row.quantity - row.reserved_quantity : 0;
+  if (available < quantity) {
+    const err = new Error("Insufficient stock available");
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
+function assertStockMoveLocations(input, sourceLocation, destinationLocation) {
+  if (input.sourceLocationId && (!sourceLocation || sourceLocation.status !== "active")) throwStockLocationNotFound();
+  if (input.destinationLocationId && (!destinationLocation || destinationLocation.status !== "active")) throwStockLocationNotFound();
+  if (sourceLocation && sourceLocation.status !== "active") throwStockLocationNotFound();
+  if (destinationLocation && destinationLocation.status !== "active") throwStockLocationNotFound();
+  if (input.moveType === "transfer") {
+    if (!isInternalStockLocation(sourceLocation) || !isInternalStockLocation(destinationLocation)) throwInvalidInventoryMetadata();
+    if (sourceLocation.id === destinationLocation.id) throwInvalidInventoryMetadata();
+    return;
+  }
+  if (["inbound", "receipt"].includes(input.moveType)) {
+    if (!destinationLocation || !isInternalStockLocation(destinationLocation)) throwInvalidInventoryMetadata();
+    if (sourceLocation && sourceLocation.locationType !== "supplier") throwInvalidInventoryMetadata();
+    return;
+  }
+  if (["outbound", "delivery"].includes(input.moveType)) {
+    if (!isInternalStockLocation(sourceLocation)) throwInvalidInventoryMetadata();
+    if (destinationLocation && destinationLocation.locationType !== "customer") throwInvalidInventoryMetadata();
+    return;
+  }
+  if (input.moveType === "adjustment") {
+    if (!destinationLocation || !isInternalStockLocation(destinationLocation)) throwInvalidInventoryMetadata();
+    if (sourceLocation && sourceLocation.locationType !== "inventory") throwInvalidInventoryMetadata();
+    return;
+  }
+  if (input.moveType === "scrap") {
+    if (!isInternalStockLocation(sourceLocation)) throwInvalidInventoryMetadata();
+    if (!destinationLocation || destinationLocation.locationType !== "scrap") throwInvalidInventoryMetadata();
+  }
+}
+
+function normalizeInventoryQuery(query) {
+  return {
+    catalogItemId: normalizeInventoryQueryText(query, "catalogItemId", { idLike: true }),
+    locationId: normalizeInventoryQueryText(query, "locationId", { idLike: true })
+  };
+}
+
+function normalizeStockMoveBody(body) {
+  if (!isPlainObject(body)) throwInvalidInventoryMetadata();
+  return {
+    catalogItemId: normalizeInventoryText(body, "catalogItemId", { required: true, idLike: true }),
+    sourceLocationId: normalizeInventoryText(body, "sourceLocationId", { idLike: true }),
+    destinationLocationId: normalizeInventoryText(body, "destinationLocationId", { idLike: true }),
+    moveType: normalizeInventoryChoice(body, "moveType", ["inbound", "outbound", "receipt", "delivery", "adjustment", "transfer", "scrap"], "adjustment", false),
+    quantity: normalizeInventoryInteger(body, "quantity", { required: true, min: 1, max: 1000000000 }),
+    unitCost: normalizeInventoryInteger(body, "unitCost", { fallback: 0, min: 0, max: 1000000000000 }),
+    reason: normalizeInventoryText(body, "reason", { fallback: "", maxLength: 500 }),
+    reference: normalizeInventoryText(body, "reference", { fallback: "", maxLength: 160 })
+  };
+}
+
+function normalizeInventoryQueryText(query, field, options = {}) {
+  const { maxLength = 160, idLike = false } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidInventoryMetadata();
+  const text = value.trim();
+  if (text.length > maxLength) throwInvalidInventoryMetadata();
+  if (idLike && text && !/^[a-z0-9-]+$/.test(text)) throwInvalidInventoryMetadata();
+  return text;
+}
+
+function normalizeInventoryText(body, field, options = {}) {
+  const { required = false, fallback = "", minLength = 0, maxLength = 200, idLike = false } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidInventoryMetadata();
+    return String(fallback || "").trim();
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidInventoryMetadata();
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) throwInvalidInventoryMetadata();
+  if (idLike && text && !/^[a-z0-9-]+$/.test(text)) throwInvalidInventoryMetadata();
+  return text;
+}
+
+function normalizeInventoryChoice(body, field, allowed, fallback, required = false) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidInventoryMetadata();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidInventoryMetadata();
+  const text = value.trim();
+  if (!allowed.includes(text)) throwInvalidInventoryMetadata();
+  return text;
+}
+
+function normalizeInventoryInteger(body, field, options = {}) {
+  const { required = false, fallback = 0, min = 0, max = 1000000000000 } = options;
+  let value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidInventoryMetadata();
+    value = fallback;
+  }
+  if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") throwInvalidInventoryMetadata();
+  let amount;
+  if (typeof value === "number") {
+    amount = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) throwInvalidInventoryMetadata();
+    const text = value.trim();
+    if (!/^\d+$/.test(text)) throwInvalidInventoryMetadata();
+    amount = Number(text);
+  } else {
+    throwInvalidInventoryMetadata();
+  }
+  if (!Number.isSafeInteger(amount) || amount < min || amount > max) throwInvalidInventoryMetadata();
+  return amount;
+}
+
+function normalizeInventoryPathId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidInventoryMetadata();
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) throwInvalidInventoryMetadata();
+  return text;
+}
+
+function throwStockLocationNotFound() {
+  const err = new Error("Stock location not found");
+  err.statusCode = 404;
+  throw err;
+}
+
+function throwInvalidInventoryMetadata() {
+  const err = new Error("Inventory request requires safe metadata");
   err.statusCode = 400;
   throw err;
 }

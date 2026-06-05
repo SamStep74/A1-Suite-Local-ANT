@@ -29,6 +29,7 @@ function openDatabase(dbPath) {
   ensureQuoteLayer(db);
   ensureCrmSalesLayer(db);
   ensureCatalogLayer(db);
+  ensureInventoryLayer(db);
   ensureMarketingLayer(db);
   ensureAnalyticsLayer(db);
   return db;
@@ -289,6 +290,64 @@ function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_catalog_items_category
       ON catalog_items(org_id, category_id, status);
+
+    CREATE TABLE IF NOT EXISTS stock_locations (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      location_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      parent_location_id TEXT REFERENCES stock_locations(id) ON DELETE SET NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, code)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_stock_locations_status
+      ON stock_locations(org_id, status, location_type);
+
+    CREATE TABLE IF NOT EXISTS stock_quants (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+      location_id TEXT NOT NULL REFERENCES stock_locations(id) ON DELETE CASCADE,
+      quantity INTEGER NOT NULL DEFAULT 0,
+      reserved_quantity INTEGER NOT NULL DEFAULT 0,
+      average_cost INTEGER NOT NULL DEFAULT 0,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, catalog_item_id, location_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_stock_quants_item
+      ON stock_quants(org_id, catalog_item_id);
+
+    CREATE INDEX IF NOT EXISTS idx_stock_quants_location
+      ON stock_quants(org_id, location_id);
+
+    CREATE TABLE IF NOT EXISTS stock_moves (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      source_location_id TEXT REFERENCES stock_locations(id) ON DELETE SET NULL,
+      destination_location_id TEXT REFERENCES stock_locations(id) ON DELETE SET NULL,
+      move_type TEXT NOT NULL,
+      quantity INTEGER NOT NULL,
+      unit_cost INTEGER NOT NULL DEFAULT 0,
+      total_cost INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL,
+      reason TEXT NOT NULL DEFAULT '',
+      reference TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_stock_moves_item
+      ON stock_moves(org_id, catalog_item_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_stock_moves_locations
+      ON stock_moves(org_id, source_location_id, destination_location_id, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS crm_leads (
       id TEXT PRIMARY KEY,
@@ -6749,6 +6808,13 @@ function ensureCatalogLayer(db) {
   }
 }
 
+function ensureInventoryLayer(db) {
+  const orgs = db.prepare("SELECT id FROM organizations").all();
+  for (const org of orgs) {
+    seedInventoryCore(db, org.id);
+  }
+}
+
 function ensureMarketingLayer(db) {
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {
@@ -7391,6 +7457,72 @@ function catalogSeedId(orgId, baseId) {
   return `${baseId}-${suffix}`;
 }
 
+function seedInventoryCore(db, orgId) {
+  const now = new Date().toISOString();
+  const seedId = baseId => stockSeedId(orgId, baseId);
+  const insertLocation = db.prepare(`
+    INSERT OR IGNORE INTO stock_locations (
+      id, org_id, code, name, location_type, status, parent_location_id,
+      created_by_user_id, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const locations = [
+    ["stockloc-main-warehouse", "WH/STOCK", "Main warehouse", "internal", "active", null],
+    ["stockloc-dispatch-staging", "WH/OUT", "Dispatch staging", "internal", "active", "stockloc-main-warehouse"],
+    ["stockloc-supplier", "SUPPLIERS", "Supplier receipts", "supplier", "active", null],
+    ["stockloc-customer", "CUSTOMERS", "Customer deliveries", "customer", "active", null],
+    ["stockloc-inventory-adjustment", "INV/ADJUST", "Inventory adjustment", "inventory", "active", null],
+    ["stockloc-scrap", "SCRAP", "Scrap and write-off", "scrap", "active", null]
+  ];
+  for (const location of locations) {
+    insertLocation.run(seedId(location[0]), orgId, location[1], location[2], location[3], location[4], location[5] ? seedId(location[5]) : null, null, now, now);
+  }
+  if (orgId !== "org-armosphera-demo") return;
+
+  const scannerItemId = catalogSeedId(orgId, "catitem-pos-barcode-scanner");
+  const scanner = db.prepare("SELECT id, standard_cost FROM catalog_items WHERE org_id = ? AND id = ? AND track_stock = 1").get(orgId, scannerItemId);
+  if (!scanner) return;
+
+  const moveId = seedId("stockmove-pos-scanner-opening");
+  db.prepare(`
+    INSERT OR IGNORE INTO stock_moves (
+      id, org_id, catalog_item_id, source_location_id, destination_location_id,
+      move_type, quantity, unit_cost, total_cost, status, reason, reference,
+      created_by_user_id, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    moveId,
+    orgId,
+    scanner.id,
+    seedId("stockloc-inventory-adjustment"),
+    seedId("stockloc-main-warehouse"),
+    "adjustment",
+    12,
+    scanner.standard_cost,
+    12 * scanner.standard_cost,
+    "posted",
+    "Opening stock for Armenian POS hardware demo inventory.",
+    "OPENING-STOCK",
+    null,
+    now
+  );
+  db.prepare(`
+    INSERT OR IGNORE INTO stock_quants (
+      id, org_id, catalog_item_id, location_id, quantity, reserved_quantity,
+      average_cost, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(seedId("stockquant-pos-scanner-main"), orgId, scanner.id, seedId("stockloc-main-warehouse"), 12, 0, scanner.standard_cost, now);
+}
+
+function stockSeedId(orgId, baseId) {
+  if (orgId === "org-armosphera-demo") return baseId;
+  const suffix = crypto.createHash("sha256").update(String(orgId)).digest("hex").slice(0, 12);
+  return `${baseId}-${suffix}`;
+}
+
 function seedMarketingCampaigns(db, orgId) {
   const now = new Date().toISOString();
   db.prepare(`
@@ -7584,5 +7716,8 @@ module.exports = {
   verifyPassword,
   resolveTaxRate,
   resolvePayrollConfig,
-  resolveVatRate
+  resolveVatRate,
+  __test: {
+    seedInventoryCore
+  }
 };
