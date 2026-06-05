@@ -3531,3 +3531,11 @@ Status: shipped in the local prototype on 2026-05-28.
 - The export namespace stays `urn:hayhashvapah:einvoice:1` and the output is deliberately framed as an offline mapper toward the official SRC e-invoice XSD path, not live SRC submission or certificate handling.
 - `eInvoiceTotals` provides reusable integer-dram totals for net, VAT, and total amounts across invoice lines.
 - Verification for the checkpoint: `node --check server/einvoice.js && node --check test/einvoice.test.js` pass; focused e-invoice suite pass (`node --test --test-concurrency=1 test/einvoice.test.js`, 7 pass, 0 fail, 0 cancelled); full `npm test` pass (583 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-inventory-stock-ledger-spine-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
+
+### Slice 357 - Armenian VAT Return Computation Engine
+- The suite now has a pure local `server/vatReturn.js` computation helper for Armenian VAT-return period figures.
+- `computeVatReturn` calculates output VAT, recoverable input VAT, taxable sales base, taxable purchases base, net VAT position, payable amount, and carried-forward credit.
+- VAT line normalization uses whole-dram AMD rounding and supports explicit `vatAmount` overrides for exempt, zero-rated, or corrected source lines.
+- Non-recoverable purchases remain in the taxable purchase base while being excluded from recoverable input VAT.
+- The engine deliberately computes RA VAT figures only; mapping those figures onto official SRC VAT-return form line numbers remains a separate form-spec task.
+- Verification for the checkpoint: `node --check server/vatReturn.js && node --check test/vat-return.test.js` pass; focused VAT-return suite pass (`node --test --test-concurrency=1 test/vat-return.test.js`, 6 pass, 0 fail, 0 cancelled); full `npm test` pass (583 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-inventory-stock-ledger-spine-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
