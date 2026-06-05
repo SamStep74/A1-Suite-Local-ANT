@@ -28,6 +28,7 @@ function openDatabase(dbPath) {
   ensureDocsTemplateLayer(db);
   ensureQuoteLayer(db);
   ensureCrmSalesLayer(db);
+  ensureCatalogLayer(db);
   ensureMarketingLayer(db);
   ensureAnalyticsLayer(db);
   return db;
@@ -245,6 +246,50 @@ function initSchema(db) {
       next_step TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS catalog_categories (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      slug TEXT NOT NULL,
+      parent_category_id TEXT REFERENCES catalog_categories(id) ON DELETE SET NULL,
+      status TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, slug)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_catalog_categories_status
+      ON catalog_categories(org_id, status, name);
+
+    CREATE TABLE IF NOT EXISTS catalog_items (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      category_id TEXT REFERENCES catalog_categories(id) ON DELETE SET NULL,
+      sku TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      item_type TEXT NOT NULL,
+      status TEXT NOT NULL,
+      unit_of_measure TEXT NOT NULL DEFAULT 'unit',
+      list_price INTEGER NOT NULL,
+      standard_cost INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      vat_mode TEXT NOT NULL DEFAULT 'standard',
+      track_stock INTEGER NOT NULL DEFAULT 0,
+      track_lots INTEGER NOT NULL DEFAULT 0,
+      fiscal_receipt_required INTEGER NOT NULL DEFAULT 0,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, sku)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_catalog_items_status
+      ON catalog_items(org_id, status, item_type);
+
+    CREATE INDEX IF NOT EXISTS idx_catalog_items_category
+      ON catalog_items(org_id, category_id, status);
+
     CREATE TABLE IF NOT EXISTS crm_leads (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -394,12 +439,18 @@ function initSchema(db) {
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       quote_id TEXT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
+      catalog_item_id TEXT REFERENCES catalog_items(id) ON DELETE SET NULL,
       description TEXT NOT NULL,
       quantity INTEGER NOT NULL,
       unit_price INTEGER NOT NULL,
       total INTEGER NOT NULL,
+      vat_mode TEXT NOT NULL DEFAULT 'standard',
+      fiscal_receipt_required INTEGER NOT NULL DEFAULT 0,
       position INTEGER NOT NULL
     );
+
+    CREATE INDEX IF NOT EXISTS idx_quote_lines_catalog_item
+      ON quote_lines(org_id, catalog_item_id);
 
     CREATE TABLE IF NOT EXISTS quote_acceptances (
       id TEXT PRIMARY KEY,
@@ -6678,6 +6729,26 @@ function ensureCrmSalesLayer(db) {
   }
 }
 
+function ensureCatalogLayer(db) {
+  const quoteLineColumns = new Set(db.prepare("PRAGMA table_info(quote_lines)").all().map(column => column.name));
+  const quoteLineAdditions = {
+    catalog_item_id: "TEXT",
+    vat_mode: "TEXT NOT NULL DEFAULT 'standard'",
+    fiscal_receipt_required: "INTEGER NOT NULL DEFAULT 0"
+  };
+  for (const [name, definition] of Object.entries(quoteLineAdditions)) {
+    if (!quoteLineColumns.has(name)) db.exec(`ALTER TABLE quote_lines ADD COLUMN ${name} ${definition}`);
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_quote_lines_catalog_item ON quote_lines(org_id, catalog_item_id)");
+
+  const orgs = db.prepare("SELECT id FROM organizations").all();
+  for (const org of orgs) {
+    const categoryCount = db.prepare("SELECT COUNT(*) AS count FROM catalog_categories WHERE org_id = ?").get(org.id).count;
+    const itemCount = db.prepare("SELECT COUNT(*) AS count FROM catalog_items WHERE org_id = ?").get(org.id).count;
+    if (categoryCount === 0 || itemCount === 0) seedCatalogItems(db, org.id);
+  }
+}
+
 function ensureMarketingLayer(db) {
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {
@@ -7200,6 +7271,124 @@ function seedCrmLeads(db, orgId) {
     now,
     now
   );
+}
+
+function seedCatalogItems(db, orgId) {
+  const now = new Date().toISOString();
+  const categorySeedId = baseId => catalogSeedId(orgId, baseId);
+  const itemSeedId = baseId => catalogSeedId(orgId, baseId);
+  const insertCategory = db.prepare(`
+    INSERT OR IGNORE INTO catalog_categories (
+      id, org_id, name, slug, parent_category_id, status, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const categories = [
+    ["catcat-service-packages", "Service packages", "service-packages", null, "active"],
+    ["catcat-tourism-packages", "Tourism packages", "tourism-packages", "catcat-service-packages", "active"],
+    ["catcat-hardware", "POS and device hardware", "pos-device-hardware", null, "active"]
+  ];
+  for (const category of categories) {
+    insertCategory.run(
+      categorySeedId(category[0]),
+      orgId,
+      category[1],
+      category[2],
+      category[3] ? categorySeedId(category[3]) : null,
+      category[4],
+      now,
+      now
+    );
+  }
+
+  const insertItem = db.prepare(`
+    INSERT OR IGNORE INTO catalog_items (
+      id, org_id, category_id, sku, name, description, item_type, status,
+      unit_of_measure, list_price, standard_cost, currency, vat_mode,
+      track_stock, track_lots, fiscal_receipt_required, created_by_user_id,
+      created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const items = [
+    [
+      "catitem-clinic-retention-package",
+      "catcat-service-packages",
+      "A1-CLINIC-RETENTION",
+      "Clinic patient retention automation",
+      "Monthly reminders, CRM activity routing, VAT-aware quote handoff, and service follow-up package.",
+      "service",
+      "active",
+      "package",
+      3200000,
+      0,
+      "AMD",
+      "standard",
+      0,
+      0,
+      1
+    ],
+    [
+      "catitem-salon-inbox-package",
+      "catcat-service-packages",
+      "A1-SALON-INBOX",
+      "Instagram and WhatsApp inbox setup",
+      "Unified customer inbox setup for Armenian beauty salons with public quote and Docs handoff.",
+      "service",
+      "active",
+      "package",
+      950000,
+      0,
+      "AMD",
+      "standard",
+      0,
+      0,
+      1
+    ],
+    [
+      "catitem-tourism-booking-workflow",
+      "catcat-tourism-packages",
+      "A1-TOUR-BOOKING",
+      "Seasonal booking workflow package",
+      "Tourism package catalog import, quote follow-up, customer portal intake, and support handoff.",
+      "service",
+      "active",
+      "package",
+      720000,
+      0,
+      "AMD",
+      "standard",
+      0,
+      0,
+      1
+    ],
+    [
+      "catitem-pos-barcode-scanner",
+      "catcat-hardware",
+      "HW-BARCODE-SCANNER",
+      "POS barcode scanner",
+      "Stock-tracked retail hardware anchor for future POS, warehouse, and serial/lot workflows.",
+      "stockable",
+      "active",
+      "unit",
+      85000,
+      62000,
+      "AMD",
+      "standard",
+      1,
+      0,
+      1
+    ]
+  ];
+  for (const item of items) {
+    insertItem.run(itemSeedId(item[0]), orgId, categorySeedId(item[1]), item[2], item[3], item[4], item[5], item[6], item[7], item[8], item[9], item[10], item[11], item[12], item[13], item[14], null, now, now);
+  }
+}
+
+function catalogSeedId(orgId, baseId) {
+  if (orgId === "org-armosphera-demo") return baseId;
+  const suffix = crypto.createHash("sha256").update(String(orgId)).digest("hex").slice(0, 12);
+  return `${baseId}-${suffix}`;
 }
 
 function seedMarketingCampaigns(db, orgId) {

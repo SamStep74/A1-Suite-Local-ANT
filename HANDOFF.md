@@ -1,10 +1,12 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-05 · Legal source text-read guard · 41 tags · **553 tests verified**_
+_Last updated: 2026-06-05 · Catalog product master spine · 41 tags · **557 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
 A **sovereign, self-hostable Armenian business operating system** with phased one-to-one *functional* parity to Zoho One. Runs entirely on the customer's own server: a single Node/Fastify + SQLite process serving a React SPA, with **no external data dependency** except opt-in AI. Built for Armenian organizations that cannot use foreign clouds (government, banks, healthcare, legal).
+
+Latest implementation slice: the first Odoo-parity ERP catalog spine is ready on `codex/product-catalog-kernel`. It adds tenant-scoped `catalog_categories` / `catalog_items`, seeded Armenian service and hardware SKUs, guarded `/api/catalog/...` APIs, catalog-backed CRM quote lines with VAT/fiscal receipt metadata, and tenant-backup coverage. Verification from `~/dev/A1-Suite-Local`: syntax checks passed for `server/db.js`, `server/app.js`, and `test/catalog.test.js`; focused catalog verification passed (`node --test test/catalog.test.js`, 4 pass); impacted API/public quote suite passed (`node --test test/api.test.js test/catalog.test.js test/public-quote-ratelimit.test.js`, 246 pass); full `npm test` passed (557 pass, 0 fail, 0 cancelled); `npm run build:ui` passed with the existing Vite chunk-size warning; offline smoke passed (`ARMOSPHERA_ONE_DB=/tmp/a1-suite-catalog-kernel-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke`, `smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
 
 ---
 
