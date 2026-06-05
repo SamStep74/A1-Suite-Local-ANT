@@ -1,0 +1,66 @@
+const test = require("node:test");
+const assert = require("node:assert/strict");
+const {
+  INCOME_TAX_RATE,
+  incomeTax,
+  pension,
+  stampDuty,
+  computePayroll,
+} = require("../server/armeniaPayroll");
+
+test("payroll: personal income tax is a flat 20%", () => {
+  assert.equal(INCOME_TAX_RATE, 20);
+  assert.equal(incomeTax(300000), 60000);
+  assert.equal(incomeTax(1000000), 200000);
+});
+
+test("payroll: funded pension is tiered (5% / 10%−25k) with an 87,500 cap", () => {
+  assert.equal(pension(300000), 15000); // 5%
+  assert.equal(pension(500000), 25000); // 5% at the low ceiling
+  assert.equal(pension(800000), 55000); // 10%*G − 25,000
+  assert.equal(pension(1000000), 75000); // 10%*G − 25,000
+  assert.equal(pension(1125000), 87500); // at the cap threshold
+  assert.equal(pension(2000000), 87500); // capped
+});
+
+test("payroll: pension is continuous across the 500k tier boundary", () => {
+  assert.equal(pension(500000), 25000); // low side
+  assert.equal(pension(500001), 25000); // high side ≈ 25,000
+});
+
+test("payroll: stamp duty has two brackets (since Dec 2025), zero for no salary", () => {
+  assert.equal(stampDuty(300000), 1000);
+  assert.equal(stampDuty(1000000), 1000);
+  assert.equal(stampDuty(1000001), 15000);
+  assert.equal(stampDuty(0), 0);
+});
+
+test("payroll: computePayroll nets gross minus income tax, pension, stamp duty", () => {
+  const p = computePayroll(800000);
+  assert.equal(p.gross, 800000);
+  assert.equal(p.incomeTax, 160000);
+  assert.equal(p.pension, 55000);
+  assert.equal(p.stampDuty, 1000);
+  assert.equal(p.totalWithholdings, 216000);
+  assert.equal(p.net, 584000);
+});
+
+test("payroll: a high earner hits the pension cap and the upper stamp bracket", () => {
+  const p = computePayroll(1200000);
+  assert.equal(p.incomeTax, 240000);
+  assert.equal(p.pension, 87500);
+  assert.equal(p.stampDuty, 15000);
+  assert.equal(p.net, 857500);
+});
+
+test("payroll: health insurance is NOT included by default (unconfirmed offset)", () => {
+  const p = computePayroll(800000);
+  assert.equal(p.healthInsurance, undefined); // intentionally absent
+});
+
+test("payroll: zero gross is all zeros (no phantom stamp duty)", () => {
+  const p = computePayroll(0);
+  assert.equal(p.gross, 0);
+  assert.equal(p.totalWithholdings, 0);
+  assert.equal(p.net, 0);
+});
