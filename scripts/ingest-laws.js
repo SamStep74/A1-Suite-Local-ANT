@@ -3,10 +3,11 @@
 /**
  * Sovereign legal-KB ingest CLI.
  *
- * Reads raw .txt/.md files of RA legislation from a directory, chunks each into article-aware
+ * Reads raw .txt/.md/.pdf files of RA legislation from a directory, chunks each into article-aware
  * law_chunks rows (server/lawIngest), and writes an installable laws.sqlite that server/rag.js
  * indexes unchanged. 100% offline — no network, no embedding model (BM25-only by default; run
- * the embedder pass separately if/when a local model is configured).
+ * the embedder pass separately if/when a local model is configured). PDFs are extracted via
+ * pdftotext (poppler); if it is absent, PDFs are skipped with a warning and .txt/.md still ingest.
  *
  * Usage:
  *   node scripts/ingest-laws.js <source-dir> [dest.sqlite] [--embed]
@@ -21,17 +22,42 @@ const { DatabaseSync } = require("node:sqlite");
 const config = require("../server/config");
 const { buildLawsDb } = require("../server/lawIngest");
 const { embedLawChunks } = require("../server/lawEmbedIngest");
+const { extractPdfText, isPdftotextAvailable } = require("../server/pdfText");
 
 function titleFromFilename(file) {
-  return path.basename(file).replace(/\.(txt|md)$/i, "").replace(/[_]+/g, " ").trim();
+  return path.basename(file).replace(/\.(txt|md|pdf)$/i, "").replace(/[_]+/g, " ").trim();
 }
 
-function readSources(dir) {
-  const entries = fs.readdirSync(dir).filter((f) => /\.(txt|md)$/i.test(f)).sort();
-  return entries.map((f) => ({
-    lawTitle: titleFromFilename(f),
-    text: fs.readFileSync(path.join(dir, f), "utf8"),
-  }));
+/**
+ * Read law sources from a directory. .txt/.md are read directly; .pdf is extracted via pdftotext
+ * (skipped, not fatal, when the binary is unavailable or a file fails to parse). Returns an array
+ * of { lawTitle, text } (back-compat contract). PDF skips are reported via options.onSkip.
+ * @param {string} dir
+ * @param {{ extractPdf?: Function, pdfAvailable?: boolean, onSkip?: (file: string, reason: string) => void }} [options]
+ * @returns {Array<{ lawTitle: string, text: string }>}
+ */
+function readSources(dir, options = {}) {
+  const extractPdf = options.extractPdf || extractPdfText;
+  const onSkip = options.onSkip || (() => {});
+  const entries = fs.readdirSync(dir).filter((f) => /\.(txt|md|pdf)$/i.test(f)).sort();
+  // Resolve pdftotext availability lazily — only if a PDF is actually present.
+  let pdfAvailable = options.pdfAvailable;
+  const sources = [];
+  for (const f of entries) {
+    const full = path.join(dir, f);
+    if (/\.pdf$/i.test(f)) {
+      if (pdfAvailable === undefined) pdfAvailable = isPdftotextAvailable();
+      if (!pdfAvailable) { onSkip(f, "pdftotext-unavailable"); continue; }
+      try {
+        sources.push({ lawTitle: titleFromFilename(f), text: extractPdf(full) });
+      } catch (err) {
+        onSkip(f, err && err.message ? err.message : "extract-failed");
+      }
+    } else {
+      sources.push({ lawTitle: titleFromFilename(f), text: fs.readFileSync(full, "utf8") });
+    }
+  }
+  return sources;
 }
 
 async function main(argv) {
@@ -48,9 +74,15 @@ async function main(argv) {
     process.exit(1);
   }
   const dest = positionals[1] || config.resolveLawsDbPath();
-  const sources = readSources(sourceDir);
+  const skipped = [];
+  const sources = readSources(sourceDir, { onSkip: (file, reason) => skipped.push({ file, reason }) });
+  if (skipped.length > 0) {
+    const unavailable = skipped.some((s) => s.reason === "pdftotext-unavailable");
+    console.warn(`Skipped ${skipped.length} PDF(s): ${skipped.map((s) => s.file).join(", ")}`);
+    if (unavailable) console.warn("  pdftotext (poppler) not found — install it, or pre-convert PDFs to .txt.");
+  }
   if (sources.length === 0) {
-    console.error(`No .txt/.md law files found in ${sourceDir}`);
+    console.error(`No ingestible .txt/.md/.pdf law files found in ${sourceDir}`);
     process.exit(1);
   }
   fs.mkdirSync(path.dirname(dest), { recursive: true });
