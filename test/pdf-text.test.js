@@ -50,8 +50,12 @@ test("pdf-text: a non-zero exit is a real failure (distinct from 'unavailable')"
 test("pdf-text: isPdftotextAvailable reflects whether the binary resolves", () => {
   const present = fakeRunner({ status: 0, stdout: "", stderr: "pdftotext version 26.0" });
   const absent = fakeRunner({ error: Object.assign(new Error("ENOENT"), { code: "ENOENT" }) });
+  const blocked = fakeRunner({ error: Object.assign(new Error("EACCES"), { code: "EACCES" }) });
+  const failedProbe = fakeRunner({ status: 1, stdout: "", stderr: "permission denied" });
   assert.strictEqual(isPdftotextAvailable(present), true);
   assert.strictEqual(isPdftotextAvailable(absent), false);
+  assert.strictEqual(isPdftotextAvailable(blocked), false);
+  assert.strictEqual(isPdftotextAvailable(failedProbe), false);
 });
 
 // readSources (in the CLI) routes .pdf through extraction — injected so no real binary is needed.

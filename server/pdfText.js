@@ -39,7 +39,8 @@ function defaultRunner(args) {
  */
 function isPdftotextAvailable(runner = defaultRunner) {
   const result = runner(["-v"]);
-  return !(result && result.error && result.error.code === "ENOENT");
+  if (!result || result.error) return false;
+  return result.status === 0;
 }
 
 /**
