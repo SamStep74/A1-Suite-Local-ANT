@@ -22,7 +22,7 @@ const { DatabaseSync } = require("node:sqlite");
 const config = require("../server/config");
 const { buildLawsDb } = require("../server/lawIngest");
 const { embedLawChunks } = require("../server/lawEmbedIngest");
-const { extractPdfText, isPdftotextAvailable } = require("../server/pdfText");
+const { extractPdfText, isPdftotextAvailable, PdftotextUnavailableError } = require("../server/pdfText");
 
 function titleFromFilename(file) {
   return path.basename(file).replace(/\.(txt|md|pdf)$/i, "").replace(/[_]+/g, " ").trim();
@@ -51,6 +51,10 @@ function readSources(dir, options = {}) {
       try {
         sources.push({ lawTitle: titleFromFilename(f), text: extractPdf(full) });
       } catch (err) {
+        if (err instanceof PdftotextUnavailableError) {
+          onSkip(f, "pdftotext-unavailable");
+          continue;
+        }
         onSkip(f, err && err.message ? err.message : "extract-failed");
       }
     } else {
