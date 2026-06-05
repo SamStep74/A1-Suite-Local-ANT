@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-05 · Native legal PDF ingest · 112 tags · **547 tests verified**_
+_Last updated: 2026-06-05 · Native legal PDF ingest · 38 tags · **547 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -746,8 +746,8 @@ If freeing disk by removing Ollama models: the blob store is **content-addressed
 
 ---
 
-## 4. Tag history (37)
-`armenian-copilot-mvp` → `auditor-rbac-coverage` → `billing-seam` → `checkpoint-handoff` → `deploy-packaging` → `desk-helpdesk` → `docs-export` → `docs-sign` → `docs-signature-evidence` → `docs-templates` → `employee-payroll-fk` → `finance-list-views` → `finance-opening-balances` → `forms` → `forms-public-page` → `harden-billpay` → `harden-rates-auth` → `harden-ui-errors` → `harden-ui-errors-complete` → `m1-foundation` → `m2-legal-rag` → `m3-accounting-complete` → `m3-accounting-engine` → `m3-accounting-ledger` → `m3-finance-reports` → `m3-payables` → `m3-payroll` → `people-hr` → `project-detail-view` → `projects` → `ui-crm-activity` → `ui-crm-quote-create` → `ui-crm-quotes` → `ui-finance-complete` → `ui-finance-interactive` → `ui-finance-reports` → `vat-rate-versioning`.
+## 4. Tag history (38)
+`armenian-copilot-mvp` → `auditor-rbac-coverage` → `billing-seam` → `checkpoint-handoff` → `deploy-packaging` → `desk-helpdesk` → `docs-export` → `docs-sign` → `docs-signature-evidence` → `docs-templates` → `employee-payroll-fk` → `finance-list-views` → `finance-opening-balances` → `forms` → `forms-public-page` → `harden-billpay` → `harden-rates-auth` → `harden-ui-errors` → `harden-ui-errors-complete` → `legal-pdf-ingest` → `m1-foundation` → `m2-legal-rag` → `m3-accounting-complete` → `m3-accounting-engine` → `m3-accounting-ledger` → `m3-finance-reports` → `m3-payables` → `m3-payroll` → `people-hr` → `project-detail-view` → `projects` → `ui-crm-activity` → `ui-crm-quote-create` → `ui-crm-quotes` → `ui-finance-complete` → `ui-finance-interactive` → `ui-finance-reports` → `vat-rate-versioning`.
 
 ---
 
