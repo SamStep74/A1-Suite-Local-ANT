@@ -22,13 +22,59 @@ test("VAT report nets posted output and input VAT; expense endpoint posts to led
     assert.strictEqual(exp.statusCode, 200);
     const unauth = await app.inject({ method: "GET", url: "/api/finance/vat-report" });
     assert.strictEqual(unauth.statusCode, 401);
+    const unauthReturn = await app.inject({ method: "GET", url: "/api/finance/vat-return" });
+    assert.strictEqual(unauthReturn.statusCode, 401);
     const vr = await app.inject({ method: "GET", url: "/api/finance/vat-report", headers: { cookie } });
     const body = vr.json();
     assert.strictEqual(body.outputVat, 200);
     assert.strictEqual(body.inputVat, 100);
     assert.strictEqual(body.netVatPayable, 100);
+    const allPeriodVatReturn = await app.inject({ method: "GET", url: "/api/finance/vat-return", headers: { cookie } });
+    assert.strictEqual(allPeriodVatReturn.statusCode, 200, allPeriodVatReturn.body);
+    assert.strictEqual(allPeriodVatReturn.json().periodKey, "all");
+    assert.strictEqual(allPeriodVatReturn.json().outputVat, 200);
+    assert.strictEqual(allPeriodVatReturn.json().inputVat, 100);
+    assert.strictEqual(allPeriodVatReturn.json().payable, 100);
+    const vatReturn = await app.inject({ method: "GET", url: `/api/finance/vat-return?period=${openPeriod}`, headers: { cookie } });
+    assert.strictEqual(vatReturn.statusCode, 200, vatReturn.body);
+    const vatReturnBody = vatReturn.json();
+    assert.strictEqual(vatReturnBody.kind, "armenian-vat-return");
+    assert.strictEqual(vatReturnBody.periodKey, openPeriod);
+    assert.strictEqual(vatReturnBody.standardVatRate, 20);
+    assert.strictEqual(vatReturnBody.taxableSales, 1000);
+    assert.strictEqual(vatReturnBody.taxablePurchases, 500);
+    assert.strictEqual(vatReturnBody.outputVat, 200);
+    assert.strictEqual(vatReturnBody.inputVat, 100);
+    assert.strictEqual(vatReturnBody.net, 100);
+    assert.strictEqual(vatReturnBody.payable, 100);
+    assert.strictEqual(vatReturnBody.creditCarried, 0);
+    assert.strictEqual(vatReturnBody.sales.lineCount, 1);
+    assert.strictEqual(vatReturnBody.purchases.lineCount, 1);
     const list = await app.inject({ method: "GET", url: "/api/finance/expenses", headers: { cookie } });
     assert.ok(list.json().expenses.length >= 1);
+  } finally { await app.close(); }
+});
+
+test("VAT return endpoint carries input credit forward instead of negative payable", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const orgId = app.db.prepare("SELECT id FROM organizations LIMIT 1").get().id;
+    const openPeriod = app.db.prepare("SELECT period_key FROM finance_periods WHERE org_id = ? AND status='open' LIMIT 1").get(orgId).period_key;
+    ledger.postInvoicePosted(app.db, orgId, { id: "inv-credit", total: 600, vat: 100, subtotal: 500, date: `${openPeriod}-12`, period_key: openPeriod });
+    ledger.postBillPosted(app.db, orgId, { id: "bill-credit", total: 1800, vat: 300, subtotal: 1500, date: `${openPeriod}-13`, period_key: openPeriod });
+
+    const response = await app.inject({ method: "GET", url: `/api/finance/vat-return?period=${openPeriod}`, headers: { cookie } });
+    assert.strictEqual(response.statusCode, 200, response.body);
+    const body = response.json();
+    assert.strictEqual(body.outputVat, 100);
+    assert.strictEqual(body.inputVat, 300);
+    assert.strictEqual(body.net, -200);
+    assert.strictEqual(body.payable, 0);
+    assert.strictEqual(body.creditCarried, 200);
+    assert.strictEqual(body.sales.taxableBase, 500);
+    assert.strictEqual(body.purchases.taxableBase, 1500);
   } finally { await app.close(); }
 });
 

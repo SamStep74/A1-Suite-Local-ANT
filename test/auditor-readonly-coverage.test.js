@@ -29,6 +29,7 @@ function writeEndpoints() {
     ["Legal source review", "POST", "/api/legal/sources/law-tax-code/reviews", { title: "Audit source", sourceUrl: "https://www.arlis.am/hy/acts/224990", effectiveDate: "2026-05-31", status: "active", reviewNote: "Auditor must not certify legal sources." }],
     ["Finance expense", "POST", "/api/finance/expenses", { description: "x", subtotal: 1000, vat: 200 }],
     ["Finance bill", "POST", "/api/finance/bills", { supplier: "x", subtotal: 1000, vat: 200 }],
+    ["Finance VAT return", "POST", "/api/finance/vat-returns", { periodKey: "2026-05", note: "Auditor must not prepare VAT return packets." }],
     ["Payroll run", "POST", "/api/payroll/run", { gross: 300000 }],
     ["Project bill-time", "POST", "/api/projects/proj-nare-retention/bill-time", { hourlyRate: 10000 }]
   ];
@@ -58,7 +59,7 @@ test("auditor-readonly: the same Auditor CAN still read (sanity — it is read-o
     await app.ready();
     const auditor = await login(app, "auditor@armosphera.local");
     // A representative read from each gated domain must succeed (200) for the same principal.
-    for (const url of ["/api/docs/documents", "/api/projects", "/api/people/employees", "/api/forms", "/api/inventory/stock", "/api/finance/trial-balance", "/api/finance/tax-rates"]) {
+    for (const url of ["/api/docs/documents", "/api/projects", "/api/people/employees", "/api/forms", "/api/inventory/stock", "/api/finance/trial-balance", "/api/finance/tax-rates", "/api/finance/vat-returns"]) {
       const res = await app.inject({ method: "GET", url, headers: { cookie: auditor } });
       assert.strictEqual(res.statusCode, 200, `Auditor must be able to read ${url}`);
     }

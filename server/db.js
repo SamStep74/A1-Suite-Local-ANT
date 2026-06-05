@@ -1030,6 +1030,33 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_finance_src_exports_period
       ON finance_src_exports(org_id, period_key, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS finance_vat_returns (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      period_key TEXT NOT NULL,
+      status TEXT NOT NULL,
+      legal_source_id TEXT REFERENCES legal_sources(id) ON DELETE SET NULL,
+      output_vat INTEGER NOT NULL DEFAULT 0,
+      input_vat INTEGER NOT NULL DEFAULT 0,
+      taxable_sales INTEGER NOT NULL DEFAULT 0,
+      taxable_purchases INTEGER NOT NULL DEFAULT 0,
+      net INTEGER NOT NULL DEFAULT 0,
+      payable INTEGER NOT NULL DEFAULT 0,
+      credit_carried INTEGER NOT NULL DEFAULT 0,
+      checksum TEXT NOT NULL,
+      payload TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      source_key TEXT NOT NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_finance_vat_returns_source
+      ON finance_vat_returns(org_id, source_key);
+
+    CREATE INDEX IF NOT EXISTS idx_finance_vat_returns_period
+      ON finance_vat_returns(org_id, period_key, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS tickets (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

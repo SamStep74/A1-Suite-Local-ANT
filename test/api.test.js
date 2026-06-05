@@ -22199,6 +22199,7 @@ test("evidence packet list endpoints hide payloads from unsupported roles", asyn
     const privacyExportSecret = "A1_PRIVACY_EXPORT_SECRET";
     const privacyRetentionSecret = "A1_PRIVACY_RETENTION_SECRET";
     const financeSecret = "A1_FINANCE_SRC_SECRET";
+    const financeVatReturnSecret = "A1_FINANCE_VAT_RETURN_SECRET";
 
     app.db.prepare(`
       INSERT INTO docs_signature_packets (
@@ -22303,6 +22304,33 @@ test("evidence packet list endpoints hide payloads from unsupported roles", asyn
       "user-owner",
       now
     );
+    app.db.prepare(`
+      INSERT INTO finance_vat_returns (
+        id, org_id, period_key, status, legal_source_id, output_vat, input_vat,
+        taxable_sales, taxable_purchases, net, payable, credit_carried,
+        checksum, payload, note, source_key, created_by_user_id, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "vat-return-redaction",
+      "org-armosphera-demo",
+      "2026-05",
+      "prepared",
+      "law-tax-code",
+      20000,
+      10000,
+      100000,
+      50000,
+      10000,
+      10000,
+      0,
+      checksum(financeVatReturnSecret),
+      JSON.stringify({ sentinel: financeVatReturnSecret, customerTaxId: "02576111", accountantMemo: "VAT return handoff" }),
+      "Support must not see VAT return payload.",
+      "finance-vat-return:redaction-secret",
+      "user-owner",
+      now
+    );
 
     const supportCookie = await login(app, "support@armosphera.local");
     const lawyerCookie = await login(app, "lawyer@armosphera.local");
@@ -22330,6 +22358,10 @@ test("evidence packet list endpoints hide payloads from unsupported roles", asyn
     assert.equal(supportFinance.statusCode, 200, supportFinance.body);
     assertEvidenceRedacted(supportFinance.json().exports.find(item => item.id === "src-export-redaction"));
     assert.ok(!supportFinance.body.includes(financeSecret));
+    const supportVatReturns = await app.inject({ method: "GET", url: "/api/finance/vat-returns?periodKey=2026-05", headers: { cookie: supportCookie } });
+    assert.equal(supportVatReturns.statusCode, 200, supportVatReturns.body);
+    assertEvidenceRedacted(supportVatReturns.json().returns.find(item => item.id === "vat-return-redaction"));
+    assert.ok(!supportVatReturns.body.includes(financeVatReturnSecret));
 
     const supportSuite = await app.inject({ method: "GET", url: "/api/suite", headers: { cookie: supportCookie } });
     assert.equal(supportSuite.statusCode, 200, supportSuite.body);
@@ -22338,7 +22370,8 @@ test("evidence packet list endpoints hide payloads from unsupported roles", asyn
     assertEvidenceRedacted(suite.privacyExportPackets.find(packet => packet.id === "privacy-export-redaction"));
     assertEvidenceRedacted(suite.privacyRetentionAssessments.find(assessment => assessment.id === "privacy-retention-redaction"));
     assertEvidenceRedacted(suite.srcExports.find(item => item.id === "src-export-redaction"));
-    for (const secret of [signatureSecret, privacyExportSecret, privacyRetentionSecret, financeSecret]) {
+    assertEvidenceRedacted(suite.vatReturns.find(item => item.id === "vat-return-redaction"));
+    for (const secret of [signatureSecret, privacyExportSecret, privacyRetentionSecret, financeSecret, financeVatReturnSecret]) {
       assert.ok(!supportSuite.body.includes(secret), `${secret} leaked in /api/suite`);
     }
 
@@ -22350,6 +22383,8 @@ test("evidence packet list endpoints hide payloads from unsupported roles", asyn
 
     const accountantFinance = await app.inject({ method: "GET", url: "/api/finance/src-exports?periodKey=2026-05", headers: { cookie: accountantCookie } });
     assert.equal(accountantFinance.json().exports.find(item => item.id === "src-export-redaction").payload.sentinel, financeSecret);
+    const accountantVatReturns = await app.inject({ method: "GET", url: "/api/finance/vat-returns?periodKey=2026-05", headers: { cookie: accountantCookie } });
+    assert.equal(accountantVatReturns.json().returns.find(item => item.id === "vat-return-redaction").payload.sentinel, financeVatReturnSecret);
   });
 });
 
@@ -26569,18 +26604,26 @@ test("finance report query filters reject malformed report metadata before reads
     assert.equal(validVat.statusCode, 200, validVat.body);
     assert.equal(validVat.json().periodKey, "2026-05");
 
+    const validVatReturn = await app.inject({ method: "GET", url: "/api/finance/vat-return?period=2026-05", headers: { cookie } });
+    assert.equal(validVatReturn.statusCode, 200, validVatReturn.body);
+    assert.equal(validVatReturn.json().periodKey, "2026-05");
+
     const validPayables = await app.inject({ method: "GET", url: "/api/finance/payables?asOf=2026-05-31", headers: { cookie } });
     assert.equal(validPayables.statusCode, 200, validPayables.body);
     assert.equal(validPayables.json().asOf, "2026-05-31");
 
     const vatIgnoresPayablesFilter = await app.inject({ method: "GET", url: "/api/finance/vat-report?asOf=2026-02-31", headers: { cookie } });
     assert.equal(vatIgnoresPayablesFilter.statusCode, 200, vatIgnoresPayablesFilter.body);
+    const vatReturnIgnoresPayablesFilter = await app.inject({ method: "GET", url: "/api/finance/vat-return?asOf=2026-02-31", headers: { cookie } });
+    assert.equal(vatReturnIgnoresPayablesFilter.statusCode, 200, vatReturnIgnoresPayablesFilter.body);
     const payablesIgnoreVatFilter = await app.inject({ method: "GET", url: "/api/finance/payables?period=2026-13", headers: { cookie } });
     assert.equal(payablesIgnoreVatFilter.statusCode, 200, payablesIgnoreVatFilter.body);
 
     const malformedReportUrls = [
       "/api/finance/vat-report?period=2026-05%0Asecret-finance-report-period-token",
       "/api/finance/vat-report?period=2026-13",
+      "/api/finance/vat-return?period=2026-05%0Asecret-finance-report-return-period-token",
+      "/api/finance/vat-return?period=2026-13",
       "/api/finance/payables?asOf=2026-05-31%0Asecret-finance-report-asof-token",
       "/api/finance/payables?asOf=2026-02-31"
     ];

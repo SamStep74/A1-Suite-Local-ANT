@@ -122,6 +122,7 @@ const accounting = require("./accounting");
 const ledger = require("./ledger");
 const payroll = require("./payroll");
 const copilot = require("./copilot");
+const vatReturn = require("./vatReturn");
 const settingsStore = require("./settingsStore");
 const aiProvider = require("./aiProvider");
 const openNotebook = require("./openNotebook");
@@ -349,6 +350,7 @@ function registerApi(app, db, options = {}) {
       localization: localizationChecklist(),
       workflows: workflowMap(),
       srcExports: getFinanceSrcExports(db, user.org_id, "", financeEvidence),
+      vatReturns: getFinanceVatReturns(db, user.org_id, "", financeEvidence),
       signaturePackets: getSignaturePackets(db, user.org_id, "", legalEvidence),
       privacyRequests: getPrivacyRequests(db, user.org_id),
       privacyExportPackets: getPrivacyExportPackets(db, user.org_id, "", legalEvidence),
@@ -3839,6 +3841,19 @@ ${controls}
     return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8) };
   });
 
+  app.get("/api/finance/vat-returns", async request => {
+    const user = await app.auth(request);
+    const query = normalizeFinanceVatReturnListQuery(request.query || {});
+    return { returns: getFinanceVatReturns(db, user.org_id, query.periodKey, financeEvidenceOptions(user)) };
+  });
+
+  app.post("/api/finance/vat-returns", async request => {
+    const user = await app.auth(request);
+    requireFinanceOperator(user);
+    const result = createFinanceVatReturn(db, user, request.body === undefined ? {} : request.body);
+    return { ok: true, ...result, events: getRecentSuiteEvents(db, user.org_id, 8) };
+  });
+
   app.post("/api/finance/invoices/:id/payments", async request => {
     const user = await app.auth(request);
     requireOwner(user);
@@ -4224,6 +4239,12 @@ ${controls}
     const user = await app.auth(request);
     const query = normalizeFinanceVatReportQuery(request.query || {});
     return ledger.vatReport(db, user.org_id, query.period);
+  });
+
+  app.get("/api/finance/vat-return", async request => {
+    const user = await app.auth(request);
+    const query = normalizeFinanceVatReportQuery(request.query || {});
+    return buildFinanceVatReturn(db, user.org_id, query.period);
   });
 
   // Effective-dated tax-rate history (read-only). Surfaces the VAT (and payroll) rows so the
@@ -41883,6 +41904,7 @@ const ORG_BACKUP_TABLES = [
   "finance_payments",
   "finance_bank_transactions",
   "finance_src_exports",
+  "finance_vat_returns",
   "tickets",
   "service_cases",
   "case_messages",
@@ -53431,6 +53453,36 @@ function normalizeFinanceVatReportQuery(query) {
   };
 }
 
+function buildFinanceVatReturn(db, orgId, periodKey = "") {
+  const inputs = getVatReturnLedgerInputs(db, orgId, periodKey);
+  const calculation = vatReturn.computeVatReturn(inputs);
+  return {
+    kind: "armenian-vat-return",
+    periodKey: periodKey || "all",
+    currency: "AMD",
+    standardVatRate: vatReturn.STANDARD_VAT_RATE,
+    source: "posted-ledger",
+    taxableSales: calculation.taxableSales,
+    taxablePurchases: calculation.taxablePurchases,
+    outputVat: calculation.outputVat,
+    inputVat: calculation.inputVat,
+    net: calculation.net,
+    payable: calculation.payable,
+    creditCarried: calculation.creditCarried,
+    sales: {
+      lineCount: inputs.sales.length,
+      taxableBase: calculation.taxableSales,
+      outputVat: calculation.outputVat
+    },
+    purchases: {
+      lineCount: inputs.purchases.length,
+      taxableBase: calculation.taxablePurchases,
+      inputVat: calculation.inputVat
+    },
+    note: "Computed from posted ledger entries as Armenian VAT return figures; official SRC form line mapping remains an accountant-reviewed filing step."
+  };
+}
+
 function normalizeFinancePayablesReportQuery(query) {
   if (!isPlainObject(query)) {
     throwInvalidFinanceReportQuery();
@@ -53548,6 +53600,280 @@ function formatFinanceSrcExport(row, options = {}) {
     subtotal: row.subtotal,
     vat: row.vat,
     total: row.total,
+    checksum: includePayload ? row.checksum : null,
+    payload: includePayload ? safeJson(row.payload) : null,
+    note: row.note,
+    sourceKey: includePayload ? row.source_key : null,
+    createdByUserId: row.created_by_user_id,
+    createdByName: row.created_by_name,
+    createdAt: row.created_at
+  };
+}
+
+function createFinanceVatReturn(db, user, body) {
+  const { periodKey, note } = normalizeFinanceVatReturnBody(body);
+
+  const period = getFinancePeriod(db, user.org_id, periodKey);
+  if (!period || period.status !== "open") {
+    const err = new Error("PERIOD_LOCKED");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  const legalSource = requireProfessionalLegalSource(db, user.org_id, "law-tax-code", "VAT_SOURCE_REVIEW_REQUIRED");
+  const sourceKey = `vat-return:${periodKey}`;
+  const existing = getFinanceVatReturnBySourceKey(db, user.org_id, sourceKey);
+  if (existing) return { idempotent: true, vatReturn: existing };
+
+  const inputs = getVatReturnLedgerInputs(db, user.org_id, periodKey);
+  const totals = vatReturn.computeVatReturn(inputs);
+  const organization = getOrganization(db, user.org_id);
+  const payload = {
+    kind: "armenian-vat-return-packet",
+    preparedFor: "Armenian VAT return accountant review",
+    product: "Armosphera One",
+    organization: {
+      id: organization.id,
+      name: organization.name,
+      legalName: organization.legal_name,
+      taxId: organization.tax_id,
+      locale: organization.locale,
+      currency: organization.currency
+    },
+    period: {
+      periodKey,
+      startsOn: period.startsOn,
+      endsOn: period.endsOn,
+      status: period.status
+    },
+    legalSource: legalSourcePayload(legalSource),
+    vatRate: vatReturn.STANDARD_VAT_RATE,
+    inputs,
+    totals,
+    note,
+    disclaimer: "Prepared as an offline VAT return calculation for accountant review; not submitted to SRC and not mapped to official form line numbers."
+  };
+  const checksum = crypto.createHash("sha256").update(JSON.stringify(payload)).digest("hex");
+  const returnId = randomId("vat-return");
+  const now = new Date().toISOString();
+  db.prepare(`
+    INSERT INTO finance_vat_returns (
+      id, org_id, period_key, status, legal_source_id, output_vat,
+      input_vat, taxable_sales, taxable_purchases, net, payable, credit_carried,
+      checksum, payload, note, source_key, created_by_user_id, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    returnId,
+    user.org_id,
+    periodKey,
+    "prepared",
+    legalSource.id,
+    totals.outputVat,
+    totals.inputVat,
+    totals.taxableSales,
+    totals.taxablePurchases,
+    totals.net,
+    totals.payable,
+    totals.creditCarried,
+    checksum,
+    JSON.stringify(payload),
+    payload.note,
+    sourceKey,
+    user.id,
+    now
+  );
+
+  emitSuiteEvent(db, {
+    orgId: user.org_id,
+    actorUserId: user.id,
+    eventType: "finance.vat_return.created",
+    subjectType: "finance_vat_return",
+    subjectId: returnId,
+    status: "prepared",
+    payload: { periodKey, payable: totals.payable, creditCarried: totals.creditCarried, checksum }
+  });
+  audit(db, user.org_id, user.id, "finance.vat_return.created", {
+    returnId,
+    periodKey,
+    payable: totals.payable,
+    creditCarried: totals.creditCarried
+  });
+
+  return { idempotent: false, vatReturn: getFinanceVatReturn(db, user.org_id, returnId) };
+}
+
+function normalizeFinanceVatReturnBody(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidFinanceVatReturn();
+  }
+  return {
+    periodKey: normalizeFinanceVatReturnPeriodKey(body),
+    note: normalizeFinanceVatReturnText(body, "note", { fallback: "", maxLength: 500 })
+  };
+}
+
+function normalizeFinanceVatReturnPeriodKey(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "periodKey") ? body.periodKey : undefined;
+  if (value === undefined || value === "" || value === null || typeof value !== "string") {
+    throwInvalidFinanceVatReturn();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceVatReturn();
+  }
+  const periodKey = value.trim();
+  if (!isValidFinancePeriodKey(periodKey)) {
+    throwInvalidFinanceVatReturn();
+  }
+  return periodKey;
+}
+
+function normalizeFinanceVatReturnText(body, field, options = {}) {
+  const { fallback = "", maxLength = 500 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    return fallback;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinanceVatReturn();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceVatReturn();
+  }
+  const text = value.trim();
+  if (!text) {
+    return fallback;
+  }
+  if (text.length > maxLength) {
+    throwInvalidFinanceVatReturn();
+  }
+  return text;
+}
+
+function normalizeFinanceVatReturnListQuery(query) {
+  if (!isPlainObject(query)) {
+    throwInvalidFinanceListQuery();
+  }
+  return {
+    periodKey: normalizeFinanceSrcExportListPeriodKey(query, "periodKey")
+  };
+}
+
+function throwInvalidFinanceVatReturn() {
+  const err = new Error("Invalid VAT return");
+  err.statusCode = 400;
+  throw err;
+}
+
+function getVatReturnLedgerInputs(db, orgId, periodKey = "") {
+  const periodFilter = periodKey ? "AND period_key = ?" : "";
+  const params = periodKey ? [orgId, periodKey] : [orgId];
+  const rows = db.prepare(`
+    SELECT id, source_type, source_id, debit_code, credit_code, amount
+    FROM ledger_journal
+    WHERE org_id = ?
+      ${periodFilter}
+      AND (
+        credit_code IN ('611', '524')
+        OR debit_code IN ('711', '526')
+      )
+    ORDER BY source_type, source_id, id
+  `).all(...params);
+  const groups = new Map();
+  for (const row of rows) {
+    const sourceType = row.source_type || "ledger";
+    const sourceId = row.source_id || row.id;
+    const key = `${sourceType}:${sourceId}`;
+    const item = groups.get(key) || {
+      sourceType,
+      sourceId,
+      salesNet: 0,
+      outputVat: 0,
+      purchaseNet: 0,
+      inputVat: 0
+    };
+    if (row.credit_code === "611") item.salesNet += row.amount;
+    if (row.credit_code === "524") item.outputVat += row.amount;
+    if (row.debit_code === "711") item.purchaseNet += row.amount;
+    if (row.debit_code === "526") item.inputVat += row.amount;
+    groups.set(key, item);
+  }
+  const sales = [];
+  const purchases = [];
+  for (const item of groups.values()) {
+    if (item.salesNet > 0 || item.outputVat > 0) {
+      sales.push({
+        sourceType: item.sourceType,
+        sourceId: item.sourceId,
+        netAmount: item.salesNet,
+        vatAmount: item.outputVat,
+        vatRate: vatReturn.STANDARD_VAT_RATE
+      });
+    }
+    if (item.purchaseNet > 0 || item.inputVat > 0) {
+      purchases.push({
+        sourceType: item.sourceType,
+        sourceId: item.sourceId,
+        netAmount: item.purchaseNet,
+        vatAmount: item.inputVat,
+        vatRate: vatReturn.STANDARD_VAT_RATE,
+        recoverable: true
+      });
+    }
+  }
+  return { sales, purchases };
+}
+
+function getFinanceVatReturns(db, orgId, periodKey = "", options = {}) {
+  const params = [orgId];
+  let where = "WHERE finance_vat_returns.org_id = ?";
+  if (periodKey) {
+    where += " AND finance_vat_returns.period_key = ?";
+    params.push(periodKey);
+  }
+  return db.prepare(`
+    SELECT finance_vat_returns.*, users.name AS created_by_name
+    FROM finance_vat_returns
+    LEFT JOIN users ON users.id = finance_vat_returns.created_by_user_id
+    ${where}
+    ORDER BY finance_vat_returns.created_at DESC
+  `).all(...params).map(row => formatFinanceVatReturn(row, options));
+}
+
+function getFinanceVatReturn(db, orgId, returnId, options = {}) {
+  const row = db.prepare(`
+    SELECT finance_vat_returns.*, users.name AS created_by_name
+    FROM finance_vat_returns
+    LEFT JOIN users ON users.id = finance_vat_returns.created_by_user_id
+    WHERE finance_vat_returns.org_id = ? AND finance_vat_returns.id = ?
+  `).get(orgId, returnId);
+  return row ? formatFinanceVatReturn(row, options) : null;
+}
+
+function getFinanceVatReturnBySourceKey(db, orgId, sourceKey, options = {}) {
+  const row = db.prepare(`
+    SELECT finance_vat_returns.*, users.name AS created_by_name
+    FROM finance_vat_returns
+    LEFT JOIN users ON users.id = finance_vat_returns.created_by_user_id
+    WHERE finance_vat_returns.org_id = ? AND finance_vat_returns.source_key = ?
+  `).get(orgId, sourceKey);
+  return row ? formatFinanceVatReturn(row, options) : null;
+}
+
+function formatFinanceVatReturn(row, options = {}) {
+  const includePayload = options.includePayload !== false;
+  return {
+    id: row.id,
+    periodKey: row.period_key,
+    status: row.status,
+    legalSourceId: row.legal_source_id,
+    outputVat: row.output_vat,
+    inputVat: row.input_vat,
+    taxableSales: row.taxable_sales,
+    taxablePurchases: row.taxable_purchases,
+    net: row.net,
+    payable: row.payable,
+    creditCarried: row.credit_carried,
     checksum: includePayload ? row.checksum : null,
     payload: includePayload ? safeJson(row.payload) : null,
     note: row.note,
