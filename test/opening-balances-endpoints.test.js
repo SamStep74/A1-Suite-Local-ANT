@@ -145,7 +145,12 @@ test("opening-balances POST rejects malformed metadata before persistence", asyn
       { ...basePayload, entries: [{ code: "251\nsecret-opening-balance-code-control-token", amount: 1200000 }] },
       { ...basePayload, entries: [{ code: "999", amount: 1200000 }] },
       { ...basePayload, entries: [{ code: "331", amount: 1200000 }] },
-      { ...basePayload, entries: [{ code: "112", amount: 1200000 }] },
+      { ...basePayload, entries: [{ code: "115", amount: 1200000 }] },
+      { ...basePayload, entries: [{ code: "111", amount: 1200000, side: "credit" }] },
+      { ...basePayload, entries: [{ code: "112", amount: 1200000, side: "debit" }] },
+      { ...basePayload, entries: [{ code: "112", amount: 1200000, side: "contra-secret-opening-balance-side-token" }] },
+      { ...basePayload, entries: [{ code: "112", amount: 1200000, side: "credit\nsecret-opening-balance-side-control-token" }] },
+      { ...basePayload, entries: [{ code: "112", amount: 1200000, side: { value: "credit", token: "secret-opening-balance-side-object-token" } }] },
       { ...basePayload, entries: [{ code: "251", amount: ["1200000"] }] },
       { ...basePayload, entries: [{ code: "251", amount: { value: 1200000, token: "secret-opening-balance-amount-object-token" } }] },
       { ...basePayload, entries: [{ code: "251", amount: "1200000\nsecret-opening-balance-amount-control-token" }] },
@@ -186,5 +191,34 @@ test("opening-balances POST rejects malformed metadata before persistence", asyn
     assert.strictEqual(corrected.statusCode, 200, corrected.body);
     assert.strictEqual(corrected.json().count, 1);
     assert.strictEqual(corrected.json().openingEquity, 1200000);
+  } finally { await app.close(); }
+});
+
+test("opening-balances endpoint accepts reviewed contra-asset opening side", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const post = await app.inject({
+      method: "POST",
+      url: "/api/finance/opening-balances",
+      headers: { cookie },
+      payload: {
+        asOf: "2026-01-01",
+        entries: [
+          { code: "111", amount: 1000000, side: "debit" },
+          { code: "112", amount: 200000, side: "credit" }
+        ]
+      }
+    });
+    assert.strictEqual(post.statusCode, 200, post.body);
+    const body = post.json();
+    assert.strictEqual(body.count, 2);
+    assert.strictEqual(body.openingEquity, 800000);
+    assert.strictEqual(body.entries.find(entry => entry.code === "112").side, "credit");
+    const statements = await app.inject({ method: "GET", url: "/api/finance/statements", headers: { cookie } });
+    assert.strictEqual(statements.statusCode, 200, statements.body);
+    assert.strictEqual(statements.json().balanceSheet.totalAssets, 800000);
+    assert.strictEqual(statements.json().balanceSheet.balanced, true);
   } finally { await app.close(); }
 });

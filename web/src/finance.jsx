@@ -480,26 +480,40 @@ export function FinancePayablesPanel({ data }) {
   );
 }
 
-// Supported opening-balance operating anchors. The full official chart includes
-// contra accounts that need account-level normal-balance handling before they
-// can be posted safely through this compact opening-balance workflow.
+// Supported opening-balance anchors with their configured opening side.
 const OPENING_BALANCE_ACCOUNTS = [
-  { code: "251", name: "Դրամարկղ" },
-  { code: "252", name: "Հաշվարկային հաշիվ" },
-  { code: "221", name: "Դեբիտորական պարտքեր վաճառքների գծով" },
-  { code: "226", name: "Հաշվանցման (փոխհատուցման) ենթակա անուղղակի հարկեր" },
-  { code: "521", name: "Կրեդիտորական պարտքեր գնումների գծով" },
-  { code: "524", name: "Պարտքեր հարկերի և այլ պարտադիր վճարների գծով" },
-  { code: "525", name: "Պարտքեր պարտադիր սոցիալական ապահովության գծով" }
+  { code: "111", name: "Մաշվող հիմնական միջոցներ", side: "debit" },
+  { code: "112", name: "Հիմնական միջոցների մաշվածություն", side: "credit" },
+  { code: "221", name: "Դեբիտորական պարտքեր վաճառքների գծով", side: "debit" },
+  { code: "226", name: "Հաշվանցման (փոխհատուցման) ենթակա անուղղակի հարկեր", side: "debit" },
+  { code: "251", name: "Դրամարկղ", side: "debit" },
+  { code: "252", name: "Հաշվարկային հաշիվ", side: "debit" },
+  { code: "521", name: "Կրեդիտորական պարտքեր գնումների գծով", side: "credit" },
+  { code: "524", name: "Պարտքեր հարկերի և այլ պարտադիր վճարների գծով", side: "credit" },
+  { code: "525", name: "Պարտքեր պարտադիր սոցիալական ապահովության գծով", side: "credit" }
 ];
 
 function openingBalanceAccountsFromChart(chart) {
   const accounts = chart?.accounts || [];
+  const sideRules = Array.isArray(chart?.openingBalanceAccounts) ? chart.openingBalanceAccounts : [];
+  if (sideRules.length > 0) {
+    return sideRules.map(rule => {
+      const account = accounts.find(item => item.code === rule.code) || {};
+      return { code: rule.code, name: rule.name || account.name || rule.code, side: rule.side || "debit" };
+    });
+  }
   const allowedCodes = chart?.openingBalanceAccountCodes || OPENING_BALANCE_ACCOUNTS.map(account => account.code);
   const rows = accounts
     .filter(account => allowedCodes.includes(account.code))
-    .map(account => ({ code: account.code, name: account.name }));
+    .map(account => {
+      const fallback = OPENING_BALANCE_ACCOUNTS.find(item => item.code === account.code) || {};
+      return { code: account.code, name: account.name, side: fallback.side || "debit" };
+    });
   return rows.length > 0 ? rows : OPENING_BALANCE_ACCOUNTS;
+}
+
+function openingBalanceSideLabel(side) {
+  return side === "credit" ? "Կրեդիտ" : "Դեբետ";
 }
 
 export function FinanceOpeningBalancesPanel({ data }) {
@@ -514,7 +528,7 @@ export function FinanceOpeningBalancesPanel({ data }) {
       <div className="rows">
         {entries.map(entry => (
           <div className="row" key={`${entry.code}-${entry.date}`}>
-            <span>{entry.code} · {entry.name}</span>
+            <span>{entry.code} · {entry.name} · {openingBalanceSideLabel(entry.side)}</span>
             <strong>{entry.side === "credit" ? `(${amd(entry.amount)})` : amd(entry.amount)}</strong>
           </div>
         ))}
@@ -532,10 +546,11 @@ export function FinanceOpeningBalancesForm({ onSubmit, actionState, chartOfAccou
   const [lines, setLines] = useState([]);
   const busy = actionState === "opening-balances:set";
   const nameByCode = Object.fromEntries(accountOptions.map(a => [a.code, a.name]));
+  const sideByCode = Object.fromEntries(accountOptions.map(a => [a.code, a.side || "debit"]));
   function addLine() {
     const value = Math.round(Number(amount) || 0);
     if (value <= 0) return;
-    setLines([...lines.filter(line => line.code !== code), { code, amount: value }]);
+    setLines([...lines.filter(line => line.code !== code), { code, amount: value, side: sideByCode[code] || "debit" }]);
     setAmount("");
   }
   function submit() {
@@ -550,7 +565,7 @@ export function FinanceOpeningBalancesForm({ onSubmit, actionState, chartOfAccou
         <input type="date" value={asOf} onChange={event => setAsOf(event.target.value)} placeholder="Ամսաթիվ (YYYY-MM-DD)" />
         <select value={code} onChange={event => setCode(event.target.value)}>
           {accountOptions.map(account => (
-            <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
+            <option key={account.code} value={account.code}>{account.code} · {account.name} · {openingBalanceSideLabel(account.side)}</option>
           ))}
         </select>
         <input value={amount} onChange={event => setAmount(event.target.value)} inputMode="numeric" placeholder="Գումար (AMD)" />
@@ -559,7 +574,10 @@ export function FinanceOpeningBalancesForm({ onSubmit, actionState, chartOfAccou
       {lines.length > 0 && (
         <div className="rows">
           {lines.map(line => (
-            <div className="row" key={line.code}><span>{line.code} · {nameByCode[line.code]}</span><strong>{amd(line.amount)}</strong></div>
+            <div className="row" key={line.code}>
+              <span>{line.code} · {nameByCode[line.code]} · {openingBalanceSideLabel(line.side)}</span>
+              <strong>{line.side === "credit" ? `(${amd(line.amount)})` : amd(line.amount)}</strong>
+            </div>
           ))}
         </div>
       )}

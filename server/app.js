@@ -52122,9 +52122,11 @@ function normalizeFinanceOpeningBalanceEntries(body) {
     if (!isPlainObject(entry)) {
       throwInvalidFinanceOpeningBalances();
     }
+    const code = normalizeFinanceOpeningBalanceCode(entry);
     return {
-      code: normalizeFinanceOpeningBalanceCode(entry),
-      amount: normalizeFinanceOpeningBalanceAmount(entry)
+      code,
+      amount: normalizeFinanceOpeningBalanceAmount(entry),
+      side: normalizeFinanceOpeningBalanceSide(entry, code)
     };
   });
 }
@@ -52138,11 +52140,32 @@ function normalizeFinanceOpeningBalanceCode(entry) {
     throwInvalidFinanceOpeningBalances();
   }
   const code = value.trim();
-  const account = ledger.CHART.find(item => item.code === code);
-  if (!code || code === ledger.OPENING_BALANCE_EQUITY_CODE || !account || !ledger.OPENING_BALANCE_ACCOUNT_CODES.includes(code)) {
+  if (!ledger.openingBalanceAccountByCode(code)) {
     throwInvalidFinanceOpeningBalances();
   }
   return code;
+}
+
+function normalizeFinanceOpeningBalanceSide(entry, code) {
+  const expectedSide = ledger.openingBalanceSideForCode(code);
+  const value = Object.prototype.hasOwnProperty.call(entry, "side") ? entry.side : undefined;
+  if (value === undefined || value === "") {
+    return expectedSide;
+  }
+  if (value === null || typeof value !== "string") {
+    throwInvalidFinanceOpeningBalances();
+  }
+  if (/[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidFinanceOpeningBalances();
+  }
+  const side = value.trim().toLowerCase();
+  if (side !== "debit" && side !== "credit") {
+    throwInvalidFinanceOpeningBalances();
+  }
+  if (side !== expectedSide) {
+    throwInvalidFinanceOpeningBalances();
+  }
+  return side;
 }
 
 function normalizeFinanceOpeningBalanceAmount(entry) {
