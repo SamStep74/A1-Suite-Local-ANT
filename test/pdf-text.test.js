@@ -144,3 +144,19 @@ test("pdf-text: readSources skips extension-named directories before text or PDF
     );
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("pdf-text: readSources skips extension-named symlinks before text or PDF extraction", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pdf-src5-"));
+  try {
+    fs.writeFileSync(path.join(dir, "Tax.txt"), "Հոդված 1. Տեքստ");
+    fs.symlinkSync(path.join(dir, "Tax.txt"), path.join(dir, "Linked.pdf"));
+    const skipped = [];
+    const sources = readSources(dir, {
+      pdfAvailable: true,
+      extractPdf: () => { throw new Error("symlink should not be extracted"); },
+      onSkip: (file, reason) => skipped.push({ file, reason }),
+    });
+    assert.strictEqual(sources.length, 1, "only regular source files are ingested");
+    assert.deepStrictEqual(skipped, [{ file: "Linked.pdf", reason: "symlink" }]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});

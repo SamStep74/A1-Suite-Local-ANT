@@ -45,7 +45,12 @@ function readSources(dir, options = {}) {
   const sources = [];
   for (const f of entries) {
     const full = path.join(dir, f);
-    if (!fs.statSync(full).isFile()) {
+    const entryStat = fs.lstatSync(full);
+    if (entryStat.isSymbolicLink()) {
+      onSkip(f, "symlink");
+      continue;
+    }
+    if (!entryStat.isFile()) {
       onSkip(f, "not-a-file");
       continue;
     }
