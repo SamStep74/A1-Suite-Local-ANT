@@ -121,3 +121,26 @@ test("pdf-text: readSources reports extractor-level unavailable errors with the 
     assert.deepStrictEqual(skipped, [{ file: "Labor.pdf", reason: "pdftotext-unavailable" }]);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("pdf-text: readSources skips extension-named directories before text or PDF extraction", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pdf-src4-"));
+  try {
+    fs.writeFileSync(path.join(dir, "Tax.txt"), "Հոդված 1. Տեքստ");
+    fs.mkdirSync(path.join(dir, "Archive.pdf"));
+    fs.mkdirSync(path.join(dir, "Notes.md"));
+    const skipped = [];
+    const sources = readSources(dir, {
+      pdfAvailable: true,
+      extractPdf: () => { throw new Error("directory should not be extracted"); },
+      onSkip: (file, reason) => skipped.push({ file, reason }),
+    });
+    assert.strictEqual(sources.length, 1, "only regular source files are ingested");
+    assert.deepStrictEqual(
+      skipped,
+      [
+        { file: "Archive.pdf", reason: "not-a-file" },
+        { file: "Notes.md", reason: "not-a-file" },
+      ]
+    );
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
