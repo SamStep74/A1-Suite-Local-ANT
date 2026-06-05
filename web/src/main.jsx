@@ -92,6 +92,30 @@ async function api(path, options = {}) {
   return data;
 }
 
+async function apiText(path, options = {}) {
+  const headers = { ...(options.headers || {}) };
+  if (options.body) headers["Content-Type"] = "application/json";
+  const response = await fetch(path, {
+    credentials: "include",
+    headers,
+    ...options,
+    body: options.body ? JSON.stringify(options.body) : undefined
+  });
+  const text = await response.text();
+  if (!response.ok) {
+    let message = response.statusText;
+    try {
+      message = JSON.parse(text).error || message;
+    } catch {
+      // Non-JSON error bodies keep the transport status text.
+    }
+    const error = new Error(message);
+    error.status = response.status;
+    throw error;
+  }
+  return text;
+}
+
 function App() {
   const [session, setSession] = useState(null);
   const [suite, setSuite] = useState(null);
@@ -3904,7 +3928,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               <FinanceVatPanel data={finance.vat} />
               <FinanceTaxRatesPanel data={finance.taxRates} />
               <FinanceChartOfAccountsPanel data={finance.chartOfAccounts} />
-              <FinanceLocalizationToolsPanel request={api} />
+              <FinanceLocalizationToolsPanel request={api} requestText={apiText} />
               <FinanceExpenseForm onCreate={createExpense} actionState={actionState} />
               <FinanceBillForm onCreate={createBill} actionState={actionState} />
               <FinancePayrollForm onRun={runPayroll} actionState={actionState} />

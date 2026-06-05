@@ -2,6 +2,7 @@ import React, { useState } from "react";
 
 const amd = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 const numericInput = value => Math.round(Number(value) || 0);
+const isoDate = () => new Date().toISOString().slice(0, 10);
 
 export function FinanceTrialBalancePanel({ data }) {
   if (!data) return null;
@@ -160,12 +161,15 @@ export function FinanceChartOfAccountsPanel({ data }) {
   );
 }
 
-export function FinanceLocalizationToolsPanel({ request }) {
+export function FinanceLocalizationToolsPanel({ request, requestText }) {
   const [hvhh, setHvhh] = useState("00123456");
   const [phone, setPhone] = useState("+374 91 123456");
   const [gross, setGross] = useState("600000");
   const [salesNet, setSalesNet] = useState("1000000");
   const [purchaseNet, setPurchaseNet] = useState("300000");
+  const [invoiceNumber, setInvoiceNumber] = useState("A1-LOC-001");
+  const [invoiceBuyerHvhh, setInvoiceBuyerHvhh] = useState("00987654");
+  const [invoiceNet, setInvoiceNet] = useState("250000");
   const [results, setResults] = useState({});
   const [busy, setBusy] = useState("");
   const [error, setError] = useState("");
@@ -191,12 +195,38 @@ export function FinanceLocalizationToolsPanel({ request }) {
   const vat = results.vat || {};
   const vatSummary = vat.summary || {};
   const vatForm = vat.form || {};
+  const eInvoiceXml = results.einvoice || "";
+  const eInvoiceTotal = eInvoiceXml.match(/<TotalAmount>([^<]+)<\/TotalAmount>/)?.[1] || "";
+  const eInvoicePreview = eInvoiceXml.split("\n").slice(0, 10).join("\n");
   const vatLineValue = line => {
     const item = vatForm[line] || {};
     if (line === "23") return `${amd(item.payable)} / ${amd(item.recoverable)}`;
     if (line === "21") return amd(item.vat);
     return `${amd(item.base)} / ${amd(item.vat)}`;
   };
+  const eInvoiceBody = () => ({
+    number: invoiceNumber.trim() || "A1-LOC-001",
+    issueDate: isoDate(),
+    creationDate: isoDate(),
+    transactionType: "1",
+    supplier: {
+      name: "Armosphera Demo Clinic",
+      hvhh: "00123456",
+      vatId: "00123456",
+      address: "Yerevan"
+    },
+    buyer: {
+      name: "Preview buyer",
+      hvhh: invoiceBuyerHvhh.trim() || "00987654",
+      address: "Yerevan"
+    },
+    lines: [{
+      description: "RA localization services",
+      quantity: 1,
+      netAmount: numericInput(invoiceNet),
+      vatRate: 20
+    }]
+  });
 
   return (
     <article className="panel finance-localization-tools-panel">
@@ -271,6 +301,25 @@ export function FinanceLocalizationToolsPanel({ request }) {
               <strong>{vatLineValue(line)}</strong>
             </div>
           ))}
+        </div>
+      )}
+
+      <div className="inline-form">
+        <input value={invoiceNumber} onChange={event => setInvoiceNumber(event.target.value)} placeholder="Invoice number" />
+        <input value={invoiceBuyerHvhh} onChange={event => setInvoiceBuyerHvhh(event.target.value)} placeholder="Buyer ՀՎՀՀ" />
+        <input value={invoiceNet} onChange={event => setInvoiceNet(event.target.value)} inputMode="numeric" placeholder="Line net AMD" />
+        <button className="mini-action" type="button" disabled={isBusy || !requestText} onClick={() => run("einvoice", () => requestText("/api/finance/einvoice/build", { method: "POST", body: eInvoiceBody() }))}>
+          {busy === "einvoice" ? "Building" : "E-invoice XML"}
+        </button>
+      </div>
+
+      {eInvoiceXml && (
+        <div className="rows">
+          <div className="row">
+            <span>E-invoice XML · {invoiceNumber || "A1-LOC-001"}</span>
+            <strong>{amd(eInvoiceTotal)}</strong>
+          </div>
+          <pre className="finance-xml-preview">{eInvoicePreview}</pre>
         </div>
       )}
 
