@@ -1760,6 +1760,21 @@ textarea {
   width: 100%;
 }
 
+.finance-xml-preview {
+  max-height: 210px;
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--line);
+  border-radius: var(--radius);
+  background: var(--surface-soft);
+  color: var(--ink);
+  padding: 10px 12px;
+  font-size: 11px;
+  line-height: 1.45;
+}
+
 .aging-buckets {
   display: grid;
   gap: 8px;

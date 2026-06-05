@@ -42,6 +42,8 @@ e-invoice button, inline ՀՎՀՀ/phone validators) against these routes.
 ```
 
 ### `POST /api/finance/einvoice/build` → e-invoice XML (`application/xml`)
+The response body is XML text, not JSON. SPA callers should read it with a text-response helper.
+
 ```jsonc
 { "number", "issueDate", "creationDate"?, "transactionType",  // Գործարքի տեսակ (mandatory 2025-03)
   "supplier": { "name", "hvhh", "vatId"?, "address"? },
