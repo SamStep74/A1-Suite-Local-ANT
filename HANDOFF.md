@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-05 · PDF extractor unavailable skip hardening · 38 tags · **548 tests verified**_
+_Last updated: 2026-06-05 · PDF extraction spawn unavailable hardening · 38 tags · **549 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
@@ -34,7 +34,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
 
-### Hardening (production-readiness pass — 219 slices)
+### Hardening (production-readiness pass — 220 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).
 2. **Auth/MFA rate-limiting** (per-IP + per-email login throttle, MFA attempt cap → 429).
 3. **UI error surfacing** (all 20 mutation handlers surface server errors in a dismissable banner; previously silent).
@@ -254,6 +254,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 217. **Native legal PDF ingest** reads `.pdf` law sources through the local `pdftotext` binary when available, skips PDFs cleanly when the binary is absent, and keeps `.txt`/`.md` sovereign legal KB ingestion dependency-lean and offline by default.
 218. **PDF availability probe hardening** treats any `pdftotext -v` spawn error or non-zero probe exit as unavailable, so legal PDF ingestion stays on the graceful skip path when the binary is missing, blocked, or not runnable instead of attempting extraction later.
 219. **PDF extractor unavailable skip hardening** canonicalizes extractor-level `PdftotextUnavailableError` failures to the same `pdftotext-unavailable` skip reason as the preflight probe, keeping CLI install guidance and no-crash PDF skip behavior stable if the binary disappears or becomes unavailable between probe and extraction.
+220. **PDF extraction spawn unavailable hardening** maps blocked or missing `pdftotext` extraction spawn errors (`ENOENT`, `EACCES`, `EPERM`) to `PdftotextUnavailableError`, keeping late binary-permission changes on the same typed legal-PDF skip path while preserving non-zero parse failures as real extraction errors.
 
 Sovereign foundation: outbound network **off by default** + opt-in egress allowlist (loopback always allowed); data dir outside the repo (OS app-support); optional bundled local AI (Ollama); offline Armenian legal RAG (BM25 + optional hybrid). One-command install (`deploy/install.sh`, launchd/systemd templates, WAL backup).
 
@@ -302,7 +303,9 @@ The Copilot slice is Armenian-first and now uses OpenRouter as the single opt-in
 
 Current checkpoint:
 - Current test runner safety checkpoint: `ee82f1e` (`chore(test): cap node --test concurrency to prevent OOM disk-fill`) on `main` and `codex/suite-dashboard-route-normalization` (runs `npm test` as `node --test --test-concurrency=4 --test-timeout=60000`, preventing the previous unbounded full-suite worker fan-out from exhausting disk/memory on this Mac).
-- Current PDF extractor unavailable skip hardening checkpoint: `541fbc7` (`Harden PDF extractor unavailable skips`) (canonicalizes extractor-thrown `PdftotextUnavailableError` to the `pdftotext-unavailable` skip reason, preserving CLI install guidance and skip behavior when availability changes after the probe).
+- Current PDF extraction spawn unavailable hardening checkpoint: `ecaa6e2` (`Harden PDF extraction spawn unavailable errors`) (maps missing or blocked `pdftotext` extraction spawn errors to typed `PdftotextUnavailableError`, preserving canonical legal-PDF skip behavior if binary availability changes after the probe).
+- Latest PDF extraction spawn unavailable hardening verification from `~/dev/A1-Suite-Local`: `node --check server/pdfText.js && node --check test/pdf-text.test.js && node --check scripts/ingest-laws.js` pass; focused PDF text suite pass (`node --test test/pdf-text.test.js`, 9 pass, 0 fail, 0 cancelled); broader legal/RAG ingest suite pass (`node --test test/pdf-text.test.js test/law-ingest.test.js test/law-ingest-homoglyph.test.js test/law-ingest-build.test.js test/law-embed.test.js test/rag.test.js test/legal-search.test.js test/legal-grounding.test.js`, 37 pass, 0 fail, 0 cancelled); `git diff --check` pass; capped full `npm test` pass (549 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-pdf-extraction-spawn-unavailable-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
+- Previous PDF extractor unavailable skip hardening checkpoint: `541fbc7` (`Harden PDF extractor unavailable skips`) (canonicalizes extractor-thrown `PdftotextUnavailableError` to the `pdftotext-unavailable` skip reason, preserving CLI install guidance and skip behavior when availability changes after the probe).
 - Latest PDF extractor unavailable skip hardening verification from `~/dev/A1-Suite-Local`: `node --check scripts/ingest-laws.js && node --check test/pdf-text.test.js && node --check server/pdfText.js` pass; focused PDF text suite pass (`node --test test/pdf-text.test.js`, 8 pass, 0 fail, 0 cancelled); broader legal/RAG ingest suite pass (`node --test test/pdf-text.test.js test/law-ingest.test.js test/law-ingest-homoglyph.test.js test/law-ingest-build.test.js test/law-embed.test.js test/rag.test.js test/legal-search.test.js test/legal-grounding.test.js`, 36 pass, 0 fail, 0 cancelled); `git diff --check` pass; capped full `npm test` pass (548 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-pdf-extractor-unavailable-skip-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).
 - Previous PDF availability probe hardening checkpoint: `16d6ea7` (`Harden PDF availability probe`) on `main` (makes the `pdftotext` availability probe fail closed on spawn errors and non-zero version probes, preserving graceful PDF skip behavior for blocked or unrunnable binaries).
 - Latest PDF availability probe hardening verification from `~/dev/A1-Suite-Local`: `node --check server/pdfText.js && node --check test/pdf-text.test.js && node --check scripts/ingest-laws.js` pass; focused PDF text suite pass (`node --test test/pdf-text.test.js`, 7 pass, 0 fail, 0 cancelled); `git diff --check` pass; capped full `npm test` pass (547 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-pdf-availability-probe-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`).

@@ -26,6 +26,7 @@ class PdftotextUnavailableError extends Error {
 
 // 64 MB cap — generous for a single statute, bounded so a pathological PDF can't exhaust memory.
 const MAX_BUFFER = 64 * 1024 * 1024;
+const UNAVAILABLE_SPAWN_ERROR_CODES = new Set(["ENOENT", "EACCES", "EPERM"]);
 
 /** Default runner: a thin spawnSync wrapper. Returns the raw spawnSync result object. */
 function defaultRunner(args) {
@@ -43,6 +44,10 @@ function isPdftotextAvailable(runner = defaultRunner) {
   return result.status === 0;
 }
 
+function isUnavailableSpawnError(error) {
+  return !!(error && UNAVAILABLE_SPAWN_ERROR_CODES.has(error.code));
+}
+
 /**
  * Extract UTF-8 text from a PDF via pdftotext.
  *   -enc UTF-8  : required for Armenian (default encoding would mangle it)
@@ -58,7 +63,7 @@ function extractPdfText(pdfPath, options = {}) {
   const runner = options.runner || defaultRunner;
   const result = runner(["-enc", "UTF-8", "-nopgbrk", pdfPath, "-"]);
   if (result && result.error) {
-    if (result.error.code === "ENOENT") throw new PdftotextUnavailableError();
+    if (isUnavailableSpawnError(result.error)) throw new PdftotextUnavailableError();
     throw result.error;
   }
   if (result.status !== 0) {
