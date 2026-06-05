@@ -114,6 +114,51 @@ export function FinanceTaxRatesPanel({ data }) {
   );
 }
 
+export function FinanceChartOfAccountsPanel({ data }) {
+  if (!data) return null;
+  const accounts = data.accounts || [];
+  const classes = data.classes || [];
+  const source = data.source || {};
+  const byClass = accounts.reduce((counts, account) => {
+    const key = String(account.code || "").slice(0, 1);
+    counts[key] = (counts[key] || 0) + 1;
+    return counts;
+  }, {});
+  const operatingCodes = ["221", "226", "251", "252", "521", "524", "525", "611", "711", "714"];
+  const byCode = new Map(accounts.map(account => [account.code, account]));
+  return (
+    <article className="panel finance-chart-panel">
+      <div className="panel-head">
+        <div>
+          <span className="section-label">HayHashvapah Finance</span>
+          <h2>RA chart of accounts</h2>
+        </div>
+        <strong className="aging-badge">{source.accountCount || accounts.length} accounts</strong>
+      </div>
+      <div className="rows">
+        {classes.map(item => (
+          <div className="row" key={item.digit}>
+            <span>{item.digit} · {item.hy}</span>
+            <strong>{byClass[String(item.digit)] || 0}</strong>
+          </div>
+        ))}
+      </div>
+      <div className="meta-row">
+        <span>{source.publisher || "ՀՀ ֆինանսների նախարարություն"}</span>
+        <span>{source.sourceUrl || "official source"}</span>
+      </div>
+      <div className="rows">
+        {operatingCodes.map(code => byCode.get(code)).filter(Boolean).map(account => (
+          <div className="row" key={account.code}>
+            <span>{account.code} · {account.name}</span>
+            <strong>{account.type}</strong>
+          </div>
+        ))}
+      </div>
+    </article>
+  );
+}
+
 export function FinanceExpenseForm({ onCreate, actionState }) {
   const [description, setDescription] = useState("");
   const [subtotal, setSubtotal] = useState("");
@@ -272,11 +317,22 @@ const OPENING_BALANCE_ACCOUNTS = [
   { code: "251", name: "Դրամարկղ" },
   { code: "252", name: "Հաշվարկային հաշիվ" },
   { code: "221", name: "Դեբիտորական պարտքեր" },
-  { code: "526", name: "ԱԱՀ դեբետ (մուտքային)" },
+  { code: "226", name: "Հաշվանցման (փոխհատուցման) ենթակա անուղղակի հարկեր" },
   { code: "521", name: "Կրեդիտորական պարտքեր" },
   { code: "524", name: "ԱԱՀ վճարվելիք" },
   { code: "525", name: "Հաշվարկներ բյուջեի և հիմնադրամների հետ" }
 ];
+
+function openingBalanceAccountsFromChart(chart) {
+  const accounts = chart?.accounts || [];
+  const openingBalanceTypes = new Set(["asset", "liability"]);
+  const rows = accounts
+    .filter(account => /^[0-9]{3}$/.test(account.code || ""))
+    .filter(account => account.code !== "331")
+    .filter(account => openingBalanceTypes.has(account.type))
+    .map(account => ({ code: account.code, name: account.name }));
+  return rows.length > 0 ? rows : OPENING_BALANCE_ACCOUNTS;
+}
 
 export function FinanceOpeningBalancesPanel({ data }) {
   if (!data) return null;
@@ -300,13 +356,14 @@ export function FinanceOpeningBalancesPanel({ data }) {
   );
 }
 
-export function FinanceOpeningBalancesForm({ onSubmit, actionState }) {
+export function FinanceOpeningBalancesForm({ onSubmit, actionState, chartOfAccounts }) {
+  const accountOptions = openingBalanceAccountsFromChart(chartOfAccounts);
   const [asOf, setAsOf] = useState("");
-  const [code, setCode] = useState(OPENING_BALANCE_ACCOUNTS[0].code);
+  const [code, setCode] = useState(accountOptions[0].code);
   const [amount, setAmount] = useState("");
   const [lines, setLines] = useState([]);
   const busy = actionState === "opening-balances:set";
-  const nameByCode = Object.fromEntries(OPENING_BALANCE_ACCOUNTS.map(a => [a.code, a.name]));
+  const nameByCode = Object.fromEntries(accountOptions.map(a => [a.code, a.name]));
   function addLine() {
     const value = Math.round(Number(amount) || 0);
     if (value <= 0) return;
@@ -324,7 +381,7 @@ export function FinanceOpeningBalancesForm({ onSubmit, actionState }) {
       <div className="inline-form">
         <input type="date" value={asOf} onChange={event => setAsOf(event.target.value)} placeholder="Ամսաթիվ (YYYY-MM-DD)" />
         <select value={code} onChange={event => setCode(event.target.value)}>
-          {OPENING_BALANCE_ACCOUNTS.map(account => (
+          {accountOptions.map(account => (
             <option key={account.code} value={account.code}>{account.code} · {account.name}</option>
           ))}
         </select>

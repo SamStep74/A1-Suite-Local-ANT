@@ -1,24 +1,39 @@
 "use strict";
 const crypto = require("node:crypto");
 const accounting = require("./accounting");
+const { ACCOUNT_CLASSES, STANDARD_ACCOUNTS } = require("./armeniaChartOfAccounts");
 
-const CHART = [
-  { code: "251", name: "Դրամարկղ", type: "asset" },
-  { code: "252", name: "Հաշվարկային հաշիվ", type: "asset" },
-  { code: "221", name: "Դեբիտորական պարտքեր", type: "asset" },
-  { code: "521", name: "Կրեդիտորական պարտքեր", type: "liability" },
-  { code: "524", name: "ԱԱՀ վճարվելիք", type: "liability" },
-  { code: "525", name: "Հաշվարկներ բյուջեի և հիմնադրամների հետ", type: "liability" },
-  { code: "526", name: "ԱԱՀ դեբետ (մուտքային)", type: "asset" },
-  { code: "611", name: "Հասույթ", type: "income" },
-  { code: "711", name: "Ծախսեր", type: "expense" },
-  { code: "714", name: "Աշխատավարձի ծախս", type: "expense" },
-  { code: "331", name: "Բացման մնացորդների կապիտալ", type: "equity" }
-];
+const CHART = STANDARD_ACCOUNTS.map((account) => ({
+  code: account.code,
+  name: account.hy,
+  type: account.type
+}));
+
+const INPUT_VAT_ACCOUNT_CODE = "226";
+const LEGACY_INPUT_VAT_ACCOUNT_CODE = "526";
+const INPUT_VAT_ACCOUNT_CODES = [INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE];
+const CHART_SOURCE = Object.freeze({
+  title: "ՀՀ հաշվապահական հաշվառման հաշվային պլան",
+  sourceUrl: "https://www.arlis.am/hy/acts/75961",
+  publisher: "ՀՀ ֆինանսների նախարարություն",
+  accountCount: CHART.length
+});
 
 function ensureChartOfAccounts(db, orgId) {
   const insert = db.prepare("INSERT OR IGNORE INTO ledger_accounts (id, org_id, code, name, type) VALUES (?, ?, ?, ?, ?)");
-  for (const a of CHART) insert.run(`acct-${orgId}-${a.code}`, orgId, a.code, a.name, a.type);
+  const update = db.prepare("UPDATE ledger_accounts SET name = ?, type = ? WHERE org_id = ? AND code = ?");
+  for (const a of CHART) {
+    insert.run(`acct-${orgId}-${a.code}`, orgId, a.code, a.name, a.type);
+    update.run(a.name, a.type, orgId, a.code);
+  }
+}
+
+function chartOfAccounts() {
+  return {
+    source: CHART_SOURCE,
+    classes: ACCOUNT_CLASSES,
+    accounts: CHART
+  };
 }
 
 class PeriodLockedError extends Error {
@@ -186,7 +201,7 @@ function postExpensePosted(db, orgId, expense) {
   const periodKey = expense.period_key || "";
   const ids = [];
   if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: "711", creditCode: "521", amount: net, memo: `Expense ${expense.description || expense.id}`, sourceType: "expense", sourceId: expense.id, periodKey }));
-  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: "526", creditCode: "521", amount: vat, memo: `Input VAT ${expense.id}`, sourceType: "expense", sourceId: expense.id, periodKey }));
+  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: INPUT_VAT_ACCOUNT_CODE, creditCode: "521", amount: vat, memo: `Input VAT ${expense.id}`, sourceType: "expense", sourceId: expense.id, periodKey }));
   return ids.filter(Boolean);
 }
 
@@ -194,7 +209,8 @@ function vatReport(db, orgId, periodKey = "") {
   const filter = periodKey ? "AND period_key = ?" : "";
   const args = periodKey ? [orgId, periodKey] : [orgId];
   const outputVat = db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM ledger_journal WHERE org_id = ? AND credit_code = '524' ${filter}`).get(...args).v;
-  const inputVat = db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM ledger_journal WHERE org_id = ? AND debit_code = '526' ${filter}`).get(...args).v;
+  const inputVat = db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM ledger_journal WHERE org_id = ? AND debit_code IN (${INPUT_VAT_ACCOUNT_CODES.map(() => "?").join(", ")}) ${filter}`)
+    .get(...(periodKey ? [orgId, ...INPUT_VAT_ACCOUNT_CODES, periodKey] : [orgId, ...INPUT_VAT_ACCOUNT_CODES])).v;
   return {
     periodKey: periodKey || "all",
     outputVat: accounting.roundMoney(outputVat),
@@ -225,7 +241,7 @@ function postBillPosted(db, orgId, bill) {
   const periodKey = bill.period_key || "";
   const ids = [];
   if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: "711", creditCode: "521", amount: net, memo: `Bill ${bill.supplier || bill.id}`, sourceType: "bill", sourceId: bill.id, periodKey }));
-  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: "526", creditCode: "521", amount: vat, memo: `Bill VAT ${bill.id}`, sourceType: "bill", sourceId: bill.id, periodKey }));
+  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: INPUT_VAT_ACCOUNT_CODE, creditCode: "521", amount: vat, memo: `Bill VAT ${bill.id}`, sourceType: "bill", sourceId: bill.id, periodKey }));
   return ids.filter(Boolean);
 }
 
@@ -249,4 +265,4 @@ function payablesReport(db, orgId, asOf) {
   return accounting.calculatePayables(buildPayablesModel(db, orgId), { asOf: asOf || new Date().toISOString().slice(0, 10) });
 }
 
-module.exports = { CHART, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, postBillPosted, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, postOpeningBalance, postOpeningBalances, openingBalances };
+module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, postBillPosted, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, postOpeningBalance, postOpeningBalances, openingBalances };

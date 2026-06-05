@@ -28,3 +28,22 @@ test("trial-balance + statements endpoints reflect posted ledger entries", async
     assert.strictEqual(st.json().incomeStatement.totalIncome, 1000);
   } finally { await app.close(); }
 });
+
+test("chart-of-accounts endpoint exposes the official RA chart", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const unauth = await app.inject({ method: "GET", url: "/api/finance/chart-of-accounts" });
+    assert.strictEqual(unauth.statusCode, 401);
+    const cookie = await login(app);
+    const res = await app.inject({ method: "GET", url: "/api/finance/chart-of-accounts", headers: { cookie } });
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const body = res.json();
+    assert.ok(body.accounts.length >= 600, `expected official chart, got ${body.accounts.length}`);
+    assert.strictEqual(body.classes.length, 9);
+    assert.match(body.source.sourceUrl, /arlis\.am/);
+    assert.strictEqual(body.accounts.find(account => account.code === "226").type, "asset");
+    assert.match(body.accounts.find(account => account.code === "226").name, /անուղղակի հարկեր/);
+    assert.strictEqual(body.accounts.find(account => account.code === "526"), undefined);
+  } finally { await app.close(); }
+});

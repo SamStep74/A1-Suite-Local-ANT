@@ -4261,6 +4261,11 @@ ${controls}
     return { taxRates };
   });
 
+  app.get("/api/finance/chart-of-accounts", async request => {
+    await app.auth(request);
+    return ledger.chartOfAccounts();
+  });
+
   app.get("/api/finance/expenses", async request => {
     const user = await app.auth(request);
     const rows = db.prepare("SELECT id, description, vendor, subtotal, vat, total, incurred_on AS incurredOn, period_key AS periodKey FROM expenses WHERE org_id = ? ORDER BY incurred_on DESC, created_at DESC").all(user.org_id);
@@ -53775,7 +53780,7 @@ function getVatReturnLedgerInputs(db, orgId, periodKey = "") {
       ${periodFilter}
       AND (
         credit_code IN ('611', '524')
-        OR debit_code IN ('711', '526')
+        OR debit_code IN ('711', '226', '526')
       )
     ORDER BY source_type, source_id, id
   `).all(...params);
@@ -53795,7 +53800,7 @@ function getVatReturnLedgerInputs(db, orgId, periodKey = "") {
     if (row.credit_code === "611") item.salesNet += row.amount;
     if (row.credit_code === "524") item.outputVat += row.amount;
     if (row.debit_code === "711") item.purchaseNet += row.amount;
-    if (row.debit_code === "526") item.inputVat += row.amount;
+    if (row.debit_code === "226" || row.debit_code === "526") item.inputVat += row.amount;
     groups.set(key, item);
   }
   const sales = [];

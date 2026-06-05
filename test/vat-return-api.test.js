@@ -76,7 +76,7 @@ function postVatLedgerEntries(app, orgId) {
   });
   ledger.postEntry(app.db, orgId, {
     date: "2026-05-18",
-    debitCode: "526",
+    debitCode: "226",
     creditCode: "521",
     amount: 80000,
     memo: "VAT return input VAT",

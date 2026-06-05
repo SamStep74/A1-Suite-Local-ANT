@@ -22,6 +22,18 @@ test("posting an invoice creates balanced Dt receivable / Kt revenue+VAT entries
   assert.strictEqual(byCode["524"].balance, -200);
 });
 
+test("ledger seeds the full official RA chart of accounts", () => {
+  const { db, orgId } = freshDb();
+  ledger.ensureChartOfAccounts(db, orgId);
+  const count = db.prepare("SELECT COUNT(*) AS count FROM ledger_accounts WHERE org_id = ?").get(orgId).count;
+  const inputVat = db.prepare("SELECT name, type FROM ledger_accounts WHERE org_id = ? AND code = '226'").get(orgId);
+  const legacyInputVat = db.prepare("SELECT id FROM ledger_accounts WHERE org_id = ? AND code = '526'").get(orgId);
+  assert.ok(count >= 600, `expected official chart, got ${count}`);
+  assert.match(inputVat.name, /անուղղակի հարկեր/);
+  assert.strictEqual(inputVat.type, "asset");
+  assert.strictEqual(legacyInputVat, undefined);
+});
+
 test("statements show revenue and a balanced sheet", () => {
   const { db, orgId } = freshDb();
   ledger.postInvoicePosted(db, orgId, { id: "inv-t1", total: 1200, vat: 200, date: "2026-05-10" });
@@ -70,14 +82,32 @@ test("expense posting debits expense + input VAT and credits payable", () => {
   ledger.postExpensePosted(db, orgId, { id: "exp-t1", subtotal: 500, vat: 100, total: 600, date: "2026-05-10" });
   const byCode = Object.fromEntries(ledger.trialBalance(db, orgId).rows.map(r => [r.code, r]));
   assert.strictEqual(byCode["711"].balance, 500);
-  assert.strictEqual(byCode["526"].balance, 100);
+  assert.strictEqual(byCode["226"].balance, 100);
   assert.strictEqual(byCode["521"].balance, -600);
 });
 
-test("vatReport nets output VAT (524) against input VAT (526)", () => {
+test("vatReport nets output VAT (524) against official input VAT (226)", () => {
   const { db, orgId } = freshDb();
   ledger.postInvoicePosted(db, orgId, { id: "inv-v1", total: 1200, vat: 200, subtotal: 1000, date: "2026-05-10" });
   ledger.postExpensePosted(db, orgId, { id: "exp-v1", subtotal: 500, vat: 100, total: 600, date: "2026-05-10" });
+  const r = ledger.vatReport(db, orgId);
+  assert.strictEqual(r.outputVat, 200);
+  assert.strictEqual(r.inputVat, 100);
+  assert.strictEqual(r.netVatPayable, 100);
+});
+
+test("vatReport still reads legacy 526 input VAT rows from older local databases", () => {
+  const { db, orgId } = freshDb();
+  ledger.postInvoicePosted(db, orgId, { id: "inv-v-legacy", total: 1200, vat: 200, subtotal: 1000, date: "2026-05-10" });
+  ledger.postEntry(db, orgId, {
+    date: "2026-05-11",
+    debitCode: "526",
+    creditCode: "521",
+    amount: 100,
+    memo: "Legacy input VAT",
+    sourceType: "legacy-expense",
+    sourceId: "legacy-expense-1"
+  });
   const r = ledger.vatReport(db, orgId);
   assert.strictEqual(r.outputVat, 200);
   assert.strictEqual(r.inputVat, 100);
@@ -100,7 +130,7 @@ test("posting a bill debits expense + input VAT and credits payable", () => {
   ledger.postBillPosted(db, orgId, { id: "bill-t1", subtotal: 500, vat: 100, total: 600, date: "2026-05-10" });
   const byCode = Object.fromEntries(ledger.trialBalance(db, orgId).rows.map(r => [r.code, r]));
   assert.strictEqual(byCode["711"].balance, 500);
-  assert.strictEqual(byCode["526"].balance, 100);
+  assert.strictEqual(byCode["226"].balance, 100);
   assert.strictEqual(byCode["521"].balance, -600);
 });
 
