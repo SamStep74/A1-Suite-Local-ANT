@@ -9,10 +9,23 @@ const CHART = STANDARD_ACCOUNTS.map((account) => ({
   type: account.type
 }));
 
+const OPENING_BALANCE_EQUITY_CODE = "331";
 const INPUT_VAT_ACCOUNT_CODE = "226";
 const LEGACY_INPUT_VAT_ACCOUNT_CODE = "526";
 const INPUT_VAT_ACCOUNT_CODES = [INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE];
-const OPENING_BALANCE_ACCOUNT_CODES = Object.freeze(["221", "226", "251", "252", "521", "524", "525"]);
+const OPENING_BALANCE_ACCOUNT_RULES = Object.freeze([
+  { code: "111", side: "debit" },
+  { code: "112", side: "credit" },
+  { code: "221", side: "debit" },
+  { code: "226", side: "debit" },
+  { code: "251", side: "debit" },
+  { code: "252", side: "debit" },
+  { code: "521", side: "credit" },
+  { code: "524", side: "credit" },
+  { code: "525", side: "credit" }
+]);
+const OPENING_BALANCE_RULE_BY_CODE = new Map(OPENING_BALANCE_ACCOUNT_RULES.map(rule => [rule.code, rule]));
+const OPENING_BALANCE_ACCOUNT_CODES = Object.freeze(OPENING_BALANCE_ACCOUNT_RULES.map(rule => rule.code));
 const CHART_SOURCE = Object.freeze({
   title: "ՀՀ հաշվապահական հաշվառման հաշվային պլան",
   sourceUrl: "https://www.arlis.am/hy/acts/75961",
@@ -34,6 +47,10 @@ function chartOfAccounts() {
     source: CHART_SOURCE,
     classes: ACCOUNT_CLASSES,
     openingBalanceAccountCodes: [...OPENING_BALANCE_ACCOUNT_CODES],
+    openingBalanceAccounts: OPENING_BALANCE_ACCOUNT_RULES.map(rule => {
+      const account = accountByCode(rule.code) || {};
+      return { code: rule.code, name: account.name || rule.code, type: account.type || "", side: rule.side };
+    }),
     accounts: CHART
   };
 }
@@ -69,27 +86,43 @@ function postEntry(db, orgId, entry) {
   return res.changes > 0 ? id : null;
 }
 
-const OPENING_BALANCE_EQUITY_CODE = "331";
-
-function accountTypeByCode(code) {
-  const acct = CHART.find(a => a.code === String(code));
-  return acct ? acct.type : null;
+function accountByCode(code) {
+  return CHART.find(a => a.code === String(code)) || null;
 }
 
 function isOpeningBalanceAccountCode(code) {
   return OPENING_BALANCE_ACCOUNT_CODES.includes(String(code));
 }
 
+function openingBalanceAccountByCode(code) {
+  const account = accountByCode(code);
+  const rule = OPENING_BALANCE_RULE_BY_CODE.get(String(code));
+  return account && rule ? { ...account, side: rule.side } : null;
+}
+
+function openingBalanceSideForCode(code) {
+  const rule = OPENING_BALANCE_RULE_BY_CODE.get(String(code));
+  return rule ? rule.side : null;
+}
+
+function normalizeOpeningBalanceSide(account, side) {
+  const expected = account.side || openingBalanceSideForCode(account.code);
+  if (side === undefined || side === null || side === "") return expected;
+  if ((side === "debit" || side === "credit") && side === expected) return side;
+  return null;
+}
+
 // Post one account's opening balance against the Opening Balance Equity account (331).
-// Only the supported operating balance-sheet anchors are accepted here. The
-// official chart includes contra accounts that need account-level normal-balance
-// semantics before they can be safely posted through this simple workflow.
+// Balance-sheet accounts use their reviewed opening side. Contra balances such
+// as accumulated depreciation are modeled as credit-side account metadata, not
+// client-controlled side overrides.
 function postOpeningBalance(db, orgId, entry) {
   const code = String(entry.code || "");
   if (code === OPENING_BALANCE_EQUITY_CODE) return []; // never set the contra directly
-  const type = accountTypeByCode(code);
-  if (!type) return []; // unknown account code — skip
-  if (!isOpeningBalanceAccountCode(code)) return [];
+  const account = openingBalanceAccountByCode(code);
+  if (!account) return []; // unknown or non-balance-sheet account code — skip
+  const side = normalizeOpeningBalanceSide(account, entry.side);
+  if (!side) return [];
   ensureChartOfAccounts(db, orgId);
   // Replace semantics: an account's opening balance is set once and corrected by
   // re-submitting. Remove any prior opening-balance entry for this account (on
@@ -103,8 +136,7 @@ function postOpeningBalance(db, orgId, entry) {
   const date = String(entry.date || entry.asOf || new Date().toISOString().slice(0, 10)).slice(0, 10);
   const periodKey = entry.period_key || entry.periodKey || "";
   const sourceId = `ob-${date}-${code}`;
-  const debitNatured = type === "asset" || type === "expense";
-  const leg = debitNatured
+  const leg = side === "debit"
     ? { debitCode: code, creditCode: OPENING_BALANCE_EQUITY_CODE }
     : { debitCode: OPENING_BALANCE_EQUITY_CODE, creditCode: code };
   const id = postEntry(db, orgId, {
@@ -123,7 +155,7 @@ function postOpeningBalances(db, orgId, payload) {
   try {
     const posted = [];
     for (const e of entries) {
-      for (const id of postOpeningBalance(db, orgId, { code: e.code, amount: e.amount, date: asOf, period_key: periodKey })) {
+      for (const id of postOpeningBalance(db, orgId, { code: e.code, amount: e.amount, side: e.side, date: asOf, period_key: periodKey })) {
         posted.push(id);
       }
     }
@@ -273,4 +305,4 @@ function payablesReport(db, orgId, asOf) {
   return accounting.calculatePayables(buildPayablesModel(db, orgId), { asOf: asOf || new Date().toISOString().slice(0, 10) });
 }
 
-module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, OPENING_BALANCE_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, postBillPosted, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, postOpeningBalance, postOpeningBalances, openingBalances };
+module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, OPENING_BALANCE_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, postBillPosted, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, openingBalanceAccountByCode, openingBalanceSideForCode, postOpeningBalance, postOpeningBalances, openingBalances };

@@ -62,10 +62,31 @@ test("the opening-balance contra account (331) cannot be set directly, unknown c
   assert.strictEqual(res.count, 0);
 });
 
-test("opening balances skip unsupported official contra-asset accounts", () => {
+test("opening balances support official contra-asset credit-side accounts", () => {
   const { db, orgId } = freshDb();
   const res = ledger.postOpeningBalances(db, orgId, { asOf: "2026-01-01", entries: [
-    { code: "112", amount: 500000 }, // accumulated depreciation — not safe for this workflow
+    { code: "111", amount: 1000000 }, // depreciable fixed assets
+    { code: "112", amount: 200000 },  // accumulated depreciation defaults to credit side
+  ] });
+  assert.strictEqual(res.count, 2);
+  const byCode = Object.fromEntries(ledger.trialBalance(db, orgId).rows.map(r => [r.code, r]));
+  assert.strictEqual(byCode["111"].balance, 1000000);
+  assert.strictEqual(byCode["112"].balance, -200000);
+  assert.strictEqual(byCode["331"].balance, -800000);
+  const ob = ledger.openingBalances(db, orgId);
+  assert.strictEqual(ob.openingEquity, 800000);
+  assert.strictEqual(ob.entries.find(entry => entry.code === "112").side, "credit");
+  const statements = accounting.financialStatements(ledger.buildLedgerModel(db, orgId));
+  assert.strictEqual(statements.balanceSheet.totalAssets, 800000);
+  assert.strictEqual(statements.balanceSheet.totalEquity, 800000);
+  assert.strictEqual(statements.balanceSheet.balanced, true);
+});
+
+test("opening balances skip side mismatches for configured accounts", () => {
+  const { db, orgId } = freshDb();
+  const res = ledger.postOpeningBalances(db, orgId, { asOf: "2026-01-01", entries: [
+    { code: "111", amount: 1000000, side: "credit" },
+    { code: "112", amount: 200000, side: "debit" },
   ] });
   assert.strictEqual(res.count, 0);
   const count = db.prepare("SELECT COUNT(*) AS c FROM ledger_journal WHERE org_id = ? AND source_type = 'opening_balance'").get(orgId).c;
