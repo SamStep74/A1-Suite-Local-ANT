@@ -31,13 +31,14 @@ function titleFromFilename(file) {
 /**
  * Read law sources from a directory. .txt/.md are read directly; .pdf is extracted via pdftotext
  * (skipped, not fatal, when the binary is unavailable or a file fails to parse). Returns an array
- * of { lawTitle, text } (back-compat contract). PDF skips are reported via options.onSkip.
+ * of { lawTitle, text } (back-compat contract). Source skips are reported via options.onSkip.
  * @param {string} dir
- * @param {{ extractPdf?: Function, pdfAvailable?: boolean, onSkip?: (file: string, reason: string) => void }} [options]
+ * @param {{ extractPdf?: Function, readText?: Function, pdfAvailable?: boolean, onSkip?: (file: string, reason: string) => void }} [options]
  * @returns {Array<{ lawTitle: string, text: string }>}
  */
 function readSources(dir, options = {}) {
   const extractPdf = options.extractPdf || extractPdfText;
+  const readText = options.readText || ((file) => fs.readFileSync(file, "utf8"));
   const onSkip = options.onSkip || (() => {});
   const entries = fs.readdirSync(dir).filter((f) => /\.(txt|md|pdf)$/i.test(f)).sort();
   // Resolve pdftotext availability lazily — only if a PDF is actually present.
@@ -71,7 +72,11 @@ function readSources(dir, options = {}) {
         onSkip(f, err && err.message ? err.message : "extract-failed");
       }
     } else {
-      sources.push({ lawTitle: titleFromFilename(f), text: fs.readFileSync(full, "utf8") });
+      try {
+        sources.push({ lawTitle: titleFromFilename(f), text: readText(full) });
+      } catch {
+        onSkip(f, "read-failed");
+      }
     }
   }
   return sources;
@@ -95,7 +100,7 @@ async function main(argv) {
   const sources = readSources(sourceDir, { onSkip: (file, reason) => skipped.push({ file, reason }) });
   if (skipped.length > 0) {
     const unavailable = skipped.some((s) => s.reason === "pdftotext-unavailable");
-    console.warn(`Skipped ${skipped.length} PDF(s): ${skipped.map((s) => s.file).join(", ")}`);
+    console.warn(`Skipped ${skipped.length} source file(s): ${skipped.map((s) => s.file).join(", ")}`);
     if (unavailable) console.warn("  pdftotext (poppler) not found — install it, or pre-convert PDFs to .txt.");
   }
   if (sources.length === 0) {
