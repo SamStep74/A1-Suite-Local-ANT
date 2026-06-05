@@ -97,3 +97,18 @@ test("pdf-text: readSources skips PDFs (and reports them) when pdftotext is unav
     assert.deepStrictEqual(skipped, [{ file: "Labor.pdf", reason: "pdftotext-unavailable" }]);
   } finally { fs.rmSync(dir, { recursive: true, force: true }); }
 });
+
+test("pdf-text: readSources reports extractor-level unavailable errors with the canonical skip reason", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "pdf-src3-"));
+  try {
+    fs.writeFileSync(path.join(dir, "Labor.pdf"), "%PDF-1.4 fake");
+    const skipped = [];
+    const sources = readSources(dir, {
+      pdfAvailable: true,
+      extractPdf: () => { throw new PdftotextUnavailableError(); },
+      onSkip: (file, reason) => skipped.push({ file, reason }),
+    });
+    assert.strictEqual(sources.length, 0, "unavailable extractor skips the PDF");
+    assert.deepStrictEqual(skipped, [{ file: "Labor.pdf", reason: "pdftotext-unavailable" }]);
+  } finally { fs.rmSync(dir, { recursive: true, force: true }); }
+});
