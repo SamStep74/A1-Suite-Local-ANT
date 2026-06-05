@@ -68,18 +68,18 @@ With no argument it looks for an existing HayHashvapah build at
 copied to `~/Library/Application Support/ArmospheraOneClaude/laws.sqlite` (override
 with `ARMOSPHERA_ONE_LAWS_DB`). Query it via `GET /api/legal/law-search?q=...`.
 
-### Build the KB from raw law text (in-repo, zero dependencies)
+### Build the KB from raw law sources (in-repo, dependency-lean)
 
-A1 Suite can build the knowledge base directly from plain-text legislation — no
-external tools, no network. Put one law per `.txt`/`.md` file in a directory (the
-filename becomes the law title), then:
+A1 Suite can build the knowledge base directly from local legislation files with
+no network access. Put one law per `.txt`, `.md`, or `.pdf` file in a directory
+(the filename becomes the law title), then:
 
 ```bash
 node scripts/ingest-laws.js <source-dir> [dest.sqlite]          # BM25-only (offline default)
 node scripts/ingest-laws.js <source-dir> [dest.sqlite] --embed  # + local vector embeddings
 ```
 
-The ingest splits each file into article-aware chunks on `Հոդված N` / `Article N`
+The ingest splits each source into article-aware chunks on `Հոդված N` / `Article N`
 markers (the article number is captured for precise retrieval), writes the canonical
 `law_chunks` table, and is idempotent (content-hashed chunk ids — re-running only fills
 gaps). With no `dest`, it writes to `ARMOSPHERA_ONE_LAWS_DB` / the default data dir.
