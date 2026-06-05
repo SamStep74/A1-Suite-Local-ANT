@@ -383,6 +383,43 @@ function registerApi(app, db, options = {}) {
     return { ok: true, check, connector: getIntegrationConnector(db, user.org_id, connectorKey) };
   });
 
+  app.get("/api/catalog/categories", async request => {
+    const user = await app.auth(request);
+    requireCatalogReader(user);
+    return { categories: getCatalogCategories(db, user.org_id) };
+  });
+
+  app.get("/api/catalog/items", async request => {
+    const user = await app.auth(request);
+    requireCatalogReader(user);
+    const filters = normalizeCatalogItemQuery(request.query || {});
+    return { items: getCatalogItems(db, user.org_id, filters), categories: getCatalogCategories(db, user.org_id) };
+  });
+
+  app.get("/api/catalog/items/:id", async request => {
+    const user = await app.auth(request);
+    requireCatalogReader(user);
+    const itemId = normalizeCatalogItemPathId(request.params.id, request.raw?.url);
+    const item = getCatalogItem(db, user.org_id, itemId);
+    if (!item) { const err = new Error("Catalog item not found"); err.statusCode = 404; throw err; }
+    return { item };
+  });
+
+  app.post("/api/catalog/items", async request => {
+    const user = await app.auth(request);
+    requireCatalogWriter(user);
+    const item = createCatalogItem(db, user, request.body === undefined ? {} : request.body);
+    return { ok: true, item };
+  });
+
+  app.patch("/api/catalog/items/:id", async request => {
+    const user = await app.auth(request);
+    requireCatalogWriter(user);
+    const itemId = normalizeCatalogItemPathId(request.params.id, request.raw?.url);
+    const item = updateCatalogItem(db, user, itemId, request.body === undefined ? {} : request.body);
+    return { ok: true, item };
+  });
+
   app.get("/api/pilots/templates/clinic-wellness", async request => {
     const user = await app.auth(request);
     requirePilotTemplateReader(user);
@@ -7552,6 +7589,22 @@ function requirePilotNextRecurringOngoingRenewalCloseoutWriter(user) {
 function requireCrmEditor(user) {
   if (!["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(user.role)) {
     const err = new Error("CRM editor role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requireCatalogReader(user) {
+  if (!["Owner", "Admin", "Operator", "Salesperson", "Accountant", "Service Manager"].includes(user.role)) {
+    const err = new Error("Catalog reader role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requireCatalogWriter(user) {
+  if (!["Owner", "Admin", "Operator", "Salesperson"].includes(user.role)) {
+    const err = new Error("Catalog writer role required");
     err.statusCode = 403;
     throw err;
   }
@@ -41667,6 +41720,8 @@ const ORG_BACKUP_TABLES = [
   "access_review_packets",
   "audit_export_packets",
   "app_assignments",
+  "catalog_categories",
+  "catalog_items",
   "integration_connectors",
   "integration_connector_checks",
   "pilot_template_installs",
@@ -47835,6 +47890,352 @@ function webhookSignature(secret, body) {
   return `sha256=${crypto.createHmac("sha256", secret).update(body).digest("hex")}`;
 }
 
+function getCatalogCategories(db, orgId) {
+  return db.prepare(`
+    SELECT id, name, slug, parent_category_id AS parentCategoryId, status,
+      created_at AS createdAt, updated_at AS updatedAt
+    FROM catalog_categories
+    WHERE org_id = ?
+    ORDER BY status, name
+  `).all(orgId);
+}
+
+function getCatalogItems(db, orgId, filters = {}) {
+  const where = ["catalog_items.org_id = ?"];
+  const params = [orgId];
+  if (filters.status) {
+    where.push("catalog_items.status = ?");
+    params.push(filters.status);
+  }
+  if (filters.itemType) {
+    where.push("catalog_items.item_type = ?");
+    params.push(filters.itemType);
+  }
+  if (filters.categoryId) {
+    where.push("catalog_items.category_id = ?");
+    params.push(filters.categoryId);
+  }
+  if (filters.search) {
+    where.push("(catalog_items.sku LIKE ? OR catalog_items.name LIKE ?)");
+    params.push(`%${filters.search}%`, `%${filters.search}%`);
+  }
+  return db.prepare(`
+    SELECT catalog_items.*, catalog_categories.name AS category_name, users.name AS created_by_name
+    FROM catalog_items
+    LEFT JOIN catalog_categories ON catalog_categories.id = catalog_items.category_id
+      AND catalog_categories.org_id = catalog_items.org_id
+    LEFT JOIN users ON users.id = catalog_items.created_by_user_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY catalog_items.status = 'archived', catalog_items.name
+  `).all(...params).map(formatCatalogItem);
+}
+
+function getCatalogItem(db, orgId, itemId) {
+  const row = db.prepare(`
+    SELECT catalog_items.*, catalog_categories.name AS category_name, users.name AS created_by_name
+    FROM catalog_items
+    LEFT JOIN catalog_categories ON catalog_categories.id = catalog_items.category_id
+      AND catalog_categories.org_id = catalog_items.org_id
+    LEFT JOIN users ON users.id = catalog_items.created_by_user_id
+    WHERE catalog_items.org_id = ? AND catalog_items.id = ?
+  `).get(orgId, normalizeCatalogItemPathId(itemId));
+  return row ? formatCatalogItem(row) : null;
+}
+
+function formatCatalogItem(row) {
+  return {
+    id: row.id,
+    categoryId: row.category_id,
+    categoryName: row.category_name || "",
+    sku: row.sku,
+    name: row.name,
+    description: row.description,
+    itemType: row.item_type,
+    status: row.status,
+    unitOfMeasure: row.unit_of_measure,
+    listPrice: row.list_price,
+    standardCost: row.standard_cost,
+    currency: row.currency,
+    vatMode: row.vat_mode,
+    trackStock: Boolean(row.track_stock),
+    trackLots: Boolean(row.track_lots),
+    fiscalReceiptRequired: Boolean(row.fiscal_receipt_required),
+    createdByUserId: row.created_by_user_id,
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function normalizeCatalogItemQuery(query) {
+  return {
+    status: normalizeCatalogQueryChoice(query, "status", ["active", "archived", "draft"]),
+    itemType: normalizeCatalogQueryChoice(query, "itemType", ["service", "stockable", "consumable", "kit"]),
+    categoryId: normalizeCatalogQueryText(query, "categoryId", { maxLength: 160, idLike: true }),
+    search: normalizeCatalogQueryText(query, "q", { maxLength: 120 }) || normalizeCatalogQueryText(query, "search", { maxLength: 120 })
+  };
+}
+
+function normalizeCatalogQueryChoice(query, field, allowed) {
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
+  const text = value.trim();
+  if (!allowed.includes(text)) throwInvalidCatalogMetadata();
+  return text;
+}
+
+function normalizeCatalogQueryText(query, field, options = {}) {
+  const { maxLength = 160, idLike = false } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
+  const text = value.trim();
+  if (text.length > maxLength) throwInvalidCatalogMetadata();
+  if (idLike && text && !/^[a-z0-9-]+$/.test(text)) throwInvalidCatalogMetadata();
+  return text;
+}
+
+function createCatalogItem(db, user, body) {
+  const input = normalizeCatalogItemBody(body, { partial: false });
+  assertCatalogCategory(db, user.org_id, input.categoryId);
+  assertCatalogSkuAvailable(db, user.org_id, input.sku);
+  assertCatalogItemInvariants(input);
+  const now = new Date().toISOString();
+  const itemId = randomId("catitem");
+  db.prepare(`
+    INSERT INTO catalog_items (
+      id, org_id, category_id, sku, name, description, item_type, status,
+      unit_of_measure, list_price, standard_cost, currency, vat_mode,
+      track_stock, track_lots, fiscal_receipt_required, created_by_user_id,
+      created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    itemId,
+    user.org_id,
+    input.categoryId,
+    input.sku,
+    input.name,
+    input.description,
+    input.itemType,
+    input.status,
+    input.unitOfMeasure,
+    input.listPrice,
+    input.standardCost,
+    input.currency,
+    input.vatMode,
+    input.trackStock ? 1 : 0,
+    input.trackLots ? 1 : 0,
+    input.fiscalReceiptRequired ? 1 : 0,
+    user.id,
+    now,
+    now
+  );
+  emitSuiteEvent(db, {
+    orgId: user.org_id,
+    actorUserId: user.id,
+    eventType: "catalog.item.created",
+    subjectType: "catalog_item",
+    subjectId: itemId,
+    status: input.status,
+    payload: { sku: input.sku, itemType: input.itemType, categoryId: input.categoryId, listPrice: input.listPrice, vatMode: input.vatMode }
+  });
+  audit(db, user.org_id, user.id, "catalog.item.created", { itemId, sku: input.sku, itemType: input.itemType, status: input.status });
+  return getCatalogItem(db, user.org_id, itemId);
+}
+
+function updateCatalogItem(db, user, itemId, body) {
+  const existing = getCatalogItem(db, user.org_id, itemId);
+  if (!existing) {
+    const err = new Error("Catalog item not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const input = normalizeCatalogItemBody(body, { partial: true, existing });
+  if (input.categoryId) assertCatalogCategory(db, user.org_id, input.categoryId);
+  if (input.sku !== existing.sku) assertCatalogSkuAvailable(db, user.org_id, input.sku, itemId);
+  assertCatalogItemInvariants(input);
+  const now = new Date().toISOString();
+  db.prepare(`
+    UPDATE catalog_items
+    SET category_id = ?, sku = ?, name = ?, description = ?, item_type = ?, status = ?,
+      unit_of_measure = ?, list_price = ?, standard_cost = ?, currency = ?, vat_mode = ?,
+      track_stock = ?, track_lots = ?, fiscal_receipt_required = ?, updated_at = ?
+    WHERE org_id = ? AND id = ?
+  `).run(
+    input.categoryId || null,
+    input.sku,
+    input.name,
+    input.description,
+    input.itemType,
+    input.status,
+    input.unitOfMeasure,
+    input.listPrice,
+    input.standardCost,
+    input.currency,
+    input.vatMode,
+    input.trackStock ? 1 : 0,
+    input.trackLots ? 1 : 0,
+    input.fiscalReceiptRequired ? 1 : 0,
+    now,
+    user.org_id,
+    itemId
+  );
+  emitSuiteEvent(db, {
+    orgId: user.org_id,
+    actorUserId: user.id,
+    eventType: "catalog.item.updated",
+    subjectType: "catalog_item",
+    subjectId: itemId,
+    status: input.status,
+    payload: { sku: input.sku, itemType: input.itemType, categoryId: input.categoryId, listPrice: input.listPrice, vatMode: input.vatMode }
+  });
+  audit(db, user.org_id, user.id, "catalog.item.updated", { itemId, sku: input.sku, status: input.status });
+  return getCatalogItem(db, user.org_id, itemId);
+}
+
+function normalizeCatalogItemBody(body, options = {}) {
+  const { partial = false, existing = {} } = options;
+  if (!isPlainObject(body)) throwInvalidCatalogMetadata();
+  const requiredOnCreate = new Set(["sku", "categoryId", "name", "listPrice"]);
+  const required = field => !partial && requiredOnCreate.has(field);
+  return {
+    categoryId: normalizeCatalogText(body, "categoryId", { required: required("categoryId"), fallback: existing.categoryId || "", maxLength: 160, idLike: true }),
+    sku: normalizeCatalogSku(body, "sku", { required: required("sku"), fallback: existing.sku || "" }),
+    name: normalizeCatalogText(body, "name", { required: required("name"), fallback: existing.name || "", minLength: 3, maxLength: 200 }),
+    description: normalizeCatalogText(body, "description", { fallback: existing.description || "", maxLength: 1000 }),
+    itemType: normalizeCatalogChoice(body, "itemType", ["service", "stockable", "consumable", "kit"], existing.itemType || "service", required("itemType")),
+    status: normalizeCatalogChoice(body, "status", ["draft", "active", "archived"], existing.status || "active", false),
+    unitOfMeasure: normalizeCatalogText(body, "unitOfMeasure", { fallback: existing.unitOfMeasure || "unit", minLength: 1, maxLength: 40 }),
+    listPrice: normalizeCatalogMoney(body, "listPrice", { required: required("listPrice"), fallback: existing.listPrice ?? 0 }),
+    standardCost: normalizeCatalogMoney(body, "standardCost", { fallback: existing.standardCost ?? 0 }),
+    currency: normalizeCatalogCurrency(body, "currency", existing.currency || "AMD"),
+    vatMode: normalizeCatalogChoice(body, "vatMode", ["standard", "exempt", "zero"], existing.vatMode || "standard", false),
+    trackStock: normalizeCatalogBoolean(body, "trackStock", existing.trackStock || false),
+    trackLots: normalizeCatalogBoolean(body, "trackLots", existing.trackLots || false),
+    fiscalReceiptRequired: normalizeCatalogBoolean(body, "fiscalReceiptRequired", existing.fiscalReceiptRequired ?? true)
+  };
+}
+
+function normalizeCatalogSku(body, field, options = {}) {
+  const text = normalizeCatalogText(body, field, { ...options, minLength: 2, maxLength: 80 }).toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9._-]{1,79}$/.test(text)) throwInvalidCatalogMetadata();
+  return text;
+}
+
+function normalizeCatalogText(body, field, options = {}) {
+  const { required = false, fallback = "", minLength = 0, maxLength = 200, idLike = false } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidCatalogMetadata();
+    return String(fallback || "").trim();
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) throwInvalidCatalogMetadata();
+  if (idLike && text && !/^[a-z0-9-]+$/.test(text)) throwInvalidCatalogMetadata();
+  return text;
+}
+
+function normalizeCatalogChoice(body, field, allowed, fallback, required = false) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidCatalogMetadata();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
+  const text = value.trim();
+  if (!allowed.includes(text)) throwInvalidCatalogMetadata();
+  return text;
+}
+
+function normalizeCatalogMoney(body, field, options = {}) {
+  const { required = false, fallback = 0, min = 0, max = 1000000000000 } = options;
+  let value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidCatalogMetadata();
+    value = fallback;
+  }
+  if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") throwInvalidCatalogMetadata();
+  let amount;
+  if (typeof value === "number") {
+    amount = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
+    const text = value.trim();
+    if (!/^\d+$/.test(text)) throwInvalidCatalogMetadata();
+    amount = Number(text);
+  } else {
+    throwInvalidCatalogMetadata();
+  }
+  if (!Number.isSafeInteger(amount) || amount < min || amount > max) throwInvalidCatalogMetadata();
+  return amount;
+}
+
+function normalizeCatalogCurrency(body, field, fallback = "AMD") {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return fallback;
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
+  const currency = value.trim().toUpperCase();
+  if (currency !== "AMD") throwInvalidCatalogMetadata();
+  return currency;
+}
+
+function normalizeCatalogBoolean(body, field, fallback = false) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return Boolean(fallback);
+  if (typeof value !== "boolean") throwInvalidCatalogMetadata();
+  return value;
+}
+
+function assertCatalogCategory(db, orgId, categoryId) {
+  const row = db.prepare("SELECT id FROM catalog_categories WHERE org_id = ? AND id = ? AND status = ?").get(orgId, categoryId, "active");
+  if (!row) {
+    const err = new Error("Catalog category not found");
+    err.statusCode = 404;
+    throw err;
+  }
+}
+
+function assertCatalogSkuAvailable(db, orgId, sku, currentItemId = "") {
+  const row = db.prepare("SELECT id FROM catalog_items WHERE org_id = ? AND sku = ?").get(orgId, sku);
+  if (row && row.id !== currentItemId) {
+    const err = new Error("Catalog SKU already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
+function assertCatalogItemInvariants(item) {
+  if (item.itemType === "service" && (item.trackStock || item.trackLots)) throwInvalidCatalogMetadata();
+  if (item.trackLots && !item.trackStock) throwInvalidCatalogMetadata();
+  if (item.standardCost > item.listPrice && item.listPrice > 0) throwInvalidCatalogMetadata();
+}
+
+function normalizeCatalogItemPathId(value, rawUrl = "") {
+  const rawSegment = typeof rawUrl === "string"
+    ? rawUrl.match(/^\/api\/catalog\/items\/([^/?#]+)(?:[?#]|$)/)?.[1]
+    : "";
+  if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) throwInvalidCatalogItemPathId();
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogItemPathId();
+  const itemId = value.trim();
+  if (!itemId || itemId.length > 160 || !/^[a-z0-9-]+$/.test(itemId)) throwInvalidCatalogItemPathId();
+  return itemId;
+}
+
+function throwInvalidCatalogItemPathId() {
+  const err = new Error("Invalid catalog item id");
+  err.statusCode = 400;
+  throw err;
+}
+
+function throwInvalidCatalogMetadata() {
+  const err = new Error("Catalog request requires safe metadata");
+  err.statusCode = 400;
+  throw err;
+}
+
 function getQuotes(db, orgId, customerId = "") {
   const params = [orgId];
   let where = "WHERE quotes.org_id = ?";
@@ -47935,11 +48336,21 @@ function throwInvalidPublicQuoteToken() {
 
 function getQuoteLines(db, orgId, quoteId) {
   return db.prepare(`
-    SELECT id, description, quantity, unit_price AS unitPrice, total, position
+    SELECT quote_lines.id, quote_lines.catalog_item_id AS catalogItemId,
+      catalog_items.sku AS catalogSku, catalog_items.name AS catalogName,
+      quote_lines.description, quote_lines.quantity, quote_lines.unit_price AS unitPrice,
+      quote_lines.total, quote_lines.vat_mode AS vatMode,
+      quote_lines.fiscal_receipt_required AS fiscalReceiptRequired,
+      quote_lines.position
     FROM quote_lines
-    WHERE org_id = ? AND quote_id = ?
-    ORDER BY position
-  `).all(orgId, quoteId);
+    LEFT JOIN catalog_items ON catalog_items.id = quote_lines.catalog_item_id
+      AND catalog_items.org_id = quote_lines.org_id
+    WHERE quote_lines.org_id = ? AND quote_lines.quote_id = ?
+    ORDER BY quote_lines.position
+  `).all(orgId, quoteId).map(line => ({
+    ...line,
+    fiscalReceiptRequired: Boolean(line.fiscalReceiptRequired)
+  }));
 }
 
 function getQuoteAcceptances(db, orgId, customerId = "") {
@@ -48010,16 +48421,15 @@ function createCrmQuote(db, user, body) {
     throw err;
   }
   const title = quoteInput.title || deal.title || "";
-  const { validUntil, lines } = quoteInput;
+  const { validUntil } = quoteInput;
+  const lines = quoteInput.lines.map(line => resolveCatalogQuoteLine(db, user.org_id, line));
   if (title.length < 4 || title.length > 200 || lines.length === 0) {
     const err = new Error("Quote requires title, valid until date, and at least one line");
     err.statusCode = 400;
     throw err;
   }
-  const total = lines.reduce((sum, line) => sum + line.total, 0);
-  const subtotal = Math.round(total / 1.2);
-  const vat = total - subtotal;
   const now = new Date().toISOString();
+  const { subtotal, vat, total } = calculateCrmQuoteTotals(lines, resolveVatRate(db, user.org_id, now));
   const quoteId = randomId("quote");
   const quoteNumber = nextQuoteNumber(db, user.org_id);
   const publicToken = randomId("public-quote-token");
@@ -48051,11 +48461,26 @@ function createCrmQuote(db, user, body) {
     now
   );
   const insertLine = db.prepare(`
-    INSERT INTO quote_lines (id, org_id, quote_id, description, quantity, unit_price, total, position)
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO quote_lines (
+      id, org_id, quote_id, catalog_item_id, description, quantity, unit_price,
+      total, vat_mode, fiscal_receipt_required, position
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const line of lines) {
-    insertLine.run(randomId("quote-line"), user.org_id, quoteId, line.description, line.quantity, line.unitPrice, line.total, line.position);
+    insertLine.run(
+      randomId("quote-line"),
+      user.org_id,
+      quoteId,
+      line.catalogItemId || null,
+      line.description,
+      line.quantity,
+      line.unitPrice,
+      line.total,
+      line.vatMode,
+      line.fiscalReceiptRequired ? 1 : 0,
+      line.position
+    );
   }
   emitSuiteEvent(db, {
     orgId: user.org_id,
@@ -48129,20 +48554,78 @@ function normalizeCrmQuoteLine(line, index) {
   if (!isPlainObject(line)) {
     throwInvalidCrmQuoteMetadata();
   }
-  const description = normalizeCrmQuoteLineText(line, "description", { required: true, minLength: 3, maxLength: 500 });
+  const catalogItemId = normalizeCrmQuoteLineCatalogItemId(line);
+  const description = normalizeCrmQuoteLineText(line, "description", { required: !catalogItemId, minLength: 3, maxLength: 500 });
   const quantity = normalizeCrmQuoteLineAmount(line, "quantity", { fallback: 1, min: 1, max: 100000 });
-  const unitPrice = normalizeCrmQuoteLineAmount(line, "unitPrice", { altField: "unit_price", required: true, min: 1, max: 1000000000 });
+  const unitPrice = normalizeCrmQuoteLineAmount(line, "unitPrice", { altField: "unit_price", required: !catalogItemId, fallback: 0, min: catalogItemId ? 0 : 1, max: 1000000000 });
   const total = quantity * unitPrice;
-  if (!Number.isSafeInteger(total) || total <= 0 || total > 1000000000000) {
+  if (!catalogItemId && (!Number.isSafeInteger(total) || total <= 0 || total > 1000000000000)) {
     throwInvalidCrmQuoteMetadata();
   }
   return {
+    catalogItemId,
     description,
     quantity,
     unitPrice,
     total,
     position: index + 1
   };
+}
+
+function normalizeCrmQuoteLineCatalogItemId(line) {
+  const value = Object.prototype.hasOwnProperty.call(line, "catalogItemId") ? line.catalogItemId : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmQuoteMetadata();
+  }
+  const itemId = value.trim();
+  if (!itemId || itemId.length > 160 || !/^[a-z0-9-]+$/.test(itemId)) {
+    throwInvalidCrmQuoteMetadata();
+  }
+  return itemId;
+}
+
+function resolveCatalogQuoteLine(db, orgId, line) {
+  if (!line.catalogItemId) {
+    return { ...line, vatMode: "standard", fiscalReceiptRequired: false };
+  }
+  const item = getCatalogItem(db, orgId, line.catalogItemId);
+  if (!item || item.status !== "active") {
+    const err = new Error("Catalog item is required for quote line");
+    err.statusCode = 422;
+    throw err;
+  }
+  const description = line.description || item.name;
+  const unitPrice = line.unitPrice || item.listPrice;
+  const total = line.quantity * unitPrice;
+  if (!Number.isSafeInteger(total) || total <= 0 || total > 1000000000000) {
+    throwInvalidCrmQuoteMetadata();
+  }
+  return {
+    ...line,
+    description,
+    unitPrice,
+    total,
+    vatMode: item.vatMode,
+    fiscalReceiptRequired: item.fiscalReceiptRequired
+  };
+}
+
+function calculateCrmQuoteTotals(lines, vatRate = 0.2) {
+  const standardVatRate = Number.isFinite(vatRate) && vatRate >= 0 ? vatRate : 0.2;
+  return lines.reduce((totals, line) => {
+    const lineTotal = line.total;
+    const lineVatMode = line.vatMode || "standard";
+    const lineSubtotal = lineVatMode === "standard"
+      ? Math.round(lineTotal / (1 + standardVatRate))
+      : lineTotal;
+    const lineVat = lineVatMode === "standard" ? lineTotal - lineSubtotal : 0;
+    return {
+      subtotal: totals.subtotal + lineSubtotal,
+      vat: totals.vat + lineVat,
+      total: totals.total + lineTotal
+    };
+  }, { subtotal: 0, vat: 0, total: 0 });
 }
 
 function normalizeCrmQuoteLineText(body, field, options = {}) {
