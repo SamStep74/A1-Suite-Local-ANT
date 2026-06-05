@@ -42,6 +42,7 @@ test("chart-of-accounts endpoint exposes the official RA chart", async () => {
     assert.ok(body.accounts.length >= 600, `expected official chart, got ${body.accounts.length}`);
     assert.strictEqual(body.classes.length, 9);
     assert.match(body.source.sourceUrl, /arlis\.am/);
+    assert.deepStrictEqual(body.openingBalanceAccountCodes, ["221", "226", "251", "252", "521", "524", "525"]);
     assert.strictEqual(body.accounts.find(account => account.code === "226").type, "asset");
     assert.match(body.accounts.find(account => account.code === "226").name, /անուղղակի հարկեր/);
     assert.strictEqual(body.accounts.find(account => account.code === "526"), undefined);

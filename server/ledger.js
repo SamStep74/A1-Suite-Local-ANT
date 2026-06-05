@@ -12,6 +12,7 @@ const CHART = STANDARD_ACCOUNTS.map((account) => ({
 const INPUT_VAT_ACCOUNT_CODE = "226";
 const LEGACY_INPUT_VAT_ACCOUNT_CODE = "526";
 const INPUT_VAT_ACCOUNT_CODES = [INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE];
+const OPENING_BALANCE_ACCOUNT_CODES = Object.freeze(["221", "226", "251", "252", "521", "524", "525"]);
 const CHART_SOURCE = Object.freeze({
   title: "ՀՀ հաշվապահական հաշվառման հաշվային պլան",
   sourceUrl: "https://www.arlis.am/hy/acts/75961",
@@ -32,6 +33,7 @@ function chartOfAccounts() {
   return {
     source: CHART_SOURCE,
     classes: ACCOUNT_CLASSES,
+    openingBalanceAccountCodes: [...OPENING_BALANCE_ACCOUNT_CODES],
     accounts: CHART
   };
 }
@@ -74,14 +76,20 @@ function accountTypeByCode(code) {
   return acct ? acct.type : null;
 }
 
+function isOpeningBalanceAccountCode(code) {
+  return OPENING_BALANCE_ACCOUNT_CODES.includes(String(code));
+}
+
 // Post one account's opening balance against the Opening Balance Equity account (331).
-// Debit-natured accounts (asset/expense): Dt <code> / Kt 331. Credit-natured
-// (liability/equity/income): Dt 331 / Kt <code>. Idempotent per (account, asOf date).
+// Only the supported operating balance-sheet anchors are accepted here. The
+// official chart includes contra accounts that need account-level normal-balance
+// semantics before they can be safely posted through this simple workflow.
 function postOpeningBalance(db, orgId, entry) {
   const code = String(entry.code || "");
   if (code === OPENING_BALANCE_EQUITY_CODE) return []; // never set the contra directly
   const type = accountTypeByCode(code);
   if (!type) return []; // unknown account code — skip
+  if (!isOpeningBalanceAccountCode(code)) return [];
   ensureChartOfAccounts(db, orgId);
   // Replace semantics: an account's opening balance is set once and corrected by
   // re-submitting. Remove any prior opening-balance entry for this account (on
@@ -265,4 +273,4 @@ function payablesReport(db, orgId, asOf) {
   return accounting.calculatePayables(buildPayablesModel(db, orgId), { asOf: asOf || new Date().toISOString().slice(0, 10) });
 }
 
-module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, postBillPosted, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, postOpeningBalance, postOpeningBalances, openingBalances };
+module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, OPENING_BALANCE_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, postBillPosted, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, postOpeningBalance, postOpeningBalances, openingBalances };

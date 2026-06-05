@@ -311,25 +311,24 @@ export function FinancePayablesPanel({ data }) {
   );
 }
 
-// Balance-sheet accounts eligible for opening balances (P&L accounts reset each
-// period and the 331 contra is posted automatically, so neither is offered here).
+// Supported opening-balance operating anchors. The full official chart includes
+// contra accounts that need account-level normal-balance handling before they
+// can be posted safely through this compact opening-balance workflow.
 const OPENING_BALANCE_ACCOUNTS = [
   { code: "251", name: "Դրամարկղ" },
   { code: "252", name: "Հաշվարկային հաշիվ" },
-  { code: "221", name: "Դեբիտորական պարտքեր" },
+  { code: "221", name: "Դեբիտորական պարտքեր վաճառքների գծով" },
   { code: "226", name: "Հաշվանցման (փոխհատուցման) ենթակա անուղղակի հարկեր" },
-  { code: "521", name: "Կրեդիտորական պարտքեր" },
-  { code: "524", name: "ԱԱՀ վճարվելիք" },
-  { code: "525", name: "Հաշվարկներ բյուջեի և հիմնադրամների հետ" }
+  { code: "521", name: "Կրեդիտորական պարտքեր գնումների գծով" },
+  { code: "524", name: "Պարտքեր հարկերի և այլ պարտադիր վճարների գծով" },
+  { code: "525", name: "Պարտքեր պարտադիր սոցիալական ապահովության գծով" }
 ];
 
 function openingBalanceAccountsFromChart(chart) {
   const accounts = chart?.accounts || [];
-  const openingBalanceTypes = new Set(["asset", "liability"]);
+  const allowedCodes = chart?.openingBalanceAccountCodes || OPENING_BALANCE_ACCOUNTS.map(account => account.code);
   const rows = accounts
-    .filter(account => /^[0-9]{3}$/.test(account.code || ""))
-    .filter(account => account.code !== "331")
-    .filter(account => openingBalanceTypes.has(account.type))
+    .filter(account => allowedCodes.includes(account.code))
     .map(account => ({ code: account.code, name: account.name }));
   return rows.length > 0 ? rows : OPENING_BALANCE_ACCOUNTS;
 }

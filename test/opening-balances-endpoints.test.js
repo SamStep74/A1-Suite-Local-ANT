@@ -145,6 +145,7 @@ test("opening-balances POST rejects malformed metadata before persistence", asyn
       { ...basePayload, entries: [{ code: "251\nsecret-opening-balance-code-control-token", amount: 1200000 }] },
       { ...basePayload, entries: [{ code: "999", amount: 1200000 }] },
       { ...basePayload, entries: [{ code: "331", amount: 1200000 }] },
+      { ...basePayload, entries: [{ code: "112", amount: 1200000 }] },
       { ...basePayload, entries: [{ code: "251", amount: ["1200000"] }] },
       { ...basePayload, entries: [{ code: "251", amount: { value: 1200000, token: "secret-opening-balance-amount-object-token" } }] },
       { ...basePayload, entries: [{ code: "251", amount: "1200000\nsecret-opening-balance-amount-control-token" }] },

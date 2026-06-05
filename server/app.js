@@ -52139,8 +52139,7 @@ function normalizeFinanceOpeningBalanceCode(entry) {
   }
   const code = value.trim();
   const account = ledger.CHART.find(item => item.code === code);
-  const isBalanceSheetAccount = account && (account.type === "asset" || account.type === "liability");
-  if (!code || code === ledger.OPENING_BALANCE_EQUITY_CODE || !isBalanceSheetAccount) {
+  if (!code || code === ledger.OPENING_BALANCE_EQUITY_CODE || !account || !ledger.OPENING_BALANCE_ACCOUNT_CODES.includes(code)) {
     throwInvalidFinanceOpeningBalances();
   }
   return code;

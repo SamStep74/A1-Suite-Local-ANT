@@ -62,6 +62,16 @@ test("the opening-balance contra account (331) cannot be set directly, unknown c
   assert.strictEqual(res.count, 0);
 });
 
+test("opening balances skip unsupported official contra-asset accounts", () => {
+  const { db, orgId } = freshDb();
+  const res = ledger.postOpeningBalances(db, orgId, { asOf: "2026-01-01", entries: [
+    { code: "112", amount: 500000 }, // accumulated depreciation — not safe for this workflow
+  ] });
+  assert.strictEqual(res.count, 0);
+  const count = db.prepare("SELECT COUNT(*) AS c FROM ledger_journal WHERE org_id = ? AND source_type = 'opening_balance'").get(orgId).c;
+  assert.strictEqual(count, 0);
+});
+
 test("re-submitting an opening balance corrects it (replace semantics, single row)", () => {
   const { db, orgId } = freshDb();
   ledger.postOpeningBalances(db, orgId, { asOf: "2026-01-01", entries: [{ code: "251", amount: 1000000 }] });
