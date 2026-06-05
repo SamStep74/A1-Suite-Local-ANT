@@ -175,6 +175,7 @@ function buildApp(options = {}) {
 
   registerApi(app, db, { ...options, env });
   registerStatic(app);
+  require("./localizationRoutes").registerLocalizationRoutes(app);
 
   app.addHook("onClose", () => {
     if (!options.db && typeof db.close === "function") db.close();
