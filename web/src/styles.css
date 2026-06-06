@@ -1232,6 +1232,8 @@ textarea {
 .row.purchase-order.partial { background: rgba(122, 91, 180, 0.08); }
 .row.purchase-order.received { background: rgba(0, 137, 123, 0.08); }
 .row.purchase-order.billed { background: rgba(196, 111, 61, 0.08); }
+.row.purchase-vendor { background: rgba(0, 137, 123, 0.07); }
+.row.purchase-backlog { background: rgba(215, 139, 47, 0.08); }
 .row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row strong { flex: 0 0 auto; }
 
@@ -1812,6 +1814,20 @@ textarea {
 
 .purchase-summary {
   grid-template-columns: repeat(5, minmax(0, 1fr));
+}
+
+.purchase-analytics-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.purchase-analytics-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+}
+
+.purchase-analytics-grid .rows {
+  min-width: 0;
 }
 
 .purchase-order-form .inline-form {
@@ -12246,6 +12262,7 @@ textarea {
   .semantic-metric-list,
   .semantic-snapshot-series,
   .aging-summary,
+  .purchase-analytics-grid,
   .forecast-summary {
     grid-template-columns: 1fr;
   }

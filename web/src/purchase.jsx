@@ -65,6 +65,12 @@ export function PurchaseWorkspacePanel({
   const orders = data?.orders?.orders || [];
   const catalogItems = data?.catalog?.items || [];
   const vendors = data?.vendors?.vendors || [];
+  const analytics = data?.analytics || {};
+  const purchaseSummary = analytics.summary || {};
+  const vendorPerformance = analytics.vendorPerformance || [];
+  const receiptBacklog = analytics.receiptBacklog || [];
+  const priceCoverage = analytics.priceCoverage || {};
+  const priceCoveragePercent = Number(priceCoverage.coveragePercent ?? purchaseSummary.vendorPriceCoveragePercent ?? 0);
   const stockableItems = useMemo(
     () => catalogItems.filter(item => item.status === "active" && item.trackStock),
     [catalogItems]
@@ -163,6 +169,42 @@ export function PurchaseWorkspacePanel({
           <span>{amd(openValue)} open procurement</span>
           <span>{stockableItems.length} stock-tracked catalog items</span>
           <span>{vendors.length} vendors</span>
+        </div>
+      </article>
+
+      <article className="panel purchase-analytics-panel">
+        <div className="panel-head">
+          <div>
+            <span className="section-label">Procurement analytics</span>
+            <h2>Vendor 360</h2>
+          </div>
+          <strong className="aging-badge">{Number(purchaseSummary.receiptProgressPercent || 0)}% received</strong>
+        </div>
+        <div className="aging-summary purchase-analytics-summary">
+          <div className="metric"><span>price coverage</span><strong>{priceCoveragePercent}%</strong></div>
+          <div className="metric"><span>remaining qty</span><strong>{Number(purchaseSummary.remainingQuantity || 0)}</strong></div>
+          <div className="metric"><span>active prices</span><strong>{Number(priceCoverage.activePriceCount || 0)}</strong></div>
+          <div className="metric"><span>covered items</span><strong>{Number(priceCoverage.coveredStockableItemCount || 0)}/{Number(priceCoverage.stockableCatalogItemCount || 0)}</strong></div>
+        </div>
+        <div className="purchase-analytics-grid">
+          <div className="rows purchase-vendor-list">
+            {vendorPerformance.slice(0, 4).map(vendor => (
+              <div className="row purchase-vendor" key={vendor.vendorId || vendor.supplier}>
+                <span>{vendor.supplier} · {vendor.orderCount} orders · {vendor.receiptProgressPercent}% received</span>
+                <strong>{amd(vendor.totalValue)}</strong>
+              </div>
+            ))}
+            {vendorPerformance.length === 0 && <div className="row"><span>No vendor performance yet</span></div>}
+          </div>
+          <div className="rows purchase-backlog-list">
+            {receiptBacklog.slice(0, 4).map(item => (
+              <div className="row purchase-backlog" key={item.orderId}>
+                <span>{item.orderNumber} · {item.supplier} · {statusLabel(item.status)} · remaining {item.remainingQuantity}</span>
+                <strong>{item.expectedDate}</strong>
+              </div>
+            ))}
+            {receiptBacklog.length === 0 && <div className="row"><span>No receipt backlog</span></div>}
+          </div>
         </div>
       </article>
 

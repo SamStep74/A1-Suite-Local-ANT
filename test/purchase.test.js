@@ -796,6 +796,245 @@ test("purchase: vendor master prices seed, create, and back RFQ default costing"
   }
 });
 
+test("purchase: analytics summarize vendor performance, price coverage, and receipt backlog", async () => {
+  test.mock.timers.enable({ apis: ["Date"], now: new Date("2026-06-05T21:30:00.000Z") });
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const auditor = await login(app, "auditor@armosphera.local");
+    const support = await login(app, "support@armosphera.local");
+    const orgId = "org-armosphera-demo";
+    const openPeriod = app.db.prepare("SELECT period_key FROM finance_periods WHERE org_id = ? AND status = 'open' LIMIT 1").get(orgId).period_key;
+    const now = new Date().toISOString();
+    app.db.prepare(`
+      INSERT INTO catalog_items (
+        id, org_id, category_id, sku, name, description, item_type, status,
+        unit_of_measure, list_price, standard_cost, currency, vat_mode,
+        track_stock, track_lots, fiscal_receipt_required, created_by_user_id,
+        created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "catitem-analytics-uncovered-cable",
+      orgId,
+      "catcat-hardware",
+      "HW-ANALYTICS-CABLE",
+      "Analytics uncovered cable",
+      "Active stock-tracked item without a usable vendor price.",
+      "stockable",
+      "active",
+      "unit",
+      1500,
+      1000,
+      "AMD",
+      "standard",
+      1,
+      0,
+      1,
+      "user-operator",
+      now,
+      now
+    );
+
+    const suspendedVendor = await app.inject({
+      method: "POST",
+      url: "/api/purchase/vendors",
+      headers: { cookie: operator },
+      payload: {
+        name: "Suspended Analytics Supplier",
+        status: "suspended",
+        prices: [{
+          catalogItemId: "catitem-pos-barcode-scanner",
+          unitCost: 59000,
+          minQuantity: 1,
+          validFrom: `${openPeriod}-01`,
+          note: "Suspended vendor price must not count as usable coverage."
+        }]
+      }
+    });
+    assert.equal(suspendedVendor.statusCode, 200, suspendedVendor.body);
+
+    const dateEdgeVendor = await app.inject({
+      method: "POST",
+      url: "/api/purchase/vendors",
+      headers: { cookie: operator },
+      payload: {
+        name: "Date Edge Analytics Supplier",
+        status: "active",
+        prices: [
+          {
+            catalogItemId: "catitem-analytics-uncovered-cable",
+            unitCost: 900,
+            minQuantity: 1,
+            validFrom: "2099-01-01",
+            note: "Future active price must not count as currently usable coverage."
+          },
+          {
+            catalogItemId: "catitem-analytics-uncovered-cable",
+            unitCost: 950,
+            minQuantity: 1,
+            validFrom: "2020-01-01",
+            validTo: "2020-12-31",
+            note: "Expired active price must not count as currently usable coverage."
+          }
+        ]
+      }
+    });
+    assert.equal(dateEdgeVendor.statusCode, 200, dateEdgeVendor.body);
+
+    const armeniaDateVendor = await app.inject({
+      method: "POST",
+      url: "/api/purchase/vendors",
+      headers: { cookie: operator },
+      payload: {
+        name: "Armenia Date Analytics Supplier",
+        status: "active",
+        prices: [{
+          catalogItemId: "catitem-analytics-uncovered-cable",
+          unitCost: 975,
+          minQuantity: 1,
+          validFrom: "2026-06-06",
+          validTo: "2026-06-06",
+          note: "Price valid on the Armenia local date even while UTC date is still previous day."
+        }]
+      }
+    });
+    assert.equal(armeniaDateVendor.statusCode, 200, armeniaDateVendor.body);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/purchase/orders",
+      headers: { cookie: operator },
+      payload: {
+        vendorId: "vendor-yerevan-hardware-supply",
+        orderNumber: "PO-ANALYTICS-0001",
+        orderDate: `${openPeriod}-06`,
+        expectedDate: `${openPeriod}-12`,
+        note: "Analytics regression purchase order.",
+        lines: [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 3 }]
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const order = created.json().order;
+    assert.equal(order.supplier, "Yerevan Hardware Supply");
+    assert.equal(order.lines[0].unitCost, 60000);
+    assert.match(order.lines[0].vendorPriceId, /^vendor-price-/);
+    assert.equal(order.total, 216000);
+
+    const rfqAnalytics = await app.inject({ method: "GET", url: "/api/purchase/analytics", headers: { cookie: auditor } });
+    assert.equal(rfqAnalytics.statusCode, 200, rfqAnalytics.body);
+    assert.equal(rfqAnalytics.json().receiptBacklog.length, 0);
+    assert.equal(rfqAnalytics.json().summary.vendorCount, 4);
+    assert.equal(rfqAnalytics.json().summary.activeVendorCount, 3);
+    assert.equal(rfqAnalytics.json().summary.activePriceCount, 2);
+    assert.equal(rfqAnalytics.json().summary.stockableCatalogItemCount, 2);
+    assert.equal(rfqAnalytics.json().summary.receiptProgressPercent, 0);
+    assert.equal(rfqAnalytics.json().summary.remainingQuantity, 0);
+    assert.equal(rfqAnalytics.json().summary.vendorPriceCoveragePercent, 100);
+    assert.equal(rfqAnalytics.json().summary.pricedOrderLinePercent, 100);
+    assert.equal(rfqAnalytics.json().priceCoverage.coveredStockableItemCount, 2);
+    assert.equal(rfqAnalytics.json().priceCoverage.coveragePercent, 100);
+
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/confirm`,
+      headers: { cookie: operator },
+      payload: {}
+    });
+    assert.equal(confirmed.statusCode, 200, confirmed.body);
+
+    const received = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/receive`,
+      headers: { cookie: operator },
+      payload: {
+        receivedAt: `${openPeriod}-08`,
+        reference: "RCPT-PO-ANALYTICS-0001-A",
+        lines: [{ lineId: order.lines[0].id, quantity: 1 }]
+      }
+    });
+    assert.equal(received.statusCode, 200, received.body);
+    assert.equal(received.json().order.status, "partial");
+
+    const extraRfq = await app.inject({
+      method: "POST",
+      url: "/api/purchase/orders",
+      headers: { cookie: operator },
+      payload: {
+        vendorId: "vendor-yerevan-hardware-supply",
+        orderNumber: "PO-ANALYTICS-RFQ",
+        orderDate: `${openPeriod}-07`,
+        expectedDate: `${openPeriod}-14`,
+        note: "RFQ should count commercially but not depress receivable vendor progress.",
+        lines: [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 1 }]
+      }
+    });
+    assert.equal(extraRfq.statusCode, 200, extraRfq.body);
+    assert.equal(extraRfq.json().order.status, "rfq");
+    assert.equal(extraRfq.json().order.total, 72000);
+
+    const unauthenticated = await app.inject({ method: "GET", url: "/api/purchase/analytics" });
+    assert.equal(unauthenticated.statusCode, 401);
+    const supportDenied = await app.inject({ method: "GET", url: "/api/purchase/analytics", headers: { cookie: support } });
+    assert.equal(supportDenied.statusCode, 403, supportDenied.body);
+    const auditorRead = await app.inject({ method: "GET", url: "/api/purchase/analytics", headers: { cookie: auditor } });
+    assert.equal(auditorRead.statusCode, 200, auditorRead.body);
+
+    const response = await app.inject({ method: "GET", url: "/api/purchase/analytics", headers: { cookie: operator } });
+    assert.equal(response.statusCode, 200, response.body);
+    const analytics = response.json();
+    assert.equal(analytics.summary.orderCount, 2);
+    assert.equal(analytics.summary.vendorCount, 4);
+    assert.equal(analytics.summary.activeVendorCount, 3);
+    assert.equal(analytics.summary.openValue, 288000);
+    assert.equal(analytics.summary.billedValue, 0);
+    assert.equal(analytics.summary.receiptProgressPercent, 33);
+    assert.equal(analytics.summary.remainingQuantity, 2);
+    assert.equal(analytics.summary.lineCount, 2);
+    assert.equal(analytics.summary.vendorPricedLineCount, 2);
+    assert.equal(analytics.summary.vendorPriceCoveragePercent, 100);
+    assert.equal(analytics.summary.pricedOrderLinePercent, 100);
+    assert.equal(analytics.summary.activePriceCount, 2);
+    assert.equal(analytics.summary.stockableCatalogItemCount, 2);
+    assert.equal(analytics.priceCoverage.activePriceCount, 2);
+    assert.equal(analytics.priceCoverage.stockableCatalogItemCount, 2);
+    assert.equal(analytics.priceCoverage.activeVendorCount, 3);
+    assert.equal(analytics.priceCoverage.coveredStockableItemCount, 2);
+    assert.equal(analytics.priceCoverage.coveragePercent, 100);
+
+    assert.equal(analytics.receiptBacklog.length, 1);
+    assert.equal(analytics.receiptBacklog[0].orderId, order.id);
+    assert.equal(analytics.receiptBacklog[0].orderNumber, "PO-ANALYTICS-0001");
+    assert.equal(analytics.receiptBacklog[0].supplier, "Yerevan Hardware Supply");
+    assert.equal(analytics.receiptBacklog[0].status, "partial");
+    assert.equal(analytics.receiptBacklog[0].expectedDate, `${openPeriod}-12`);
+    assert.equal(analytics.receiptBacklog[0].remainingQuantity, 2);
+
+    assert.equal(analytics.vendorPerformance.length, 1);
+    assert.equal(analytics.vendorPerformance[0].vendorId, "vendor-yerevan-hardware-supply");
+    assert.equal(analytics.vendorPerformance[0].supplier, "Yerevan Hardware Supply");
+    assert.equal(analytics.vendorPerformance[0].taxId, "01234568");
+    assert.equal(analytics.vendorPerformance[0].orderCount, 2);
+    assert.equal(analytics.vendorPerformance[0].totalValue, 288000);
+    assert.equal(analytics.vendorPerformance[0].openValue, 288000);
+    assert.equal(analytics.vendorPerformance[0].billedValue, 0);
+    assert.equal(analytics.vendorPerformance[0].orderedQuantity, 4);
+    assert.equal(analytics.vendorPerformance[0].receivedQuantity, 1);
+    assert.equal(analytics.vendorPerformance[0].remainingQuantity, 3);
+    assert.equal(analytics.vendorPerformance[0].receivableOrderedQuantity, 3);
+    assert.equal(analytics.vendorPerformance[0].receivableReceivedQuantity, 1);
+    assert.equal(analytics.vendorPerformance[0].receivableRemainingQuantity, 2);
+    assert.equal(analytics.vendorPerformance[0].receiptProgressPercent, 33);
+    assert.equal(analytics.vendorPerformance[0].lineCount, 2);
+    assert.equal(analytics.vendorPerformance[0].vendorPricedLineCount, 2);
+    assert.equal(analytics.vendorPerformance[0].lastOrderDate, `${openPeriod}-07`);
+  } finally {
+    await app.close();
+    test.mock.timers.reset();
+  }
+});
+
 test("purchase: role gates and metadata guards reject writes before mutation", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
