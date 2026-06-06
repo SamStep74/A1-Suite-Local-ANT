@@ -41877,6 +41877,7 @@ const ORG_BACKUP_TABLES = [
   "purchase_vendor_prices",
   "purchase_orders",
   "purchase_order_lines",
+  "purchase_receipts",
   "integration_connectors",
   "integration_connector_checks",
   "pilot_template_installs",
@@ -49038,6 +49039,7 @@ function getPurchaseOrder(db, orgId, orderId) {
 }
 
 function getPurchaseOrderLines(db, orgId, orderId) {
+  const receiptsByLine = getPurchaseReceiptsByLine(db, orgId, orderId);
   return db.prepare(`
     SELECT purchase_order_lines.*, catalog_items.sku AS catalog_sku,
       catalog_items.name AS catalog_name, catalog_items.unit_of_measure AS unit_of_measure,
@@ -49049,10 +49051,34 @@ function getPurchaseOrderLines(db, orgId, orderId) {
       AND stock_moves.org_id = purchase_order_lines.org_id
     WHERE purchase_order_lines.org_id = ? AND purchase_order_lines.purchase_order_id = ?
     ORDER BY purchase_order_lines.created_at, purchase_order_lines.id
-  `).all(orgId, orderId).map(formatPurchaseOrderLine);
+  `).all(orgId, orderId).map(row => formatPurchaseOrderLine(row, receiptsByLine.get(row.id) || []));
+}
+
+function getPurchaseReceiptsByLine(db, orgId, orderId) {
+  const rows = db.prepare(`
+    SELECT purchase_receipts.*, stock_moves.reference AS stock_move_reference,
+      users.name AS created_by_name
+    FROM purchase_receipts
+    LEFT JOIN stock_moves ON stock_moves.id = purchase_receipts.stock_move_id
+      AND stock_moves.org_id = purchase_receipts.org_id
+    LEFT JOIN users ON users.id = purchase_receipts.created_by_user_id
+    WHERE purchase_receipts.org_id = ? AND purchase_receipts.purchase_order_id = ?
+    ORDER BY purchase_receipts.created_at, purchase_receipts.id
+  `).all(orgId, orderId);
+  const byLine = new Map();
+  for (const row of rows) {
+    const receipt = formatPurchaseReceipt(row);
+    const receipts = byLine.get(receipt.purchaseOrderLineId) || [];
+    receipts.push(receipt);
+    byLine.set(receipt.purchaseOrderLineId, receipts);
+  }
+  return byLine;
 }
 
 function formatPurchaseOrder(row, lines = []) {
+  const orderedQuantity = lines.reduce((total, line) => total + Number(line.quantity || 0), 0);
+  const receivedQuantity = lines.reduce((total, line) => total + Number(line.receivedQuantity || 0), 0);
+  const remainingQuantity = Math.max(0, orderedQuantity - receivedQuantity);
   return {
     id: row.id,
     vendorId: row.vendor_id || "",
@@ -49072,6 +49098,10 @@ function formatPurchaseOrder(row, lines = []) {
     billId: row.bill_id || "",
     billStatus: row.bill_status || "",
     receiptReference: row.receipt_reference || "",
+    orderedQuantity,
+    receivedQuantity,
+    remainingQuantity,
+    receiptCount: lines.reduce((total, line) => total + (line.receipts?.length || 0), 0),
     note: row.note || "",
     createdByUserId: row.created_by_user_id,
     createdByName: row.created_by_name || "",
@@ -49081,7 +49111,8 @@ function formatPurchaseOrder(row, lines = []) {
   };
 }
 
-function formatPurchaseOrderLine(row) {
+function formatPurchaseOrderLine(row, receipts = []) {
+  const remainingQuantity = Math.max(0, row.quantity - row.received_quantity);
   return {
     id: row.id,
     purchaseOrderId: row.purchase_order_id,
@@ -49093,12 +49124,30 @@ function formatPurchaseOrderLine(row) {
     description: row.description,
     quantity: row.quantity,
     receivedQuantity: row.received_quantity,
+    remainingQuantity,
     unitCost: row.unit_cost,
     subtotal: row.subtotal,
     vat: row.vat,
     total: row.total,
     stockMoveId: row.stock_move_id || "",
     stockMoveReference: row.stock_move_reference || "",
+    receipts,
+    createdAt: row.created_at
+  };
+}
+
+function formatPurchaseReceipt(row) {
+  return {
+    id: row.id,
+    purchaseOrderId: row.purchase_order_id,
+    purchaseOrderLineId: row.purchase_order_line_id,
+    stockMoveId: row.stock_move_id,
+    stockMoveReference: row.stock_move_reference || "",
+    quantity: row.quantity,
+    receivedAt: row.received_at,
+    reference: row.reference || "",
+    createdByUserId: row.created_by_user_id || "",
+    createdByName: row.created_by_name || "",
     createdAt: row.created_at
   };
 }
@@ -49196,7 +49245,7 @@ function createPurchaseOrder(db, user, body) {
 function confirmPurchaseOrder(db, user, orderId) {
   const order = getPurchaseOrder(db, user.org_id, orderId);
   if (!order) throwPurchaseOrderNotFound();
-  if (order.status === "confirmed" || order.status === "received" || order.status === "billed") {
+  if (order.status === "confirmed" || order.status === "partial" || order.status === "received" || order.status === "billed") {
     return { ok: true, idempotent: true, order };
   }
   if (order.status !== "rfq") throwPurchaseStateConflict("Purchase order is not confirmable");
@@ -49232,25 +49281,46 @@ function receivePurchaseOrder(db, user, orderId, body) {
   const order = getPurchaseOrder(db, user.org_id, orderId);
   if (!order) throwPurchaseOrderNotFound();
   if (order.status === "received" || order.status === "billed") return { ok: true, idempotent: true, order };
-  if (order.status !== "confirmed") throwPurchaseStateConflict("Purchase order must be confirmed before receipt");
+  if (order.status !== "confirmed" && order.status !== "partial") throwPurchaseStateConflict("Purchase order must be confirmed before receipt");
   const input = normalizePurchaseReceiptBody(body);
   const mainWarehouse = getStockLocationByCode(db, user.org_id, "WH/STOCK");
   if (!mainWarehouse || mainWarehouse.status !== "active") throwStockLocationNotFound();
-  if (order.lines.length === 0 || order.lines.some(line => line.receivedQuantity > 0 || line.stockMoveId)) {
-    throwPurchaseStateConflict("Purchase order receipt is not available");
+  const reference = resolvePurchaseReceiptReference(db, user.org_id, order, input.reference);
+  if (input.reference) {
+    const existingReceipts = getPurchaseReceiptsByReference(db, user.org_id, order.id, input.reference);
+    if (existingReceipts.length > 0) {
+      if (!isMatchingPurchaseReceiptRetry(existingReceipts, input)) {
+        throwPurchaseStateConflict("Purchase receipt reference already exists");
+      }
+      return {
+        ok: true,
+        idempotent: true,
+        order,
+        receipts: existingReceipts,
+        stockMoves: existingReceipts.map(receipt => getStockMove(db, user.org_id, receipt.stockMoveId)).filter(Boolean)
+      };
+    }
   }
-
-  const reference = input.reference || `${order.orderNumber}-RECEIPT`;
+  const receiptPlan = buildPurchaseReceiptPlan(order, input);
   const stockMoves = [];
+  let receipts = [];
   let receivedOrder;
   db.exec("BEGIN");
   try {
-    for (const line of order.lines) {
+    const insertReceipt = db.prepare(`
+      INSERT INTO purchase_receipts (
+        id, org_id, purchase_order_id, purchase_order_line_id, stock_move_id,
+        quantity, received_at, reference, created_by_user_id, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    const now = new Date().toISOString();
+    for (const line of receiptPlan) {
       const move = createStockMoveFromInput(db, user, {
         catalogItemId: line.catalogItemId,
         destinationLocationId: mainWarehouse.id,
         moveType: "receipt",
-        quantity: line.quantity,
+        quantity: line.receiptQuantity,
         unitCost: line.unitCost,
         reason: `Purchase receipt for ${order.orderNumber}`,
         reference
@@ -49258,34 +49328,66 @@ function receivePurchaseOrder(db, user, orderId, body) {
       stockMoves.push(move);
       db.prepare(`
         UPDATE purchase_order_lines
-        SET received_quantity = ?, stock_move_id = ?
+        SET received_quantity = received_quantity + ?, stock_move_id = ?
         WHERE org_id = ? AND id = ?
-      `).run(line.quantity, move.id, user.org_id, line.id);
+      `).run(line.receiptQuantity, move.id, user.org_id, line.id);
+      insertReceipt.run(
+        randomId("purchase-receipt"),
+        user.org_id,
+        orderId,
+        line.id,
+        move.id,
+        line.receiptQuantity,
+        input.receivedAt,
+        reference,
+        user.id,
+        now
+      );
     }
 
-    const now = new Date().toISOString();
+    const updatedLines = getPurchaseOrderLines(db, user.org_id, orderId);
+    const isFullyReceived = updatedLines.every(line => line.receivedQuantity >= line.quantity);
+    const status = isFullyReceived ? "received" : "partial";
+    const totalReceivedQuantity = receiptPlan.reduce((total, line) => total + line.receiptQuantity, 0);
+    const totalRemainingQuantity = updatedLines.reduce((total, line) => total + line.remainingQuantity, 0);
     db.prepare(`
       UPDATE purchase_orders
-      SET status = 'received', received_at = ?, receipt_reference = ?, updated_at = ?
+      SET status = ?, received_at = ?, receipt_reference = ?, updated_at = ?
       WHERE org_id = ? AND id = ?
-    `).run(input.receivedAt, reference, now, user.org_id, orderId);
+    `).run(status, input.receivedAt, reference, now, user.org_id, orderId);
+    receipts = getPurchaseReceiptsByReference(db, user.org_id, orderId, reference);
     emitSuiteEvent(db, {
       orgId: user.org_id,
       actorUserId: user.id,
-      eventType: "purchase.order.received",
+      eventType: isFullyReceived ? "purchase.order.received" : "purchase.order.partially_received",
       subjectType: "purchase_order",
       subjectId: orderId,
-      status: "received",
-      payload: { orderNumber: order.orderNumber, stockMoveIds: stockMoves.map(move => move.id), total: order.total }
+      status,
+      payload: {
+        orderNumber: order.orderNumber,
+        reference,
+        stockMoveIds: stockMoves.map(move => move.id),
+        receivedQuantity: totalReceivedQuantity,
+        remainingQuantity: totalRemainingQuantity,
+        total: order.total
+      }
     });
-    audit(db, user.org_id, user.id, "purchase.order.received", { orderId, orderNumber: order.orderNumber, stockMoveIds: stockMoves.map(move => move.id), total: order.total });
+    audit(db, user.org_id, user.id, isFullyReceived ? "purchase.order.received" : "purchase.order.partially_received", {
+      orderId,
+      orderNumber: order.orderNumber,
+      reference,
+      stockMoveIds: stockMoves.map(move => move.id),
+      receivedQuantity: totalReceivedQuantity,
+      remainingQuantity: totalRemainingQuantity,
+      total: order.total
+    });
     receivedOrder = getPurchaseOrder(db, user.org_id, orderId);
     db.exec("COMMIT");
   } catch (err) {
     db.exec("ROLLBACK");
     throw err;
   }
-  return { ok: true, order: receivedOrder, stockMoves };
+  return { ok: true, order: receivedOrder, receipts, stockMoves };
 }
 
 function billPurchaseOrder(db, user, orderId, body) {
@@ -49431,6 +49533,62 @@ function assertCatalogItemExists(db, orgId, catalogItemId) {
   return item;
 }
 
+function getPurchaseReceiptsByReference(db, orgId, orderId, reference) {
+  return db.prepare(`
+    SELECT purchase_receipts.*, stock_moves.reference AS stock_move_reference,
+      users.name AS created_by_name
+    FROM purchase_receipts
+    LEFT JOIN stock_moves ON stock_moves.id = purchase_receipts.stock_move_id
+      AND stock_moves.org_id = purchase_receipts.org_id
+    LEFT JOIN users ON users.id = purchase_receipts.created_by_user_id
+    WHERE purchase_receipts.org_id = ?
+      AND purchase_receipts.purchase_order_id = ?
+      AND purchase_receipts.reference = ?
+    ORDER BY purchase_receipts.created_at, purchase_receipts.id
+  `).all(orgId, orderId, reference).map(formatPurchaseReceipt);
+}
+
+function resolvePurchaseReceiptReference(db, orgId, order, requestedReference) {
+  if (requestedReference) return requestedReference;
+  const receiptCount = db.prepare(`
+    SELECT COUNT(DISTINCT reference) AS count
+    FROM purchase_receipts
+    WHERE org_id = ? AND purchase_order_id = ?
+  `).get(orgId, order.id).count;
+  return receiptCount === 0 ? `${order.orderNumber}-RECEIPT` : `${order.orderNumber}-RECEIPT-${receiptCount + 1}`;
+}
+
+function buildPurchaseReceiptPlan(order, input) {
+  if (order.lines.length === 0) throwPurchaseStateConflict("Purchase order receipt is not available");
+  const lineById = new Map(order.lines.map(line => [line.id, line]));
+  const requestedLines = input.lines.length > 0
+    ? input.lines
+    : order.lines
+      .filter(line => line.remainingQuantity > 0)
+      .map(line => ({ lineId: line.id, quantity: line.remainingQuantity }));
+  if (requestedLines.length === 0) throwPurchaseStateConflict("Purchase order receipt is not available");
+  return requestedLines.map(requestedLine => {
+    const line = lineById.get(requestedLine.lineId);
+    if (!line) throwPurchaseStateConflict("Purchase receipt line is not available");
+    if (requestedLine.quantity > line.remainingQuantity) {
+      throwPurchaseStateConflict("Purchase receipt quantity exceeds remaining order quantity");
+    }
+    return { ...line, receiptQuantity: requestedLine.quantity };
+  });
+}
+
+function isMatchingPurchaseReceiptRetry(existingReceipts, input) {
+  if (input.lines.length === 0) return false;
+  if (existingReceipts.length !== input.lines.length) return false;
+  const existingByLineId = new Map(existingReceipts.map(receipt => [receipt.purchaseOrderLineId, receipt]));
+  return input.lines.every(line => {
+    const existing = existingByLineId.get(line.lineId);
+    return existing
+      && existing.quantity === line.quantity
+      && existing.receivedAt === input.receivedAt;
+  });
+}
+
 function normalizePurchaseVendorBody(body) {
   if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
   return {
@@ -49507,8 +49665,28 @@ function normalizePurchaseReceiptBody(body) {
   if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
   return {
     receivedAt: normalizePurchaseDate(body, "receivedAt"),
-    reference: normalizePurchaseText(body, "reference", { fallback: "", maxLength: 120 })
+    reference: normalizePurchaseText(body, "reference", { fallback: "", maxLength: 120 }),
+    lines: normalizePurchaseReceiptLines(body)
   };
+}
+
+function normalizePurchaseReceiptLines(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "lines") ? body.lines : undefined;
+  if (value === undefined || value === "") return [];
+  if (!Array.isArray(value) || value.length === 0 || value.length > 25) throwInvalidPurchaseMetadata();
+  const seen = new Set();
+  return value.map(line => {
+    if (!isPlainObject(line)) throwInvalidPurchaseMetadata();
+    const lineId = Object.prototype.hasOwnProperty.call(line, "lineId")
+      ? normalizePurchaseText(line, "lineId", { required: true, maxLength: 160, idLike: true })
+      : normalizePurchaseText(line, "purchaseOrderLineId", { required: true, maxLength: 160, idLike: true });
+    if (seen.has(lineId)) throwInvalidPurchaseMetadata();
+    seen.add(lineId);
+    return {
+      lineId,
+      quantity: normalizePurchaseInteger(line, "quantity", { required: true, min: 1, max: 1000000 })
+    };
+  });
 }
 
 function normalizePurchaseBillBody(body, order) {

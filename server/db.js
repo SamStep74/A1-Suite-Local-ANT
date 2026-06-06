@@ -439,6 +439,28 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_order
       ON purchase_order_lines(org_id, purchase_order_id);
 
+    CREATE TABLE IF NOT EXISTS purchase_receipts (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      purchase_order_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      purchase_order_line_id TEXT NOT NULL REFERENCES purchase_order_lines(id) ON DELETE CASCADE,
+      stock_move_id TEXT NOT NULL REFERENCES stock_moves(id) ON DELETE CASCADE,
+      quantity INTEGER NOT NULL,
+      received_at TEXT NOT NULL,
+      reference TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_receipts_order
+      ON purchase_receipts(org_id, purchase_order_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_receipts_line
+      ON purchase_receipts(org_id, purchase_order_line_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_receipts_reference
+      ON purchase_receipts(org_id, purchase_order_id, reference);
+
     CREATE TABLE IF NOT EXISTS crm_leads (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -6948,6 +6970,29 @@ function ensurePurchaseLayer(db) {
   if (!purchaseOrderLineColumns.has("vendor_price_id")) db.exec("ALTER TABLE purchase_order_lines ADD COLUMN vendor_price_id TEXT REFERENCES purchase_vendor_prices(id) ON DELETE SET NULL");
   db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_vendor_price ON purchase_order_lines(org_id, vendor_price_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_vendor_prices_vendor ON purchase_vendor_prices(org_id, vendor_id, status, catalog_item_id)");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS purchase_receipts (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      purchase_order_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      purchase_order_line_id TEXT NOT NULL REFERENCES purchase_order_lines(id) ON DELETE CASCADE,
+      stock_move_id TEXT NOT NULL REFERENCES stock_moves(id) ON DELETE CASCADE,
+      quantity INTEGER NOT NULL,
+      received_at TEXT NOT NULL,
+      reference TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_receipts_order
+      ON purchase_receipts(org_id, purchase_order_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_receipts_line
+      ON purchase_receipts(org_id, purchase_order_line_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_receipts_reference
+      ON purchase_receipts(org_id, purchase_order_id, reference);
+  `);
 
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) seedPurchaseVendors(db, org.id);

@@ -207,10 +207,333 @@ test("purchase: RFQ -> confirmed PO -> stock receipt -> vendor bill", async () =
     const backupTables = backup.json().backup.payload.tables;
     assert.ok(backupTables.purchase_orders.some(item => item.id === order.id && item.bill_id === billedBody.bill.id));
     assert.ok(backupTables.purchase_order_lines.some(item => item.purchase_order_id === order.id && item.stock_move_id === receivedBody.stockMoves[0].id));
+    assert.ok(backupTables.purchase_receipts.some(item => item.purchase_order_id === order.id && item.stock_move_id === receivedBody.stockMoves[0].id));
     assert.ok(backupTables.purchase_vendors.some(item => item.id === "vendor-yerevan-hardware-supply"));
     assert.ok(backupTables.purchase_vendor_prices.some(item => item.vendor_id === "vendor-yerevan-hardware-supply"));
     assert.ok(backupTables.bills.some(item => item.id === billedBody.bill.id && item.total === 144000));
     assert.ok(Array.isArray(backupTables.bill_payments));
+  } finally {
+    await app.close();
+  }
+});
+
+test("purchase: partial receipts accumulate stock evidence before final billing", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operatorCookie = await login(app, "operator@armosphera.local");
+    const accountantCookie = await login(app, "accountant@armosphera.local");
+    const orgId = "org-armosphera-demo";
+    const openPeriod = app.db.prepare("SELECT period_key FROM finance_periods WHERE org_id = ? AND status = 'open' LIMIT 1").get(orgId).period_key;
+    const before = {
+      stockMoves: rowCount(app, "stock_moves", orgId),
+      purchaseReceipts: rowCount(app, "purchase_receipts", orgId),
+      bills: rowCount(app, "bills", orgId),
+      mainStock: stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity,
+      partialEvents: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE org_id = ? AND event_type = ?").get(orgId, "purchase.order.partially_received").count
+    };
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/purchase/orders",
+      headers: { cookie: operatorCookie },
+      payload: {
+        orderNumber: "PO-PARTIAL-0001",
+        supplier: "Yerevan Hardware Supply",
+        supplierTaxId: "01234568",
+        orderDate: `${openPeriod}-06`,
+        expectedDate: `${openPeriod}-10`,
+        lines: [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 3, unitCost: 60000 }]
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const order = created.json().order;
+    const line = order.lines[0];
+
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/confirm`,
+      headers: { cookie: operatorCookie },
+      payload: {}
+    });
+    assert.equal(confirmed.statusCode, 200, confirmed.body);
+
+    const firstReceipt = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/receive`,
+      headers: { cookie: operatorCookie },
+      payload: {
+        receivedAt: `${openPeriod}-10`,
+        reference: "RCPT-PO-PARTIAL-0001-A",
+        lines: [{ lineId: line.id, quantity: 1 }]
+      }
+    });
+    assert.equal(firstReceipt.statusCode, 200, firstReceipt.body);
+    const firstReceiptBody = firstReceipt.json();
+    assert.equal(firstReceiptBody.order.status, "partial");
+    assert.equal(firstReceiptBody.order.receivedQuantity, 1);
+    assert.equal(firstReceiptBody.order.remainingQuantity, 2);
+    assert.equal(firstReceiptBody.order.lines[0].receivedQuantity, 1);
+    assert.equal(firstReceiptBody.order.lines[0].remainingQuantity, 2);
+    assert.equal(firstReceiptBody.order.lines[0].receipts.length, 1);
+    assert.equal(firstReceiptBody.stockMoves.length, 1);
+    assert.equal(firstReceiptBody.stockMoves[0].quantity, 1);
+    assert.equal(firstReceiptBody.receipts[0].quantity, 1);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 1);
+    assert.equal(rowCount(app, "purchase_receipts", orgId), before.purchaseReceipts + 1);
+    assert.equal(stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity, before.mainStock + 1);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE org_id = ? AND event_type = ?").get(orgId, "purchase.order.partially_received").count, before.partialEvents + 1);
+
+    const duplicateReceipt = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/receive`,
+      headers: { cookie: operatorCookie },
+      payload: {
+        receivedAt: `${openPeriod}-10`,
+        reference: "RCPT-PO-PARTIAL-0001-A",
+        lines: [{ lineId: line.id, quantity: 1 }]
+      }
+    });
+    assert.equal(duplicateReceipt.statusCode, 200, duplicateReceipt.body);
+    assert.equal(duplicateReceipt.json().idempotent, true);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 1);
+    assert.equal(rowCount(app, "purchase_receipts", orgId), before.purchaseReceipts + 1);
+
+    const conflictingDuplicateReference = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/receive`,
+      headers: { cookie: operatorCookie },
+      payload: {
+        receivedAt: `${openPeriod}-10`,
+        reference: "RCPT-PO-PARTIAL-0001-A",
+        lines: [{ lineId: line.id, quantity: 2 }]
+      }
+    });
+    assert.equal(conflictingDuplicateReference.statusCode, 409, conflictingDuplicateReference.body);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 1);
+    assert.equal(rowCount(app, "purchase_receipts", orgId), before.purchaseReceipts + 1);
+
+    const billWhilePartial = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/bill`,
+      headers: { cookie: accountantCookie },
+      payload: { billDate: `${openPeriod}-10`, dueDate: `${openPeriod}-24` }
+    });
+    assert.equal(billWhilePartial.statusCode, 409, billWhilePartial.body);
+    assert.equal(rowCount(app, "bills", orgId), before.bills);
+
+    const overReceipt = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/receive`,
+      headers: { cookie: operatorCookie },
+      payload: {
+        receivedAt: `${openPeriod}-11`,
+        reference: "RCPT-PO-PARTIAL-0001-OVER",
+        lines: [{ lineId: line.id, quantity: 3 }]
+      }
+    });
+    assert.equal(overReceipt.statusCode, 409, overReceipt.body);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 1);
+    assert.equal(rowCount(app, "purchase_receipts", orgId), before.purchaseReceipts + 1);
+
+    const repeatedConfirm = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/confirm`,
+      headers: { cookie: operatorCookie },
+      payload: {}
+    });
+    assert.equal(repeatedConfirm.statusCode, 200, repeatedConfirm.body);
+    assert.equal(repeatedConfirm.json().idempotent, true);
+
+    const finalReceipt = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/receive`,
+      headers: { cookie: operatorCookie },
+      payload: {
+        receivedAt: `${openPeriod}-12`,
+        reference: "RCPT-PO-PARTIAL-0001-B",
+        lines: [{ purchaseOrderLineId: line.id, quantity: 2 }]
+      }
+    });
+    assert.equal(finalReceipt.statusCode, 200, finalReceipt.body);
+    const finalReceiptBody = finalReceipt.json();
+    assert.equal(finalReceiptBody.order.status, "received");
+    assert.equal(finalReceiptBody.order.receivedQuantity, 3);
+    assert.equal(finalReceiptBody.order.remainingQuantity, 0);
+    assert.equal(finalReceiptBody.order.lines[0].receipts.length, 2);
+    assert.equal(finalReceiptBody.stockMoves[0].quantity, 2);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 2);
+    assert.equal(rowCount(app, "purchase_receipts", orgId), before.purchaseReceipts + 2);
+    assert.equal(stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity, before.mainStock + 3);
+
+    const billed = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/bill`,
+      headers: { cookie: accountantCookie },
+      payload: {
+        billDate: `${openPeriod}-12`,
+        dueDate: `${openPeriod}-24`,
+        description: "Supplier invoice after full partial-receipt completion"
+      }
+    });
+    assert.equal(billed.statusCode, 200, billed.body);
+    assert.equal(billed.json().order.status, "billed");
+    assert.equal(billed.json().bill.total, 216000);
+  } finally {
+    await app.close();
+  }
+});
+
+test("purchase: partial receipts preserve receipt evidence and block billing until complete", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const accountant = await login(app, "accountant@armosphera.local");
+    const owner = await login(app);
+    const orgId = "org-armosphera-demo";
+    const openPeriod = app.db.prepare("SELECT period_key FROM finance_periods WHERE org_id = ? AND status = 'open' LIMIT 1").get(orgId).period_key;
+    const before = {
+      stockMoves: rowCount(app, "stock_moves", orgId),
+      receipts: rowCount(app, "purchase_receipts", orgId),
+      bills: rowCount(app, "bills", orgId),
+      events: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE org_id = ? AND event_type LIKE ?").get(orgId, "purchase.order.%").count,
+      audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type LIKE ?").get(orgId, "purchase.order.%").count,
+      mainStock: stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse")
+    };
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/purchase/orders",
+      headers: { cookie: operator },
+      payload: {
+        orderNumber: "PO-PARTIAL-0001",
+        supplier: "Yerevan Hardware Supply",
+        supplierTaxId: "01234568",
+        orderDate: `${openPeriod}-10`,
+        expectedDate: `${openPeriod}-15`,
+        lines: [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 5, unitCost: 60000 }]
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const order = created.json().order;
+    const line = order.lines[0];
+
+    const confirmed = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/confirm`,
+      headers: { cookie: operator },
+      payload: {}
+    });
+    assert.equal(confirmed.statusCode, 200, confirmed.body);
+
+    const firstReceipt = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/receive`,
+      headers: { cookie: operator },
+      payload: {
+        receivedAt: `${openPeriod}-11`,
+        reference: "RCPT-PO-PARTIAL-1",
+        lines: [{ lineId: line.id, quantity: 2 }]
+      }
+    });
+    assert.equal(firstReceipt.statusCode, 200, firstReceipt.body);
+    const firstBody = firstReceipt.json();
+    assert.equal(firstBody.order.status, "partial");
+    assert.equal(firstBody.order.receivedQuantity, 2);
+    assert.equal(firstBody.order.remainingQuantity, 3);
+    assert.equal(firstBody.order.lines[0].receivedQuantity, 2);
+    assert.equal(firstBody.order.lines[0].remainingQuantity, 3);
+    assert.equal(firstBody.order.lines[0].receipts.length, 1);
+    assert.equal(firstBody.receipts.length, 1);
+    assert.equal(firstBody.receipts[0].quantity, 2);
+    assert.equal(firstBody.stockMoves.length, 1);
+    assert.equal(firstBody.stockMoves[0].quantity, 2);
+    assert.equal(rowCount(app, "purchase_receipts", orgId), before.receipts + 1);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 1);
+    assert.equal(stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity, before.mainStock.quantity + 2);
+
+    const duplicateFirstReceipt = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/receive`,
+      headers: { cookie: operator },
+      payload: {
+        receivedAt: `${openPeriod}-11`,
+        reference: "RCPT-PO-PARTIAL-1",
+        lines: [{ lineId: line.id, quantity: 2 }]
+      }
+    });
+    assert.equal(duplicateFirstReceipt.statusCode, 200, duplicateFirstReceipt.body);
+    assert.equal(duplicateFirstReceipt.json().idempotent, true);
+    assert.equal(rowCount(app, "purchase_receipts", orgId), before.receipts + 1);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 1);
+
+    const overReceipt = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/receive`,
+      headers: { cookie: operator },
+      payload: {
+        receivedAt: `${openPeriod}-12`,
+        reference: "RCPT-PO-PARTIAL-OVER",
+        lines: [{ lineId: line.id, quantity: 4 }]
+      }
+    });
+    assert.equal(overReceipt.statusCode, 409, overReceipt.body);
+    assert.equal(rowCount(app, "purchase_receipts", orgId), before.receipts + 1);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 1);
+
+    const earlyBill = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/bill`,
+      headers: { cookie: accountant },
+      payload: { billDate: `${openPeriod}-12`, dueDate: `${openPeriod}-20` }
+    });
+    assert.equal(earlyBill.statusCode, 409, earlyBill.body);
+    assert.equal(rowCount(app, "bills", orgId), before.bills);
+
+    const finalReceipt = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/receive`,
+      headers: { cookie: operator },
+      payload: {
+        receivedAt: `${openPeriod}-12`,
+        reference: "RCPT-PO-PARTIAL-2",
+        lines: [{ lineId: line.id, quantity: 3 }]
+      }
+    });
+    assert.equal(finalReceipt.statusCode, 200, finalReceipt.body);
+    const finalBody = finalReceipt.json();
+    assert.equal(finalBody.order.status, "received");
+    assert.equal(finalBody.order.receivedQuantity, 5);
+    assert.equal(finalBody.order.remainingQuantity, 0);
+    assert.equal(finalBody.order.receiptCount, 2);
+    assert.equal(finalBody.order.lines[0].receipts.length, 2);
+    assert.equal(rowCount(app, "purchase_receipts", orgId), before.receipts + 2);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 2);
+    assert.equal(stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity, before.mainStock.quantity + 5);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE org_id = ? AND event_type LIKE ?").get(orgId, "purchase.order.%").count, before.events + 4);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type LIKE ?").get(orgId, "purchase.order.%").count, before.audits + 4);
+
+    const billed = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/bill`,
+      headers: { cookie: accountant },
+      payload: { billDate: `${openPeriod}-12`, dueDate: `${openPeriod}-20` }
+    });
+    assert.equal(billed.statusCode, 200, billed.body);
+    assert.equal(billed.json().bill.total, 360000);
+
+    const backup = await app.inject({
+      method: "POST",
+      url: "/api/admin/backups",
+      headers: { cookie: owner },
+      payload: { note: "Partial purchase receipts must restore with stock evidence." }
+    });
+    assert.equal(backup.statusCode, 200, backup.body);
+    const backupTables = backup.json().backup.payload.tables;
+    assert.ok(backupTables.purchase_receipts.some(item => item.purchase_order_id === order.id && item.quantity === 2));
+    assert.ok(backupTables.purchase_receipts.some(item => item.purchase_order_id === order.id && item.quantity === 3));
+    assert.ok(backupTables.purchase_order_lines.some(item => item.purchase_order_id === order.id && item.received_quantity === 5));
   } finally {
     await app.close();
   }
