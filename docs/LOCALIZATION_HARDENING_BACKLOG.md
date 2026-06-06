@@ -46,10 +46,10 @@ cited statute is confirmed** — fabricating a tax rule is worse than leaving a 
 
 ## 🟡 Open — needs PRIMARY-SOURCE confirmation (do NOT implement until sourced)
 
-### [CRITICAL] payroll: health-insurance withholding is INCORRECT — over-withholds mid-income (PR #43)
-- **Location:** `server/armeniaPayroll.js` — `healthInsurance()`, `computePayroll()` (`totalWithholdings = tax + pen + stamp + health`)
-- **Status:** **CONFIRMED WRONG** by research 2026-06-06 (profin.am + corroborating EN sources). Was "unverified"; now verified incorrect.
-- **What PR #43 does (wrong):** withholds 4,800/10,800 health insurance at two bands (200,001 / 500,000) **plus** the full stamp duty, asserting offset = 0.
+### [✅ RESOLVED — PR #56] payroll: stamp-duty over-withholding fixed; health insurance was already correct
+- **Location:** `server/armeniaPayroll.js` — `stampDuty()` (fixed), `healthInsurance()` (unchanged)
+- **Status:** **FIXED 2026-06-06 (PR #56, user-authorized).** Reading the actual code showed the root cause was NOT health insurance but the **stamp duty**: PR #43 charged a baseless **15,000** above 1M gross. Corrected to a **flat 1,000/mo** for all employees (the 2026 revision). Health insurance was left as-is — it is correct as deduction lines (see below). **Residual (low risk, not modeled):** social-package staff get no reimbursement → net higher; confirm vs `arlis.am ՀՕ-459-Ն` with an accountant.
+- **What PR #43 did wrong:** `stampDuty` returned 15,000 above 1,000,000 gross — no source supports this; it over-withheld ~14,000/mo from high earners. Health (4,800/10,800) was already right.
 - **Actual 2026 RA structure (effective monthly EMPLOYEE cost by gross):**
 
   | Gross salary band (AMD) | Effective employee cost (AMD/mo) |
