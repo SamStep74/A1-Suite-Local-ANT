@@ -4,7 +4,7 @@
 // components are employee withholdings off the SAME gross (read independently):
 //   1. Personal income tax (եկամտային հարկ): flat 20% (phased reduction complete 2023).
 //   2. Mandatory funded pension (կուտակային վճար): tiered with a cap.
-//   3. Stamp duty / military payment (դրոշմանիշային վճար): 2 brackets (since Dec 2025).
+//   3. Stamp duty / military payment (դրոշմանիշային վճար): flat 1,000/mo (2026 revision).
 //   4. Universal health-insurance premium (առողջության ապահովագրավճար): Dec-2025 law.
 // Sourced from official arlis.am laws and SRC guidance; whole dram via the kernel.
 //
@@ -19,10 +19,17 @@ const PENSION_LOW_CEIL = 500000;
 const PENSION_CAP_THRESHOLD = 1125000;
 const PENSION_CAP = 87500;
 
-const STAMP_BRACKET_THRESHOLD = 1000000;
-const STAMP_LOW = 1000;
-const STAMP_HIGH = 15000;
+// 2026: the military stamp duty was REVISED to a flat 1,000/mo for all employees,
+// replacing the former 1,500/3,000/5,500/8,500 salary tiers. No upper bracket exists.
+// Sources: profin.am ("set at 1,000 instead of 1,500/3,000/5,500/8,500"); armenian-lawyer.com
+// payroll guide. (The previous 15,000 high bracket had no source basis — it over-withheld.)
+const STAMP_DUTY_2026 = 1000;
 
+// Health insurance (2026): full monthly premium is 10,800. The 200,001–500,000 band
+// nets to 4,800 after the ~6,000 state reimbursement granted to NON-social-package
+// employees (education/culture/social-protection state staff get NO reimbursement →
+// their net is higher; that edge is not modeled here). The full premium applies above
+// 500,000. The ≤200,000 obligation begins in 2027. Sources: profin.am; arlis.am ՀՕ-459-Ն.
 const HEALTH_INSURANCE_MIN_GROSS = 200001;
 const HEALTH_INSURANCE_LOW_CEIL = 500000;
 const HEALTH_INSURANCE_LOW = 4800;
@@ -43,8 +50,7 @@ function pension(gross) {
 
 function stampDuty(gross) {
   const g = roundAmd(gross);
-  if (g <= 0) return 0;
-  return g <= STAMP_BRACKET_THRESHOLD ? STAMP_LOW : STAMP_HIGH;
+  return g <= 0 ? 0 : STAMP_DUTY_2026;
 }
 
 function healthInsurance(gross) {

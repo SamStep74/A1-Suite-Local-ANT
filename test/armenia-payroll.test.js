@@ -29,10 +29,13 @@ test("payroll: pension is continuous across the 500k tier boundary", () => {
   assert.equal(pension(500001), 25000); // high side ≈ 25,000
 });
 
-test("payroll: stamp duty has two brackets (since Dec 2025), zero for no salary", () => {
+test("payroll: stamp duty is a flat 1,000/mo (2026 revision), zero for no salary", () => {
+  // 2026: the military stamp duty was revised to a flat 1,000/mo for all employees,
+  // replacing the former 1,500/3,000/5,500/8,500 tiers. No upper bracket exists.
   assert.equal(stampDuty(300000), 1000);
   assert.equal(stampDuty(1000000), 1000);
-  assert.equal(stampDuty(1000001), 15000);
+  assert.equal(stampDuty(1000001), 1000);
+  assert.equal(stampDuty(5000000), 1000);
   assert.equal(stampDuty(0), 0);
 });
 
@@ -55,13 +58,14 @@ test("payroll: computePayroll nets gross minus income tax, pension, stamp duty, 
   assert.equal(p.net, 573200);
 });
 
-test("payroll: a high earner hits the pension cap and the upper stamp bracket", () => {
+test("payroll: a high earner hits the pension cap; stamp duty stays flat 1,000 (2026)", () => {
   const p = computePayroll(1200000);
   assert.equal(p.incomeTax, 240000);
   assert.equal(p.pension, 87500);
-  assert.equal(p.stampDuty, 15000);
+  assert.equal(p.stampDuty, 1000);
   assert.equal(p.healthInsurance, 10800);
-  assert.equal(p.net, 846700);
+  assert.equal(p.totalWithholdings, 339300);
+  assert.equal(p.net, 860700);
 });
 
 test("payroll: zero gross is all zeros (no phantom stamp duty)", () => {
