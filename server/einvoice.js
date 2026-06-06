@@ -15,9 +15,21 @@
 //
 // Pure functions, no I/O.
 
-const { roundAmd } = require("./localization");
+const { roundAmd, isValidHvhh } = require("./localization");
 
 const EINVOICE_NAMESPACE = "urn:hayhashvapah:einvoice:1";
+
+// VAT rates that may appear on an ISSUED e-invoice line: 20% standard and 0%
+// (zero-rated / exempt, rendered as an empty rate). 16.67% is the IMPUTED rate
+// used only when computing the VAT return — it is never an issued-invoice rate,
+// so it is intentionally excluded here. No public XSD exists (it ships inside the
+// SRC desktop program), so this is a STRUCTURAL compliance gate, not schema validation.
+const ISSUED_INVOICE_VAT_RATES = [0, 20];
+const MAX_LINE_DESCRIPTION = 256; // official: line item name ≤ 256 characters
+
+function str(value) {
+  return String(value == null ? "" : value).trim();
+}
 
 function xmlEscape(value) {
   return String(value == null ? "" : value)
@@ -127,10 +139,102 @@ function buildEInvoiceXml(invoice = {}) {
   return out.join("\n");
 }
 
+// Structural compliance gate for an e-invoice BEFORE it is mapped to the official
+// SRC XSD and submitted. Returns { ok, errors:[{field, code, message}] } and never
+// throws on malformed input, so callers can validate-then-build (submission) or
+// build-raw (drafts/previews). Fails CLOSED on every mandatory SRC field.
+function validateEInvoice(invoice = {}) {
+  const inv = invoice || {};
+  const errors = [];
+  const add = (field, code, message) => errors.push({ field, code, message });
+
+  if (!str(inv.transactionType)) {
+    add(
+      "transactionType",
+      "MISSING_TRANSACTION_TYPE",
+      "Գործարքի տեսակ (transaction type) is mandatory for SRC e-invoices since 2025-03-01.",
+    );
+  }
+
+  if (!str(inv.number)) {
+    add("number", "MISSING_NUMBER", "Invoice number/series is required.");
+  }
+
+  const issueDate = str(inv.issueDate);
+  if (!issueDate) {
+    add("issueDate", "MISSING_ISSUE_DATE", "Issue date is required.");
+  } else if (!/^\d{4}-\d{2}-\d{2}/.test(issueDate)) {
+    add("issueDate", "INVALID_ISSUE_DATE", "Issue date must be ISO format (YYYY-MM-DD).");
+  }
+
+  const supplier = inv.supplier || {};
+  if (!str(supplier.name)) {
+    add("supplier.name", "MISSING_SUPPLIER_NAME", "Supplier name is required.");
+  }
+  const supplierHvhh = str(supplier.hvhh || supplier.taxId);
+  if (!supplierHvhh) {
+    add("supplier.hvhh", "MISSING_SUPPLIER_HVHH", "Supplier ՀՎՀՀ (tax ID) is required.");
+  } else if (!isValidHvhh(supplierHvhh)) {
+    add("supplier.hvhh", "INVALID_SUPPLIER_HVHH", "Supplier ՀՎՀՀ is malformed (expected 8 digits).");
+  }
+
+  // Buyer is identified by ՀՎՀՀ (organization) OR a passport (individual) — one is required.
+  const buyer = inv.buyer || {};
+  const buyerHvhh = str(buyer.hvhh || buyer.taxId);
+  const buyerPassport = str(buyer.passport);
+  if (!buyerHvhh && !buyerPassport) {
+    add(
+      "buyer",
+      "MISSING_BUYER_ID",
+      "Buyer must be identified by ՀՎՀՀ (organization) or passport (individual).",
+    );
+  } else if (buyerHvhh && !isValidHvhh(buyerHvhh)) {
+    add("buyer.hvhh", "INVALID_BUYER_HVHH", "Buyer ՀՎՀՀ is malformed (expected 8 digits).");
+  }
+
+  const lines = Array.isArray(inv.lines) ? inv.lines : [];
+  if (lines.length === 0) {
+    add("lines", "NO_LINES", "At least one invoice line is required.");
+  } else {
+    lines.forEach((line, i) => {
+      const pos = i + 1; // 1-based positional path, e.g. lines[2].description
+      const l = line || {};
+      const description = str(l.description);
+      if (!description || description.length > MAX_LINE_DESCRIPTION) {
+        add(
+          `lines[${pos}].description`,
+          "INVALID_LINE_DESCRIPTION",
+          `Line description is required and must be ≤ ${MAX_LINE_DESCRIPTION} characters.`,
+        );
+      }
+      const quantity = l.quantity != null ? Number(l.quantity) : 1;
+      if (!Number.isFinite(quantity) || quantity <= 0) {
+        add(`lines[${pos}].quantity`, "INVALID_LINE_QUANTITY", "Line quantity must be a positive number.");
+      }
+      const net = l.netAmount != null ? Number(l.netAmount) : 0;
+      if (!Number.isFinite(net) || net < 0) {
+        add(`lines[${pos}].netAmount`, "INVALID_LINE_NET", "Line net amount must be a non-negative number.");
+      }
+      const rate = str(l.vatRate) !== "" ? Number(l.vatRate) : 0;
+      if (!ISSUED_INVOICE_VAT_RATES.includes(rate)) {
+        add(
+          `lines[${pos}].vatRate`,
+          "INVALID_LINE_VAT_RATE",
+          `Line VAT rate must be ${ISSUED_INVOICE_VAT_RATES.join("% or ")}% (16.67% is imputed — VAT-return only).`,
+        );
+      }
+    });
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
 module.exports = {
   EINVOICE_NAMESPACE,
+  ISSUED_INVOICE_VAT_RATES,
   xmlEscape,
   normalizeLine,
   eInvoiceTotals,
   buildEInvoiceXml,
+  validateEInvoice,
 };
