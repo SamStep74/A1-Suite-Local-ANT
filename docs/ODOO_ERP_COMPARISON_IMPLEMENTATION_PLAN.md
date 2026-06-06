@@ -74,7 +74,7 @@ Source: [Odoo Purchase](https://www.odoo.com/documentation/19.0/applications/inv
 
 Comparison to A1:
 
-- This is A1's largest ERP gap. A1 currently has finance, CRM, projects, service, docs, forms, and workflow; it does not yet have stock locations, stock moves, purchase orders, warehouses, product valuation, lots/serials, or procurement workflows.
+- This remains one of A1's largest ERP gaps, but the first catalog/inventory spine is now shipped: product master rows, stock locations, stock balances, governed stock moves, and a Suite sidebar workspace. A1 still lacks purchase orders, warehouse operations depth, replenishment, valuation accounting, lots/serials, and procurement workflows.
 - This should be the first major post-core module because it connects CRM quotes, finance invoices, eCommerce, POS, and Armenian retail/wholesale needs.
 
 ### Manufacturing, Quality, Maintenance, PLM, And Repairs
@@ -221,8 +221,8 @@ Major A1 gaps relative to Odoo:
 
 | Area | Odoo capability | A1 status | Priority |
 |---|---|---|---|
-| Product catalog | Products, variants, UoM, pricelists, discounts, margins | Partial only through quotes/invoices | P0 |
-| Inventory/WMS | Warehouses, locations, stock moves, lots/serials, replenishment, valuation | Missing | P0 |
+| Product catalog | Products, variants, UoM, pricelists, discounts, margins | Shipped core product master + quote-line integration + Catalog & Inventory UI; variants/UoM/pricelists still missing | P0 |
+| Inventory/WMS | Warehouses, locations, stock moves, lots/serials, replenishment, valuation | Shipped core locations/quants/moves + sidebar workspace; advanced WMS and valuation still missing | P0 |
 | Purchase/procurement | RFQ, PO, vendor pricelists, tender/blanket orders, vendor bills | Vendor bills exist, procurement missing | P0 |
 | POS | Browser POS, offline mode, cash sessions, stock sync, receipts | Missing | P1 |
 | eCommerce/portal | Storefront, checkout, B2B/B2C, customer accounts | Public forms/quotes only | P1 |
@@ -298,7 +298,7 @@ Deliverables:
   - Armenian PO and delivery-note templates.
   - Stock valuation entries mapped to RA chart accounts.
 - UI:
-  - Inventory app in sidebar.
+  - Inventory app in sidebar (shipped as Catalog & Inventory workspace on 2026-06-06).
   - Purchase app in sidebar.
   - Product detail stock ledger.
   - Customer 360 and Vendor 360 inventory/procurement panels.

@@ -19,6 +19,9 @@ const DEFAULT_REPORT_DATE = "2026-05-26";
 const SEMANTIC_LAYER_VERSION = "2026-05-27";
 const ARMENIA_TIME_ZONE = "Asia/Yerevan";
 const SYSTEM_APP_ASSIGNMENT_ROLES = new Set(["Admin"]);
+const APP_ASSIGNMENT_ROLE_GUARDS = {
+  inventory: new Set(["Owner", "Admin", "Operator", "Accountant"])
+};
 const ANALYTICS_REPORT_METRICS = {
   owner: [
     "pipeline-value",
@@ -227,7 +230,7 @@ function registerApi(app, db, options = {}) {
     version: "0.1.0",
     locale: "hy-AM",
     dataRegion: "Armenia hosted / private tenant ready",
-    modules: ["suite", "crm", "finance", "desk", "campaigns", "projects", "people", "docs", "analytics", "flow"],
+    modules: ["suite", "crm", "finance", "desk", "campaigns", "projects", "inventory", "people", "docs", "analytics", "flow"],
     platformTenant: publicPlatformTenantSummary(request.a1Tenant, env)
   }));
 
@@ -3263,6 +3266,7 @@ function registerApi(app, db, options = {}) {
       err.statusCode = 404;
       throw err;
     }
+    assertAppAssignmentRoleSupported(appId, role, enabled);
     db.prepare(`
       INSERT INTO app_assignments (org_id, role, app_id, enabled)
       VALUES (?, ?, ?, ?)
@@ -5266,6 +5270,18 @@ function normalizeAppAssignmentEnabled(value) {
   if (value === undefined) return true;
   if (typeof value === "boolean") return value;
   const err = new Error("enabled must be true or false");
+  err.statusCode = 400;
+  throw err;
+}
+
+function isAppAssignmentRoleSupported(appId, role) {
+  const allowedRoles = APP_ASSIGNMENT_ROLE_GUARDS[appId];
+  return !allowedRoles || allowedRoles.has(role);
+}
+
+function assertAppAssignmentRoleSupported(appId, role, enabled) {
+  if (!enabled || isAppAssignmentRoleSupported(appId, role)) return;
+  const err = new Error("Role cannot open this app");
   err.statusCode = 400;
   throw err;
 }
@@ -7800,7 +7816,7 @@ function requireAppAccess(db, user, appId) {
 }
 
 function hasAppAccess(db, user, appId) {
-  return Boolean(db.prepare(`
+  return isAppAssignmentRoleSupported(appId, user.role) && Boolean(db.prepare(`
     SELECT enabled
     FROM app_assignments
     WHERE org_id = ? AND role = ? AND app_id = ? AND enabled = 1
@@ -46195,7 +46211,7 @@ function getAssignedApps(db, orgId, role) {
       AND app_assignments.role = ?
     WHERE COALESCE(app_assignments.enabled, 0) = 1
     ORDER BY apps.priority
-  `).all(orgId, role);
+  `).all(orgId, role).filter(app => isAppAssignmentRoleSupported(app.id, role));
 }
 
 function getAllApps(db, orgId) {

@@ -1,23 +1,25 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-06 · Official localization source metadata and payroll health insurance · 49 tags · **647 tests verified**_
+_Last updated: 2026-06-06 · Catalog & Inventory sidebar workspace · 50 tags · **648 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
 A **sovereign, self-hostable Armenian business operating system** with phased one-to-one *functional* parity to Zoho One. Runs entirely on the customer's own server: a single Node/Fastify + SQLite process serving a React SPA, with **no external data dependency** except opt-in AI. Built for Armenian organizations that cannot use foreign clouds (government, banks, healthcare, legal).
 
-Latest implementation slice: RA localization source metadata and payroll previews are now pinned to official Armenian sources. The VAT-return engine exposes the official SRC unified VAT/excise return source (`N 298-Ն`, arlis.am) and line definitions through the pure engine, authenticated compute API, offline CLI, API docs, and Finance UI source row. The Armenian payroll localization kernel now includes the Dec-2025 universal health-insurance employee withholding: `0` below `200,001 AMD`, `4,800 AMD` through `500,000 AMD`, and `10,800 AMD` from `500,001 AMD`, alongside the existing 20% income tax, pension tiers, and 1,000/15,000 stamp-duty brackets. Verification from `~/dev/A1-Suite-Local`: syntax checks passed for `server/armeniaPayroll.js`, `test/armenia-payroll.test.js`, and `test/localization-routes.test.js`; focused payroll/routes/CLI tests passed (`node --test test/armenia-payroll.test.js`, 8 pass; `node --test test/localization-routes.test.js`, 7 pass; `node --test test/ra-localization-cli.test.js`, 7 pass); broader fiscal/localization suite passed (`node --test test/localization-routes.test.js test/localization.test.js test/armenia-chart-of-accounts.test.js test/armenia-payroll.test.js test/armenia-phone.test.js test/armenia-regions.test.js test/vat-return.test.js test/einvoice.test.js test/ra-localization-cli.test.js`, 74 pass); `git diff --check` passed; `npm run build:ui` passed with the existing Vite chunk-size warning; first full `npm test` exposed only a missing local Playwright Chromium cache, then `npx playwright install chromium` and `node --test test/suite-dashboard-sidebar-openability.test.mjs` passed; final full `npm test` passed (647 pass, 0 fail, 0 cancelled); offline smoke passed (`ARMOSPHERA_ONE_DB=/tmp/a1-suite-localization-source-payroll-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke`, `smoke ok: Armosphera Demo Clinic, apps=10, kpis=4`); browser smoke on `http://127.0.0.1:4197/app/finance` verified payroll preview `health insurance 10,800 AMD`, `stamp duty 1,000 AMD`, `net salary 573,200 AMD`, VAT source row `N 298-Ն · arlis.am`, and captured `/tmp/a1-suite-localization-source-payroll.png` with only the known optional-section `loadOr` fallback warning.
+Latest implementation slice: Catalog & Inventory is now a first-class Suite sidebar product at `/app/inventory`. Fresh and reopened databases seed/repair the `inventory` launcher app, place it after Projects, and assign it only to roles that can load the combined catalog + stock APIs (`Owner`, `Admin`, `Operator`, `Accountant`). The workspace renders product/stock metrics, internal balances, catalog rows, recent stock moves, and a guarded stock-move form whose defaults match backend stock-location rules for transfer, receipt, delivery, adjustment, and scrap. The app-assignment endpoint now rejects attempts to expose Inventory to unsupported roles, and stale hand-edited assignment rows cannot authorize sidebar/app access. Verification from `~/dev/A1-Suite-Local`: focused API/sidebar/catalog/inventory tests passed (`node --test --test-name-pattern "app assignment rejects inventory|owner can update app assignment|app assignment rejects malformed metadata" test/api.test.js`, 3 pass; `node --test test/suite-routes.test.mjs test/suite-dashboard-sidebar-openability.test.mjs test/catalog.test.js test/inventory.test.js`, 19 pass); `npm run build:ui` passed with the existing Vite chunk-size warning; `git diff --check` passed; final full `npm test` passed (648 pass, 0 fail, 0 cancelled); offline smoke passed (`ARMOSPHERA_ONE_DB=/tmp/a1-suite-inventory-ui-smoke-final-2.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke`, `smoke ok: Armosphera Demo Clinic, apps=11, kpis=4`); browser smoke on `http://127.0.0.1:4198/app/inventory` verified the active Inventory sidebar route, rendered defaults `WH/STOCK -> WH/OUT`, submitted a Scrap move using the corrected default `WH/STOCK -> SCRAP`, showed stock reduced to `11 available`, and reported no browser console warnings/errors.
 
 ---
 
 ## 1. What exists today
 
-### Seven working domains on one shared data graph — a closed revenue loop
+### Eight working domains on one shared data graph — a closed revenue loop
 ```
 Forms (intake) ─▶ CRM (lead→deal→quote) ─▶ Projects (deliver, staffed by People-HR,
    ▲                                          logging billable time)
    │                                              │
  Desk (support) ◀── Docs & Sign (execute) ◀── Finance ◀─ billing seam (time→invoice→ledger)
+                         ▲                         ▲
+                         └──── Catalog & Inventory ┘
 ```
 Every arrow is a **validated FK between modules** sharing `customers` / `deals` / `people_employees` — integration depth, not copy-paste.
 
@@ -29,6 +31,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 | **People-HR** | complete (BE+UI) | employee registry (ՀՎՀՀ/salary) → payroll → ledger |
 | **Docs & Sign** | complete (BE+UI) | document + multi-signer e-signature lifecycle, SHA-256 consent, local-only signers, printable Save-as-PDF evidence certificate |
 | **Projects** | complete (BE+UI) | projects→tasks→milestones→time entries; lazy detail expander |
+| **Catalog & Inventory** | complete (BE+UI) | product master, governed stock locations/quants/moves, sidebar stock operation workspace |
 | **Forms** | complete (BE+UI) | intake forms; PUBLIC submit → creates a CRM lead (rate-limited, key-whitelisted) |
 
 ### Cross-app seams (the "suite, not a folder of apps" proof)

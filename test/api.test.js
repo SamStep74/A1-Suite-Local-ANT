@@ -80,9 +80,10 @@ test("owner login loads organization, app launcher, localization, and audit", as
     const body = response.json();
     assert.equal(body.organization.currency, "AMD");
     assert.equal(body.organization.locale, "hy-AM");
-    assert.equal(body.apps.length, 10);
+    assert.equal(body.apps.length, 11);
     assert.ok(body.apps.some(app => app.id === "finance"));
     assert.ok(body.apps.some(app => app.id === "copilot"));
+    assert.ok(body.apps.some(app => app.id === "inventory"));
     assert.ok(body.localization.some(item => item.key === "vat-20" && item.status === "review"));
 
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
@@ -91,14 +92,16 @@ test("owner login loads organization, app launcher, localization, and audit", as
   });
 });
 
-test("existing suite databases receive the copilot launcher app on reopen", async () => {
+test("existing suite databases receive repaired Suite launcher apps on reopen", async () => {
   const root = fs.mkdtempSync(path.join(os.tmpdir(), "a1-suite-app-layer-"));
   const dbPath = path.join(root, "suite.sqlite");
   const first = buildApp({ dbPath });
   await first.ready();
   try {
-    const removed = first.db.prepare("DELETE FROM apps WHERE id = ?").run("copilot");
-    assert.equal(removed.changes, 1);
+    const removedCopilot = first.db.prepare("DELETE FROM apps WHERE id = ?").run("copilot");
+    const removedInventory = first.db.prepare("DELETE FROM apps WHERE id = ?").run("inventory");
+    assert.equal(removedCopilot.changes, 1);
+    assert.equal(removedInventory.changes, 1);
   } finally {
     await first.close();
   }
@@ -109,17 +112,26 @@ test("existing suite databases receive the copilot launcher app on reopen", asyn
     const row = second.db.prepare("SELECT id, priority FROM apps WHERE id = ?").get("copilot");
     assert.equal(row.id, "copilot");
     assert.equal(row.priority, 3);
+    const inventory = second.db.prepare("SELECT id, priority FROM apps WHERE id = ?").get("inventory");
+    assert.equal(inventory.id, "inventory");
+    assert.equal(inventory.priority, 7);
     const assignment = second.db.prepare(`
       SELECT enabled FROM app_assignments
       WHERE role = ? AND app_id = ?
     `).get("Accountant", "copilot");
     assert.equal(assignment.enabled, 1);
+    const inventoryAssignment = second.db.prepare(`
+      SELECT enabled FROM app_assignments
+      WHERE role = ? AND app_id = ?
+    `).get("Operator", "inventory");
+    assert.equal(inventoryAssignment.enabled, 1);
 
     const cookie = await login(second);
     const suite = await second.inject({ method: "GET", url: "/api/suite", headers: { cookie } });
     assert.equal(suite.statusCode, 200, suite.body);
     const appIds = suite.json().apps.map(app => app.id);
     assert.equal(appIds[2], "copilot");
+    assert.equal(appIds[6], "inventory");
   } finally {
     await second.close();
     fs.rmSync(root, { recursive: true, force: true });
@@ -177,7 +189,7 @@ test("role-based app entitlements hide finance from support users", async () => 
 test("expanded Armenia SaaS roles receive least-privilege app entitlements", async () => {
   await withApp(async app => {
     const roles = [
-      ["accountant@armosphera.local", "Accountant", ["finance", "copilot", "docs", "analytics"]],
+      ["accountant@armosphera.local", "Accountant", ["finance", "copilot", "inventory", "docs", "analytics"]],
       ["lawyer@armosphera.local", "Lawyer", ["copilot", "docs", "analytics"]],
       ["sales@armosphera.local", "Salesperson", ["crm", "copilot", "campaigns", "docs", "analytics"]],
       ["service.manager@armosphera.local", "Service Manager", ["crm", "copilot", "desk", "docs", "analytics", "flow"]],
@@ -323,6 +335,47 @@ test("app assignment treats omitted enabled as an explicit enable", async () => 
     const audit = await app.inject({ method: "GET", url: "/api/audit", headers: { cookie } });
     assert.equal(audit.statusCode, 200, audit.body);
     assert.ok(audit.json().events.some(event => event.type === "app.assignment.updated" && event.details?.role === "Support" && event.details?.appId === "flow" && event.details?.enabled === true));
+  });
+});
+
+test("app assignment rejects inventory roles without catalog and stock access", async () => {
+  await withApp(async app => {
+    const cookie = await login(app);
+    const countSupportInventoryAssignments = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM app_assignments
+      WHERE org_id = ? AND role = ? AND app_id = ?
+    `).get("org-armosphera-demo", "Support", "inventory").count;
+    const countSupportInventoryAudits = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE type = ?
+        AND json_extract(details, '$.role') = ?
+        AND json_extract(details, '$.appId') = ?
+    `).get("app.assignment.updated", "Support", "inventory").count;
+    const beforeAssignments = countSupportInventoryAssignments();
+    const beforeAudits = countSupportInventoryAudits();
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: "/api/apps/inventory/assign",
+      headers: { cookie },
+      payload: { role: "Support", enabled: true }
+    });
+    assert.equal(rejected.statusCode, 400, rejected.body);
+    assert.match(rejected.body, /Role cannot open this app/);
+    assert.equal(countSupportInventoryAssignments(), beforeAssignments);
+    assert.equal(countSupportInventoryAudits(), beforeAudits);
+
+    app.db.prepare(`
+      INSERT OR REPLACE INTO app_assignments (org_id, role, app_id, enabled)
+      VALUES (?, ?, ?, ?)
+    `).run("org-armosphera-demo", "Support", "inventory", 1);
+
+    const supportCookie = await login(app, "support@armosphera.local");
+    const supportSuite = await app.inject({ method: "GET", url: "/api/suite", headers: { cookie: supportCookie } });
+    assert.equal(supportSuite.statusCode, 200, supportSuite.body);
+    assert.equal(supportSuite.json().apps.some(app => app.id === "inventory"), false);
   });
 });
 

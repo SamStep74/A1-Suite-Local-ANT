@@ -11,6 +11,7 @@ import { AiOnboardingPanel } from "./ai-onboarding.jsx";
 import { ProductionReadinessPanel } from "./compliance.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
 import { FormCreateForm, FormsRegistryPanel } from "./forms.jsx";
+import { InventoryWorkspacePanel } from "./inventory.jsx";
 import { loadOr } from "./load-section.js";
 import { loadAuditForRole } from "./audit-access.js";
 import {
@@ -134,6 +135,7 @@ function App() {
   const [people, setPeople] = useState(null);
   const [docs, setDocs] = useState(null);
   const [projects, setProjects] = useState(null);
+  const [inventory, setInventory] = useState(null);
   const [forms, setForms] = useState(null);
   const [semanticMetrics, setSemanticMetrics] = useState(null);
   const [semanticSnapshots, setSemanticSnapshots] = useState(null);
@@ -358,6 +360,16 @@ function App() {
         setProjects(projectsData);
       } else {
         setProjects(null);
+      }
+      if (assignedApps.has("inventory")) {
+        const [catalogData, stockData, movesData] = await Promise.all([
+          loadOr({ items: [], categories: [] }, () => api("/api/catalog/items")),
+          loadOr({ stock: [], locations: [] }, () => api("/api/inventory/stock")),
+          loadOr({ moves: [] }, () => api("/api/inventory/moves"))
+        ]);
+        setInventory({ catalog: catalogData, stock: stockData, moves: movesData });
+      } else {
+        setInventory(null);
       }
       if (["Owner", "Auditor"].includes(data.user.role)) {
         const accessReviewData = await loadOr({}, () => api("/api/admin/access-reviews"));
@@ -670,6 +682,7 @@ function App() {
         setCrmForecastData(null);
         setCrmQuotes(null);
         setCrmActivities(null);
+        setInventory(null);
         setCampaignPerformance(null);
         setReceivablesAging(null);
         setSemanticMetrics(null);
@@ -883,6 +896,7 @@ function App() {
         people={people}
         docs={docs}
         projects={projects}
+        inventory={inventory}
         forms={forms}
       semanticMetrics={semanticMetrics}
       semanticSnapshots={semanticSnapshots}
@@ -965,7 +979,7 @@ function Login({ onDone }) {
   );
 }
 
-function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, projects, forms, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, productionReadiness, selectedApp, onSelectApp, onSuiteEvents, onAuditEvents, onReload }) {
+function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, projects, inventory, forms, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, productionReadiness, selectedApp, onSelectApp, onSuiteEvents, onAuditEvents, onReload }) {
   const {
     pilotTemplateData,
     pilotOwnerBriefs,
@@ -1659,6 +1673,18 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
       onReload();
     } catch {
       setActionState(`connector-check:error:${connectorKey}`);
+    }
+  }
+
+  async function createStockMove(payload) {
+    setActionState("inventory-move:running");
+    try {
+      await api("/api/inventory/moves", { method: "POST", body: payload });
+      setActionState("inventory-move:done");
+      onReload();
+    } catch (err) {
+      reportActionError(err);
+      setActionState("inventory-move:error");
     }
   }
 
@@ -3990,6 +4016,16 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
                 <ProjectCreateForm customers={(serviceConsole && serviceConsole.customers) || []} onCreate={createProject} actionState={actionState} />
               )}
             </>
+          )}
+          {inventory && (
+            <div id="suite-app-inventory" className="suite-app-anchor">
+              <InventoryWorkspacePanel
+                data={inventory}
+                canMove={["Owner", "Admin", "Operator", "Accountant"].includes(suite.user.role)}
+                actionState={actionState}
+                onCreateMove={createStockMove}
+              />
+            </div>
           )}
           {forms && (
             <>

@@ -1223,6 +1223,9 @@ textarea {
 .row.privacy-export { background: rgba(45, 108, 223, 0.07); }
 .row.privacy-retention { background: rgba(215, 139, 47, 0.08); }
 .row.privacy-request { background: rgba(178, 58, 72, 0.05); }
+.row.inventory-stock { background: rgba(0, 137, 123, 0.08); }
+.row.inventory-catalog { background: rgba(45, 108, 223, 0.06); }
+.row.inventory-move { background: rgba(215, 139, 47, 0.08); }
 .row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row strong { flex: 0 0 auto; }
 
@@ -1756,6 +1759,21 @@ textarea {
 }
 
 .finance-localization-tools-panel .mini-action {
+  min-width: 0;
+  width: 100%;
+}
+
+.inventory-move-form .inline-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 9px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.inventory-move-form .mini-action {
+  align-self: end;
+  min-height: 44px;
   min-width: 0;
   width: 100%;
 }
