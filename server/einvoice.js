@@ -48,7 +48,8 @@ function normalizeLine(line = {}) {
   const vat = line.vatAmount != null ? roundAmd(line.vatAmount) : roundAmd((net * rate) / 100);
   const excise = roundAmd(line.exciseAmount); // defaults 0
   const envFee = roundAmd(line.envFee); // defaults 0
-  const quantity = line.quantity != null ? Number(line.quantity) : 1;
+  const rawQuantity = line.quantity != null ? Number(line.quantity) : 1;
+  const quantity = Number.isFinite(rawQuantity) ? rawQuantity : 0; // never emit NaN
   const unitPrice = line.unitPrice != null
     ? roundAmd(line.unitPrice)
     : (quantity ? roundAmd(net / quantity) : 0);
@@ -222,6 +223,24 @@ function validateEInvoice(invoice = {}) {
           "INVALID_LINE_VAT_RATE",
           `Line VAT rate must be ${ISSUED_INVOICE_VAT_RATES.join("% or ")}% (16.67% is imputed — VAT-return only).`,
         );
+      }
+      // If an explicit VAT amount is supplied it must be consistent with the line's
+      // rate (whole-dram). Otherwise a line could claim 20% yet declare VAT 0 and
+      // still pass the gate. Skipped when vatAmount is absent (it is then derived).
+      if (l.vatAmount != null && str(l.vatAmount) !== "") {
+        const declaredVat = Number(l.vatAmount);
+        if (!Number.isFinite(declaredVat)) {
+          add(`lines[${pos}].vatAmount`, "INVALID_LINE_VAT_AMOUNT", "Line VAT amount must be a number.");
+        } else {
+          const expectedVat = Math.round((net * rate) / 100);
+          if (Math.abs(declaredVat - expectedVat) > 1) {
+            add(
+              `lines[${pos}].vatAmount`,
+              "LINE_VAT_MISMATCH",
+              `Line VAT amount ${declaredVat} is inconsistent with ${rate}% of net ${net} (expected ~${expectedVat}).`,
+            );
+          }
+        }
       }
     });
   }
