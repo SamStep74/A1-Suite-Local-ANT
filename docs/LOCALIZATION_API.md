@@ -69,12 +69,36 @@ node scripts/ra-localization.js vat-return period.json   # { sales:[…], purcha
 node scripts/ra-localization.js einvoice invoice.json
 ```
 
-## Engines (`server/`)
-`localization.js` (ՀՎՀՀ + AMD money), `armeniaRegions.js`, `armeniaPhone.js`,
-`armeniaChartOfAccounts.js` (+ `.data.js`, the 623-account official chart),
-`vatReturn.js`, `einvoice.js`, `armeniaPayroll.js`. Each is pure, offline, unit-tested.
+## Engines — canonical source: `a1-localization-am`
+
+The engines now live in the standalone repo **[a1-localization-am](https://github.com/SamStep74/A1-Localization-AM)** —
+the single source of truth, shared with HayHashvapah and future A1 products
+(sibling to `a1-ai`). Suite **vendors** a verbatim copy under
+`server/vendor/a1-localization-am/` (pinned commit in its `VENDOR.md`); the
+`server/<engine>.js` files are thin re-export shims, so existing
+`require("./localization")` etc. keep working unchanged:
+
+| `server/<engine>.js` shim | package namespace |
+|---|---|
+| `localization.js` (ՀՎՀՀ + AMD money) | `.localization` |
+| `armeniaRegions.js` | `.regions` |
+| `armeniaPhone.js` | `.phone` |
+| `armeniaChartOfAccounts.js` (623-account official chart) | `.chartOfAccounts` |
+| `vatReturn.js` | `.vatReturn` |
+| `einvoice.js` | `.einvoice` |
+| `armeniaPayroll.js` | `.payroll` |
+
+Each engine is pure, offline, and unit-tested **in the package**. The chart's
+`armeniaChartOfAccounts.data.js` is now an internal detail of the package's chart
+engine (no longer a standalone `server/` file).
+
+> ⚠️ Fixes go **upstream first** (in `a1-localization-am`), then re-vendor into Suite.
+> Do not edit `server/vendor/**` or hand-patch the shims. See
+> `server/vendor/a1-localization-am/VENDOR.md` for the re-vendor procedure.
 
 ## Sources
+> Canonical, maintained citation list: **[a1-localization-am README → Official sources](https://github.com/SamStep74/A1-Localization-AM#official-sources)**. Reproduced here for convenience:
+
 Chart of accounts: RA MoF order [arlis.am/acts/75961](https://www.arlis.am/hy/acts/75961) + accountant.am PDF.
 VAT form: SRC decree N 298-Ն [arlis.am/acts/136996](https://www.arlis.am/hy/acts/136996).
 E-invoice fields: [SRC e-Invoicing User Guide](https://e-invoice.taxservice.am/help/eInvoicingUserGuide.pdf).

@@ -51,6 +51,20 @@ Demo owner:
   (`AI_PROVIDER=local`, Ollama on `127.0.0.1:11434`), with cloud providers opt-in per
   deployment and subject to the same egress allowlist above.
 
+## Armenian localization & fiscal engines
+
+The Republic-of-Armenia fiscal logic — ՀՎՀՀ + AMD money, the 11 marzer + phone
+formats, the 623-account chart of accounts, SRC e-invoice XML, the VAT return
+(decree N 298-Ն), and 2026 payroll — is owned by the standalone package
+**[a1-localization-am](https://github.com/SamStep74/A1-Localization-AM)** (the single
+source of truth, shared with HayHashvapah and future A1 products — sibling to the
+`a1-ai` extraction).
+
+Suite **vendors** a verbatim copy under `server/vendor/a1-localization-am/` (pinned
+commit in its `VENDOR.md`); the `server/<engine>.js` files are thin re-export shims and
+the HTTP surface is mounted by `server/localizationRoutes.js`. Fix bugs upstream in the
+package, then re-vendor — see [`docs/LOCALIZATION_API.md`](docs/LOCALIZATION_API.md).
+
 ## Legal knowledge base (RA-law RAG)
 
 Armenian-law retrieval is local and offline-first. Lexical search (BM25) needs no
