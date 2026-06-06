@@ -26,6 +26,7 @@ function writeEndpoints() {
     ["People run-payroll", "POST", "/api/people/employees/emp-davit/run-payroll", {}],
     ["Forms definition", "POST", "/api/forms", { title: "Audit form", fields: [] }],
     ["Inventory stock move", "POST", "/api/inventory/moves", { catalogItemId: "catitem-pos-barcode-scanner", sourceLocationId: "stockloc-main-warehouse", destinationLocationId: "stockloc-customer", moveType: "outbound", quantity: 1 }],
+    ["Purchase order", "POST", "/api/purchase/orders", { supplier: "Audit Supplier", lines: [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 1 }] }],
     ["Legal source review", "POST", "/api/legal/sources/law-tax-code/reviews", { title: "Audit source", sourceUrl: "https://www.arlis.am/hy/acts/224990", effectiveDate: "2026-05-31", status: "active", reviewNote: "Auditor must not certify legal sources." }],
     ["Finance expense", "POST", "/api/finance/expenses", { description: "x", subtotal: 1000, vat: 200 }],
     ["Finance bill", "POST", "/api/finance/bills", { supplier: "x", subtotal: 1000, vat: 200 }],
@@ -59,7 +60,7 @@ test("auditor-readonly: the same Auditor CAN still read (sanity — it is read-o
     await app.ready();
     const auditor = await login(app, "auditor@armosphera.local");
     // A representative read from each gated domain must succeed (200) for the same principal.
-    for (const url of ["/api/docs/documents", "/api/projects", "/api/people/employees", "/api/forms", "/api/inventory/stock", "/api/finance/trial-balance", "/api/finance/tax-rates", "/api/finance/vat-returns"]) {
+    for (const url of ["/api/docs/documents", "/api/projects", "/api/people/employees", "/api/forms", "/api/inventory/stock", "/api/purchase/orders", "/api/finance/trial-balance", "/api/finance/tax-rates", "/api/finance/vat-returns"]) {
       const res = await app.inject({ method: "GET", url, headers: { cookie: auditor } });
       assert.strictEqual(res.statusCode, 200, `Auditor must be able to read ${url}`);
     }

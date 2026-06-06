@@ -349,6 +349,52 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_stock_moves_locations
       ON stock_moves(org_id, source_location_id, destination_location_id, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS purchase_orders (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      order_number TEXT NOT NULL,
+      supplier TEXT NOT NULL,
+      supplier_tax_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL,
+      subtotal INTEGER NOT NULL DEFAULT 0,
+      vat INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      order_date TEXT NOT NULL,
+      expected_date TEXT NOT NULL,
+      confirmed_at TEXT,
+      received_at TEXT,
+      bill_id TEXT REFERENCES bills(id) ON DELETE SET NULL,
+      receipt_reference TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, order_number)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_orders_status
+      ON purchase_orders(org_id, status, order_date DESC);
+
+    CREATE TABLE IF NOT EXISTS purchase_order_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      purchase_order_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      description TEXT NOT NULL DEFAULT '',
+      quantity INTEGER NOT NULL,
+      received_quantity INTEGER NOT NULL DEFAULT 0,
+      unit_cost INTEGER NOT NULL,
+      subtotal INTEGER NOT NULL,
+      vat INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL,
+      stock_move_id TEXT REFERENCES stock_moves(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_order
+      ON purchase_order_lines(org_id, purchase_order_id);
+
     CREATE TABLE IF NOT EXISTS crm_leads (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
