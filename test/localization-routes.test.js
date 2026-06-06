@@ -63,6 +63,10 @@ test("localizationRoutes: vat-return/compute returns the summary and official fo
   });
   assert.equal(r.summary.outputVat, 200000);
   assert.equal(r.form["7"].vat, 200000);
+  assert.equal(r.formSource.sourceUrl, "https://www.arlis.am/hy/acts/136996");
+  assert.equal(r.formSource.orderNumber, "N 298-Ն");
+  assert.deepEqual(r.formLineDefinitions["7"].fields, ["base", "vat"]);
+  assert.match(r.formLineDefinitions["23"].labelHy, /Հաշվետու ժամանակաշրջանի/);
 });
 
 test("localizationRoutes: einvoice/build returns XML and sets the content type", async () => {
@@ -119,6 +123,9 @@ test("localizationRoutes: rejects malformed query and body metadata before engin
     () => app.routes["POST /api/finance/payroll/compute"]({ body: { gross: { value: 600000 } } }),
     invalid
   );
+  const payroll = await app.routes["POST /api/finance/payroll/compute"]({ body: { gross: 500001 } });
+  assert.equal(payroll.healthInsurance, 10800);
+  assert.equal(payroll.net, 363201);
   await assert.rejects(
     () => app.routes["POST /api/finance/einvoice/build"]({ body: { number: "INV-1\nsecret-einvoice-token" } }),
     invalid

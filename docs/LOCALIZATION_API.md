@@ -27,18 +27,26 @@ e-invoice button, inline ՀՎՀՀ/phone validators) against these routes.
   "purchases": [{ "netAmount": 400000, "vatRate": 20, "source": "import"|"domestic", "recoverable": true }] }
 // →
 { "summary": { "outputVat", "inputVat", "taxableSales", "taxablePurchases", "net", "payable", "creditCarried" },
-  "form": {            // official SRC form lines (decree N 298-Ն), { base, vat }
+  "form": {            // official SRC form line values (decree N 298-Ն), { base, vat }
     "7": {…},  "9": {…},  "12": {base},  "13": {base},  "16": {…total credit},
     "17": {…imports}, "18": {…domestic}, "21": {vat: total debit},
-    "23": { "payable", "recoverable" } } }
+    "23": { "payable", "recoverable" } },
+  "formSource": {
+    "titleHy": "Ավելացված արժեքի հարկի և ակցիզային հարկի միասնական հաշվարկ",
+    "orderNumber": "N 298-Ն",
+    "sourceUrl": "https://www.arlis.am/hy/acts/136996",
+    "effectiveDate": "2018-01-01" },
+  "formLineDefinitions": {
+    "7": { "section": "output", "labelHy": "ԱԱՀ-ի 20% դրույքաչափով հարկվող գործարքներ", "fields": ["base", "vat"] },
+    "23": { "section": "period-net", "labelHy": "Հաշվետու ժամանակաշրջանի համար հաշվարկված ԱԱՀ", "fields": ["payable", "recoverable"] } } }
 ```
 
 ### `POST /api/finance/payroll/compute`
 ```jsonc
 { "gross": 800000 }
-// → { "gross", "incomeTax", "pension", "stampDuty", "totalWithholdings", "net" }
+// → { "gross", "incomeTax", "pension", "stampDuty", "healthInsurance", "totalWithholdings", "net" }
 // income tax 20% · pension tiered (5%/10%−25k/87,500 cap) · stamp duty 1,000/15,000.
-// Health insurance (Dec-2025) intentionally omitted — offset unconfirmed.
+// health insurance: 0 below 200,001 AMD; 4,800 AMD through 500,000; 10,800 AMD from 500,001.
 ```
 
 ### `POST /api/finance/einvoice/build` → e-invoice XML (`application/xml`)
@@ -70,4 +78,4 @@ node scripts/ra-localization.js einvoice invoice.json
 Chart of accounts: RA MoF order [arlis.am/acts/75961](https://www.arlis.am/hy/acts/75961) + accountant.am PDF.
 VAT form: SRC decree N 298-Ն [arlis.am/acts/136996](https://www.arlis.am/hy/acts/136996).
 E-invoice fields: [SRC e-Invoicing User Guide](https://e-invoice.taxservice.am/help/eInvoicingUserGuide.pdf).
-Payroll: PwC Armenia + b24.am. (Full notes in the team memory `ra_official_data_sources`.)
+Payroll: RA universal health-insurance law ՀՕ-459-Ն [arlis.am/acts/218650](https://www.arlis.am/hy/acts/218650) and military stamp-duty law as amended by ՀՕ-477-Ն [arlis.am/acts/218669](https://www.arlis.am/hy/acts/218669/print/act), cross-checked against SRC public guidance.

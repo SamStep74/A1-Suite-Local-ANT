@@ -1,6 +1,13 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
-const { computeVatReturn, vatReturnForm, STANDARD_VAT_RATE, IMPUTED_VAT_RATE } = require("../server/vatReturn");
+const {
+  computeVatReturn,
+  vatReturnForm,
+  STANDARD_VAT_RATE,
+  IMPUTED_VAT_RATE,
+  VAT_RETURN_FORM_SOURCE,
+  VAT_RETURN_FORM_LINE_DEFINITIONS,
+} = require("../server/vatReturn");
 
 test("vat-return: net = output VAT minus recoverable input VAT (payable to SRC)", () => {
   const r = computeVatReturn({
@@ -69,6 +76,19 @@ test("vat-return-form: maps 20% sales to line 7 and rolls up total credit (line 
   const f = vatReturnForm({ sales: [{ netAmount: 1000000, vatRate: 20 }], purchases: [] });
   assert.deepEqual(f.lines["7"], { base: 1000000, vat: 200000 });
   assert.deepEqual(f.lines["16"], { base: 1000000, vat: 200000 });
+});
+
+test("vat-return-form: carries official SRC source metadata and line definitions", () => {
+  const f = vatReturnForm({ sales: [], purchases: [] });
+  assert.equal(f.source, VAT_RETURN_FORM_SOURCE);
+  assert.equal(f.source.sourceUrl, "https://www.arlis.am/hy/acts/136996");
+  assert.equal(f.source.orderNumber, "N 298-Ն");
+  assert.match(f.source.titleHy, /Ավելացված արժեքի հարկ/);
+  assert.equal(f.lineDefinitions, VAT_RETURN_FORM_LINE_DEFINITIONS);
+  assert.deepEqual(f.lineDefinitions["7"].fields, ["base", "vat"]);
+  assert.equal(f.lineDefinitions["7"].section, "output");
+  assert.match(f.lineDefinitions["18"].labelHy, /ձեռք բերված/);
+  assert.deepEqual(f.lineDefinitions["23"].fields, ["payable", "recoverable"]);
 });
 
 test("vat-return-form: separates zero-rated (line 12) from exempt (line 13)", () => {

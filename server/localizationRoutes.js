@@ -165,7 +165,13 @@ function registerLocalizationRoutes(app) {
   app.post("/api/finance/vat-return/compute", async (request) => {
     await app.auth(request);
     const period = normalizeVatReturnPeriod(request.body);
-    return { summary: vatReturn.computeVatReturn(period), form: vatReturn.vatReturnForm(period).lines };
+    const form = vatReturn.vatReturnForm(period);
+    return {
+      summary: vatReturn.computeVatReturn(period),
+      form: form.lines,
+      formSource: form.source,
+      formLineDefinitions: form.lineDefinitions,
+    };
   });
 
   app.post("/api/finance/payroll/compute", async (request) => {

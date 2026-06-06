@@ -3,6 +3,13 @@ import React, { useState } from "react";
 const amd = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 const numericInput = value => Math.round(Number(value) || 0);
 const isoDate = () => new Date().toISOString().slice(0, 10);
+const hostLabel = url => {
+  try {
+    return new URL(String(url || "")).host.replace(/^www\./, "");
+  } catch {
+    return String(url || "official source");
+  }
+};
 
 export function FinanceTrialBalancePanel({ data }) {
   if (!data) return null;
@@ -195,6 +202,10 @@ export function FinanceLocalizationToolsPanel({ request, requestText }) {
   const vat = results.vat || {};
   const vatSummary = vat.summary || {};
   const vatForm = vat.form || {};
+  const vatFormSource = vat.formSource || {};
+  const vatFormLineDefinitions = vat.formLineDefinitions || {};
+  const vatFormSourceUrl = vatFormSource.sourceUrl || "";
+  const vatFormSourceLabel = vatFormSourceUrl ? `${vatFormSource.orderNumber || "N 298-Ն"} · ${hostLabel(vatFormSourceUrl)}` : "";
   const eInvoiceXml = results.einvoice || "";
   const eInvoiceTotal = eInvoiceXml.match(/<TotalAmount>([^<]+)<\/TotalAmount>/)?.[1] || "";
   const eInvoicePreview = eInvoiceXml.split("\n").slice(0, 10).join("\n");
@@ -288,6 +299,8 @@ export function FinanceLocalizationToolsPanel({ request, requestText }) {
         <div className="aging-summary">
           {results.payroll && <div className="metric"><span>income tax</span><strong>{amd(payroll.incomeTax)}</strong></div>}
           {results.payroll && <div className="metric"><span>pension</span><strong>{amd(payroll.pension)}</strong></div>}
+          {results.payroll && <div className="metric"><span>stamp duty</span><strong>{amd(payroll.stampDuty)}</strong></div>}
+          {results.payroll && <div className="metric"><span>health insurance</span><strong>{amd(payroll.healthInsurance)}</strong></div>}
           {results.payroll && <div className="metric"><span>net salary</span><strong>{amd(payroll.net)}</strong></div>}
           {results.vat && <div className="metric"><span>VAT payable</span><strong>{amd(vatSummary.payable)}</strong></div>}
         </div>
@@ -297,10 +310,16 @@ export function FinanceLocalizationToolsPanel({ request, requestText }) {
         <div className="rows">
           {["7", "16", "18", "21", "23"].map(line => (
             <div className="row" key={line}>
-              <span>VAT form line {line}</span>
+              <span>{line} · {vatFormLineDefinitions[line]?.labelHy || "VAT form line"}</span>
               <strong>{vatLineValue(line)}</strong>
             </div>
           ))}
+          {vatFormSourceUrl && (
+            <div className="row">
+              <span>{vatFormSource.titleHy || "ԱԱՀ հաշվարկի պաշտոնական ձև"}</span>
+              <strong><a href={vatFormSourceUrl} target="_blank" rel="noreferrer">{vatFormSourceLabel}</a></strong>
+            </div>
+          )}
         </div>
       )}
 
