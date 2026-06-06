@@ -10,6 +10,14 @@ shipped, actionable-and-sourced, needs-primary-source, and needs-an-accountant/p
 decision. **Do not implement anything in the "needs primary source" section until the
 cited statute is confirmed** — fabricating a tax rule is worse than leaving a seam.
 
+> 🔁 **Single source of truth.** The engines now live in the standalone repo
+> **[a1-localization-am](https://github.com/SamStep74/A1-Localization-AM)** and are
+> vendored into Suite at `server/vendor/a1-localization-am/` (the `server/<engine>.js`
+> files are re-export shims). **Land every fix below in `a1-localization-am` first**,
+> then re-vendor into Suite (and any other consumer) — patching only
+> `A1-Suite-Local/server/` would re-introduce the drift this extraction removed.
+> "Location" paths below refer to the engine module (now `a1-localization-am/src/<file>`).
+
 ---
 
 ## ✅ Shipped this session (audit follow-ups, merged to `main`)
