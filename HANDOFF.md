@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-06 · Purchase vendor/pricelist layer · 50 tags · **focused verification green + rendered proof**_
+_Last updated: 2026-06-06 · Purchase vendor/pricelist layer · 50 tags · **700 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
