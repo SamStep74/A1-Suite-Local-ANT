@@ -165,6 +165,89 @@ function vatReturnForm({ sales = [], purchases = [] } = {}) {
   };
 }
 
+// Cross-foot guard for an assembled VAT-return form (the output of vatReturnForm,
+// possibly after a UI edit). Confirms the official totals tie out EXACTLY — every
+// line is whole-dram, so the totals are integer sums and need no tolerance:
+//   line 16 base = 7+9+12+13 bases · 16 VAT = 7+9 VAT · 21 VAT = 17+18 VAT
+//   line 23 = max(0, 16.vat − 21.vat) payable / recoverable
+// Also flags missing lines, non-numeric / fractional / negative amounts. Returns
+// { ok, errors:[{field, code, message}] } (same contract as validateEInvoice) and
+// never throws — so a finance UI can fail closed before filing.
+const VAT_FORM_REQUIRED_LINES = ["7", "9", "12", "13", "16", "17", "18", "21", "23"];
+const VAT_FORM_LINE_AMOUNT_FIELDS = Object.freeze({
+  "7": ["base", "vat"], "9": ["base", "vat"], "12": ["base"], "13": ["base"],
+  "16": ["base", "vat"], "17": ["base", "vat"], "18": ["base", "vat"],
+  "21": ["vat"], "23": ["payable", "recoverable"],
+});
+
+function validateVatReturnForm(form = {}) {
+  const lines = (form && typeof form === "object" && form.lines) || {};
+  const errors = [];
+  const add = (field, code, message) => errors.push({ field, code, message });
+
+  for (const id of VAT_FORM_REQUIRED_LINES) {
+    if (!lines[id] || typeof lines[id] !== "object") {
+      add(`lines.${id}`, "FORM_MISSING_LINE", `VAT return is missing required line ${id}.`);
+    }
+  }
+
+  for (const [id, fields] of Object.entries(VAT_FORM_LINE_AMOUNT_FIELDS)) {
+    const line = lines[id];
+    if (!line || typeof line !== "object") continue;
+    for (const f of fields) {
+      if (line[f] == null) continue; // absence is covered by the cross-foot checks below
+      const v = line[f];
+      if (typeof v !== "number" || !Number.isFinite(v)) {
+        add(`lines.${id}.${f}`, "FORM_NON_NUMERIC_AMOUNT", `Line ${id}.${f} must be a number.`);
+        continue;
+      }
+      if (!Number.isInteger(v)) {
+        add(`lines.${id}.${f}`, "FORM_NON_INTEGER_AMOUNT", `Line ${id}.${f} must be a whole-dram amount.`);
+      }
+      if (v < 0) {
+        add(`lines.${id}.${f}`, "FORM_NEGATIVE_AMOUNT", `Line ${id}.${f} must not be negative.`);
+      }
+    }
+  }
+
+  // Read a numeric line amount, defaulting absent/invalid to 0 for the cross-foot math.
+  const val = (id, f) => {
+    const line = lines[id];
+    const v = line ? line[f] : undefined;
+    return typeof v === "number" && Number.isFinite(v) ? v : 0;
+  };
+  const has = (...ids) => ids.every((id) => lines[id] && typeof lines[id] === "object");
+
+  if (has("16", "7", "9", "12", "13")) {
+    const expected = val("7", "base") + val("9", "base") + val("12", "base") + val("13", "base");
+    if (val("16", "base") !== expected) {
+      add("lines.16.base", "FORM_16_BASE_MISMATCH", `Line 16 base (${val("16", "base")}) must equal 7+9+12+13 bases (${expected}).`);
+    }
+  }
+  if (has("16", "7", "9")) {
+    const expected = val("7", "vat") + val("9", "vat");
+    if (val("16", "vat") !== expected) {
+      add("lines.16.vat", "FORM_16_VAT_MISMATCH", `Line 16 VAT (${val("16", "vat")}) must equal 7+9 VAT (${expected}).`);
+    }
+  }
+  if (has("21", "17", "18")) {
+    const expected = val("17", "vat") + val("18", "vat");
+    if (val("21", "vat") !== expected) {
+      add("lines.21.vat", "FORM_21_VAT_MISMATCH", `Line 21 VAT (${val("21", "vat")}) must equal 17+18 VAT (${expected}).`);
+    }
+  }
+  if (has("23", "16", "21")) {
+    const net = val("16", "vat") - val("21", "vat");
+    const payable = Math.max(0, net);
+    const recoverable = Math.max(0, -net);
+    if (val("23", "payable") !== payable || val("23", "recoverable") !== recoverable) {
+      add("lines.23", "FORM_23_NET_MISMATCH", `Line 23 must be payable=${payable}, recoverable=${recoverable} (= line16.vat − line21.vat).`);
+    }
+  }
+
+  return { ok: errors.length === 0, errors };
+}
+
 module.exports = {
   STANDARD_VAT_RATE,
   IMPUTED_VAT_RATE,
@@ -172,4 +255,5 @@ module.exports = {
   VAT_RETURN_FORM_LINE_DEFINITIONS,
   computeVatReturn,
   vatReturnForm,
+  validateVatReturnForm,
 };
