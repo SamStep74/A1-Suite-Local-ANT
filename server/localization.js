@@ -63,6 +63,29 @@ function formatAmd(amount, { symbol = true } = {}) {
   return symbol ? `${grouped} ${AMD.symbol}` : grouped;
 }
 
+// Strict, locale-tolerant boundary parser for AMD input. Unlike roundAmd (which
+// returns 0 for anything un-parseable — silently corrupting "1,000" → 0), this
+// returns { ok, amount, error }: it accepts grouped/spaced strings and round-trips
+// formatAmd output, but fails LOUD on missing or non-numeric input. Use it at
+// system boundaries (API bodies, form fields, imports) before trusting an amount;
+// keep roundAmd for internal already-validated numbers.
+function parseAmd(value) {
+  if (typeof value === "number") {
+    if (!Number.isFinite(value)) return { ok: false, amount: 0, error: "Amount must be a finite number." };
+    return { ok: true, amount: roundAmd(value) };
+  }
+  if (value == null) return { ok: false, amount: 0, error: "Amount is required." };
+  const raw = String(value).trim();
+  if (raw === "") return { ok: false, amount: 0, error: "Amount is required." };
+  // Drop grouping separators (spaces, commas) and the AMD symbol/code so a formatted
+  // value round-trips; keep an optional leading sign, digits, and one decimal point.
+  const cleaned = raw.split(AMD.symbol).join("").replace(/AMD/gi, "").replace(/[\s,]/g, "");
+  if (!/^-?\d+(\.\d+)?$/.test(cleaned)) {
+    return { ok: false, amount: 0, error: `Amount is not a valid number: ${raw}` };
+  }
+  return { ok: true, amount: roundAmd(Number(cleaned)) };
+}
+
 module.exports = {
   AMD,
   HVHH_LENGTH,
@@ -70,5 +93,6 @@ module.exports = {
   validateHvhh,
   isValidHvhh,
   roundAmd,
+  parseAmd,
   formatAmd,
 };
