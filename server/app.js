@@ -20,7 +20,8 @@ const SEMANTIC_LAYER_VERSION = "2026-05-27";
 const ARMENIA_TIME_ZONE = "Asia/Yerevan";
 const SYSTEM_APP_ASSIGNMENT_ROLES = new Set(["Admin"]);
 const APP_ASSIGNMENT_ROLE_GUARDS = {
-  inventory: new Set(["Owner", "Admin", "Operator", "Accountant"])
+  inventory: new Set(["Owner", "Admin", "Operator", "Accountant"]),
+  purchase: new Set(["Owner", "Admin", "Operator", "Accountant"])
 };
 const ANALYTICS_REPORT_METRICS = {
   owner: [

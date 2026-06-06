@@ -6462,10 +6462,11 @@ function seedIfEmpty(db) {
     ["campaigns", "Campaigns & Forms", "Marketing", "Lead forms, segments, follow-up campaigns, consent, and unsubscribe.", "/app/campaigns", "new", 5],
     ["projects", "Projects", "Operations", "Client projects, tasks, milestones, time entries, and delivery state.", "/app/projects", "new", 6],
     ["inventory", "Catalog & Inventory", "Operations", "Products, warehouse balances, stock locations, and governed stock moves.", "/app/inventory", "new", 7],
-    ["people", "People", "HR", "Employee directory, onboarding, app access, leave-lite, and payroll handoff.", "/app/people", "new", 8],
-    ["docs", "Docs & Sign", "Documents", "Templates, contracts, signatures, signed archive, and customer documents.", "/app/docs", "new", 9],
-    ["analytics", "Analytics", "BI", "Cross-app dashboards, revenue, receivables, service, and automation KPIs.", "/app/analytics", "partial", 10],
-    ["flow", "Flow & Creator", "Automation", "Event bus, rules, custom fields, custom modules, and applets.", "/app/flow", "partial", 11]
+    ["purchase", "Purchase", "Operations", "RFQs, purchase orders, stock receipts, and AP vendor-bill handoff.", "/app/purchase", "new", 8],
+    ["people", "People", "HR", "Employee directory, onboarding, app access, leave-lite, and payroll handoff.", "/app/people", "new", 9],
+    ["docs", "Docs & Sign", "Documents", "Templates, contracts, signatures, signed archive, and customer documents.", "/app/docs", "new", 10],
+    ["analytics", "Analytics", "BI", "Cross-app dashboards, revenue, receivables, service, and automation KPIs.", "/app/analytics", "partial", 11],
+    ["flow", "Flow & Creator", "Automation", "Event bus, rules, custom fields, custom modules, and applets.", "/app/flow", "partial", 12]
   ];
   const insertApp = db.prepare("INSERT INTO apps (id, name, category, description, route, maturity, priority) VALUES (?, ?, ?, ?, ?, ?, ?)");
   for (const app of apps) insertApp.run(...app);
@@ -6474,7 +6475,7 @@ function seedIfEmpty(db) {
   for (const role of ["Owner", "Admin"]) {
     for (const app of apps) insertAssignment.run(orgId, role, app[0], 1);
   }
-  for (const appId of ["crm", "finance", "desk", "campaigns", "projects", "inventory", "analytics"]) {
+  for (const appId of ["crm", "finance", "desk", "campaigns", "projects", "inventory", "purchase", "analytics"]) {
     insertAssignment.run(orgId, "Operator", appId, 1);
   }
   for (const appId of ["crm", "desk", "docs"]) {
@@ -6597,7 +6598,7 @@ function ensureRoleLayer(db) {
     ["user-auditor", "auditor@armosphera.local", "Read Only Auditor", "Auditor"]
   ];
   const roleApps = {
-    Accountant: ["finance", "inventory", "docs", "analytics"],
+    Accountant: ["finance", "inventory", "purchase", "docs", "analytics"],
     Lawyer: ["docs", "analytics"],
     Salesperson: ["crm", "campaigns", "docs", "analytics"],
     "Service Manager": ["crm", "desk", "docs", "analytics", "flow"],
@@ -6625,7 +6626,8 @@ function ensureRoleLayer(db) {
 function ensureSuiteAppLayer(db) {
   const apps = [
     ["copilot", "Legal & Accounting Copilot", "AI", "Armenian-first cited legal, accounting, payroll, month-close, privacy, and e-sign guidance.", "/app/copilot", "controlled-advisory", 3],
-    ["inventory", "Catalog & Inventory", "Operations", "Products, warehouse balances, stock locations, and governed stock moves.", "/app/inventory", "new", 7]
+    ["inventory", "Catalog & Inventory", "Operations", "Products, warehouse balances, stock locations, and governed stock moves.", "/app/inventory", "new", 7],
+    ["purchase", "Purchase", "Operations", "RFQs, purchase orders, stock receipts, and AP vendor-bill handoff.", "/app/purchase", "new", 8]
   ];
   const insertApp = db.prepare(`
     INSERT OR IGNORE INTO apps (id, name, category, description, route, maturity, priority)
@@ -6640,10 +6642,11 @@ function ensureSuiteAppLayer(db) {
     ["campaigns", 5],
     ["projects", 6],
     ["inventory", 7],
-    ["people", 8],
-    ["docs", 9],
-    ["analytics", 10],
-    ["flow", 11]
+    ["purchase", 8],
+    ["people", 9],
+    ["docs", 10],
+    ["analytics", 11],
+    ["flow", 12]
   ];
   const updatePriority = db.prepare("UPDATE apps SET priority = ? WHERE id = ?");
   for (const [appId, priority] of appOrder) updatePriority.run(priority, appId);
@@ -6656,6 +6659,7 @@ function ensureSuiteAppLayer(db) {
   for (const org of orgs) {
     for (const role of ["Owner", "Admin", "Operator", "Accountant"]) {
       insertAssignment.run(org.id, role, "inventory");
+      insertAssignment.run(org.id, role, "purchase");
     }
     for (const role of ["Owner", "Admin", "Accountant", "Lawyer", "Salesperson", "Service Manager", "Auditor"]) {
       insertAssignment.run(org.id, role, "copilot");

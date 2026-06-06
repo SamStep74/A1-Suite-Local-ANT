@@ -12,6 +12,7 @@ import { ProductionReadinessPanel } from "./compliance.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
 import { FormCreateForm, FormsRegistryPanel } from "./forms.jsx";
 import { InventoryWorkspacePanel } from "./inventory.jsx";
+import { PurchaseWorkspacePanel } from "./purchase.jsx";
 import { loadOr } from "./load-section.js";
 import { loadAuditForRole } from "./audit-access.js";
 import {
@@ -136,6 +137,7 @@ function App() {
   const [docs, setDocs] = useState(null);
   const [projects, setProjects] = useState(null);
   const [inventory, setInventory] = useState(null);
+  const [purchase, setPurchase] = useState(null);
   const [forms, setForms] = useState(null);
   const [semanticMetrics, setSemanticMetrics] = useState(null);
   const [semanticSnapshots, setSemanticSnapshots] = useState(null);
@@ -337,8 +339,9 @@ function App() {
         const bills = await api("/api/finance/bills").catch(() => ({ bills: [] }));
         const payrollRuns = await api("/api/payroll/runs").catch(() => ({ runs: [] }));
         const taxRates = await api("/api/finance/tax-rates").catch(() => ({ taxRates: [] }));
+        const periods = await api("/api/finance/periods").catch(() => ({ periods: [] }));
         const chartOfAccounts = await api("/api/finance/chart-of-accounts").catch(() => null);
-        setFinance({ trialBalance, statements, vat, payables, openingBalances, expenses, bills, payrollRuns: { payrollRuns: payrollRuns.runs || [] }, taxRates: { taxRates: taxRates.taxRates || [] }, chartOfAccounts });
+        setFinance({ trialBalance, statements, vat, payables, openingBalances, expenses, bills, payrollRuns: { payrollRuns: payrollRuns.runs || [] }, taxRates: { taxRates: taxRates.taxRates || [] }, periods: { periods: periods.periods || [] }, chartOfAccounts });
       } else {
         setFinance(null);
       }
@@ -370,6 +373,15 @@ function App() {
         setInventory({ catalog: catalogData, stock: stockData, moves: movesData });
       } else {
         setInventory(null);
+      }
+      if (assignedApps.has("purchase")) {
+        const [ordersData, catalogData] = await Promise.all([
+          loadOr({ orders: [] }, () => api("/api/purchase/orders")),
+          loadOr({ items: [], categories: [] }, () => api("/api/catalog/items"))
+        ]);
+        setPurchase({ orders: ordersData, catalog: catalogData });
+      } else {
+        setPurchase(null);
       }
       if (["Owner", "Auditor"].includes(data.user.role)) {
         const accessReviewData = await loadOr({}, () => api("/api/admin/access-reviews"));
@@ -683,6 +695,7 @@ function App() {
         setCrmQuotes(null);
         setCrmActivities(null);
         setInventory(null);
+        setPurchase(null);
         setCampaignPerformance(null);
         setReceivablesAging(null);
         setSemanticMetrics(null);
@@ -892,12 +905,13 @@ function App() {
       crmActivities={crmActivities}
       campaignPerformance={campaignPerformance}
       receivablesAging={receivablesAging}
-            finance={finance}
-        people={people}
-        docs={docs}
-        projects={projects}
-        inventory={inventory}
-        forms={forms}
+      finance={finance}
+      people={people}
+      docs={docs}
+      projects={projects}
+      inventory={inventory}
+      purchase={purchase}
+      forms={forms}
       semanticMetrics={semanticMetrics}
       semanticSnapshots={semanticSnapshots}
       analyticsReports={analyticsReports}
@@ -979,7 +993,7 @@ function Login({ onDone }) {
   );
 }
 
-function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, projects, inventory, forms, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, productionReadiness, selectedApp, onSelectApp, onSuiteEvents, onAuditEvents, onReload }) {
+function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, projects, inventory, purchase, forms, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, productionReadiness, selectedApp, onSelectApp, onSuiteEvents, onAuditEvents, onReload }) {
   const {
     pilotTemplateData,
     pilotOwnerBriefs,
@@ -1685,6 +1699,69 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     } catch (err) {
       reportActionError(err);
       setActionState("inventory-move:error");
+    }
+  }
+
+  async function createPurchaseOrder(payload) {
+    setActionState("purchase-create:running");
+    try {
+      await api("/api/purchase/orders", { method: "POST", body: payload });
+      setActionState("purchase-create:done");
+      onReload();
+    } catch (err) {
+      reportActionError(err);
+      setActionState("purchase-create:error");
+    }
+  }
+
+  async function confirmPurchaseOrder(order) {
+    setActionState(`purchase-confirm:running:${order.id}`);
+    try {
+      await api(`/api/purchase/orders/${encodeURIComponent(order.id)}/confirm`, { method: "POST", body: {} });
+      setActionState(`purchase-confirm:done:${order.id}`);
+      onReload();
+    } catch (err) {
+      reportActionError(err);
+      setActionState(`purchase-confirm:error:${order.id}`);
+    }
+  }
+
+  async function receivePurchaseOrder(order) {
+    setActionState(`purchase-receive:running:${order.id}`);
+    try {
+      await api(`/api/purchase/orders/${encodeURIComponent(order.id)}/receive`, {
+        method: "POST",
+        body: {
+          receivedAt: armeniaDateString(),
+          reference: `RCPT-${order.orderNumber || order.id}`.slice(0, 120)
+        }
+      });
+      setActionState(`purchase-receive:done:${order.id}`);
+      onReload();
+    } catch (err) {
+      reportActionError(err);
+      setActionState(`purchase-receive:error:${order.id}`);
+    }
+  }
+
+  async function billPurchaseOrder(order) {
+    setActionState(`purchase-bill:running:${order.id}`);
+    try {
+      const openPeriod = (finance?.periods?.periods || []).find(period => period.status === "open");
+      const billDate = openPeriod?.endsOn || order.receivedAt || order.orderDate || armeniaDateString();
+      await api(`/api/purchase/orders/${encodeURIComponent(order.id)}/bill`, {
+        method: "POST",
+        body: {
+          billDate,
+          dueDate: billDate,
+          description: `Vendor bill for ${order.orderNumber || order.id}`
+        }
+      });
+      setActionState(`purchase-bill:done:${order.id}`);
+      onReload();
+    } catch (err) {
+      reportActionError(err);
+      setActionState(`purchase-bill:error:${order.id}`);
     }
   }
 
@@ -4024,6 +4101,20 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
                 canMove={["Owner", "Admin", "Operator", "Accountant"].includes(suite.user.role)}
                 actionState={actionState}
                 onCreateMove={createStockMove}
+              />
+            </div>
+          )}
+          {purchase && (
+            <div id="suite-app-purchase" className="suite-app-anchor">
+              <PurchaseWorkspacePanel
+                data={purchase}
+                canWrite={["Owner", "Admin", "Operator", "Accountant"].includes(suite.user.role)}
+                canBill={["Owner", "Admin", "Accountant"].includes(suite.user.role)}
+                actionState={actionState}
+                onCreateOrder={createPurchaseOrder}
+                onConfirmOrder={confirmPurchaseOrder}
+                onReceiveOrder={receivePurchaseOrder}
+                onBillOrder={billPurchaseOrder}
               />
             </div>
           )}
