@@ -466,6 +466,12 @@ function registerApi(app, db, options = {}) {
     return { vendors: getPurchaseVendors(db, user.org_id) };
   });
 
+  app.get("/api/purchase/analytics", async request => {
+    const user = await app.auth(request);
+    requirePurchaseReader(user);
+    return getPurchaseAnalytics(db, user.org_id);
+  });
+
   app.post("/api/purchase/vendors", async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
@@ -49036,6 +49042,152 @@ function getPurchaseOrder(db, orgId, orderId) {
     WHERE purchase_orders.org_id = ? AND purchase_orders.id = ?
   `).get(orgId, orderId);
   return row ? formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id)) : null;
+}
+
+function getPurchaseAnalytics(db, orgId) {
+  const orders = getPurchaseOrders(db, orgId);
+  const vendors = getPurchaseVendors(db, orgId);
+  const priceCoverage = getPurchasePriceCoverage(db, orgId, armeniaDateString());
+  const receivableOrders = orders.filter(order => ["confirmed", "partial", "received", "billed"].includes(order.status));
+  const stockableCatalogItemCount = db.prepare(`
+    SELECT COUNT(*) AS count
+    FROM catalog_items
+    WHERE org_id = ? AND status = 'active' AND track_stock = 1
+  `).get(orgId).count;
+  const lineStats = summarizePurchaseLines(orders);
+  const receivableStats = summarizePurchaseLines(receivableOrders);
+  const summary = {
+    orderCount: orders.length,
+    vendorCount: vendors.length,
+    activeVendorCount: vendors.filter(vendor => vendor.status === "active").length,
+    openValue: orders.filter(order => order.status !== "billed").reduce((total, order) => total + Number(order.total || 0), 0),
+    billedValue: orders.filter(order => order.status === "billed").reduce((total, order) => total + Number(order.total || 0), 0),
+    receiptProgressPercent: percent(receivableStats.receivedQuantity, receivableStats.orderedQuantity),
+    remainingQuantity: receivableStats.remainingQuantity,
+    vendorPricedLineCount: lineStats.vendorPricedLineCount,
+    lineCount: lineStats.lineCount,
+    vendorPriceCoveragePercent: percent(priceCoverage.coveredStockableItemCount, stockableCatalogItemCount),
+    pricedOrderLinePercent: percent(lineStats.vendorPricedLineCount, lineStats.lineCount),
+    activePriceCount: priceCoverage.activePriceCount,
+    stockableCatalogItemCount
+  };
+  return {
+    summary,
+    receiptBacklog: getPurchaseReceiptBacklog(orders),
+    vendorPerformance: getPurchaseVendorPerformance(orders, vendors),
+    priceCoverage: {
+      activePriceCount: priceCoverage.activePriceCount,
+      stockableCatalogItemCount,
+      activeVendorCount: summary.activeVendorCount,
+      coveredStockableItemCount: priceCoverage.coveredStockableItemCount,
+      coveragePercent: summary.vendorPriceCoveragePercent
+    }
+  };
+}
+
+function summarizePurchaseLines(orders) {
+  return orders.reduce((stats, order) => {
+    for (const line of order.lines || []) {
+      stats.lineCount += 1;
+      if (line.vendorPriceId) stats.vendorPricedLineCount += 1;
+      stats.orderedQuantity += Number(line.quantity || 0);
+      stats.receivedQuantity += Number(line.receivedQuantity || 0);
+      stats.remainingQuantity += Number(line.remainingQuantity || 0);
+    }
+    return stats;
+  }, { lineCount: 0, vendorPricedLineCount: 0, orderedQuantity: 0, receivedQuantity: 0, remainingQuantity: 0 });
+}
+
+function getPurchaseReceiptBacklog(orders) {
+  return orders
+    .filter(order => ["confirmed", "partial"].includes(order.status) && Number(order.remainingQuantity || 0) > 0)
+    .map(order => ({
+      orderId: order.id,
+      orderNumber: order.orderNumber,
+      supplier: order.supplier,
+      status: order.status,
+      expectedDate: order.expectedDate,
+      total: order.total,
+      orderedQuantity: order.orderedQuantity,
+      receivedQuantity: order.receivedQuantity,
+      remainingQuantity: order.remainingQuantity
+    }))
+    .sort((a, b) => String(a.expectedDate || "").localeCompare(String(b.expectedDate || "")) || b.total - a.total)
+    .slice(0, 8);
+}
+
+function getPurchaseVendorPerformance(orders, vendors) {
+  const vendorById = new Map(vendors.map(vendor => [vendor.id, vendor]));
+  const performance = new Map();
+  for (const order of orders) {
+    const key = order.vendorId || `manual:${order.supplier}`;
+    const vendor = order.vendorId ? vendorById.get(order.vendorId) : null;
+    const row = performance.get(key) || {
+      vendorId: order.vendorId || "",
+      supplier: vendor?.name || order.supplier,
+      taxId: vendor?.taxId || order.supplierTaxId || "",
+      status: vendor?.status || "manual",
+      orderCount: 0,
+      totalValue: 0,
+      openValue: 0,
+      billedValue: 0,
+      orderedQuantity: 0,
+      receivedQuantity: 0,
+      remainingQuantity: 0,
+      receivableOrderedQuantity: 0,
+      receivableReceivedQuantity: 0,
+      receivableRemainingQuantity: 0,
+      receiptProgressPercent: 0,
+      lineCount: 0,
+      vendorPricedLineCount: 0,
+      lastOrderDate: ""
+    };
+    row.orderCount += 1;
+    row.totalValue += Number(order.total || 0);
+    if (order.status === "billed") row.billedValue += Number(order.total || 0);
+    else row.openValue += Number(order.total || 0);
+    row.orderedQuantity += Number(order.orderedQuantity || 0);
+    row.receivedQuantity += Number(order.receivedQuantity || 0);
+    row.remainingQuantity += Number(order.remainingQuantity || 0);
+    if (["confirmed", "partial", "received", "billed"].includes(order.status)) {
+      row.receivableOrderedQuantity += Number(order.orderedQuantity || 0);
+      row.receivableReceivedQuantity += Number(order.receivedQuantity || 0);
+      row.receivableRemainingQuantity += Number(order.remainingQuantity || 0);
+    }
+    row.lineCount += (order.lines || []).length;
+    row.vendorPricedLineCount += (order.lines || []).filter(line => line.vendorPriceId).length;
+    if (!row.lastOrderDate || order.orderDate > row.lastOrderDate) row.lastOrderDate = order.orderDate;
+    performance.set(key, row);
+  }
+  return [...performance.values()]
+    .map(row => ({ ...row, receiptProgressPercent: percent(row.receivableReceivedQuantity, row.receivableOrderedQuantity) }))
+    .sort((a, b) => b.totalValue - a.totalValue || a.supplier.localeCompare(b.supplier))
+    .slice(0, 8);
+}
+
+function getPurchasePriceCoverage(db, orgId, asOfDate) {
+  return db.prepare(`
+    SELECT
+      COUNT(*) AS activePriceCount,
+      COUNT(DISTINCT purchase_vendor_prices.catalog_item_id) AS coveredStockableItemCount
+    FROM purchase_vendor_prices
+    JOIN purchase_vendors ON purchase_vendors.org_id = purchase_vendor_prices.org_id
+      AND purchase_vendors.id = purchase_vendor_prices.vendor_id
+      AND purchase_vendors.status = 'active'
+    JOIN catalog_items ON catalog_items.org_id = purchase_vendor_prices.org_id
+      AND catalog_items.id = purchase_vendor_prices.catalog_item_id
+      AND catalog_items.status = 'active'
+      AND catalog_items.track_stock = 1
+    WHERE purchase_vendor_prices.org_id = ?
+      AND purchase_vendor_prices.status = 'active'
+      AND purchase_vendor_prices.valid_from <= ?
+      AND (purchase_vendor_prices.valid_to = '' OR purchase_vendor_prices.valid_to >= ?)
+  `).get(orgId, asOfDate, asOfDate);
+}
+
+function percent(numerator, denominator) {
+  if (!denominator) return 0;
+  return Math.round((Number(numerator || 0) / Number(denominator || 0)) * 100);
 }
 
 function getPurchaseOrderLines(db, orgId, orderId) {

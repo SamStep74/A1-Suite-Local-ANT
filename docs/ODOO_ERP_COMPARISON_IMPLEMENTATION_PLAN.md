@@ -74,7 +74,7 @@ Source: [Odoo Purchase](https://www.odoo.com/documentation/19.0/applications/inv
 
 Comparison to A1:
 
-- This remains one of A1's largest ERP gaps, but the first catalog/inventory/purchase spine is now shipped: product master rows, stock locations, stock balances, governed stock moves, Suite sidebar Inventory and Purchase workspaces, RFQ/PO -> partial/full receipt -> AP bill flow, first vendor master/pricelist defaults, and receipt evidence. A1 still lacks warehouse operations depth, replenishment, valuation accounting, lots/serials, advanced vendor lifecycle/pricelist rules, tenders/blanket orders, landed costs, and procurement analytics.
+- This remains one of A1's largest ERP gaps, but the first catalog/inventory/purchase spine is now shipped: product master rows, stock locations, stock balances, governed stock moves, Suite sidebar Inventory and Purchase workspaces, RFQ/PO -> partial/full receipt -> AP bill flow, first vendor master/pricelist defaults, receipt evidence, procurement analytics, and Vendor 360 coverage/backlog panels. A1 still lacks warehouse operations depth, replenishment, valuation accounting, lots/serials, advanced vendor lifecycle/pricelist rules, tenders/blanket orders, landed costs, purchase returns, and replenishment analytics.
 - This should be the first major post-core module because it connects CRM quotes, finance invoices, eCommerce, POS, and Armenian retail/wholesale needs.
 
 ### Manufacturing, Quality, Maintenance, PLM, And Repairs
@@ -223,7 +223,7 @@ Major A1 gaps relative to Odoo:
 |---|---|---|---|
 | Product catalog | Products, variants, UoM, pricelists, discounts, margins | Shipped core product master + quote-line integration + Catalog & Inventory UI; variants/UoM/pricelists still missing | P0 |
 | Inventory/WMS | Warehouses, locations, stock moves, lots/serials, replenishment, valuation | Shipped core locations/quants/moves + sidebar workspace; advanced WMS and valuation still missing | P0 |
-| Purchase/procurement | RFQ, PO, vendor pricelists, tender/blanket orders, vendor bills | Shipped RFQ/PO -> partial/full receipt -> AP bill spine plus first Purchase sidebar workspace, vendor/pricelist defaults, and receipt evidence; tenders, advanced vendor lifecycle, landed costs, and procurement analytics still missing | P0 |
+| Purchase/procurement | RFQ, PO, vendor pricelists, tender/blanket orders, vendor bills | Shipped RFQ/PO -> partial/full receipt -> AP bill spine plus first Purchase sidebar workspace, vendor/pricelist defaults, receipt evidence, procurement analytics, and Vendor 360; tenders, advanced vendor lifecycle, landed costs, purchase returns, and replenishment analytics still missing | P0 |
 | POS | Browser POS, offline mode, cash sessions, stock sync, receipts | Missing | P1 |
 | eCommerce/portal | Storefront, checkout, B2B/B2C, customer accounts | Public forms/quotes only | P1 |
 | Manufacturing/MRP | BoM, work orders, shop floor, MPS, quality, maintenance | Missing | P2 |
@@ -292,7 +292,7 @@ Deliverables:
 - Purchase:
   - vendors, vendor pricelists, RFQ, purchase order, receiving, vendor bill generation.
   - PO -> partial/full stock receipts -> AP bill -> payment.
-  - Shipped core backend, first sidebar workspace, and vendor/pricelist defaults on 2026-06-06: RFQ/PO records, confirmation, partial/full receipt to `WH/STOCK`, AP bill generation after full receipt, receipt evidence, idempotency, role gates, period-lock reuse, backup inclusion, RFQ creation, progression controls, vendor creation, and vendor-price default costing.
+  - Shipped core backend, first sidebar workspace, vendor/pricelist defaults, and procurement analytics on 2026-06-06: RFQ/PO records, confirmation, partial/full receipt to `WH/STOCK`, AP bill generation after full receipt, receipt evidence, idempotency, role gates, period-lock reuse, backup inclusion, RFQ creation, progression controls, vendor creation, vendor-price default costing, Vendor 360, price coverage, and receipt backlog.
   - procurement expense allocation and landed-cost stub.
 - Armenian localization:
   - Armenian supplier fields and ՀՎՀՀ.
@@ -521,7 +521,7 @@ Acceptance:
 
 1. Product catalog and localization kernel.
 2. Inventory core.
-3. Purchase/procurement first spine and sidebar workspace (shipped on 2026-06-06); next: vendor/procurement depth.
+3. Purchase/procurement first spine, sidebar workspace, vendor/pricelist defaults, partial receipts, and Vendor 360 analytics (shipped on 2026-06-06); next: returns, landed costs, tenders/blanket orders, and replenishment analytics.
 4. Sales orders and product-aware quotes.
 5. POS with Armenian fiscal evidence.
 6. Customer portal and eCommerce.
@@ -593,10 +593,11 @@ Implementation:
   - Added first Purchase sidebar workspace for RFQ creation and Confirm/Receive/Bill progression.
   - Added first vendor master/pricelist layer with vendor-price-backed RFQ costs and persisted line evidence.
   - Added partial receipt status, receipt history, over-receipt guards, idempotent receipt references, and UI receive-quantity controls.
+  - Added procurement analytics endpoint and Purchase workspace Vendor 360 panel with receipt progress, usable active-price coverage, active covered items, top vendor performance, and confirmed/partial receipt backlog.
   - Auditor read-only coverage, backup inclusion, period-lock blocking, sanitized malformed metadata/path guards, duplicate PO-number `409`, app-assignment role guards, and idempotent retries are covered by tests.
 - Remaining:
   - Advanced vendor lifecycle/pricelist rules.
-  - Returns, landed costs, tenders/blanket orders, procurement analytics, and Vendor 360 panels.
+  - Returns, landed costs, tenders/blanket orders, replenishment analytics, and purchase-to-sales demand suggestions.
 
 ## Localization Checklist
 
