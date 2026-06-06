@@ -460,6 +460,18 @@ function registerApi(app, db, options = {}) {
     return { orders: getPurchaseOrders(db, user.org_id) };
   });
 
+  app.get("/api/purchase/vendors", async request => {
+    const user = await app.auth(request);
+    requirePurchaseReader(user);
+    return { vendors: getPurchaseVendors(db, user.org_id) };
+  });
+
+  app.post("/api/purchase/vendors", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    return createPurchaseVendor(db, user, request.body === undefined ? {} : request.body);
+  });
+
   app.post("/api/purchase/orders", async request => {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
@@ -41861,6 +41873,8 @@ const ORG_BACKUP_TABLES = [
   "stock_locations",
   "stock_quants",
   "stock_moves",
+  "purchase_vendors",
+  "purchase_vendor_prices",
   "purchase_orders",
   "purchase_order_lines",
   "integration_connectors",
@@ -48858,10 +48872,150 @@ function throwInvalidInventoryMetadata() {
   throw err;
 }
 
+function getPurchaseVendors(db, orgId) {
+  return db.prepare(`
+    SELECT *
+    FROM purchase_vendors
+    WHERE org_id = ?
+    ORDER BY status = 'active' DESC, name
+  `).all(orgId).map(row => formatPurchaseVendor(row, getPurchaseVendorPrices(db, orgId, row.id)));
+}
+
+function getPurchaseVendor(db, orgId, vendorId) {
+  const row = db.prepare("SELECT * FROM purchase_vendors WHERE org_id = ? AND id = ?").get(orgId, vendorId);
+  return row ? formatPurchaseVendor(row, getPurchaseVendorPrices(db, orgId, row.id)) : null;
+}
+
+function getPurchaseVendorPrices(db, orgId, vendorId) {
+  return db.prepare(`
+    SELECT purchase_vendor_prices.*, catalog_items.sku AS catalog_sku,
+      catalog_items.name AS catalog_name, catalog_items.unit_of_measure AS unit_of_measure
+    FROM purchase_vendor_prices
+    JOIN catalog_items ON catalog_items.id = purchase_vendor_prices.catalog_item_id
+      AND catalog_items.org_id = purchase_vendor_prices.org_id
+    WHERE purchase_vendor_prices.org_id = ? AND purchase_vendor_prices.vendor_id = ?
+    ORDER BY purchase_vendor_prices.status = 'active' DESC,
+      catalog_items.sku, purchase_vendor_prices.min_quantity, purchase_vendor_prices.valid_from DESC
+  `).all(orgId, vendorId).map(formatPurchaseVendorPrice);
+}
+
+function formatPurchaseVendor(row, prices = []) {
+  return {
+    id: row.id,
+    name: row.name,
+    taxId: row.tax_id || "",
+    email: row.email || "",
+    phone: row.phone || "",
+    status: row.status,
+    paymentTermsDays: row.payment_terms_days,
+    leadTimeDays: row.lead_time_days,
+    note: row.note || "",
+    createdByUserId: row.created_by_user_id || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    prices
+  };
+}
+
+function formatPurchaseVendorPrice(row) {
+  return {
+    id: row.id,
+    vendorId: row.vendor_id,
+    catalogItemId: row.catalog_item_id,
+    catalogSku: row.catalog_sku,
+    catalogName: row.catalog_name,
+    unitOfMeasure: row.unit_of_measure,
+    currency: row.currency,
+    unitCost: row.unit_cost,
+    minQuantity: row.min_quantity,
+    leadTimeDays: row.lead_time_days,
+    validFrom: row.valid_from,
+    validTo: row.valid_to || "",
+    status: row.status,
+    note: row.note || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function createPurchaseVendor(db, user, body) {
+  const input = normalizePurchaseVendorBody(body);
+  const now = new Date().toISOString();
+  const vendorId = randomId("vendor");
+  assertPurchaseVendorNameAvailable(db, user.org_id, input.name);
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      INSERT INTO purchase_vendors (
+        id, org_id, name, tax_id, email, phone, status, payment_terms_days,
+        lead_time_days, note, created_by_user_id, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      vendorId,
+      user.org_id,
+      input.name,
+      input.taxId,
+      input.email,
+      input.phone,
+      input.status,
+      input.paymentTermsDays,
+      input.leadTimeDays,
+      input.note,
+      user.id,
+      now,
+      now
+    );
+    const insertPrice = db.prepare(`
+      INSERT INTO purchase_vendor_prices (
+        id, org_id, vendor_id, catalog_item_id, currency, unit_cost, min_quantity,
+        lead_time_days, valid_from, valid_to, status, note, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const price of input.prices) {
+      assertCatalogItemExists(db, user.org_id, price.catalogItemId);
+      insertPrice.run(
+        randomId("vendor-price"),
+        user.org_id,
+        vendorId,
+        price.catalogItemId,
+        price.unitCost,
+        price.minQuantity,
+        price.leadTimeDays,
+        price.validFrom,
+        price.validTo,
+        price.status,
+        price.note,
+        now,
+        now
+      );
+    }
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.vendor.created",
+      subjectType: "purchase_vendor",
+      subjectId: vendorId,
+      status: input.status,
+      payload: { name: input.name, taxIdPresent: Boolean(input.taxId), priceCount: input.prices.length }
+    });
+    audit(db, user.org_id, user.id, "purchase.vendor.created", { vendorId, name: input.name, priceCount: input.prices.length });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { ok: true, vendor: getPurchaseVendor(db, user.org_id, vendorId) };
+}
+
 function getPurchaseOrders(db, orgId) {
   return db.prepare(`
-    SELECT purchase_orders.*, bills.status AS bill_status, users.name AS created_by_name
+    SELECT purchase_orders.*, purchase_vendors.name AS vendor_name,
+      bills.status AS bill_status, users.name AS created_by_name
     FROM purchase_orders
+    LEFT JOIN purchase_vendors ON purchase_vendors.id = purchase_orders.vendor_id
+      AND purchase_vendors.org_id = purchase_orders.org_id
     LEFT JOIN bills ON bills.id = purchase_orders.bill_id AND bills.org_id = purchase_orders.org_id
     LEFT JOIN users ON users.id = purchase_orders.created_by_user_id
     WHERE purchase_orders.org_id = ?
@@ -48871,8 +49025,11 @@ function getPurchaseOrders(db, orgId) {
 
 function getPurchaseOrder(db, orgId, orderId) {
   const row = db.prepare(`
-    SELECT purchase_orders.*, bills.status AS bill_status, users.name AS created_by_name
+    SELECT purchase_orders.*, purchase_vendors.name AS vendor_name,
+      bills.status AS bill_status, users.name AS created_by_name
     FROM purchase_orders
+    LEFT JOIN purchase_vendors ON purchase_vendors.id = purchase_orders.vendor_id
+      AND purchase_vendors.org_id = purchase_orders.org_id
     LEFT JOIN bills ON bills.id = purchase_orders.bill_id AND bills.org_id = purchase_orders.org_id
     LEFT JOIN users ON users.id = purchase_orders.created_by_user_id
     WHERE purchase_orders.org_id = ? AND purchase_orders.id = ?
@@ -48898,6 +49055,8 @@ function getPurchaseOrderLines(db, orgId, orderId) {
 function formatPurchaseOrder(row, lines = []) {
   return {
     id: row.id,
+    vendorId: row.vendor_id || "",
+    vendorName: row.vendor_name || "",
     orderNumber: row.order_number,
     supplier: row.supplier,
     supplierTaxId: row.supplier_tax_id,
@@ -48927,6 +49086,7 @@ function formatPurchaseOrderLine(row) {
     id: row.id,
     purchaseOrderId: row.purchase_order_id,
     catalogItemId: row.catalog_item_id,
+    vendorPriceId: row.vendor_price_id || "",
     catalogSku: row.catalog_sku,
     catalogName: row.catalog_name,
     unitOfMeasure: row.unit_of_measure,
@@ -48945,9 +49105,19 @@ function formatPurchaseOrderLine(row) {
 
 function createPurchaseOrder(db, user, body) {
   const input = normalizePurchaseOrderBody(body);
+  const vendor = input.vendorId ? getPurchaseVendor(db, user.org_id, input.vendorId) : null;
+  if (input.vendorId && (!vendor || vendor.status !== "active")) {
+    const err = new Error("Purchase vendor not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (vendor) {
+    input.supplier = input.supplier || vendor.name;
+    input.supplierTaxId = input.supplierTaxId || vendor.taxId;
+  }
   const now = new Date().toISOString();
   const rate = resolveVatRate(db, user.org_id, input.orderDate);
-  const lines = input.lines.map(line => buildPurchaseOrderLine(db, user.org_id, line, input.orderDate, rate));
+  const lines = input.lines.map(line => buildPurchaseOrderLine(db, user.org_id, line, input.orderDate, rate, input.vendorId));
   const subtotal = lines.reduce((total, line) => total + line.subtotal, 0);
   const vat = lines.reduce((total, line) => total + line.vat, 0);
   const total = subtotal + vat;
@@ -48959,14 +49129,15 @@ function createPurchaseOrder(db, user, body) {
   try {
     db.prepare(`
       INSERT INTO purchase_orders (
-        id, org_id, order_number, supplier, supplier_tax_id, status,
+        id, org_id, vendor_id, order_number, supplier, supplier_tax_id, status,
         subtotal, vat, total, currency, order_date, expected_date, note,
         created_by_user_id, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?)
     `).run(
       orderId,
       user.org_id,
+      input.vendorId || null,
       orderNumber,
       input.supplier,
       input.supplierTaxId,
@@ -48983,10 +49154,10 @@ function createPurchaseOrder(db, user, body) {
     );
     const insertLine = db.prepare(`
       INSERT INTO purchase_order_lines (
-        id, org_id, purchase_order_id, catalog_item_id, description, quantity,
+        id, org_id, purchase_order_id, catalog_item_id, vendor_price_id, description, quantity,
         received_quantity, unit_cost, subtotal, vat, total, created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
     `);
     for (const line of lines) {
       insertLine.run(
@@ -48994,6 +49165,7 @@ function createPurchaseOrder(db, user, body) {
         user.org_id,
         orderId,
         line.catalogItemId,
+        line.vendorPriceId || null,
         line.description,
         line.quantity,
         line.unitCost,
@@ -49171,7 +49343,7 @@ function getPurchaseLinkedBill(db, orgId, billId) {
   return row || null;
 }
 
-function buildPurchaseOrderLine(db, orgId, line, orderDate, vatRate) {
+function buildPurchaseOrderLine(db, orgId, line, orderDate, vatRate, vendorId = "") {
   const item = getCatalogItem(db, orgId, line.catalogItemId);
   if (!item) {
     const err = new Error("Catalog item not found");
@@ -49183,7 +49355,9 @@ function buildPurchaseOrderLine(db, orgId, line, orderDate, vatRate) {
     err.statusCode = 422;
     throw err;
   }
-  const unitCost = line.unitCost || item.standardCost;
+  const explicitUnitCost = line.unitCost || 0;
+  const vendorPrice = !explicitUnitCost && vendorId ? getBestPurchaseVendorPrice(db, orgId, vendorId, item.id, line.quantity, orderDate) : null;
+  const unitCost = explicitUnitCost || vendorPrice?.unitCost || item.standardCost;
   if (!Number.isSafeInteger(unitCost) || unitCost <= 0) throwInvalidPurchaseMetadata();
   const subtotal = line.quantity * unitCost;
   if (!Number.isSafeInteger(subtotal)) throwInvalidPurchaseMetadata();
@@ -49194,11 +49368,34 @@ function buildPurchaseOrderLine(db, orgId, line, orderDate, vatRate) {
     description: line.description || item.name,
     quantity: line.quantity,
     unitCost,
+    vendorPriceId: vendorPrice?.id || "",
     subtotal,
     vat,
     total: subtotal + vat,
     orderDate
   };
+}
+
+function getBestPurchaseVendorPrice(db, orgId, vendorId, catalogItemId, quantity, orderDate) {
+  const rows = db.prepare(`
+    SELECT *
+    FROM purchase_vendor_prices
+    WHERE org_id = ?
+      AND vendor_id = ?
+      AND catalog_item_id = ?
+      AND status = 'active'
+      AND min_quantity <= ?
+      AND valid_from <= ?
+      AND (valid_to = '' OR valid_to >= ?)
+    ORDER BY min_quantity DESC, valid_from DESC, unit_cost ASC
+    LIMIT 1
+  `).all(orgId, vendorId, catalogItemId, quantity, orderDate, orderDate);
+  return rows[0] ? formatPurchaseVendorPrice({
+    ...rows[0],
+    catalog_sku: "",
+    catalog_name: "",
+    unit_of_measure: ""
+  }) : null;
 }
 
 function assertPurchaseOrderNumberAvailable(db, orgId, orderNumber) {
@@ -49210,12 +49407,80 @@ function assertPurchaseOrderNumberAvailable(db, orgId, orderNumber) {
   }
 }
 
+function assertPurchaseVendorNameAvailable(db, orgId, name) {
+  const row = db.prepare("SELECT id FROM purchase_vendors WHERE org_id = ? AND name = ?").get(orgId, name);
+  if (row) {
+    const err = new Error("Purchase vendor already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
+function assertCatalogItemExists(db, orgId, catalogItemId) {
+  const item = getCatalogItem(db, orgId, catalogItemId);
+  if (!item) {
+    const err = new Error("Catalog item not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (item.status !== "active" || !item.trackStock) {
+    const err = new Error("Stock-tracked active catalog item required");
+    err.statusCode = 422;
+    throw err;
+  }
+  return item;
+}
+
+function normalizePurchaseVendorBody(body) {
+  if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
+  return {
+    name: normalizePurchaseText(body, "name", { required: true, minLength: 2, maxLength: 160 }),
+    taxId: normalizePurchaseSupplierTaxId(body, "taxId"),
+    email: normalizePurchaseText(body, "email", { fallback: "", maxLength: 160 }),
+    phone: normalizePurchaseText(body, "phone", { fallback: "", maxLength: 40 }),
+    status: normalizePurchaseChoice(body, "status", ["active", "suspended"], "active"),
+    paymentTermsDays: normalizePurchaseInteger(body, "paymentTermsDays", { fallback: 0, min: 0, max: 365 }),
+    leadTimeDays: normalizePurchaseInteger(body, "leadTimeDays", { fallback: 0, min: 0, max: 365 }),
+    note: normalizePurchaseText(body, "note", { fallback: "", maxLength: 500 }),
+    prices: normalizePurchaseVendorPrices(body)
+  };
+}
+
+function normalizePurchaseVendorPrices(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "prices") ? body.prices : [];
+  if (!Array.isArray(value) || value.length > 25) throwInvalidPurchaseMetadata();
+  const seen = new Set();
+  return value.map(price => {
+    if (!isPlainObject(price)) throwInvalidPurchaseMetadata();
+    const validFrom = normalizePurchaseDate(price, "validFrom", { fallback: new Date().toISOString().slice(0, 10) });
+    const validTo = normalizePurchaseDate(price, "validTo", { fallback: "" });
+    if (validTo && validTo < validFrom) throwInvalidPurchaseMetadata();
+    const catalogItemId = normalizePurchaseText(price, "catalogItemId", { required: true, maxLength: 160, idLike: true });
+    const minQuantity = normalizePurchaseInteger(price, "minQuantity", { fallback: 1, min: 1, max: 1000000 });
+    const key = `${catalogItemId}:${minQuantity}:${validFrom}`;
+    if (seen.has(key)) throwInvalidPurchaseMetadata();
+    seen.add(key);
+    return {
+      catalogItemId,
+      unitCost: normalizePurchaseInteger(price, "unitCost", { required: true, min: 1, max: 1000000000000 }),
+      minQuantity,
+      leadTimeDays: normalizePurchaseInteger(price, "leadTimeDays", { fallback: 0, min: 0, max: 365 }),
+      validFrom,
+      validTo,
+      status: normalizePurchaseChoice(price, "status", ["active", "archived"], "active"),
+      note: normalizePurchaseText(price, "note", { fallback: "", maxLength: 500 })
+    };
+  });
+}
+
 function normalizePurchaseOrderBody(body) {
   if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
   const orderDate = normalizePurchaseDate(body, "orderDate");
+  const vendorId = normalizePurchaseText(body, "vendorId", { fallback: "", maxLength: 160, idLike: true });
   return {
+    vendorId,
     orderNumber: normalizePurchaseText(body, "orderNumber", { fallback: "", maxLength: 40, idLike: true }).toUpperCase(),
-    supplier: normalizePurchaseText(body, "supplier", { required: true, minLength: 2, maxLength: 160 }),
+    supplier: normalizePurchaseText(body, "supplier", { required: !vendorId, minLength: vendorId ? 0 : 2, maxLength: 160 }),
     supplierTaxId: normalizePurchaseSupplierTaxId(body, "supplierTaxId"),
     orderDate,
     expectedDate: normalizePurchaseDate(body, "expectedDate", { fallback: orderDate }),
@@ -49307,6 +49572,15 @@ function normalizePurchaseInteger(body, field, options = {}) {
   }
   if (!Number.isSafeInteger(amount) || amount < min || amount > max) throwInvalidPurchaseMetadata();
   return amount;
+}
+
+function normalizePurchaseChoice(body, field, allowed, fallback) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return fallback;
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPurchaseMetadata();
+  const text = value.trim();
+  if (!allowed.includes(text)) throwInvalidPurchaseMetadata();
+  return text;
 }
 
 function normalizePurchasePathId(value) {

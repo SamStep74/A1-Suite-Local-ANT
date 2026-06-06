@@ -30,6 +30,7 @@ function openDatabase(dbPath) {
   ensureCrmSalesLayer(db);
   ensureCatalogLayer(db);
   ensureInventoryLayer(db);
+  ensurePurchaseLayer(db);
   ensureMarketingLayer(db);
   ensureAnalyticsLayer(db);
   return db;
@@ -349,9 +350,51 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_stock_moves_locations
       ON stock_moves(org_id, source_location_id, destination_location_id, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS purchase_vendors (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      tax_id TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      payment_terms_days INTEGER NOT NULL DEFAULT 0,
+      lead_time_days INTEGER NOT NULL DEFAULT 0,
+      note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, name)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_vendors_status
+      ON purchase_vendors(org_id, status, name);
+
+    CREATE TABLE IF NOT EXISTS purchase_vendor_prices (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      vendor_id TEXT NOT NULL REFERENCES purchase_vendors(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      unit_cost INTEGER NOT NULL,
+      min_quantity INTEGER NOT NULL DEFAULT 1,
+      lead_time_days INTEGER NOT NULL DEFAULT 0,
+      valid_from TEXT NOT NULL,
+      valid_to TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, vendor_id, catalog_item_id, min_quantity, valid_from)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_vendor_prices_item
+      ON purchase_vendor_prices(org_id, catalog_item_id, vendor_id, status);
+
     CREATE TABLE IF NOT EXISTS purchase_orders (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      vendor_id TEXT REFERENCES purchase_vendors(id) ON DELETE SET NULL,
       order_number TEXT NOT NULL,
       supplier TEXT NOT NULL,
       supplier_tax_id TEXT NOT NULL DEFAULT '',
@@ -381,6 +424,7 @@ function initSchema(db) {
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       purchase_order_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
       catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      vendor_price_id TEXT REFERENCES purchase_vendor_prices(id) ON DELETE SET NULL,
       description TEXT NOT NULL DEFAULT '',
       quantity INTEGER NOT NULL,
       received_quantity INTEGER NOT NULL DEFAULT 0,
@@ -6895,6 +6939,20 @@ function ensureInventoryLayer(db) {
   }
 }
 
+function ensurePurchaseLayer(db) {
+  const purchaseOrderColumns = new Set(db.prepare("PRAGMA table_info(purchase_orders)").all().map(column => column.name));
+  if (!purchaseOrderColumns.has("vendor_id")) db.exec("ALTER TABLE purchase_orders ADD COLUMN vendor_id TEXT REFERENCES purchase_vendors(id) ON DELETE SET NULL");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_orders_vendor ON purchase_orders(org_id, vendor_id, status)");
+
+  const purchaseOrderLineColumns = new Set(db.prepare("PRAGMA table_info(purchase_order_lines)").all().map(column => column.name));
+  if (!purchaseOrderLineColumns.has("vendor_price_id")) db.exec("ALTER TABLE purchase_order_lines ADD COLUMN vendor_price_id TEXT REFERENCES purchase_vendor_prices(id) ON DELETE SET NULL");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_vendor_price ON purchase_order_lines(org_id, vendor_price_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_vendor_prices_vendor ON purchase_vendor_prices(org_id, vendor_id, status, catalog_item_id)");
+
+  const orgs = db.prepare("SELECT id FROM organizations").all();
+  for (const org of orgs) seedPurchaseVendors(db, org.id);
+}
+
 function ensureMarketingLayer(db) {
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {
@@ -7597,7 +7655,64 @@ function seedInventoryCore(db, orgId) {
   `).run(seedId("stockquant-pos-scanner-main"), orgId, scanner.id, seedId("stockloc-main-warehouse"), 12, 0, scanner.standard_cost, now);
 }
 
+function seedPurchaseVendors(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
+  const now = new Date().toISOString();
+  const vendorId = purchaseSeedId(orgId, "vendor-yerevan-hardware-supply");
+  db.prepare(`
+    INSERT OR IGNORE INTO purchase_vendors (
+      id, org_id, name, tax_id, email, phone, status, payment_terms_days,
+      lead_time_days, note, created_by_user_id, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    vendorId,
+    orgId,
+    "Yerevan Hardware Supply",
+    "01234568",
+    "procurement@yerevan-hardware.example",
+    "+374 10 445566",
+    "active",
+    15,
+    2,
+    "Seeded Armenian hardware vendor for Purchase RFQ and receipt demos.",
+    null,
+    now,
+    now
+  );
+
+  const scannerItemId = catalogSeedId(orgId, "catitem-pos-barcode-scanner");
+  const scanner = db.prepare("SELECT id FROM catalog_items WHERE org_id = ? AND id = ? AND track_stock = 1").get(orgId, scannerItemId);
+  if (!scanner) return;
+  db.prepare(`
+    INSERT OR IGNORE INTO purchase_vendor_prices (
+      id, org_id, vendor_id, catalog_item_id, currency, unit_cost, min_quantity,
+      lead_time_days, valid_from, valid_to, status, note, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, 'AMD', ?, ?, ?, ?, '', ?, ?, ?, ?)
+  `).run(
+    purchaseSeedId(orgId, "vendor-price-yerevan-hardware-barcode-scanner"),
+    orgId,
+    vendorId,
+    scanner.id,
+    60000,
+    1,
+    2,
+    "2026-01-01",
+    "active",
+    "Preferred POS scanner cost for Armenian SMB replenishment.",
+    now,
+    now
+  );
+}
+
 function stockSeedId(orgId, baseId) {
+  if (orgId === "org-armosphera-demo") return baseId;
+  const suffix = crypto.createHash("sha256").update(String(orgId)).digest("hex").slice(0, 12);
+  return `${baseId}-${suffix}`;
+}
+
+function purchaseSeedId(orgId, baseId) {
   if (orgId === "org-armosphera-demo") return baseId;
   const suffix = crypto.createHash("sha256").update(String(orgId)).digest("hex").slice(0, 12);
   return `${baseId}-${suffix}`;

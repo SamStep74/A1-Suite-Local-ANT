@@ -207,8 +207,267 @@ test("purchase: RFQ -> confirmed PO -> stock receipt -> vendor bill", async () =
     const backupTables = backup.json().backup.payload.tables;
     assert.ok(backupTables.purchase_orders.some(item => item.id === order.id && item.bill_id === billedBody.bill.id));
     assert.ok(backupTables.purchase_order_lines.some(item => item.purchase_order_id === order.id && item.stock_move_id === receivedBody.stockMoves[0].id));
+    assert.ok(backupTables.purchase_vendors.some(item => item.id === "vendor-yerevan-hardware-supply"));
+    assert.ok(backupTables.purchase_vendor_prices.some(item => item.vendor_id === "vendor-yerevan-hardware-supply"));
     assert.ok(backupTables.bills.some(item => item.id === billedBody.bill.id && item.total === 144000));
     assert.ok(Array.isArray(backupTables.bill_payments));
+  } finally {
+    await app.close();
+  }
+});
+
+test("purchase: vendor master and pricelists drive RFQ supplier costs", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operatorCookie = await login(app, "operator@armosphera.local");
+    const ownerCookie = await login(app);
+    const orgId = "org-armosphera-demo";
+    const openPeriod = app.db.prepare("SELECT period_key FROM finance_periods WHERE org_id = ? AND status = 'open' LIMIT 1").get(orgId).period_key;
+
+    const vendors = await app.inject({ method: "GET", url: "/api/purchase/vendors", headers: { cookie: operatorCookie } });
+    assert.equal(vendors.statusCode, 200, vendors.body);
+    const seededVendor = vendors.json().vendors.find(vendor => vendor.id === "vendor-yerevan-hardware-supply");
+    assert.ok(seededVendor, "seeded hardware vendor is visible");
+    assert.equal(seededVendor.taxId, "01234568");
+    assert.ok(seededVendor.prices.some(price => price.catalogItemId === "catitem-pos-barcode-scanner" && price.unitCost === 60000));
+
+    const createdVendor = await app.inject({
+      method: "POST",
+      url: "/api/purchase/vendors",
+      headers: { cookie: operatorCookie },
+      payload: {
+        name: "Gyumri Device Supply",
+        taxId: "12345678",
+        paymentTermsDays: 10,
+        leadTimeDays: 3,
+        note: "Regional backup vendor for POS hardware.",
+        prices: [{
+          catalogItemId: "catitem-pos-barcode-scanner",
+          unitCost: 61000,
+          minQuantity: 1,
+          leadTimeDays: 3,
+          validFrom: `${openPeriod}-01`,
+          note: "One-unit scanner replacement cost."
+        }]
+      }
+    });
+    assert.equal(createdVendor.statusCode, 200, createdVendor.body);
+    const vendor = createdVendor.json().vendor;
+    assert.match(vendor.id, /^vendor-/);
+    assert.equal(vendor.name, "Gyumri Device Supply");
+    assert.equal(vendor.taxId, "12345678");
+    assert.equal(vendor.prices.length, 1);
+    assert.equal(vendor.prices[0].unitCost, 61000);
+
+    const createdOrder = await app.inject({
+      method: "POST",
+      url: "/api/purchase/orders",
+      headers: { cookie: operatorCookie },
+      payload: {
+        vendorId: vendor.id,
+        orderNumber: "PO-VENDOR-PRICE-1",
+        orderDate: `${openPeriod}-08`,
+        expectedDate: `${openPeriod}-11`,
+        lines: [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 1 }]
+      }
+    });
+    assert.equal(createdOrder.statusCode, 200, createdOrder.body);
+    const order = createdOrder.json().order;
+    assert.equal(order.vendorId, vendor.id);
+    assert.equal(order.vendorName, "Gyumri Device Supply");
+    assert.equal(order.supplier, "Gyumri Device Supply");
+    assert.equal(order.supplierTaxId, "12345678");
+    assert.equal(order.lines[0].unitCost, 61000);
+    assert.equal(order.subtotal, 61000);
+    assert.equal(order.vat, 12200);
+    assert.equal(order.total, 73200);
+
+    const supportCookie = await login(app, "support@armosphera.local");
+    const supportDenied = await app.inject({ method: "GET", url: "/api/purchase/vendors", headers: { cookie: supportCookie } });
+    assert.equal(supportDenied.statusCode, 403, supportDenied.body);
+
+    const backup = await app.inject({
+      method: "POST",
+      url: "/api/admin/backups",
+      headers: { cookie: ownerCookie },
+      payload: { note: "Purchase vendor master and pricelist must restore with RFQ evidence." }
+    });
+    assert.equal(backup.statusCode, 200, backup.body);
+    const backupTables = backup.json().backup.payload.tables;
+    assert.ok(backupTables.purchase_vendors.some(item => item.id === vendor.id && item.tax_id === "12345678"));
+    assert.ok(backupTables.purchase_vendor_prices.some(item => item.vendor_id === vendor.id && item.unit_cost === 61000));
+    assert.ok(backupTables.purchase_orders.some(item => item.id === order.id && item.vendor_id === vendor.id));
+  } finally {
+    await app.close();
+  }
+});
+
+test("purchase: vendor master prices seed, create, and back RFQ default costing", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const auditor = await login(app, "auditor@armosphera.local");
+    const support = await login(app, "support@armosphera.local");
+    const orgId = "org-armosphera-demo";
+    const openPeriod = app.db.prepare("SELECT period_key FROM finance_periods WHERE org_id = ? AND status = 'open' LIMIT 1").get(orgId).period_key;
+    const vendorCounts = () => ({
+      vendors: rowCount(app, "purchase_vendors", orgId),
+      prices: rowCount(app, "purchase_vendor_prices", orgId),
+      orders: rowCount(app, "purchase_orders", orgId),
+      lines: rowCount(app, "purchase_order_lines", orgId),
+      events: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE org_id = ? AND event_type = ?").get(orgId, "purchase.vendor.created").count,
+      audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?").get(orgId, "purchase.vendor.created").count
+    });
+
+    const unauthenticated = await app.inject({ method: "GET", url: "/api/purchase/vendors" });
+    assert.equal(unauthenticated.statusCode, 401);
+    const auditorRead = await app.inject({ method: "GET", url: "/api/purchase/vendors", headers: { cookie: auditor } });
+    assert.equal(auditorRead.statusCode, 200, auditorRead.body);
+    const supportRead = await app.inject({ method: "GET", url: "/api/purchase/vendors", headers: { cookie: support } });
+    assert.equal(supportRead.statusCode, 403, supportRead.body);
+    const seededVendor = auditorRead.json().vendors.find(vendor => vendor.id === "vendor-yerevan-hardware-supply");
+    assert.equal(seededVendor.name, "Yerevan Hardware Supply");
+    assert.ok(seededVendor.prices.some(price => price.catalogItemId === "catitem-pos-barcode-scanner" && price.unitCost === 60000));
+
+    const malformedBefore = vendorCounts();
+    const invalidWindow = await app.inject({
+      method: "POST",
+      url: "/api/purchase/vendors",
+      headers: { cookie: operator },
+      payload: {
+        name: "Invalid Window Supplier",
+        prices: [{ catalogItemId: "catitem-pos-barcode-scanner", unitCost: 55000, validFrom: `${openPeriod}-20`, validTo: `${openPeriod}-01` }]
+      }
+    });
+    assert.equal(invalidWindow.statusCode, 400, invalidWindow.body);
+    assert.deepEqual(vendorCounts(), malformedBefore);
+
+    const duplicatePrices = await app.inject({
+      method: "POST",
+      url: "/api/purchase/vendors",
+      headers: { cookie: operator },
+      payload: {
+        name: "Duplicate Price Supplier",
+        prices: [
+          { catalogItemId: "catitem-pos-barcode-scanner", unitCost: 55000, minQuantity: 2, validFrom: `${openPeriod}-01` },
+          { catalogItemId: "catitem-pos-barcode-scanner", unitCost: 54000, minQuantity: 2, validFrom: `${openPeriod}-01` }
+        ]
+      }
+    });
+    assert.equal(duplicatePrices.statusCode, 400, duplicatePrices.body);
+    assert.doesNotMatch(duplicatePrices.body, /purchase_vendor_prices|UNIQUE constraint/i);
+    assert.deepEqual(vendorCounts(), malformedBefore);
+
+    const missingItem = await app.inject({
+      method: "POST",
+      url: "/api/purchase/vendors",
+      headers: { cookie: operator },
+      payload: {
+        name: "Missing Item Supplier",
+        prices: [{ catalogItemId: "catitem-missing-safe", unitCost: 55000, validFrom: `${openPeriod}-01` }]
+      }
+    });
+    assert.equal(missingItem.statusCode, 404, missingItem.body);
+    assert.deepEqual(vendorCounts(), malformedBefore);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/purchase/vendors",
+      headers: { cookie: operator },
+      payload: {
+        name: "Gyumri Office Supply",
+        taxId: "87654321",
+        email: "procurement@gyumri-office.example",
+        phone: "+374 312 112233",
+        paymentTermsDays: 10,
+        leadTimeDays: 3,
+        note: "Preferred regional vendor for POS equipment.",
+        prices: [
+          {
+            catalogItemId: "catitem-pos-barcode-scanner",
+            unitCost: 55000,
+            minQuantity: 3,
+            leadTimeDays: 1,
+            validFrom: `${openPeriod}-01`,
+            validTo: `${openPeriod}-28`,
+            note: "Bulk scanner replenishment cost."
+          }
+        ]
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const vendor = created.json().vendor;
+    assert.match(vendor.id, /^vendor-/);
+    assert.equal(vendor.name, "Gyumri Office Supply");
+    assert.equal(vendor.taxId, "87654321");
+    assert.equal(vendor.paymentTermsDays, 10);
+    assert.equal(vendor.leadTimeDays, 3);
+    assert.equal(vendor.prices.length, 1);
+    assert.equal(vendor.prices[0].unitCost, 55000);
+    assert.equal(vendor.prices[0].minQuantity, 3);
+    assert.equal(vendorCounts().vendors, malformedBefore.vendors + 1);
+    assert.equal(vendorCounts().prices, malformedBefore.prices + 1);
+    assert.equal(vendorCounts().events, malformedBefore.events + 1);
+    assert.equal(vendorCounts().audits, malformedBefore.audits + 1);
+
+    const duplicateBefore = vendorCounts();
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/api/purchase/vendors",
+      headers: { cookie: operator },
+      payload: { name: "Gyumri Office Supply" }
+    });
+    assert.equal(duplicate.statusCode, 409, duplicate.body);
+    assert.deepEqual(vendorCounts(), duplicateBefore);
+
+    const order = await app.inject({
+      method: "POST",
+      url: "/api/purchase/orders",
+      headers: { cookie: operator },
+      payload: {
+        vendorId: vendor.id,
+        orderNumber: "PO-VENDOR-PRICE",
+        orderDate: `${openPeriod}-07`,
+        expectedDate: `${openPeriod}-10`,
+        lines: [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 4 }]
+      }
+    });
+    assert.equal(order.statusCode, 200, order.body);
+    const purchaseOrder = order.json().order;
+    assert.equal(purchaseOrder.vendorId, vendor.id);
+    assert.equal(purchaseOrder.vendorName, "Gyumri Office Supply");
+    assert.equal(purchaseOrder.supplier, "Gyumri Office Supply");
+    assert.equal(purchaseOrder.supplierTaxId, "87654321");
+    assert.equal(purchaseOrder.subtotal, 220000);
+    assert.equal(purchaseOrder.vat, 44000);
+    assert.equal(purchaseOrder.total, 264000);
+    assert.equal(purchaseOrder.lines[0].unitCost, 55000);
+    assert.equal(purchaseOrder.lines[0].vendorPriceId, vendor.prices[0].id);
+    const storedOrder = app.db.prepare("SELECT vendor_id FROM purchase_orders WHERE org_id = ? AND id = ?").get(orgId, purchaseOrder.id);
+    assert.equal(storedOrder.vendor_id, vendor.id);
+    const storedLine = app.db.prepare("SELECT vendor_price_id FROM purchase_order_lines WHERE org_id = ? AND purchase_order_id = ?").get(orgId, purchaseOrder.id);
+    assert.equal(storedLine.vendor_price_id, vendor.prices[0].id);
+
+    const explicitOverride = await app.inject({
+      method: "POST",
+      url: "/api/purchase/orders",
+      headers: { cookie: operator },
+      payload: {
+        vendorId: vendor.id,
+        orderNumber: "PO-VENDOR-EXPLICIT",
+        orderDate: `${openPeriod}-07`,
+        expectedDate: `${openPeriod}-10`,
+        lines: [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 4, unitCost: 50000 }]
+      }
+    });
+    assert.equal(explicitOverride.statusCode, 200, explicitOverride.body);
+    const explicitOrder = explicitOverride.json().order;
+    assert.equal(explicitOrder.lines[0].unitCost, 50000);
+    assert.equal(explicitOrder.lines[0].vendorPriceId, "");
+    const explicitLine = app.db.prepare("SELECT vendor_price_id FROM purchase_order_lines WHERE org_id = ? AND purchase_order_id = ?").get(orgId, explicitOrder.id);
+    assert.equal(explicitLine.vendor_price_id, null);
   } finally {
     await app.close();
   }

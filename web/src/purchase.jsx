@@ -29,10 +29,26 @@ function actionBusy(actionState, prefix, orderId = "") {
   return actionState === `${prefix}:running${orderId ? `:${orderId}` : ""}`;
 }
 
-function purchaseUnitCost(value, selectedItem) {
+function explicitPurchaseUnitCost(value) {
   const explicit = Math.round(Number(value));
   if (Number.isFinite(explicit) && explicit > 0) return explicit;
-  return Math.max(1, Math.round(Number(selectedItem?.standardCost) || 1));
+  return 0;
+}
+
+function bestVendorPrice(vendor, catalogItemId, quantity, orderDate) {
+  const prices = (vendor?.prices || []).filter(price =>
+    price.status === "active"
+    && price.catalogItemId === catalogItemId
+    && Number(price.minQuantity || 1) <= quantity
+    && (!price.validFrom || price.validFrom <= orderDate)
+    && (!price.validTo || price.validTo >= orderDate)
+  );
+  prices.sort((a, b) =>
+    Number(b.minQuantity || 1) - Number(a.minQuantity || 1)
+    || String(b.validFrom || "").localeCompare(String(a.validFrom || ""))
+    || Number(a.unitCost || 0) - Number(b.unitCost || 0)
+  );
+  return prices[0];
 }
 
 export function PurchaseWorkspacePanel({
@@ -47,10 +63,12 @@ export function PurchaseWorkspacePanel({
 }) {
   const orders = data?.orders?.orders || [];
   const catalogItems = data?.catalog?.items || [];
+  const vendors = data?.vendors?.vendors || [];
   const stockableItems = useMemo(
     () => catalogItems.filter(item => item.status === "active" && item.trackStock),
     [catalogItems]
   );
+  const [vendorId, setVendorId] = useState("");
   const [supplier, setSupplier] = useState("Yerevan Hardware Supply");
   const [supplierTaxId, setSupplierTaxId] = useState("01234568");
   const [orderNumber, setOrderNumber] = useState("");
@@ -63,6 +81,8 @@ export function PurchaseWorkspacePanel({
 
   const selectedItem = stockableItems.find(item => item.id === (catalogItemId || stockableItems[0]?.id));
   const defaultItemId = selectedItem?.id || "";
+  const selectedVendor = vendors.find(vendor => vendor.id === vendorId);
+  const selectedVendorPrice = bestVendorPrice(selectedVendor, defaultItemId, integerInput(quantity), orderDate);
   const rfqCount = orders.filter(order => order.status === "rfq").length;
   const confirmedCount = orders.filter(order => order.status === "confirmed").length;
   const receivedCount = orders.filter(order => order.status === "received").length;
@@ -75,20 +95,33 @@ export function PurchaseWorkspacePanel({
   async function submitOrder(event) {
     event.preventDefault();
     if (!onCreateOrder || !defaultItemId) return;
+    const line = {
+      catalogItemId: defaultItemId,
+      quantity: integerInput(quantity),
+      description: selectedItem?.name || "Purchase line"
+    };
+    const explicitCost = explicitPurchaseUnitCost(unitCost);
+    if (explicitCost) line.unitCost = explicitCost;
     await onCreateOrder({
+      vendorId,
       orderNumber,
-      supplier,
-      supplierTaxId,
+      supplier: supplier || selectedVendor?.name || "",
+      supplierTaxId: supplierTaxId || selectedVendor?.taxId || "",
       orderDate,
       expectedDate,
       note,
-      lines: [{
-        catalogItemId: defaultItemId,
-        quantity: integerInput(quantity),
-        unitCost: purchaseUnitCost(unitCost, selectedItem),
-        description: selectedItem?.name || "Purchase line"
-      }]
+      lines: [line]
     });
+  }
+
+  function changeVendor(event) {
+    const nextVendorId = event.target.value;
+    setVendorId(nextVendorId);
+    const vendor = vendors.find(item => item.id === nextVendorId);
+    if (vendor) {
+      setSupplier(vendor.name);
+      setSupplierTaxId(vendor.taxId || "");
+    }
   }
 
   return (
@@ -110,6 +143,7 @@ export function PurchaseWorkspacePanel({
         <div className="meta-row">
           <span>{amd(openValue)} open procurement</span>
           <span>{stockableItems.length} stock-tracked catalog items</span>
+          <span>{vendors.length} vendors</span>
         </div>
       </article>
 
@@ -165,12 +199,19 @@ export function PurchaseWorkspacePanel({
           </div>
           <form className="inline-form" onSubmit={submitOrder}>
             <label>
+              Vendor
+              <select value={vendorId} onChange={changeVendor} disabled={createBusy}>
+                <option value="">Manual supplier</option>
+                {vendors.map(vendor => <option key={vendor.id} value={vendor.id}>{vendor.name} · {vendor.taxId || "no ՀՎՀՀ"}</option>)}
+              </select>
+            </label>
+            <label>
               Supplier
-              <input value={supplier} onChange={event => setSupplier(event.target.value)} disabled={createBusy} />
+              <input value={supplier} onChange={event => setSupplier(event.target.value)} placeholder={selectedVendor?.name || ""} disabled={createBusy} />
             </label>
             <label>
               ՀՎՀՀ
-              <input value={supplierTaxId} onChange={event => setSupplierTaxId(event.target.value)} inputMode="numeric" disabled={createBusy} />
+              <input value={supplierTaxId} onChange={event => setSupplierTaxId(event.target.value)} inputMode="numeric" placeholder={selectedVendor?.taxId || ""} disabled={createBusy} />
             </label>
             <label>
               PO number
@@ -196,7 +237,7 @@ export function PurchaseWorkspacePanel({
             </label>
             <label>
               Unit cost
-              <input value={unitCost} onChange={event => setUnitCost(event.target.value)} inputMode="numeric" placeholder={selectedItem ? String(selectedItem.standardCost || "") : "catalog cost"} disabled={createBusy} />
+              <input value={unitCost} onChange={event => setUnitCost(event.target.value)} inputMode="numeric" placeholder={selectedVendorPrice ? String(selectedVendorPrice.unitCost) : selectedItem ? String(selectedItem.standardCost || "") : "catalog cost"} disabled={createBusy} />
             </label>
             <label>
               Note

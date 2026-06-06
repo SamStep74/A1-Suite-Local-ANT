@@ -375,11 +375,12 @@ function App() {
         setInventory(null);
       }
       if (assignedApps.has("purchase")) {
-        const [ordersData, catalogData] = await Promise.all([
+        const [ordersData, catalogData, vendorsData] = await Promise.all([
           loadOr({ orders: [] }, () => api("/api/purchase/orders")),
-          loadOr({ items: [], categories: [] }, () => api("/api/catalog/items"))
+          loadOr({ items: [], categories: [] }, () => api("/api/catalog/items")),
+          loadOr({ vendors: [] }, () => api("/api/purchase/vendors"))
         ]);
-        setPurchase({ orders: ordersData, catalog: catalogData });
+        setPurchase({ orders: ordersData, catalog: catalogData, vendors: vendorsData });
       } else {
         setPurchase(null);
       }
