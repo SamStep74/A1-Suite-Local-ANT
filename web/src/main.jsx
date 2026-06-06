@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
+import "./polish.css";
 import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel, FinanceOpeningBalancesPanel, FinanceOpeningBalancesForm, FinanceExpenseListPanel, FinanceBillListPanel, FinancePayrollRunsPanel, FinanceTaxRatesPanel, FinanceChartOfAccountsPanel, FinanceLocalizationToolsPanel } from "./finance.jsx";
 import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm, CrmActivityPanel } from "./crm.jsx";
 import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
