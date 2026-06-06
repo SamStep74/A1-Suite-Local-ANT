@@ -288,6 +288,7 @@ textarea {
   margin-top: 5px;
   font-size: 22px;
   line-height: 1.1;
+  white-space: nowrap;
 }
 
 .kpi em {
@@ -1647,6 +1648,7 @@ textarea {
 .semantic-metric-value b {
   color: var(--brand);
   font-size: 15px;
+  white-space: nowrap;
 }
 
 .semantic-metric-value small {
