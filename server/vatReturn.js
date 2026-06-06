@@ -245,6 +245,30 @@ function validateVatReturnForm(form = {}) {
     }
   }
 
+  // Rate-plausibility sanity band for the two rated output lines. The cross-foot above
+  // proves the TOTALS tie out, but not that each line's VAT is consistent with its rate
+  // — a UI edit could set line 7 base 1,000,000 / VAT 5 and still tie line 16. Because
+  // base and VAT are each sums of per-line whole-dram roundings, an exact check would
+  // false-positive on real filings, so we use a band (~1% of base + 2 dram) that absorbs
+  // rounding drift while catching gross errors. Skips negative bases (already flagged).
+  const rateBand = (id, ratePct) => {
+    if (!has(id)) return;
+    const base = val(id, "base");
+    if (base < 0) return; // negative cells are reported by FORM_NEGATIVE_AMOUNT
+    const vat = val(id, "vat");
+    const expected = (base * ratePct) / 100;
+    const tolerance = Math.max(2, Math.abs(base) * 0.01 + 2);
+    if (Math.abs(vat - expected) > tolerance) {
+      add(
+        `lines.${id}.vat`,
+        `FORM_${id}_RATE_MISMATCH`,
+        `Line ${id} VAT (${vat}) is implausible for base ${base} at ${ratePct}% (expected ~${Math.round(expected)} ± ${Math.round(tolerance)}).`,
+      );
+    }
+  };
+  rateBand("7", STANDARD_VAT_RATE); // 20%
+  rateBand("9", IMPUTED_VAT_RATE); // 16.67% imputed
+
   return { ok: errors.length === 0, errors };
 }
 
