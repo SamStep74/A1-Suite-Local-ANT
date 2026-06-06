@@ -461,6 +461,29 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_purchase_receipts_reference
       ON purchase_receipts(org_id, purchase_order_id, reference);
 
+    CREATE TABLE IF NOT EXISTS purchase_returns (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      purchase_order_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      purchase_order_line_id TEXT NOT NULL REFERENCES purchase_order_lines(id) ON DELETE CASCADE,
+      stock_move_id TEXT NOT NULL REFERENCES stock_moves(id) ON DELETE CASCADE,
+      quantity INTEGER NOT NULL,
+      returned_at TEXT NOT NULL,
+      reference TEXT NOT NULL DEFAULT '',
+      reason TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_returns_order
+      ON purchase_returns(org_id, purchase_order_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_returns_line
+      ON purchase_returns(org_id, purchase_order_line_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_returns_reference
+      ON purchase_returns(org_id, purchase_order_id, reference);
+
     CREATE TABLE IF NOT EXISTS crm_leads (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -6992,6 +7015,30 @@ function ensurePurchaseLayer(db) {
 
     CREATE INDEX IF NOT EXISTS idx_purchase_receipts_reference
       ON purchase_receipts(org_id, purchase_order_id, reference);
+  `);
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS purchase_returns (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      purchase_order_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      purchase_order_line_id TEXT NOT NULL REFERENCES purchase_order_lines(id) ON DELETE CASCADE,
+      stock_move_id TEXT NOT NULL REFERENCES stock_moves(id) ON DELETE CASCADE,
+      quantity INTEGER NOT NULL,
+      returned_at TEXT NOT NULL,
+      reference TEXT NOT NULL DEFAULT '',
+      reason TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_returns_order
+      ON purchase_returns(org_id, purchase_order_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_returns_line
+      ON purchase_returns(org_id, purchase_order_line_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_returns_reference
+      ON purchase_returns(org_id, purchase_order_id, reference);
   `);
 
   const orgs = db.prepare("SELECT id FROM organizations").all();

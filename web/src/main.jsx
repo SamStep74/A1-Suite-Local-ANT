@@ -1750,6 +1750,29 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     }
   }
 
+  async function returnPurchaseOrder(order, returnLine) {
+    setActionState(`purchase-return:running:${order.id}`);
+    try {
+      const body = {
+        returnedAt: armeniaDateString(),
+        reference: `RTN-${order.orderNumber || order.id}-${Number(order.returnCount || 0) + 1}`.slice(0, 120),
+        reason: `Supplier return for ${order.orderNumber || order.id}`
+      };
+      if (returnLine) {
+        body.lines = [{ lineId: returnLine.lineId, quantity: returnLine.quantity }];
+      }
+      await api(`/api/purchase/orders/${encodeURIComponent(order.id)}/return`, {
+        method: "POST",
+        body
+      });
+      setActionState(`purchase-return:done:${order.id}`);
+      onReload();
+    } catch (err) {
+      reportActionError(err);
+      setActionState(`purchase-return:error:${order.id}`);
+    }
+  }
+
   async function billPurchaseOrder(order) {
     setActionState(`purchase-bill:running:${order.id}`);
     try {
@@ -4120,6 +4143,7 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
                 onCreateOrder={createPurchaseOrder}
                 onConfirmOrder={confirmPurchaseOrder}
                 onReceiveOrder={receivePurchaseOrder}
+                onReturnOrder={returnPurchaseOrder}
                 onBillOrder={billPurchaseOrder}
               />
             </div>
