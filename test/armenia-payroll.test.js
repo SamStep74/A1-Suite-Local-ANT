@@ -5,6 +5,7 @@ const {
   incomeTax,
   pension,
   stampDuty,
+  healthInsurance,
   computePayroll,
 } = require("../server/armeniaPayroll");
 
@@ -35,14 +36,23 @@ test("payroll: stamp duty has two brackets (since Dec 2025), zero for no salary"
   assert.equal(stampDuty(0), 0);
 });
 
-test("payroll: computePayroll nets gross minus income tax, pension, stamp duty", () => {
+test("payroll: health insurance follows the Dec-2025 200001/500001 salary bands", () => {
+  assert.equal(healthInsurance(200000), 0);
+  assert.equal(healthInsurance(200001), 4800);
+  assert.equal(healthInsurance(500000), 4800);
+  assert.equal(healthInsurance(500001), 10800);
+  assert.equal(healthInsurance(0), 0);
+});
+
+test("payroll: computePayroll nets gross minus income tax, pension, stamp duty, health insurance", () => {
   const p = computePayroll(800000);
   assert.equal(p.gross, 800000);
   assert.equal(p.incomeTax, 160000);
   assert.equal(p.pension, 55000);
   assert.equal(p.stampDuty, 1000);
-  assert.equal(p.totalWithholdings, 216000);
-  assert.equal(p.net, 584000);
+  assert.equal(p.healthInsurance, 10800);
+  assert.equal(p.totalWithholdings, 226800);
+  assert.equal(p.net, 573200);
 });
 
 test("payroll: a high earner hits the pension cap and the upper stamp bracket", () => {
@@ -50,12 +60,8 @@ test("payroll: a high earner hits the pension cap and the upper stamp bracket", 
   assert.equal(p.incomeTax, 240000);
   assert.equal(p.pension, 87500);
   assert.equal(p.stampDuty, 15000);
-  assert.equal(p.net, 857500);
-});
-
-test("payroll: health insurance is NOT included by default (unconfirmed offset)", () => {
-  const p = computePayroll(800000);
-  assert.equal(p.healthInsurance, undefined); // intentionally absent
+  assert.equal(p.healthInsurance, 10800);
+  assert.equal(p.net, 846700);
 });
 
 test("payroll: zero gross is all zeros (no phantom stamp duty)", () => {

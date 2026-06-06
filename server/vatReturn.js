@@ -15,6 +15,66 @@ const { roundAmd } = require("./localization");
 const STANDARD_VAT_RATE = 20;
 const IMPUTED_VAT_RATE = 16.67; // VAT fraction of a VAT-inclusive price (20/120); form line 9
 
+const VAT_RETURN_FORM_SOURCE = Object.freeze({
+  id: "am-src-vat-excise-unified-return-n-298",
+  titleHy: "Ավելացված արժեքի հարկի և ակցիզային հարկի միասնական հաշվարկ",
+  titleEn: "VAT and excise tax unified return",
+  authorityHy: "ՀՀ կառավարությանն առընթեր պետական եկամուտների կոմիտեի նախագահ",
+  orderNumber: "N 298-Ն",
+  adoptedDate: "2016-12-30",
+  effectiveDate: "2018-01-01",
+  sourceUrl: "https://www.arlis.am/hy/acts/136996",
+  status: "active-incorporated",
+});
+
+const VAT_RETURN_FORM_LINE_DEFINITIONS = Object.freeze({
+  "7": Object.freeze({
+    section: "output",
+    labelHy: "ԱԱՀ-ի 20% դրույքաչափով հարկվող գործարքներ",
+    fields: Object.freeze(["base", "vat"]),
+  }),
+  "9": Object.freeze({
+    section: "output",
+    labelHy: "ԱԱՀ-ի 16.67% հաշվարկային դրույքաչափով հաշվարկվող գործարքներ",
+    fields: Object.freeze(["base", "vat"]),
+  }),
+  "12": Object.freeze({
+    section: "output",
+    labelHy: "ԱԱՀ-ի 0-ական դրույքաչափով հարկվող գործարքներ",
+    fields: Object.freeze(["base"]),
+  }),
+  "13": Object.freeze({
+    section: "output",
+    labelHy: "ԱԱՀ-ից ազատված գործարքներ",
+    fields: Object.freeze(["base"]),
+  }),
+  "16": Object.freeze({
+    section: "output-total",
+    labelHy: "Ընդամենը ԱԱՀ-ի կրեդիտ",
+    fields: Object.freeze(["base", "vat"]),
+  }),
+  "17": Object.freeze({
+    section: "input",
+    labelHy: "ՀՀ տարածք ներմուծված ապրանքներ",
+    fields: Object.freeze(["base", "vat"]),
+  }),
+  "18": Object.freeze({
+    section: "input",
+    labelHy: "ՀՀ տարածքում ձեռք բերված ապրանքներ և ծառայություններ",
+    fields: Object.freeze(["base", "vat"]),
+  }),
+  "21": Object.freeze({
+    section: "input-total",
+    labelHy: "Ընդամենը ԱԱՀ-ի դեբետ",
+    fields: Object.freeze(["vat"]),
+  }),
+  "23": Object.freeze({
+    section: "period-net",
+    labelHy: "Հաշվետու ժամանակաշրջանի համար հաշվարկված ԱԱՀ",
+    fields: Object.freeze(["payable", "recoverable"]),
+  }),
+});
+
 function lineVat(line = {}) {
   const net = roundAmd(line.netAmount);
   const rate = Number(line.vatRate) || 0;
@@ -89,6 +149,8 @@ function vatReturnForm({ sales = [], purchases = [] } = {}) {
   const net = creditVat - debitVat;
 
   return {
+    source: VAT_RETURN_FORM_SOURCE,
+    lineDefinitions: VAT_RETURN_FORM_LINE_DEFINITIONS,
     lines: {
       "7": { base: o.standardBase, vat: o.standardVat }, // 20% taxable transactions
       "9": { base: o.imputedBase, vat: o.imputedVat }, // 16.67% imputed
@@ -103,4 +165,11 @@ function vatReturnForm({ sales = [], purchases = [] } = {}) {
   };
 }
 
-module.exports = { STANDARD_VAT_RATE, IMPUTED_VAT_RATE, computeVatReturn, vatReturnForm };
+module.exports = {
+  STANDARD_VAT_RATE,
+  IMPUTED_VAT_RATE,
+  VAT_RETURN_FORM_SOURCE,
+  VAT_RETURN_FORM_LINE_DEFINITIONS,
+  computeVatReturn,
+  vatReturnForm,
+};

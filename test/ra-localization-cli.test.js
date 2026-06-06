@@ -1,6 +1,8 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { execFileSync } = require("node:child_process");
+const fs = require("node:fs");
+const os = require("node:os");
 const path = require("node:path");
 
 const CLI = path.join(__dirname, "..", "scripts", "ra-localization.js");
@@ -30,6 +32,26 @@ test("cli: account looks up a chart code with its normal balance", () => {
   const r = JSON.parse(cli("account", "251"));
   assert.equal(r.hy, "Դրամարկղ");
   assert.equal(r.normalBalance, "debit");
+});
+
+test("cli: payroll includes health-insurance withholding", () => {
+  const r = JSON.parse(cli("payroll", "800000"));
+  assert.equal(r.healthInsurance, 10800);
+  assert.equal(r.totalWithholdings, 226800);
+  assert.equal(r.net, 573200);
+});
+
+test("cli: vat-return emits official form source metadata", () => {
+  const file = path.join(os.tmpdir(), `a1-vat-return-${process.pid}.json`);
+  fs.writeFileSync(file, JSON.stringify({ sales: [{ netAmount: 1000000, vatRate: 20 }], purchases: [] }));
+  try {
+    const r = JSON.parse(cli("vat-return", file));
+    assert.equal(r.form["7"].vat, 200000);
+    assert.equal(r.formSource.sourceUrl, "https://www.arlis.am/hy/acts/136996");
+    assert.equal(r.formLineDefinitions["7"].section, "output");
+  } finally {
+    fs.rmSync(file, { force: true });
+  }
 });
 
 test("cli: help prints usage", () => {

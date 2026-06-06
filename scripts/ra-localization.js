@@ -74,7 +74,13 @@ function run(argv) {
     case "vat-return": {
       const v = engine("vatReturn");
       const period = readJson(arg);
-      return out({ summary: v.computeVatReturn(period), form: v.vatReturnForm(period).lines });
+      const form = v.vatReturnForm(period);
+      return out({
+        summary: v.computeVatReturn(period),
+        form: form.lines,
+        formSource: form.source,
+        formLineDefinitions: form.lineDefinitions,
+      });
     }
     case "einvoice":
       return out(engine("einvoice").buildEInvoiceXml(readJson(arg)));
