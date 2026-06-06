@@ -1727,15 +1727,19 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     }
   }
 
-  async function receivePurchaseOrder(order) {
+  async function receivePurchaseOrder(order, receiptLine) {
     setActionState(`purchase-receive:running:${order.id}`);
     try {
+      const body = {
+        receivedAt: armeniaDateString(),
+        reference: `RCPT-${order.orderNumber || order.id}-${Number(order.receiptCount || 0) + 1}`.slice(0, 120)
+      };
+      if (receiptLine) {
+        body.lines = [{ lineId: receiptLine.lineId, quantity: receiptLine.quantity }];
+      }
       await api(`/api/purchase/orders/${encodeURIComponent(order.id)}/receive`, {
         method: "POST",
-        body: {
-          receivedAt: armeniaDateString(),
-          reference: `RCPT-${order.orderNumber || order.id}`.slice(0, 120)
-        }
+        body
       });
       setActionState(`purchase-receive:done:${order.id}`);
       onReload();

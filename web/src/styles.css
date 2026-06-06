@@ -1229,6 +1229,7 @@ textarea {
 .row.purchase-order { background: rgba(45, 108, 223, 0.06); }
 .row.purchase-order.rfq { background: rgba(215, 139, 47, 0.08); }
 .row.purchase-order.confirmed { background: rgba(45, 108, 223, 0.08); }
+.row.purchase-order.partial { background: rgba(122, 91, 180, 0.08); }
 .row.purchase-order.received { background: rgba(0, 137, 123, 0.08); }
 .row.purchase-order.billed { background: rgba(196, 111, 61, 0.08); }
 .row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
@@ -1247,6 +1248,17 @@ textarea {
   min-width: 78px;
   padding: 6px 8px;
   font-size: 11px;
+}
+
+.row-actions .mini-quantity {
+  width: 64px;
+  min-height: 30px;
+  border: 1px solid rgba(27, 37, 57, 0.16);
+  border-radius: var(--radius);
+  padding: 6px 8px;
+  color: var(--ink);
+  font-size: 12px;
+  font-weight: 800;
 }
 
 .approval-mini,
@@ -1799,7 +1811,7 @@ textarea {
 }
 
 .purchase-summary {
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(5, minmax(0, 1fr));
 }
 
 .purchase-order-form .inline-form {

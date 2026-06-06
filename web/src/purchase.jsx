@@ -20,6 +20,7 @@ function today() {
 function statusLabel(status) {
   if (status === "rfq") return "RFQ";
   if (status === "confirmed") return "Confirmed";
+  if (status === "partial") return "Partial";
   if (status === "received") return "Received";
   if (status === "billed") return "Billed";
   return status || "draft";
@@ -78,6 +79,7 @@ export function PurchaseWorkspacePanel({
   const [quantity, setQuantity] = useState("1");
   const [unitCost, setUnitCost] = useState("");
   const [note, setNote] = useState("Purchase request for Armenian SMB stock replenishment.");
+  const [receiptQuantities, setReceiptQuantities] = useState({});
 
   const selectedItem = stockableItems.find(item => item.id === (catalogItemId || stockableItems[0]?.id));
   const defaultItemId = selectedItem?.id || "";
@@ -85,6 +87,7 @@ export function PurchaseWorkspacePanel({
   const selectedVendorPrice = bestVendorPrice(selectedVendor, defaultItemId, integerInput(quantity), orderDate);
   const rfqCount = orders.filter(order => order.status === "rfq").length;
   const confirmedCount = orders.filter(order => order.status === "confirmed").length;
+  const partialCount = orders.filter(order => order.status === "partial").length;
   const receivedCount = orders.filter(order => order.status === "received").length;
   const billedCount = orders.filter(order => order.status === "billed").length;
   const openValue = orders
@@ -124,6 +127,21 @@ export function PurchaseWorkspacePanel({
     }
   }
 
+  function nextReceivableLine(order) {
+    return (order.lines || []).find(line => Number(line.remainingQuantity || 0) > 0);
+  }
+
+  function receiptQuantityFor(order, line) {
+    const key = `${order.id}:${line.id}`;
+    const fallback = Number(line.remainingQuantity || 1);
+    return Math.min(fallback, integerInput(receiptQuantities[key] || fallback));
+  }
+
+  function changeReceiptQuantity(order, line, value) {
+    const key = `${order.id}:${line.id}`;
+    setReceiptQuantities(current => ({ ...current, [key]: value }));
+  }
+
   return (
     <>
       <article className="panel purchase-overview-panel">
@@ -137,6 +155,7 @@ export function PurchaseWorkspacePanel({
         <div className="aging-summary purchase-summary">
           <div className="metric"><span>RFQs</span><strong>{rfqCount}</strong></div>
           <div className="metric"><span>confirmed</span><strong>{confirmedCount}</strong></div>
+          <div className="metric"><span>partial</span><strong>{partialCount}</strong></div>
           <div className="metric"><span>received</span><strong>{receivedCount}</strong></div>
           <div className="metric"><span>billed</span><strong>{billedCount}</strong></div>
         </div>
@@ -160,9 +179,13 @@ export function PurchaseWorkspacePanel({
             const busyConfirm = actionBusy(actionState, "purchase-confirm", order.id);
             const busyReceive = actionBusy(actionState, "purchase-receive", order.id);
             const busyBill = actionBusy(actionState, "purchase-bill", order.id);
+            const receivableLine = nextReceivableLine(order);
             return (
               <div className={`row purchase-order ${order.status}`} key={order.id}>
-                <span>{order.orderNumber} · {order.supplier} · {statusLabel(order.status)} · {order.lines?.[0]?.catalogSku || "no lines"}</span>
+                <span>
+                  {order.orderNumber} · {order.supplier} · {statusLabel(order.status)} · {order.lines?.[0]?.catalogSku || "no lines"}
+                  {Number(order.orderedQuantity || 0) > 0 && ` · received ${Number(order.receivedQuantity || 0)}/${Number(order.orderedQuantity || 0)}`}
+                </span>
                 <strong>{amd(order.total)}</strong>
                 <div className="row-actions">
                   {canWrite && order.status === "rfq" && (
@@ -170,10 +193,25 @@ export function PurchaseWorkspacePanel({
                       {busyConfirm ? "Confirming" : "Confirm"}
                     </button>
                   )}
-                  {canWrite && order.status === "confirmed" && (
-                    <button className="mini-action secondary" type="button" onClick={() => onReceiveOrder?.(order)} disabled={busyReceive}>
-                      {busyReceive ? "Receiving" : "Receive"}
-                    </button>
+                  {canWrite && (order.status === "confirmed" || order.status === "partial") && receivableLine && (
+                    <>
+                      <input
+                        className="mini-quantity"
+                        aria-label={`Receive quantity for ${order.orderNumber}`}
+                        inputMode="numeric"
+                        value={receiptQuantities[`${order.id}:${receivableLine.id}`] ?? String(receivableLine.remainingQuantity || 1)}
+                        onChange={event => changeReceiptQuantity(order, receivableLine, event.target.value)}
+                        disabled={busyReceive}
+                      />
+                      <button
+                        className="mini-action secondary"
+                        type="button"
+                        onClick={() => onReceiveOrder?.(order, { lineId: receivableLine.id, quantity: receiptQuantityFor(order, receivableLine) })}
+                        disabled={busyReceive}
+                      >
+                        {busyReceive ? "Receiving" : "Receive"}
+                      </button>
+                    </>
                   )}
                   {canBill && order.status === "received" && (
                     <button className="mini-action" type="button" onClick={() => onBillOrder?.(order)} disabled={busyBill}>
