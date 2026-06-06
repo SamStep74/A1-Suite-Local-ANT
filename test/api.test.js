@@ -4,6 +4,7 @@ const fs = require("node:fs");
 const http = require("node:http");
 const os = require("node:os");
 const path = require("node:path");
+const { DatabaseSync } = require("node:sqlite");
 const test = require("node:test");
 const { buildApp } = require("../server/app");
 const { DEFAULT_EMAIL, DEFAULT_PASSWORD } = require("../server/db");
@@ -146,6 +147,42 @@ test("existing suite databases receive repaired Suite launcher apps on reopen", 
     assert.equal(appIds[7], "purchase");
   } finally {
     await second.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("existing quote line tables receive catalog columns before app startup indexes", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "a1-suite-quote-line-layer-"));
+  const dbPath = path.join(root, "suite.sqlite");
+  const legacyDb = new DatabaseSync(dbPath);
+  try {
+    legacyDb.exec(`
+      CREATE TABLE quote_lines (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        quote_id TEXT NOT NULL,
+        description TEXT NOT NULL,
+        quantity INTEGER NOT NULL,
+        unit_price INTEGER NOT NULL,
+        total INTEGER NOT NULL,
+        position INTEGER NOT NULL
+      );
+    `);
+  } finally {
+    legacyDb.close();
+  }
+
+  const app = buildApp({ dbPath });
+  await app.ready();
+  try {
+    const columns = new Set(app.db.prepare("PRAGMA table_info(quote_lines)").all().map(column => column.name));
+    assert.equal(columns.has("catalog_item_id"), true);
+    assert.equal(columns.has("vat_mode"), true);
+    assert.equal(columns.has("fiscal_receipt_required"), true);
+    const index = app.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get("idx_quote_lines_catalog_item");
+    assert.equal(index.name, "idx_quote_lines_catalog_item");
+  } finally {
+    await app.close();
     fs.rmSync(root, { recursive: true, force: true });
   }
 });

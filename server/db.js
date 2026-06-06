@@ -554,9 +554,6 @@ function initSchema(db) {
       position INTEGER NOT NULL
     );
 
-    CREATE INDEX IF NOT EXISTS idx_quote_lines_catalog_item
-      ON quote_lines(org_id, catalog_item_id);
-
     CREATE TABLE IF NOT EXISTS quote_acceptances (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
