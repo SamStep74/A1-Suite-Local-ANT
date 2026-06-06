@@ -1,4 +1,4 @@
-export const SUITE_APP_IDS = ["crm", "finance", "copilot", "desk", "campaigns", "projects", "inventory", "people", "docs", "analytics", "flow", "forms"];
+export const SUITE_APP_IDS = ["crm", "finance", "copilot", "desk", "campaigns", "projects", "inventory", "purchase", "people", "docs", "analytics", "flow", "forms"];
 
 export const SUITE_APP_ROUTE_ALIASES = {
   forms: "campaigns",

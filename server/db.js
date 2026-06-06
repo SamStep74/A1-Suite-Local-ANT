@@ -30,6 +30,7 @@ function openDatabase(dbPath) {
   ensureCrmSalesLayer(db);
   ensureCatalogLayer(db);
   ensureInventoryLayer(db);
+  ensurePurchaseLayer(db);
   ensureMarketingLayer(db);
   ensureAnalyticsLayer(db);
   return db;
@@ -349,6 +350,95 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_stock_moves_locations
       ON stock_moves(org_id, source_location_id, destination_location_id, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS purchase_vendors (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      tax_id TEXT NOT NULL DEFAULT '',
+      email TEXT NOT NULL DEFAULT '',
+      phone TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      payment_terms_days INTEGER NOT NULL DEFAULT 0,
+      lead_time_days INTEGER NOT NULL DEFAULT 0,
+      note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, name)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_vendors_status
+      ON purchase_vendors(org_id, status, name);
+
+    CREATE TABLE IF NOT EXISTS purchase_vendor_prices (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      vendor_id TEXT NOT NULL REFERENCES purchase_vendors(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      unit_cost INTEGER NOT NULL,
+      min_quantity INTEGER NOT NULL DEFAULT 1,
+      lead_time_days INTEGER NOT NULL DEFAULT 0,
+      valid_from TEXT NOT NULL,
+      valid_to TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, vendor_id, catalog_item_id, min_quantity, valid_from)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_vendor_prices_item
+      ON purchase_vendor_prices(org_id, catalog_item_id, vendor_id, status);
+
+    CREATE TABLE IF NOT EXISTS purchase_orders (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      vendor_id TEXT REFERENCES purchase_vendors(id) ON DELETE SET NULL,
+      order_number TEXT NOT NULL,
+      supplier TEXT NOT NULL,
+      supplier_tax_id TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL,
+      subtotal INTEGER NOT NULL DEFAULT 0,
+      vat INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      order_date TEXT NOT NULL,
+      expected_date TEXT NOT NULL,
+      confirmed_at TEXT,
+      received_at TEXT,
+      bill_id TEXT REFERENCES bills(id) ON DELETE SET NULL,
+      receipt_reference TEXT NOT NULL DEFAULT '',
+      note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, order_number)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_orders_status
+      ON purchase_orders(org_id, status, order_date DESC);
+
+    CREATE TABLE IF NOT EXISTS purchase_order_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      purchase_order_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      vendor_price_id TEXT REFERENCES purchase_vendor_prices(id) ON DELETE SET NULL,
+      description TEXT NOT NULL DEFAULT '',
+      quantity INTEGER NOT NULL,
+      received_quantity INTEGER NOT NULL DEFAULT 0,
+      unit_cost INTEGER NOT NULL,
+      subtotal INTEGER NOT NULL,
+      vat INTEGER NOT NULL DEFAULT 0,
+      total INTEGER NOT NULL,
+      stock_move_id TEXT REFERENCES stock_moves(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_order
+      ON purchase_order_lines(org_id, purchase_order_id);
+
     CREATE TABLE IF NOT EXISTS crm_leads (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -507,9 +597,6 @@ function initSchema(db) {
       fiscal_receipt_required INTEGER NOT NULL DEFAULT 0,
       position INTEGER NOT NULL
     );
-
-    CREATE INDEX IF NOT EXISTS idx_quote_lines_catalog_item
-      ON quote_lines(org_id, catalog_item_id);
 
     CREATE TABLE IF NOT EXISTS quote_acceptances (
       id TEXT PRIMARY KEY,
@@ -6416,10 +6503,11 @@ function seedIfEmpty(db) {
     ["campaigns", "Campaigns & Forms", "Marketing", "Lead forms, segments, follow-up campaigns, consent, and unsubscribe.", "/app/campaigns", "new", 5],
     ["projects", "Projects", "Operations", "Client projects, tasks, milestones, time entries, and delivery state.", "/app/projects", "new", 6],
     ["inventory", "Catalog & Inventory", "Operations", "Products, warehouse balances, stock locations, and governed stock moves.", "/app/inventory", "new", 7],
-    ["people", "People", "HR", "Employee directory, onboarding, app access, leave-lite, and payroll handoff.", "/app/people", "new", 8],
-    ["docs", "Docs & Sign", "Documents", "Templates, contracts, signatures, signed archive, and customer documents.", "/app/docs", "new", 9],
-    ["analytics", "Analytics", "BI", "Cross-app dashboards, revenue, receivables, service, and automation KPIs.", "/app/analytics", "partial", 10],
-    ["flow", "Flow & Creator", "Automation", "Event bus, rules, custom fields, custom modules, and applets.", "/app/flow", "partial", 11]
+    ["purchase", "Purchase", "Operations", "RFQs, purchase orders, stock receipts, and AP vendor-bill handoff.", "/app/purchase", "new", 8],
+    ["people", "People", "HR", "Employee directory, onboarding, app access, leave-lite, and payroll handoff.", "/app/people", "new", 9],
+    ["docs", "Docs & Sign", "Documents", "Templates, contracts, signatures, signed archive, and customer documents.", "/app/docs", "new", 10],
+    ["analytics", "Analytics", "BI", "Cross-app dashboards, revenue, receivables, service, and automation KPIs.", "/app/analytics", "partial", 11],
+    ["flow", "Flow & Creator", "Automation", "Event bus, rules, custom fields, custom modules, and applets.", "/app/flow", "partial", 12]
   ];
   const insertApp = db.prepare("INSERT INTO apps (id, name, category, description, route, maturity, priority) VALUES (?, ?, ?, ?, ?, ?, ?)");
   for (const app of apps) insertApp.run(...app);
@@ -6428,7 +6516,7 @@ function seedIfEmpty(db) {
   for (const role of ["Owner", "Admin"]) {
     for (const app of apps) insertAssignment.run(orgId, role, app[0], 1);
   }
-  for (const appId of ["crm", "finance", "desk", "campaigns", "projects", "inventory", "analytics"]) {
+  for (const appId of ["crm", "finance", "desk", "campaigns", "projects", "inventory", "purchase", "analytics"]) {
     insertAssignment.run(orgId, "Operator", appId, 1);
   }
   for (const appId of ["crm", "desk", "docs"]) {
@@ -6551,7 +6639,7 @@ function ensureRoleLayer(db) {
     ["user-auditor", "auditor@armosphera.local", "Read Only Auditor", "Auditor"]
   ];
   const roleApps = {
-    Accountant: ["finance", "inventory", "docs", "analytics"],
+    Accountant: ["finance", "inventory", "purchase", "docs", "analytics"],
     Lawyer: ["docs", "analytics"],
     Salesperson: ["crm", "campaigns", "docs", "analytics"],
     "Service Manager": ["crm", "desk", "docs", "analytics", "flow"],
@@ -6579,7 +6667,8 @@ function ensureRoleLayer(db) {
 function ensureSuiteAppLayer(db) {
   const apps = [
     ["copilot", "Legal & Accounting Copilot", "AI", "Armenian-first cited legal, accounting, payroll, month-close, privacy, and e-sign guidance.", "/app/copilot", "controlled-advisory", 3],
-    ["inventory", "Catalog & Inventory", "Operations", "Products, warehouse balances, stock locations, and governed stock moves.", "/app/inventory", "new", 7]
+    ["inventory", "Catalog & Inventory", "Operations", "Products, warehouse balances, stock locations, and governed stock moves.", "/app/inventory", "new", 7],
+    ["purchase", "Purchase", "Operations", "RFQs, purchase orders, stock receipts, and AP vendor-bill handoff.", "/app/purchase", "new", 8]
   ];
   const insertApp = db.prepare(`
     INSERT OR IGNORE INTO apps (id, name, category, description, route, maturity, priority)
@@ -6594,10 +6683,11 @@ function ensureSuiteAppLayer(db) {
     ["campaigns", 5],
     ["projects", 6],
     ["inventory", 7],
-    ["people", 8],
-    ["docs", 9],
-    ["analytics", 10],
-    ["flow", 11]
+    ["purchase", 8],
+    ["people", 9],
+    ["docs", 10],
+    ["analytics", 11],
+    ["flow", 12]
   ];
   const updatePriority = db.prepare("UPDATE apps SET priority = ? WHERE id = ?");
   for (const [appId, priority] of appOrder) updatePriority.run(priority, appId);
@@ -6610,6 +6700,7 @@ function ensureSuiteAppLayer(db) {
   for (const org of orgs) {
     for (const role of ["Owner", "Admin", "Operator", "Accountant"]) {
       insertAssignment.run(org.id, role, "inventory");
+      insertAssignment.run(org.id, role, "purchase");
     }
     for (const role of ["Owner", "Admin", "Accountant", "Lawyer", "Salesperson", "Service Manager", "Auditor"]) {
       insertAssignment.run(org.id, role, "copilot");
@@ -6846,6 +6937,20 @@ function ensureInventoryLayer(db) {
   for (const org of orgs) {
     seedInventoryCore(db, org.id);
   }
+}
+
+function ensurePurchaseLayer(db) {
+  const purchaseOrderColumns = new Set(db.prepare("PRAGMA table_info(purchase_orders)").all().map(column => column.name));
+  if (!purchaseOrderColumns.has("vendor_id")) db.exec("ALTER TABLE purchase_orders ADD COLUMN vendor_id TEXT REFERENCES purchase_vendors(id) ON DELETE SET NULL");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_orders_vendor ON purchase_orders(org_id, vendor_id, status)");
+
+  const purchaseOrderLineColumns = new Set(db.prepare("PRAGMA table_info(purchase_order_lines)").all().map(column => column.name));
+  if (!purchaseOrderLineColumns.has("vendor_price_id")) db.exec("ALTER TABLE purchase_order_lines ADD COLUMN vendor_price_id TEXT REFERENCES purchase_vendor_prices(id) ON DELETE SET NULL");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_vendor_price ON purchase_order_lines(org_id, vendor_price_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_vendor_prices_vendor ON purchase_vendor_prices(org_id, vendor_id, status, catalog_item_id)");
+
+  const orgs = db.prepare("SELECT id FROM organizations").all();
+  for (const org of orgs) seedPurchaseVendors(db, org.id);
 }
 
 function ensureMarketingLayer(db) {
@@ -7550,7 +7655,64 @@ function seedInventoryCore(db, orgId) {
   `).run(seedId("stockquant-pos-scanner-main"), orgId, scanner.id, seedId("stockloc-main-warehouse"), 12, 0, scanner.standard_cost, now);
 }
 
+function seedPurchaseVendors(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
+  const now = new Date().toISOString();
+  const vendorId = purchaseSeedId(orgId, "vendor-yerevan-hardware-supply");
+  db.prepare(`
+    INSERT OR IGNORE INTO purchase_vendors (
+      id, org_id, name, tax_id, email, phone, status, payment_terms_days,
+      lead_time_days, note, created_by_user_id, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    vendorId,
+    orgId,
+    "Yerevan Hardware Supply",
+    "01234568",
+    "procurement@yerevan-hardware.example",
+    "+374 10 445566",
+    "active",
+    15,
+    2,
+    "Seeded Armenian hardware vendor for Purchase RFQ and receipt demos.",
+    null,
+    now,
+    now
+  );
+
+  const scannerItemId = catalogSeedId(orgId, "catitem-pos-barcode-scanner");
+  const scanner = db.prepare("SELECT id FROM catalog_items WHERE org_id = ? AND id = ? AND track_stock = 1").get(orgId, scannerItemId);
+  if (!scanner) return;
+  db.prepare(`
+    INSERT OR IGNORE INTO purchase_vendor_prices (
+      id, org_id, vendor_id, catalog_item_id, currency, unit_cost, min_quantity,
+      lead_time_days, valid_from, valid_to, status, note, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, 'AMD', ?, ?, ?, ?, '', ?, ?, ?, ?)
+  `).run(
+    purchaseSeedId(orgId, "vendor-price-yerevan-hardware-barcode-scanner"),
+    orgId,
+    vendorId,
+    scanner.id,
+    60000,
+    1,
+    2,
+    "2026-01-01",
+    "active",
+    "Preferred POS scanner cost for Armenian SMB replenishment.",
+    now,
+    now
+  );
+}
+
 function stockSeedId(orgId, baseId) {
+  if (orgId === "org-armosphera-demo") return baseId;
+  const suffix = crypto.createHash("sha256").update(String(orgId)).digest("hex").slice(0, 12);
+  return `${baseId}-${suffix}`;
+}
+
+function purchaseSeedId(orgId, baseId) {
   if (orgId === "org-armosphera-demo") return baseId;
   const suffix = crypto.createHash("sha256").update(String(orgId)).digest("hex").slice(0, 12);
   return `${baseId}-${suffix}`;

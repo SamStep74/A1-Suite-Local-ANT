@@ -1,25 +1,25 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-06 · Catalog & Inventory sidebar workspace · 50 tags · **648 tests verified**_
+_Last updated: 2026-06-06 · Purchase vendor/pricelist layer · 50 tags · **700 tests verified**_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
 A **sovereign, self-hostable Armenian business operating system** with phased one-to-one *functional* parity to Zoho One. Runs entirely on the customer's own server: a single Node/Fastify + SQLite process serving a React SPA, with **no external data dependency** except opt-in AI. Built for Armenian organizations that cannot use foreign clouds (government, banks, healthcare, legal).
 
-Latest implementation slice: Catalog & Inventory is now a first-class Suite sidebar product at `/app/inventory`. Fresh and reopened databases seed/repair the `inventory` launcher app, place it after Projects, and assign it only to roles that can load the combined catalog + stock APIs (`Owner`, `Admin`, `Operator`, `Accountant`). The workspace renders product/stock metrics, internal balances, catalog rows, recent stock moves, and a guarded stock-move form whose defaults match backend stock-location rules for transfer, receipt, delivery, adjustment, and scrap. The app-assignment endpoint now rejects attempts to expose Inventory to unsupported roles, and stale hand-edited assignment rows cannot authorize sidebar/app access. Verification from `~/dev/A1-Suite-Local`: focused API/sidebar/catalog/inventory tests passed (`node --test --test-name-pattern "app assignment rejects inventory|owner can update app assignment|app assignment rejects malformed metadata" test/api.test.js`, 3 pass; `node --test test/suite-routes.test.mjs test/suite-dashboard-sidebar-openability.test.mjs test/catalog.test.js test/inventory.test.js`, 19 pass); `npm run build:ui` passed with the existing Vite chunk-size warning; `git diff --check` passed; final full `npm test` passed (648 pass, 0 fail, 0 cancelled); offline smoke passed (`ARMOSPHERA_ONE_DB=/tmp/a1-suite-inventory-ui-smoke-final-2.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke`, `smoke ok: Armosphera Demo Clinic, apps=11, kpis=4`); browser smoke on `http://127.0.0.1:4198/app/inventory` verified the active Inventory sidebar route, rendered defaults `WH/STOCK -> WH/OUT`, submitted a Scrap move using the corrected default `WH/STOCK -> SCRAP`, showed stock reduced to `11 available`, and reported no browser console warnings/errors.
+Latest implementation slice: Purchase now has an end-to-end RFQ/PO workspace over the existing Catalog, Inventory, and Finance graph. `purchase_orders` and `purchase_order_lines` are tenant-scoped, backup-included records with Armenian supplier ՀՎՀՀ evidence, whole-AMD subtotal/VAT/total math, safe metadata guards, and role gates (`Owner`/`Admin`/`Operator`/`Accountant` write; Auditor read-only). The Suite launcher now seeds/repairs the `purchase` app after Catalog & Inventory, assigns it only to roles that can load purchase/catalog data, and rejects unsupported app-assignment writes. The sidebar workspace loads stock-tracked catalog items, purchase orders, and purchase vendors, shows RFQ/confirmed/received/billed counts plus open procurement value, lets allowed operators create an RFQ, and exposes guarded Confirm, Receive, and Bill actions with role-specific billing access. This continuation adds tenant-scoped `purchase_vendors` and `purchase_vendor_prices`, seeded Armenian vendor/pricelist evidence, backup inclusion, GET/POST vendor endpoints, duplicate/vendor-price guards, vendor-price-backed RFQ default costing, and persisted `vendor_price_id` evidence on purchase lines. Operators can confirm an RFQ, receive the PO into `WH/STOCK` through canonical stock receipt moves, and finance operators can convert the received PO into an AP vendor bill through the existing HayHashvapah bill engine and period-lock rules. Repeated confirm/receive/bill calls are idempotent after progression, duplicate PO numbers return a sanitized `409`, closed periods block billing before mutation, and confirm/receipt/bill transitions are transaction-backed so status, stock/AP rows, suite events, and audit evidence cannot split. Verification from `~/dev/A1-Suite-Local`: `node --test test/purchase.test.js` passed (4 pass), sidebar openability passed, `npm run build:ui` passed, smoke passed with 12 apps, rendered `/app/purchase` proof selected `Yerevan Hardware Supply`, filled ՀՎՀՀ `01234568`, and showed vendor-price placeholder `60000`, `git diff --check` passed, and full `npm test` passed with 700 tests.
 
 ---
 
 ## 1. What exists today
 
-### Eight working domains on one shared data graph — a closed revenue loop
+### Nine UI domains on one shared data graph — a closed revenue/procurement loop
 ```
 Forms (intake) ─▶ CRM (lead→deal→quote) ─▶ Projects (deliver, staffed by People-HR,
    ▲                                          logging billable time)
    │                                              │
  Desk (support) ◀── Docs & Sign (execute) ◀── Finance ◀─ billing seam (time→invoice→ledger)
                          ▲                         ▲
-                         └──── Catalog & Inventory ┘
+                         └──── Catalog & Inventory ◀── Purchase ───▶ Finance/AP
 ```
 Every arrow is a **validated FK between modules** sharing `customers` / `deals` / `people_employees` — integration depth, not copy-paste.
 
@@ -32,12 +32,14 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 | **Docs & Sign** | complete (BE+UI) | document + multi-signer e-signature lifecycle, SHA-256 consent, local-only signers, printable Save-as-PDF evidence certificate |
 | **Projects** | complete (BE+UI) | projects→tasks→milestones→time entries; lazy detail expander |
 | **Catalog & Inventory** | complete (BE+UI) | product master, governed stock locations/quants/moves, sidebar stock operation workspace |
+| **Purchase** | complete first slice (BE+UI) | RFQ→PO confirmation→stock receipt→AP vendor bill with period-lock, vendor/pricelist defaults, backup evidence, and sidebar workspace controls |
 | **Forms** | complete (BE+UI) | intake forms; PUBLIC submit → creates a CRM lead (rate-limited, key-whitelisted) |
 
 ### Cross-app seams (the "suite, not a folder of apps" proof)
 - **Forms → CRM**: public form submission creates a real CRM lead via `createCrmLead`.
 - **People-HR → Finance**: an employee's salary runs payroll → posts `Dt 714 / Kt 521+525` to the ledger.
 - **Projects → Finance (billing seam)**: unbilled logged minutes → a posted invoice (`Dt 221 / Kt 611+524`), entries marked billed (idempotent per project+period).
+- **Purchase → Inventory → Finance/AP**: confirmed PO receipts create stock moves into `WH/STOCK`; received POs convert into vendor bills through the existing AP engine and period-lock checks.
 
 ### Hardening (production-readiness pass — 224 slices)
 1. **Effective-dated tax-rate versioning** (`tax_rates` table; recomputing a historical period uses the rate that applied *then*).

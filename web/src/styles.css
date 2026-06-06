@@ -1226,8 +1226,28 @@ textarea {
 .row.inventory-stock { background: rgba(0, 137, 123, 0.08); }
 .row.inventory-catalog { background: rgba(45, 108, 223, 0.06); }
 .row.inventory-move { background: rgba(215, 139, 47, 0.08); }
+.row.purchase-order { background: rgba(45, 108, 223, 0.06); }
+.row.purchase-order.rfq { background: rgba(215, 139, 47, 0.08); }
+.row.purchase-order.confirmed { background: rgba(45, 108, 223, 0.08); }
+.row.purchase-order.received { background: rgba(0, 137, 123, 0.08); }
+.row.purchase-order.billed { background: rgba(196, 111, 61, 0.08); }
 .row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row strong { flex: 0 0 auto; }
+
+.row-actions {
+  display: flex;
+  flex: 0 0 auto;
+  flex-wrap: wrap;
+  gap: 6px;
+  justify-content: flex-end;
+}
+
+.row-actions .mini-action {
+  min-height: 30px;
+  min-width: 78px;
+  padding: 6px 8px;
+  font-size: 11px;
+}
 
 .approval-mini,
 .execution-mini {
@@ -1772,6 +1792,25 @@ textarea {
 }
 
 .inventory-move-form .mini-action {
+  align-self: end;
+  min-height: 44px;
+  min-width: 0;
+  width: 100%;
+}
+
+.purchase-summary {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.purchase-order-form .inline-form {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+  gap: 9px;
+  margin-bottom: 12px;
+  min-width: 0;
+}
+
+.purchase-order-form .mini-action {
   align-self: end;
   min-height: 44px;
   min-width: 0;

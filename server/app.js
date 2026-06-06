@@ -20,7 +20,8 @@ const SEMANTIC_LAYER_VERSION = "2026-05-27";
 const ARMENIA_TIME_ZONE = "Asia/Yerevan";
 const SYSTEM_APP_ASSIGNMENT_ROLES = new Set(["Admin"]);
 const APP_ASSIGNMENT_ROLE_GUARDS = {
-  inventory: new Set(["Owner", "Admin", "Operator", "Accountant"])
+  inventory: new Set(["Owner", "Admin", "Operator", "Accountant"]),
+  purchase: new Set(["Owner", "Admin", "Operator", "Accountant"])
 };
 const ANALYTICS_REPORT_METRICS = {
   owner: [
@@ -451,6 +452,51 @@ function registerApi(app, db, options = {}) {
     requireInventoryWriter(user);
     const move = createStockMove(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, move, stock: getStockQuants(db, user.org_id, { catalogItemId: move.catalogItemId }) };
+  });
+
+  app.get("/api/purchase/orders", async request => {
+    const user = await app.auth(request);
+    requirePurchaseReader(user);
+    return { orders: getPurchaseOrders(db, user.org_id) };
+  });
+
+  app.get("/api/purchase/vendors", async request => {
+    const user = await app.auth(request);
+    requirePurchaseReader(user);
+    return { vendors: getPurchaseVendors(db, user.org_id) };
+  });
+
+  app.post("/api/purchase/vendors", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    return createPurchaseVendor(db, user, request.body === undefined ? {} : request.body);
+  });
+
+  app.post("/api/purchase/orders", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    return createPurchaseOrder(db, user, request.body === undefined ? {} : request.body);
+  });
+
+  app.post("/api/purchase/orders/:id/confirm", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    const orderId = normalizePurchasePathId(request.params.id);
+    return confirmPurchaseOrder(db, user, orderId);
+  });
+
+  app.post("/api/purchase/orders/:id/receive", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    const orderId = normalizePurchasePathId(request.params.id);
+    return receivePurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
+  });
+
+  app.post("/api/purchase/orders/:id/bill", async request => {
+    const user = await app.auth(request);
+    requireFinanceOperator(user);
+    const orderId = normalizePurchasePathId(request.params.id);
+    return billPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
   });
 
   app.get("/api/pilots/templates/clinic-wellness", async request => {
@@ -7691,6 +7737,22 @@ function requireInventoryReader(user) {
 function requireInventoryWriter(user) {
   if (!["Owner", "Admin", "Operator", "Accountant"].includes(user.role)) {
     const err = new Error("Inventory writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requirePurchaseReader(user) {
+  if (!["Owner", "Admin", "Operator", "Accountant", "Auditor"].includes(user.role)) {
+    const err = new Error("Purchase reader role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requirePurchaseWriter(user) {
+  if (!["Owner", "Admin", "Operator", "Accountant"].includes(user.role)) {
+    const err = new Error("Purchase writer role required");
     err.statusCode = 403;
     throw err;
   }
@@ -41811,6 +41873,10 @@ const ORG_BACKUP_TABLES = [
   "stock_locations",
   "stock_quants",
   "stock_moves",
+  "purchase_vendors",
+  "purchase_vendor_prices",
+  "purchase_orders",
+  "purchase_order_lines",
   "integration_connectors",
   "integration_connector_checks",
   "pilot_template_installs",
@@ -41921,6 +41987,8 @@ const ORG_BACKUP_TABLES = [
   "crm_collection_reminder_deliveries",
   "invoices",
   "finance_periods",
+  "bills",
+  "bill_payments",
   "finance_draft_invoices",
   "finance_invoice_links",
   "finance_payments",
@@ -48514,6 +48582,18 @@ function formatStockMove(row) {
 
 function createStockMove(db, user, body) {
   const input = normalizeStockMoveBody(body);
+  db.exec("BEGIN");
+  try {
+    const move = createStockMoveFromInput(db, user, input);
+    db.exec("COMMIT");
+    return move;
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
+function createStockMoveFromInput(db, user, input) {
   const item = getCatalogItem(db, user.org_id, input.catalogItemId);
   if (!item) {
     const err = new Error("Catalog item not found");
@@ -48532,49 +48612,43 @@ function createStockMove(db, user, body) {
   const now = new Date().toISOString();
   const unitCost = resolveStockMoveUnitCost(db, user.org_id, item, input, sourceLocation);
   const totalCost = input.quantity * unitCost;
+  if (!Number.isSafeInteger(totalCost)) throwInvalidInventoryMetadata();
   const moveId = randomId("stockmove");
-  db.exec("BEGIN");
-  try {
-    db.prepare(`
-      INSERT INTO stock_moves (
-        id, org_id, catalog_item_id, source_location_id, destination_location_id,
-        move_type, quantity, unit_cost, total_cost, status, reason, reference,
-        created_by_user_id, created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      moveId,
-      user.org_id,
-      item.id,
-      sourceLocation ? sourceLocation.id : null,
-      destinationLocation ? destinationLocation.id : null,
-      input.moveType,
-      input.quantity,
-      unitCost,
-      totalCost,
-      "posted",
-      input.reason,
-      input.reference,
-      user.id,
-      now
-    );
-    if (isInternalStockLocation(sourceLocation)) adjustStockQuant(db, user.org_id, item.id, sourceLocation.id, -input.quantity, unitCost, now);
-    if (isInternalStockLocation(destinationLocation)) adjustStockQuant(db, user.org_id, item.id, destinationLocation.id, input.quantity, unitCost, now);
-    emitSuiteEvent(db, {
-      orgId: user.org_id,
-      actorUserId: user.id,
-      eventType: "inventory.stock_move.posted",
-      subjectType: "stock_move",
-      subjectId: moveId,
-      status: "posted",
-      payload: { catalogItemId: item.id, sku: item.sku, moveType: input.moveType, quantity: input.quantity, unitCost, totalCost }
-    });
-    audit(db, user.org_id, user.id, "inventory.stock_move.posted", { moveId, catalogItemId: item.id, moveType: input.moveType, quantity: input.quantity });
-    db.exec("COMMIT");
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
+  db.prepare(`
+    INSERT INTO stock_moves (
+      id, org_id, catalog_item_id, source_location_id, destination_location_id,
+      move_type, quantity, unit_cost, total_cost, status, reason, reference,
+      created_by_user_id, created_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    moveId,
+    user.org_id,
+    item.id,
+    sourceLocation ? sourceLocation.id : null,
+    destinationLocation ? destinationLocation.id : null,
+    input.moveType,
+    input.quantity,
+    unitCost,
+    totalCost,
+    "posted",
+    input.reason,
+    input.reference,
+    user.id,
+    now
+  );
+  if (isInternalStockLocation(sourceLocation)) adjustStockQuant(db, user.org_id, item.id, sourceLocation.id, -input.quantity, unitCost, now);
+  if (isInternalStockLocation(destinationLocation)) adjustStockQuant(db, user.org_id, item.id, destinationLocation.id, input.quantity, unitCost, now);
+  emitSuiteEvent(db, {
+    orgId: user.org_id,
+    actorUserId: user.id,
+    eventType: "inventory.stock_move.posted",
+    subjectType: "stock_move",
+    subjectId: moveId,
+    status: "posted",
+    payload: { catalogItemId: item.id, sku: item.sku, moveType: input.moveType, quantity: input.quantity, unitCost, totalCost }
+  });
+  audit(db, user.org_id, user.id, "inventory.stock_move.posted", { moveId, catalogItemId: item.id, moveType: input.moveType, quantity: input.quantity });
   return getStockMove(db, user.org_id, moveId);
 }
 
@@ -48794,6 +48868,747 @@ function throwStockLocationNotFound() {
 
 function throwInvalidInventoryMetadata() {
   const err = new Error("Inventory request requires safe metadata");
+  err.statusCode = 400;
+  throw err;
+}
+
+function getPurchaseVendors(db, orgId) {
+  return db.prepare(`
+    SELECT *
+    FROM purchase_vendors
+    WHERE org_id = ?
+    ORDER BY status = 'active' DESC, name
+  `).all(orgId).map(row => formatPurchaseVendor(row, getPurchaseVendorPrices(db, orgId, row.id)));
+}
+
+function getPurchaseVendor(db, orgId, vendorId) {
+  const row = db.prepare("SELECT * FROM purchase_vendors WHERE org_id = ? AND id = ?").get(orgId, vendorId);
+  return row ? formatPurchaseVendor(row, getPurchaseVendorPrices(db, orgId, row.id)) : null;
+}
+
+function getPurchaseVendorPrices(db, orgId, vendorId) {
+  return db.prepare(`
+    SELECT purchase_vendor_prices.*, catalog_items.sku AS catalog_sku,
+      catalog_items.name AS catalog_name, catalog_items.unit_of_measure AS unit_of_measure
+    FROM purchase_vendor_prices
+    JOIN catalog_items ON catalog_items.id = purchase_vendor_prices.catalog_item_id
+      AND catalog_items.org_id = purchase_vendor_prices.org_id
+    WHERE purchase_vendor_prices.org_id = ? AND purchase_vendor_prices.vendor_id = ?
+    ORDER BY purchase_vendor_prices.status = 'active' DESC,
+      catalog_items.sku, purchase_vendor_prices.min_quantity, purchase_vendor_prices.valid_from DESC
+  `).all(orgId, vendorId).map(formatPurchaseVendorPrice);
+}
+
+function formatPurchaseVendor(row, prices = []) {
+  return {
+    id: row.id,
+    name: row.name,
+    taxId: row.tax_id || "",
+    email: row.email || "",
+    phone: row.phone || "",
+    status: row.status,
+    paymentTermsDays: row.payment_terms_days,
+    leadTimeDays: row.lead_time_days,
+    note: row.note || "",
+    createdByUserId: row.created_by_user_id || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    prices
+  };
+}
+
+function formatPurchaseVendorPrice(row) {
+  return {
+    id: row.id,
+    vendorId: row.vendor_id,
+    catalogItemId: row.catalog_item_id,
+    catalogSku: row.catalog_sku,
+    catalogName: row.catalog_name,
+    unitOfMeasure: row.unit_of_measure,
+    currency: row.currency,
+    unitCost: row.unit_cost,
+    minQuantity: row.min_quantity,
+    leadTimeDays: row.lead_time_days,
+    validFrom: row.valid_from,
+    validTo: row.valid_to || "",
+    status: row.status,
+    note: row.note || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function createPurchaseVendor(db, user, body) {
+  const input = normalizePurchaseVendorBody(body);
+  const now = new Date().toISOString();
+  const vendorId = randomId("vendor");
+  assertPurchaseVendorNameAvailable(db, user.org_id, input.name);
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      INSERT INTO purchase_vendors (
+        id, org_id, name, tax_id, email, phone, status, payment_terms_days,
+        lead_time_days, note, created_by_user_id, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      vendorId,
+      user.org_id,
+      input.name,
+      input.taxId,
+      input.email,
+      input.phone,
+      input.status,
+      input.paymentTermsDays,
+      input.leadTimeDays,
+      input.note,
+      user.id,
+      now,
+      now
+    );
+    const insertPrice = db.prepare(`
+      INSERT INTO purchase_vendor_prices (
+        id, org_id, vendor_id, catalog_item_id, currency, unit_cost, min_quantity,
+        lead_time_days, valid_from, valid_to, status, note, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const price of input.prices) {
+      assertCatalogItemExists(db, user.org_id, price.catalogItemId);
+      insertPrice.run(
+        randomId("vendor-price"),
+        user.org_id,
+        vendorId,
+        price.catalogItemId,
+        price.unitCost,
+        price.minQuantity,
+        price.leadTimeDays,
+        price.validFrom,
+        price.validTo,
+        price.status,
+        price.note,
+        now,
+        now
+      );
+    }
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.vendor.created",
+      subjectType: "purchase_vendor",
+      subjectId: vendorId,
+      status: input.status,
+      payload: { name: input.name, taxIdPresent: Boolean(input.taxId), priceCount: input.prices.length }
+    });
+    audit(db, user.org_id, user.id, "purchase.vendor.created", { vendorId, name: input.name, priceCount: input.prices.length });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { ok: true, vendor: getPurchaseVendor(db, user.org_id, vendorId) };
+}
+
+function getPurchaseOrders(db, orgId) {
+  return db.prepare(`
+    SELECT purchase_orders.*, purchase_vendors.name AS vendor_name,
+      bills.status AS bill_status, users.name AS created_by_name
+    FROM purchase_orders
+    LEFT JOIN purchase_vendors ON purchase_vendors.id = purchase_orders.vendor_id
+      AND purchase_vendors.org_id = purchase_orders.org_id
+    LEFT JOIN bills ON bills.id = purchase_orders.bill_id AND bills.org_id = purchase_orders.org_id
+    LEFT JOIN users ON users.id = purchase_orders.created_by_user_id
+    WHERE purchase_orders.org_id = ?
+    ORDER BY purchase_orders.order_date DESC, purchase_orders.created_at DESC
+  `).all(orgId).map(row => formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id)));
+}
+
+function getPurchaseOrder(db, orgId, orderId) {
+  const row = db.prepare(`
+    SELECT purchase_orders.*, purchase_vendors.name AS vendor_name,
+      bills.status AS bill_status, users.name AS created_by_name
+    FROM purchase_orders
+    LEFT JOIN purchase_vendors ON purchase_vendors.id = purchase_orders.vendor_id
+      AND purchase_vendors.org_id = purchase_orders.org_id
+    LEFT JOIN bills ON bills.id = purchase_orders.bill_id AND bills.org_id = purchase_orders.org_id
+    LEFT JOIN users ON users.id = purchase_orders.created_by_user_id
+    WHERE purchase_orders.org_id = ? AND purchase_orders.id = ?
+  `).get(orgId, orderId);
+  return row ? formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id)) : null;
+}
+
+function getPurchaseOrderLines(db, orgId, orderId) {
+  return db.prepare(`
+    SELECT purchase_order_lines.*, catalog_items.sku AS catalog_sku,
+      catalog_items.name AS catalog_name, catalog_items.unit_of_measure AS unit_of_measure,
+      stock_moves.reference AS stock_move_reference
+    FROM purchase_order_lines
+    JOIN catalog_items ON catalog_items.id = purchase_order_lines.catalog_item_id
+      AND catalog_items.org_id = purchase_order_lines.org_id
+    LEFT JOIN stock_moves ON stock_moves.id = purchase_order_lines.stock_move_id
+      AND stock_moves.org_id = purchase_order_lines.org_id
+    WHERE purchase_order_lines.org_id = ? AND purchase_order_lines.purchase_order_id = ?
+    ORDER BY purchase_order_lines.created_at, purchase_order_lines.id
+  `).all(orgId, orderId).map(formatPurchaseOrderLine);
+}
+
+function formatPurchaseOrder(row, lines = []) {
+  return {
+    id: row.id,
+    vendorId: row.vendor_id || "",
+    vendorName: row.vendor_name || "",
+    orderNumber: row.order_number,
+    supplier: row.supplier,
+    supplierTaxId: row.supplier_tax_id,
+    status: row.status,
+    subtotal: row.subtotal,
+    vat: row.vat,
+    total: row.total,
+    currency: row.currency,
+    orderDate: row.order_date,
+    expectedDate: row.expected_date,
+    confirmedAt: row.confirmed_at || "",
+    receivedAt: row.received_at || "",
+    billId: row.bill_id || "",
+    billStatus: row.bill_status || "",
+    receiptReference: row.receipt_reference || "",
+    note: row.note || "",
+    createdByUserId: row.created_by_user_id,
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at,
+    lines
+  };
+}
+
+function formatPurchaseOrderLine(row) {
+  return {
+    id: row.id,
+    purchaseOrderId: row.purchase_order_id,
+    catalogItemId: row.catalog_item_id,
+    vendorPriceId: row.vendor_price_id || "",
+    catalogSku: row.catalog_sku,
+    catalogName: row.catalog_name,
+    unitOfMeasure: row.unit_of_measure,
+    description: row.description,
+    quantity: row.quantity,
+    receivedQuantity: row.received_quantity,
+    unitCost: row.unit_cost,
+    subtotal: row.subtotal,
+    vat: row.vat,
+    total: row.total,
+    stockMoveId: row.stock_move_id || "",
+    stockMoveReference: row.stock_move_reference || "",
+    createdAt: row.created_at
+  };
+}
+
+function createPurchaseOrder(db, user, body) {
+  const input = normalizePurchaseOrderBody(body);
+  const vendor = input.vendorId ? getPurchaseVendor(db, user.org_id, input.vendorId) : null;
+  if (input.vendorId && (!vendor || vendor.status !== "active")) {
+    const err = new Error("Purchase vendor not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (vendor) {
+    input.supplier = input.supplier || vendor.name;
+    input.supplierTaxId = input.supplierTaxId || vendor.taxId;
+  }
+  const now = new Date().toISOString();
+  const rate = resolveVatRate(db, user.org_id, input.orderDate);
+  const lines = input.lines.map(line => buildPurchaseOrderLine(db, user.org_id, line, input.orderDate, rate, input.vendorId));
+  const subtotal = lines.reduce((total, line) => total + line.subtotal, 0);
+  const vat = lines.reduce((total, line) => total + line.vat, 0);
+  const total = subtotal + vat;
+  if (!Number.isSafeInteger(subtotal) || !Number.isSafeInteger(vat) || !Number.isSafeInteger(total)) throwInvalidPurchaseMetadata();
+  const orderId = randomId("po");
+  const orderNumber = input.orderNumber || nextPurchaseOrderNumber();
+  assertPurchaseOrderNumberAvailable(db, user.org_id, orderNumber);
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      INSERT INTO purchase_orders (
+        id, org_id, vendor_id, order_number, supplier, supplier_tax_id, status,
+        subtotal, vat, total, currency, order_date, expected_date, note,
+        created_by_user_id, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?)
+    `).run(
+      orderId,
+      user.org_id,
+      input.vendorId || null,
+      orderNumber,
+      input.supplier,
+      input.supplierTaxId,
+      "rfq",
+      subtotal,
+      vat,
+      total,
+      input.orderDate,
+      input.expectedDate,
+      input.note,
+      user.id,
+      now,
+      now
+    );
+    const insertLine = db.prepare(`
+      INSERT INTO purchase_order_lines (
+        id, org_id, purchase_order_id, catalog_item_id, vendor_price_id, description, quantity,
+        received_quantity, unit_cost, subtotal, vat, total, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, 0, ?, ?, ?, ?, ?)
+    `);
+    for (const line of lines) {
+      insertLine.run(
+        randomId("po-line"),
+        user.org_id,
+        orderId,
+        line.catalogItemId,
+        line.vendorPriceId || null,
+        line.description,
+        line.quantity,
+        line.unitCost,
+        line.subtotal,
+        line.vat,
+        line.total,
+        now
+      );
+    }
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.order.created",
+      subjectType: "purchase_order",
+      subjectId: orderId,
+      status: "rfq",
+      payload: { orderNumber, supplier: input.supplier, total, lineCount: lines.length }
+    });
+    audit(db, user.org_id, user.id, "purchase.order.created", { orderId, orderNumber, supplier: input.supplier, total });
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { ok: true, order: getPurchaseOrder(db, user.org_id, orderId) };
+}
+
+function confirmPurchaseOrder(db, user, orderId) {
+  const order = getPurchaseOrder(db, user.org_id, orderId);
+  if (!order) throwPurchaseOrderNotFound();
+  if (order.status === "confirmed" || order.status === "received" || order.status === "billed") {
+    return { ok: true, idempotent: true, order };
+  }
+  if (order.status !== "rfq") throwPurchaseStateConflict("Purchase order is not confirmable");
+  const now = new Date().toISOString();
+  let confirmedOrder;
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      UPDATE purchase_orders
+      SET status = 'confirmed', confirmed_at = ?, updated_at = ?
+      WHERE org_id = ? AND id = ?
+    `).run(now, now, user.org_id, orderId);
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.order.confirmed",
+      subjectType: "purchase_order",
+      subjectId: orderId,
+      status: "confirmed",
+      payload: { orderNumber: order.orderNumber, total: order.total }
+    });
+    audit(db, user.org_id, user.id, "purchase.order.confirmed", { orderId, orderNumber: order.orderNumber, total: order.total });
+    confirmedOrder = getPurchaseOrder(db, user.org_id, orderId);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { ok: true, order: confirmedOrder };
+}
+
+function receivePurchaseOrder(db, user, orderId, body) {
+  const order = getPurchaseOrder(db, user.org_id, orderId);
+  if (!order) throwPurchaseOrderNotFound();
+  if (order.status === "received" || order.status === "billed") return { ok: true, idempotent: true, order };
+  if (order.status !== "confirmed") throwPurchaseStateConflict("Purchase order must be confirmed before receipt");
+  const input = normalizePurchaseReceiptBody(body);
+  const mainWarehouse = getStockLocationByCode(db, user.org_id, "WH/STOCK");
+  if (!mainWarehouse || mainWarehouse.status !== "active") throwStockLocationNotFound();
+  if (order.lines.length === 0 || order.lines.some(line => line.receivedQuantity > 0 || line.stockMoveId)) {
+    throwPurchaseStateConflict("Purchase order receipt is not available");
+  }
+
+  const reference = input.reference || `${order.orderNumber}-RECEIPT`;
+  const stockMoves = [];
+  let receivedOrder;
+  db.exec("BEGIN");
+  try {
+    for (const line of order.lines) {
+      const move = createStockMoveFromInput(db, user, {
+        catalogItemId: line.catalogItemId,
+        destinationLocationId: mainWarehouse.id,
+        moveType: "receipt",
+        quantity: line.quantity,
+        unitCost: line.unitCost,
+        reason: `Purchase receipt for ${order.orderNumber}`,
+        reference
+      });
+      stockMoves.push(move);
+      db.prepare(`
+        UPDATE purchase_order_lines
+        SET received_quantity = ?, stock_move_id = ?
+        WHERE org_id = ? AND id = ?
+      `).run(line.quantity, move.id, user.org_id, line.id);
+    }
+
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE purchase_orders
+      SET status = 'received', received_at = ?, receipt_reference = ?, updated_at = ?
+      WHERE org_id = ? AND id = ?
+    `).run(input.receivedAt, reference, now, user.org_id, orderId);
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.order.received",
+      subjectType: "purchase_order",
+      subjectId: orderId,
+      status: "received",
+      payload: { orderNumber: order.orderNumber, stockMoveIds: stockMoves.map(move => move.id), total: order.total }
+    });
+    audit(db, user.org_id, user.id, "purchase.order.received", { orderId, orderNumber: order.orderNumber, stockMoveIds: stockMoves.map(move => move.id), total: order.total });
+    receivedOrder = getPurchaseOrder(db, user.org_id, orderId);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { ok: true, order: receivedOrder, stockMoves };
+}
+
+function billPurchaseOrder(db, user, orderId, body) {
+  const order = getPurchaseOrder(db, user.org_id, orderId);
+  if (!order) throwPurchaseOrderNotFound();
+  if (order.status === "billed" && order.billId) {
+    return { ok: true, idempotent: true, order, bill: getPurchaseLinkedBill(db, user.org_id, order.billId) };
+  }
+  if (order.status !== "received") throwPurchaseStateConflict("Purchase order must be received before billing");
+  const input = normalizePurchaseBillBody(body, order);
+  let billResult;
+  let billedOrder;
+  db.exec("BEGIN");
+  try {
+    billResult = createFinanceBillFromInput(db, user, {
+      supplier: order.supplier,
+      description: input.description,
+      subtotal: order.subtotal,
+      vat: order.vat,
+      billDate: input.billDate,
+      dueDate: input.dueDate
+    });
+    const now = new Date().toISOString();
+    db.prepare(`
+      UPDATE purchase_orders
+      SET status = 'billed', bill_id = ?, updated_at = ?
+      WHERE org_id = ? AND id = ?
+    `).run(billResult.bill.id, now, user.org_id, orderId);
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.order.billed",
+      subjectType: "purchase_order",
+      subjectId: orderId,
+      status: "billed",
+      payload: { orderNumber: order.orderNumber, billId: billResult.bill.id, total: order.total }
+    });
+    audit(db, user.org_id, user.id, "purchase.order.billed", { orderId, orderNumber: order.orderNumber, billId: billResult.bill.id, total: order.total });
+    billedOrder = getPurchaseOrder(db, user.org_id, orderId);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { ok: true, order: billedOrder, bill: billResult.bill };
+}
+
+function getPurchaseLinkedBill(db, orgId, billId) {
+  const row = db.prepare(`
+    SELECT id, supplier, description, subtotal, vat, total, bill_date AS billDate,
+      due_date AS dueDate, status, period_key AS periodKey
+    FROM bills
+    WHERE org_id = ? AND id = ?
+  `).get(orgId, billId);
+  return row || null;
+}
+
+function buildPurchaseOrderLine(db, orgId, line, orderDate, vatRate, vendorId = "") {
+  const item = getCatalogItem(db, orgId, line.catalogItemId);
+  if (!item) {
+    const err = new Error("Catalog item not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (item.status !== "active" || !item.trackStock) {
+    const err = new Error("Stock-tracked active catalog item required");
+    err.statusCode = 422;
+    throw err;
+  }
+  const explicitUnitCost = line.unitCost || 0;
+  const vendorPrice = !explicitUnitCost && vendorId ? getBestPurchaseVendorPrice(db, orgId, vendorId, item.id, line.quantity, orderDate) : null;
+  const unitCost = explicitUnitCost || vendorPrice?.unitCost || item.standardCost;
+  if (!Number.isSafeInteger(unitCost) || unitCost <= 0) throwInvalidPurchaseMetadata();
+  const subtotal = line.quantity * unitCost;
+  if (!Number.isSafeInteger(subtotal)) throwInvalidPurchaseMetadata();
+  const vat = item.vatMode === "standard" ? Math.round(subtotal * vatRate) : 0;
+  if (!Number.isSafeInteger(vat) || !Number.isSafeInteger(subtotal + vat)) throwInvalidPurchaseMetadata();
+  return {
+    catalogItemId: item.id,
+    description: line.description || item.name,
+    quantity: line.quantity,
+    unitCost,
+    vendorPriceId: vendorPrice?.id || "",
+    subtotal,
+    vat,
+    total: subtotal + vat,
+    orderDate
+  };
+}
+
+function getBestPurchaseVendorPrice(db, orgId, vendorId, catalogItemId, quantity, orderDate) {
+  const rows = db.prepare(`
+    SELECT *
+    FROM purchase_vendor_prices
+    WHERE org_id = ?
+      AND vendor_id = ?
+      AND catalog_item_id = ?
+      AND status = 'active'
+      AND min_quantity <= ?
+      AND valid_from <= ?
+      AND (valid_to = '' OR valid_to >= ?)
+    ORDER BY min_quantity DESC, valid_from DESC, unit_cost ASC
+    LIMIT 1
+  `).all(orgId, vendorId, catalogItemId, quantity, orderDate, orderDate);
+  return rows[0] ? formatPurchaseVendorPrice({
+    ...rows[0],
+    catalog_sku: "",
+    catalog_name: "",
+    unit_of_measure: ""
+  }) : null;
+}
+
+function assertPurchaseOrderNumberAvailable(db, orgId, orderNumber) {
+  const row = db.prepare("SELECT id FROM purchase_orders WHERE org_id = ? AND order_number = ?").get(orgId, orderNumber);
+  if (row) {
+    const err = new Error("Purchase order number already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
+function assertPurchaseVendorNameAvailable(db, orgId, name) {
+  const row = db.prepare("SELECT id FROM purchase_vendors WHERE org_id = ? AND name = ?").get(orgId, name);
+  if (row) {
+    const err = new Error("Purchase vendor already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
+function assertCatalogItemExists(db, orgId, catalogItemId) {
+  const item = getCatalogItem(db, orgId, catalogItemId);
+  if (!item) {
+    const err = new Error("Catalog item not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (item.status !== "active" || !item.trackStock) {
+    const err = new Error("Stock-tracked active catalog item required");
+    err.statusCode = 422;
+    throw err;
+  }
+  return item;
+}
+
+function normalizePurchaseVendorBody(body) {
+  if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
+  return {
+    name: normalizePurchaseText(body, "name", { required: true, minLength: 2, maxLength: 160 }),
+    taxId: normalizePurchaseSupplierTaxId(body, "taxId"),
+    email: normalizePurchaseText(body, "email", { fallback: "", maxLength: 160 }),
+    phone: normalizePurchaseText(body, "phone", { fallback: "", maxLength: 40 }),
+    status: normalizePurchaseChoice(body, "status", ["active", "suspended"], "active"),
+    paymentTermsDays: normalizePurchaseInteger(body, "paymentTermsDays", { fallback: 0, min: 0, max: 365 }),
+    leadTimeDays: normalizePurchaseInteger(body, "leadTimeDays", { fallback: 0, min: 0, max: 365 }),
+    note: normalizePurchaseText(body, "note", { fallback: "", maxLength: 500 }),
+    prices: normalizePurchaseVendorPrices(body)
+  };
+}
+
+function normalizePurchaseVendorPrices(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "prices") ? body.prices : [];
+  if (!Array.isArray(value) || value.length > 25) throwInvalidPurchaseMetadata();
+  const seen = new Set();
+  return value.map(price => {
+    if (!isPlainObject(price)) throwInvalidPurchaseMetadata();
+    const validFrom = normalizePurchaseDate(price, "validFrom", { fallback: new Date().toISOString().slice(0, 10) });
+    const validTo = normalizePurchaseDate(price, "validTo", { fallback: "" });
+    if (validTo && validTo < validFrom) throwInvalidPurchaseMetadata();
+    const catalogItemId = normalizePurchaseText(price, "catalogItemId", { required: true, maxLength: 160, idLike: true });
+    const minQuantity = normalizePurchaseInteger(price, "minQuantity", { fallback: 1, min: 1, max: 1000000 });
+    const key = `${catalogItemId}:${minQuantity}:${validFrom}`;
+    if (seen.has(key)) throwInvalidPurchaseMetadata();
+    seen.add(key);
+    return {
+      catalogItemId,
+      unitCost: normalizePurchaseInteger(price, "unitCost", { required: true, min: 1, max: 1000000000000 }),
+      minQuantity,
+      leadTimeDays: normalizePurchaseInteger(price, "leadTimeDays", { fallback: 0, min: 0, max: 365 }),
+      validFrom,
+      validTo,
+      status: normalizePurchaseChoice(price, "status", ["active", "archived"], "active"),
+      note: normalizePurchaseText(price, "note", { fallback: "", maxLength: 500 })
+    };
+  });
+}
+
+function normalizePurchaseOrderBody(body) {
+  if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
+  const orderDate = normalizePurchaseDate(body, "orderDate");
+  const vendorId = normalizePurchaseText(body, "vendorId", { fallback: "", maxLength: 160, idLike: true });
+  return {
+    vendorId,
+    orderNumber: normalizePurchaseText(body, "orderNumber", { fallback: "", maxLength: 40, idLike: true }).toUpperCase(),
+    supplier: normalizePurchaseText(body, "supplier", { required: !vendorId, minLength: vendorId ? 0 : 2, maxLength: 160 }),
+    supplierTaxId: normalizePurchaseSupplierTaxId(body, "supplierTaxId"),
+    orderDate,
+    expectedDate: normalizePurchaseDate(body, "expectedDate", { fallback: orderDate }),
+    note: normalizePurchaseText(body, "note", { fallback: "", maxLength: 500 }),
+    lines: normalizePurchaseLines(body)
+  };
+}
+
+function normalizePurchaseLines(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "lines") ? body.lines : undefined;
+  if (!Array.isArray(value) || value.length === 0 || value.length > 25) throwInvalidPurchaseMetadata();
+  return value.map(line => {
+    if (!isPlainObject(line)) throwInvalidPurchaseMetadata();
+    return {
+      catalogItemId: normalizePurchaseText(line, "catalogItemId", { required: true, maxLength: 160, idLike: true }),
+      description: normalizePurchaseText(line, "description", { fallback: "", maxLength: 200 }),
+      quantity: normalizePurchaseInteger(line, "quantity", { required: true, min: 1, max: 1000000 }),
+      unitCost: normalizePurchaseInteger(line, "unitCost", { fallback: 0, min: 0, max: 1000000000000 })
+    };
+  });
+}
+
+function normalizePurchaseReceiptBody(body) {
+  if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
+  return {
+    receivedAt: normalizePurchaseDate(body, "receivedAt"),
+    reference: normalizePurchaseText(body, "reference", { fallback: "", maxLength: 120 })
+  };
+}
+
+function normalizePurchaseBillBody(body, order) {
+  if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
+  const billDate = normalizePurchaseDate(body, "billDate", { fallback: order.receivedAt || order.orderDate });
+  return {
+    billDate,
+    dueDate: normalizePurchaseDate(body, "dueDate", { fallback: billDate }),
+    description: normalizePurchaseText(body, "description", { fallback: `Vendor bill for ${order.orderNumber}`, maxLength: 200 })
+  };
+}
+
+function normalizePurchaseDate(body, field, options = {}) {
+  const { fallback = new Date().toISOString().slice(0, 10) } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return fallback;
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPurchaseMetadata();
+  const date = value.trim();
+  if (!isExactIsoDate(date)) throwInvalidPurchaseMetadata();
+  return date;
+}
+
+function normalizePurchaseText(body, field, options = {}) {
+  const { fallback = "", required = false, minLength = 0, maxLength = 200, idLike = false } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidPurchaseMetadata();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPurchaseMetadata();
+  const text = value.trim();
+  if ((required && text.length < Math.max(1, minLength)) || text.length < minLength || text.length > maxLength) throwInvalidPurchaseMetadata();
+  if (idLike && text && !/^[A-Za-z0-9-]+$/.test(text)) throwInvalidPurchaseMetadata();
+  return text || fallback;
+}
+
+function normalizePurchaseSupplierTaxId(body, field) {
+  const text = normalizePurchaseText(body, field, { fallback: "", maxLength: 8 });
+  if (text && !/^\d{8}$/.test(text)) throwInvalidPurchaseMetadata();
+  return text;
+}
+
+function normalizePurchaseInteger(body, field, options = {}) {
+  const { required = false, fallback = 0, min = 0, max = 1000000000000 } = options;
+  let value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidPurchaseMetadata();
+    value = fallback;
+  }
+  if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") throwInvalidPurchaseMetadata();
+  let amount;
+  if (typeof value === "number") {
+    amount = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) throwInvalidPurchaseMetadata();
+    const text = value.trim();
+    if (!/^\d+$/.test(text)) throwInvalidPurchaseMetadata();
+    amount = Number(text);
+  } else {
+    throwInvalidPurchaseMetadata();
+  }
+  if (!Number.isSafeInteger(amount) || amount < min || amount > max) throwInvalidPurchaseMetadata();
+  return amount;
+}
+
+function normalizePurchaseChoice(body, field, allowed, fallback) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return fallback;
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPurchaseMetadata();
+  const text = value.trim();
+  if (!allowed.includes(text)) throwInvalidPurchaseMetadata();
+  return text;
+}
+
+function normalizePurchasePathId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPurchaseMetadata();
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) throwInvalidPurchaseMetadata();
+  return text;
+}
+
+function nextPurchaseOrderNumber() {
+  const date = new Date().toISOString().slice(0, 10).replaceAll("-", "");
+  return `PO-${date}-${crypto.randomBytes(3).toString("hex").toUpperCase()}`;
+}
+
+function throwPurchaseOrderNotFound() {
+  const err = new Error("Purchase order not found");
+  err.statusCode = 404;
+  throw err;
+}
+
+function throwPurchaseStateConflict(message) {
+  const err = new Error(message);
+  err.statusCode = 409;
+  throw err;
+}
+
+function throwInvalidPurchaseMetadata() {
+  const err = new Error("Purchase request requires safe metadata");
   err.statusCode = 400;
   throw err;
 }
@@ -51780,7 +52595,22 @@ function throwInvalidFinanceExpense() {
 
 function createFinanceBill(db, user, body) {
   const input = normalizeFinanceBillBody(body);
+  db.exec("BEGIN");
+  try {
+    const result = createFinanceBillFromInput(db, user, input);
+    db.exec("COMMIT");
+    return result;
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+}
+
+function createFinanceBillFromInput(db, user, input) {
   const total = input.subtotal + input.vat;
+  if (!Number.isSafeInteger(input.subtotal) || !Number.isSafeInteger(input.vat) || !Number.isSafeInteger(total)) {
+    throwInvalidFinanceBill();
+  }
   const periodKey = input.billDate.slice(0, 7);
   const period = db.prepare("SELECT status FROM finance_periods WHERE org_id = ? AND period_key = ?").get(user.org_id, periodKey);
   if (period && period.status === "closed") {
