@@ -46,11 +46,25 @@ cited statute is confirmed** — fabricating a tax rule is worse than leaving a 
 
 ## 🟡 Open — needs PRIMARY-SOURCE confirmation (do NOT implement until sourced)
 
-### [HIGH] payroll: health-insurance encoded with an unverified stamp-duty offset (assumes offset = 0) — ⏳ UNDER VERIFICATION
+### [CRITICAL] payroll: health-insurance withholding is INCORRECT — over-withholds mid-income (PR #43)
 - **Location:** `server/armeniaPayroll.js` — `healthInsurance()`, `computePayroll()` (`totalWithholdings = tax + pen + stamp + health`)
-- **Rule:** UNVERIFIED. Memory (`ra_official_data_sources.md`) states the Dec-2025 mandatory health insurance "(4,800/10,800 headline) has an **unclear stamp-duty offset** → NOT yet encoded (needs SRC/arlis.am primary text)."
-- **Defect:** PR #43 (commit `f5621f9`) removed the honest disclaimer and now withholds the **full** stamp duty (1,000/15,000) **AND** the **full** health premium (4,800/10,800) — silently asserting offset = 0. The band thresholds (200,001 / 500,000) and amounts cite `arlis.am/acts/218650` (ՀՕ-459-Ն), a source not yet confirmed. If the law nets health insurance against the stamp duty, **every payslip over-withholds**.
-- **Action:** A live web-research pass (arlis.am / SRC / PwC) is verifying the amounts, bands, base, and — critically — the offset interaction. **Pending that, this MUST be flagged to a human/accountant before relying on net-pay figures; do not unilaterally change tax-withholding logic.** Outcomes: (a) loop correct → update memory, mark sourced; (b) loop wrong → TDD fix; (c) unverifiable → gate behind an explicit "offset unconfirmed" flag or revert to the seam.
+- **Status:** **CONFIRMED WRONG** by research 2026-06-06 (profin.am + corroborating EN sources). Was "unverified"; now verified incorrect.
+- **What PR #43 does (wrong):** withholds 4,800/10,800 health insurance at two bands (200,001 / 500,000) **plus** the full stamp duty, asserting offset = 0.
+- **Actual 2026 RA structure (effective monthly EMPLOYEE cost by gross):**
+
+  | Gross salary band (AMD) | Effective employee cost (AMD/mo) |
+  |---|---|
+  | ≤ 200,000 | 0 — obligation begins **2027** |
+  | 200,001 – 500,000 | **300** |
+  | 500,001 – 1,000,000 | **3,300** |
+  | > 1,000,000 | **10,800** (full premium) |
+
+  The full MHI **premium** is 10,800/mo (129,600/yr). The low bands are **net of two offsets**: the military **stamp duty was revised to a flat 1,000/mo** (replacing the old 1,500/3,000/5,500/8,500 tiers), **plus a ~6,000 state reimbursement** for employees who are **not** social-package beneficiaries (education/culture/social-protection state staff get no reimbursement → higher net).
+- **Impact:** for a 300,000 AMD salary, PR #43 withholds ~4,800 + full stamp instead of the correct ~300 net — a large over-withholding on most payslips.
+- **Sources:** profin.am "universal mandatory insurance" explainer; usemultiplier.com; jam-news.net; easytaxes.am (premium = 10,800). Primary law: `arlis.am` **ՀՕ-459-Ն** (not yet read in full — needed for the social-package edge and the exact 2026 stamp-duty value, which conflicts: memory had 1,000/15,000 two-bracket vs profin's flat 1,000).
+- **Recommended action (needs owner sign-off — affects every payslip):**
+  1. **Immediate (low-risk):** revert/disable the PR #43 health-insurance line back to the honest seam to stop the over-withholding, OR
+  2. **Correct fix (TDD):** model the table above — stamp duty flat 1,000 (2026), health insurance effective 300/3,300/10,800 by band, 0 below 200,001 until 2027 — after confirming the social-package edge + exact stamp value against ՀՕ-459-Ն with an accountant.
 
 ### [HIGH] VAT return: per-line rounding vs whole-form-total rounding (which is canonical?)
 - **Location:** `server/vatReturn.js` — `lineVat` / `vatReturnForm`
@@ -69,10 +83,8 @@ cited statute is confirmed** — fabricating a tax rule is worse than leaving a 
 - **Defect:** A legitimate credit-note-dominated period produces negative line bases that the fail-closed guard then rejects, blocking the filing.
 - **Fix:** Confirm whether the form allows negative cells. If yes, relax non-negativity to derived totals only; if no, reject earlier in `vatReturnForm` with a clear message.
 
-### [MEDIUM] payroll: health-insurance band thresholds (200,001 / 500,000) not traceable to a cited source
-- **Location:** `server/armeniaPayroll.js` — `HEALTH_INSURANCE_*` constants
-- **Rule:** UNVERIFIED — memory records only the "4,800/10,800 headline"; the 200,001 floor and 500,000 split appear in no audited source.
-- **Fix:** Cite the verbatim ՀՕ-459-Ն article for the amounts + cutoffs (and confirm the base is gross), or mark the constants UNVERIFIED. (Folded into the verification pass above.)
+### [RESOLVED→CRITICAL] payroll: health-insurance band thresholds
+- Merged into the CRITICAL finding above: research confirmed the real structure is a **three-band effective cost (300 / 3,300 / 10,800** at 200,001 / 500,000 / 1,000,000), not the code's two-band 4,800/10,800. The exact `HEALTH_INSURANCE_*` constants are wrong; see the corrected table above.
 
 ### [MEDIUM] ledger: output VAT and other tax liabilities both post to the umbrella account 524
 - **Location:** `server/ledger.js` — invoice VAT → `creditCode: "524"`; `vatReport` sums `credit_code='524'`
@@ -128,5 +140,5 @@ cited statute is confirmed** — fabricating a tax rule is worse than leaving a 
 - **Immutability:** no engine mutates its inputs; `AMD` is frozen.
 - **e-invoice:** `xmlEscape` covers all 5 entities and is applied to every free-text/attribute interpolation; SRC mandatory field set complete in `validateEInvoice`; arithmetic (`total = net+vat+excise+envFee`, whole-dram) correct.
 - **VAT return:** exempt-vs-zero precedence correct (art. 64 exempt wins over rate); import/domestic split; `recoverable===false` exclusion; `Math.max(0, ±net)` carry-credit (no auto-refund).
-- **payroll:** income tax flat 20%; pension tiers + cap + boundaries (continuous at 500,000 and 1,125,000); stamp-duty 2-bracket; all withholdings off gross. _(Only the health-insurance addition is in question — see above.)_
+- **payroll:** income tax flat 20%; pension tiers + cap + boundaries (continuous at 500,000 and 1,125,000); all withholdings off gross. _(Health insurance AND the 2026 stamp-duty value are CONFIRMED WRONG in PR #43 — see the CRITICAL finding above.)_
 - **Double-entry:** every ledger posting helper is balanced per leg; `trialBalance` asserts debits == credits.
