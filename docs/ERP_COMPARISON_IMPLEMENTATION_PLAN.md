@@ -1,29 +1,29 @@
-# Odoo ERP Comparison And A1 Suite Implementation Plan
+# ERP Comparison and A1 Suite Implementation Plan
 
 Generated: 2026-06-05
-Scope: Odoo ERP product research, comparison with current A1 Suite Local, and a localized implementation plan for Armenian businesses.
+Scope: the reference ERP product research, comparison with current A1 Suite Local, and a localized implementation plan for Armenian businesses.
 
 ## Executive Summary
 
-Odoo's current product strength is not one isolated ERP module. It is the breadth of tightly connected apps: finance, CRM, sales, POS, website/eCommerce, inventory, manufacturing, purchase, HR, marketing, projects, documents/signature, Studio customizations, and AI agents. Odoo's own documentation groups these apps across finance, sales, websites, supply chain, HR, marketing, services, productivity, Studio, and deployment/administration.
+the reference ERP's current product strength is not one isolated ERP module. It is the breadth of tightly connected apps: finance, CRM, sales, POS, website/eCommerce, inventory, manufacturing, purchase, HR, marketing, projects, documents/signature, Studio customizations, and AI agents. the reference ERP's own documentation groups these apps across finance, sales, websites, supply chain, HR, marketing, services, productivity, Studio, and deployment/administration.
 
-A1 Suite Local already has a stronger Armenian sovereignty position than Odoo for the target market: local-first deployment, Armenian legal/accounting Copilot, RA tax/accounting workflows, professional legal-source review, and privacy/audit hardening. The major gap is breadth outside the current service/CRM/finance/docs/projects core: product catalog depth, inventory, purchase, POS, eCommerce, manufacturing, no-code customization, richer HR, marketing automation, reporting/spreadsheets, and app-level AI agents.
+A1 Suite Local already has a stronger Armenian sovereignty position than the reference ERP for the target market: local-first deployment, Armenian legal/accounting Copilot, RA tax/accounting workflows, professional legal-source review, and privacy/audit hardening. The major gap is breadth outside the current service/CRM/finance/docs/projects core: product catalog depth, inventory, purchase, POS, eCommerce, manufacturing, no-code customization, richer HR, marketing automation, reporting/spreadsheets, and app-level AI agents.
 
-The recommended product direction is not to clone Odoo module-by-module. Implement an A1-native operating graph that borrows the proven Odoo coverage map, but prioritizes Armenian-localized workflows where generic Odoo is weak: ՀՎՀՀ, AMD, Armenian chart of accounts, VAT/SRC/HDM handoffs, Armenian address taxonomy, Armenian-first documents, sovereign/legal RAG, and offline/on-prem operation. Odoo appears to rely on a third-party Armenia localization app for Armenian chart of accounts and address data, while A1 should treat this as a first-party moat.
+The recommended product direction is not to clone the reference ERP module-by-module. Implement an A1-native operating graph that borrows the proven the reference ERP coverage map, but prioritizes Armenian-localized workflows where generic the reference ERP is weak: ՀՎՀՀ, AMD, Armenian chart of accounts, VAT/SRC/HDM handoffs, Armenian address taxonomy, Armenian-first documents, sovereign/legal RAG, and offline/on-prem operation. the reference ERP appears to rely on a third-party Armenia localization app for Armenian chart of accounts and address data, while A1 should treat this as a first-party moat.
 
 ## Research Questions
 
-1. What functional areas does Odoo cover today?
-2. Where is Odoo strongest relative to A1 Suite Local?
+1. What functional areas does the reference ERP cover today?
+2. Where is the reference ERP strongest relative to A1 Suite Local?
 3. Where is A1 Suite Local already differentiated?
-4. What missing Odoo-style capabilities should A1 implement first?
+4. What missing the reference ERP-style capabilities should A1 implement first?
 5. How should Armenian localization change the implementation order and data model?
 
-## Odoo Product Baseline
+## the reference ERP Product Baseline
 
 ### Platform Breadth
 
-Odoo 19 documentation exposes a broad app suite grouped into:
+the reference ERP 19 documentation exposes a broad app suite grouped into:
 
 - Finance: Accounting/Invoicing, Expenses, Online Payments, Fiscal Localizations, ESG.
 - Sales: CRM, Sales, Point of Sale, Subscriptions, Rental.
@@ -33,44 +33,44 @@ Odoo 19 documentation exposes a broad app suite grouped into:
 - Marketing: Email Marketing, Marketing Automation, SMS Marketing, Events, Surveys, Social Marketing.
 - Services/Productivity: Project, Timesheets, Planning, Field Service, Helpdesk, Documents, Sign, Spreadsheet, Dashboards, Knowledge, Calendar, To-do, AI, Studio.
 
-Source: [Odoo 19 User Docs](https://www.odoo.com/documentation/19.0/applications.html).
+Source: [the reference ERP 19 User Docs](https://www.the reference ERP.com/documentation/19.0/applications.html).
 
 ### Finance And Accounting
 
-Odoo Accounting/Invoicing covers chart of accounts, journals, multi-currency, taxes, fiscal positions, invoices, vendor bills, payments, bank/cash accounts, bank reconciliation, VAT/tax reports, budgets, year-end closing, analytic accounting, and custom reports.
+the reference ERP Accounting/Invoicing covers chart of accounts, journals, multi-currency, taxes, fiscal positions, invoices, vendor bills, payments, bank/cash accounts, bank reconciliation, VAT/tax reports, budgets, year-end closing, analytic accounting, and custom reports.
 
-Source: [Odoo Accounting and Invoicing](https://www.odoo.com/documentation/19.0/applications/finance/accounting.html).
+Source: [the reference ERP Accounting and Invoicing](https://www.the reference ERP.com/documentation/19.0/applications/finance/accounting.html).
 
 Comparison to A1:
 
 - A1 already has a strong finance core: RA chart of accounts, double-entry ledger, invoices, expenses, bills/AP, payroll, VAT, reports, opening balances, period locks, SRC export packets, legal-source gates, and audit evidence.
-- Odoo is broader in generic accounting operations: multi-currency, payment providers, bank synchronization, document digitization, analytic budgets, custom reports, and accounting-localization catalog.
+- the reference ERP is broader in generic accounting operations: multi-currency, payment providers, bank synchronization, document digitization, analytic budgets, custom reports, and accounting-localization catalog.
 - A1 should not chase generic global payment providers first. A1 should deepen Armenian accounting: SRC/ՀԴՄ, Armenian bank import/reconciliation, Armenian VAT/legal review, invoice evidence, payroll law updates, and accountant workpapers.
 
 ### CRM, Sales, Quotes, And Subscriptions
 
-Odoo CRM manages leads, opportunities, Tubes, forecasts, meetings/next activities, lead acquisition from web forms/email/manual entry, quotation creation, predictive scoring, lead reports, and forecast reports.
+the reference ERP CRM manages leads, opportunities, Tubes, forecasts, meetings/next activities, lead acquisition from web forms/email/manual entry, quotation creation, predictive scoring, lead reports, and forecast reports.
 
-Source: [Odoo CRM](https://www.odoo.com/documentation/19.0/applications/sales/crm.html).
+Source: [the reference ERP CRM](https://www.the reference ERP.com/documentation/19.0/applications/sales/crm.html).
 
-Odoo Sales extends quotation templates, margins, optional products, online signatures/payments, quote deadlines, delivery/invoice address separation, product variants, pricelists, foreign currencies, discounts, returns/refunds, eWallets/gift cards, loyalty programs, subscriptions, rental, and connectors.
+the reference ERP Sales extends quotation templates, margins, optional products, online signatures/payments, quote deadlines, delivery/invoice address separation, product variants, pricelists, foreign currencies, discounts, returns/refunds, eWallets/gift cards, loyalty programs, subscriptions, rental, and connectors.
 
-Source: [Odoo Sales](https://www.odoo.com/documentation/19.0/applications/sales/sales.html).
+Source: [the reference ERP Sales](https://www.the reference ERP.com/documentation/19.0/applications/sales/sales.html).
 
 Comparison to A1:
 
 - A1 has CRM leads, deals, quotes, public quote acceptance, governed quote release, finance proposal handoff, and Customer 360.
-- Missing Odoo-style depth: products/variants, quote templates, pricelists, discounts, margins, returns, subscriptions, rental, sales order fulfillment, sales-to-inventory reservation, and customer portal.
+- Missing the reference ERP-style depth: products/variants, quote templates, pricelists, discounts, margins, returns, subscriptions, rental, sales order fulfillment, sales-to-inventory reservation, and customer portal.
 
 ### Inventory, Purchase, Warehouse, And Stock Valuation
 
-Odoo Inventory is both inventory and warehouse management. It covers product tracking, serial/lot numbers, expiration dates, warehouses, locations, adjustments, cycle counts, scrap, replenishment, lead times, inter-warehouse replenishment, stock reports, inbound/outbound flows, routes, putaway, consignment, dropshipping, shipping carriers, picking methods, removal strategies, landed costs, valuation by lots/serials, and scrapped-goods accounting.
+the reference ERP Inventory is both inventory and warehouse management. It covers product tracking, serial/lot numbers, expiration dates, warehouses, locations, adjustments, cycle counts, scrap, replenishment, lead times, inter-warehouse replenishment, stock reports, inbound/outbound flows, routes, putaway, consignment, dropshipping, shipping carriers, picking methods, removal strategies, landed costs, valuation by lots/serials, and scrapped-goods accounting.
 
-Source: [Odoo Inventory](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory.html).
+Source: [the reference ERP Inventory](https://www.the reference ERP.com/documentation/19.0/applications/inventory_and_mrp/inventory.html).
 
-Odoo Purchase covers RFQs, purchase orders, blanket orders, tenders, purchase templates, control policies, vendor bills, demand-based suggested quantities, purchase analysis, vendor costs, procurement expenses, EDI purchase-to-sales import, and dashboards.
+the reference ERP Purchase covers RFQs, purchase orders, blanket orders, tenders, purchase templates, control policies, vendor bills, demand-based suggested quantities, purchase analysis, vendor costs, procurement expenses, EDI purchase-to-sales import, and dashboards.
 
-Source: [Odoo Purchase](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/purchase.html).
+Source: [the reference ERP Purchase](https://www.the reference ERP.com/documentation/19.0/applications/inventory_and_mrp/purchase.html).
 
 Comparison to A1:
 
@@ -79,13 +79,13 @@ Comparison to A1:
 
 ### Manufacturing, Quality, Maintenance, PLM, And Repairs
 
-Odoo Manufacturing supports manufacturing orders, work-center control, shop-floor tablets, maintenance triggers, quality issues, bills of materials, one/two/three-step manufacturing, manufacturing costs, product variants, kits, multilevel BoMs, work centers, dependencies, master production schedule, scrap, backorders, split/merge orders, unbuild orders, by-products, lots/serial manufacturing, shop-floor time tracking, subcontracting, and production analysis.
+the reference ERP Manufacturing supports manufacturing orders, work-center control, shop-floor tablets, maintenance triggers, quality issues, bills of materials, one/two/three-step manufacturing, manufacturing costs, product variants, kits, multilevel BoMs, work centers, dependencies, master production schedule, scrap, backorders, split/merge orders, unbuild orders, by-products, lots/serial manufacturing, shop-floor time tracking, subcontracting, and production analysis.
 
-Source: [Odoo Manufacturing](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing.html).
+Source: [the reference ERP Manufacturing](https://www.the reference ERP.com/documentation/19.0/applications/inventory_and_mrp/manufacturing.html).
 
-Odoo PLM covers engineering change orders, ECO types/stages, version control, and approvals.
+the reference ERP PLM covers engineering change orders, ECO types/stages, version control, and approvals.
 
-Source: [Odoo PLM](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/plm.html).
+Source: [the reference ERP PLM](https://www.the reference ERP.com/documentation/19.0/applications/inventory_and_mrp/plm.html).
 
 Comparison to A1:
 
@@ -94,9 +94,9 @@ Comparison to A1:
 
 ### POS And Retail
 
-Odoo POS runs shops/restaurants in a browser, can work temporarily offline, registers stock moves automatically, consolidates data across shops, supports products, customers, refunds, cash register sessions, employee attribution, receipts/invoices, barcodes, lots/serials, loyalty, pricelists, flexible taxes, cash rounding, and payment terminals.
+the reference ERP POS runs shops/restaurants in a browser, can work temporarily offline, registers stock moves automatically, consolidates data across shops, supports products, customers, refunds, cash register sessions, employee attribution, receipts/invoices, barcodes, lots/serials, loyalty, pricelists, flexible taxes, cash rounding, and payment terminals.
 
-Source: [Odoo Point of Sale](https://www.odoo.com/documentation/19.0/applications/sales/point_of_sale.html).
+Source: [the reference ERP Point of Sale](https://www.the reference ERP.com/documentation/19.0/applications/sales/point_of_sale.html).
 
 Comparison to A1:
 
@@ -105,9 +105,9 @@ Comparison to A1:
 
 ### Website, eCommerce, And Online Storefront
 
-Odoo eCommerce covers product pages, checkout customization, delivery methods, sales/delivery order handling, customer accounts, B2B/B2C, performance monitoring, and Google Merchant Center.
+the reference ERP eCommerce covers product pages, checkout customization, delivery methods, sales/delivery order handling, customer accounts, B2B/B2C, performance monitoring, and Google Merchant Center.
 
-Source: [Odoo eCommerce](https://www.odoo.com/documentation/19.0/applications/websites/ecommerce.html).
+Source: [the reference ERP eCommerce](https://www.the reference ERP.com/documentation/19.0/applications/websites/ecommerce.html).
 
 Comparison to A1:
 
@@ -116,9 +116,9 @@ Comparison to A1:
 
 ### HR, People, Attendance, Payroll, Fleet
 
-Odoo Employees covers employee records, departments, contracts, certifications, badges, equipment, offboarding, retention reporting, and presence settings linked to attendance or user status.
+the reference ERP Employees covers employee records, departments, contracts, certifications, badges, equipment, offboarding, retention reporting, and presence settings linked to attendance or user status.
 
-Source: [Odoo Employees](https://www.odoo.com/documentation/19.0/applications/hr/employees.html).
+Source: [the reference ERP Employees](https://www.the reference ERP.com/documentation/19.0/applications/hr/employees.html).
 
 Comparison to A1:
 
@@ -128,28 +128,28 @@ Comparison to A1:
 
 ### Projects, Timesheets, Field Service, Helpdesk
 
-Odoo Project manages tasks, activities, profitability, milestones, templates, recurring tasks, subtasks, and task dependencies.
+the reference ERP Project manages tasks, activities, profitability, milestones, templates, recurring tasks, subtasks, and task dependencies.
 
-Source: [Odoo Project](https://www.odoo.com/documentation/19.0/applications/services/project.html).
+Source: [the reference ERP Project](https://www.the reference ERP.com/documentation/19.0/applications/services/project.html).
 
-Odoo Helpdesk is ticket-based support with configurable teams, dashboards, Tubes, ticket stages, prioritization, and customer submission flows.
+the reference ERP Helpdesk is ticket-based support with configurable teams, dashboards, Tubes, ticket stages, prioritization, and customer submission flows.
 
-Source: [Odoo Helpdesk](https://www.odoo.com/documentation/19.0/applications/services/helpdesk.html).
+Source: [the reference ERP Helpdesk](https://www.the reference ERP.com/documentation/19.0/applications/services/helpdesk.html).
 
 Comparison to A1:
 
 - A1 has projects, tasks, milestones, time entries, project billing, service cases, support replies, escalations, and Customer 360.
-- Missing Odoo-style depth: project templates, dependencies, recurring tasks, SLA configuration UI, field service planning, worksheets, dispatch/mobile technician flows, and profitability reporting at task/project/product level.
+- Missing the reference ERP-style depth: project templates, dependencies, recurring tasks, SLA configuration UI, field service planning, worksheets, dispatch/mobile technician flows, and profitability reporting at task/project/product level.
 
 ### Documents, Sign, Knowledge, Spreadsheet, Dashboards
 
-Odoo Documents centralizes files across apps, supports upload/drag-drop, URL links, requested documents, linking files to specific records, and saving record attachments to Documents.
+the reference ERP Documents centralizes files across apps, supports upload/drag-drop, URL links, requested documents, linking files to specific records, and saving record attachments to Documents.
 
-Source: [Odoo Documents](https://www.odoo.com/documentation/19.0/applications/productivity/documents.html).
+Source: [the reference ERP Documents](https://www.the reference ERP.com/documentation/19.0/applications/productivity/documents.html).
 
-Odoo Sign supports online signing, templates, envelopes, prepared/non-prepared signing, auto-complete fields from database data, and signer authentication options.
+the reference ERP Sign supports online signing, templates, envelopes, prepared/non-prepared signing, auto-complete fields from database data, and signer authentication options.
 
-Source: [Odoo Sign](https://www.odoo.com/documentation/19.0/applications/productivity/sign.html).
+Source: [the reference ERP Sign](https://www.the reference ERP.com/documentation/19.0/applications/productivity/sign.html).
 
 Comparison to A1:
 
@@ -158,9 +158,9 @@ Comparison to A1:
 
 ### Studio, No-Code Customization, Automation, And Webhooks
 
-Odoo Studio lets users customize fields, views, models, apps, automation rules, webhooks, PDF reports, approval rules, and security rules without coding.
+the reference ERP Studio lets users customize fields, views, models, apps, automation rules, webhooks, PDF reports, approval rules, and security rules without coding.
 
-Source: [Odoo Studio](https://www.odoo.com/documentation/19.0/applications/studio.html).
+Source: [the reference ERP Studio](https://www.the reference ERP.com/documentation/19.0/applications/studio.html).
 
 Comparison to A1:
 
@@ -170,31 +170,31 @@ Comparison to A1:
 
 ### AI Agents And AI Fields
 
-Odoo 19 AI includes AI agents with topics, tools, sources, and model selection. Agents can use topics/tools to take actions such as opening views or creating leads; sources can include PDFs, web links, uploaded Documents, and Knowledge articles. Odoo also has AI fields that generate/suggest values on forms from record context.
+the reference ERP 19 AI includes AI agents with topics, tools, sources, and model selection. Agents can use topics/tools to take actions such as opening views or creating leads; sources can include PDFs, web links, uploaded Documents, and Knowledge articles. the reference ERP also has AI fields that generate/suggest values on forms from record context.
 
-Sources: [Odoo AI Agents](https://www.odoo.com/documentation/19.0/applications/productivity/ai/agents.html), [Odoo AI Fields](https://www.odoo.com/documentation/19.0/applications/productivity/ai/fields.html).
+Sources: [the reference ERP AI Agents](https://www.the reference ERP.com/documentation/19.0/applications/productivity/ai/agents.html), [the reference ERP AI Fields](https://www.the reference ERP.com/documentation/19.0/applications/productivity/ai/fields.html).
 
 Comparison to A1:
 
 - A1 already has a domain-specific Armenian legal/accounting Copilot with source gates, citations, professional review, action proposals, and local/offline legal RAG.
-- Odoo AI is broader across the app framework. A1 should add Odoo-like "agent topics and tools" but keep stronger guardrails: Armenian legal/accounting gates, explicit approvals for mutations, local-first retrieval, and egress disabled by default.
+- the reference ERP AI is broader across the app framework. A1 should add the reference ERP-like "agent topics and tools" but keep stronger guardrails: Armenian legal/accounting gates, explicit approvals for mutations, local-first retrieval, and egress disabled by default.
 
 ### Deployment And Pricing
 
-Odoo pricing and documentation indicate multiple deployment modes: Odoo Online, Odoo.sh, and on-premise. The pricing page says Standard/Custom include all apps for one fee and notes Odoo Online hosting limitations around custom modules; Odoo documentation separately covers installing, maintaining, upgrading, and source-installing Odoo on premise.
+the reference ERP pricing and documentation indicate multiple deployment modes: the reference ERP Online, the reference ERP.sh, and on-premise. The pricing page says Standard/Custom include all apps for one fee and notes the reference ERP Online hosting limitations around custom modules; the reference ERP documentation separately covers installing, maintaining, upgrading, and source-installing the reference ERP on premise.
 
-Sources: [Odoo Pricing](https://www.odoo.com/pricing), [Odoo On-premise Documentation](https://www.odoo.com/documentation/19.0/administration/on_premise.html), [Odoo Source Install](https://www.odoo.com/documentation/19.0/administration/on_premise/source.html), [Odoo.sh Documentation](https://www.odoo.com/documentation/19.0/administration/odoo_sh.html).
+Sources: [the reference ERP Pricing](https://www.the reference ERP.com/pricing), [the reference ERP On-premise Documentation](https://www.the reference ERP.com/documentation/19.0/administration/on_premise.html), [the reference ERP Source Install](https://www.the reference ERP.com/documentation/19.0/administration/on_premise/source.html), [the reference ERP.sh Documentation](https://www.the reference ERP.com/documentation/19.0/administration/the reference ERP_sh.html).
 
 Comparison to A1:
 
 - A1's main advantage is product posture: private, local, sovereign, Armenian-first, and intentionally deployment-simple.
-- Odoo is mature but broad, upgrade-heavy, partner/ecosystem-dependent, and local Armenian compliance is not first-party in the official docs reviewed.
+- the reference ERP is mature but broad, upgrade-heavy, partner/ecosystem-dependent, and local Armenian compliance is not first-party in the official docs reviewed.
 
 ### Armenian Localization Gap
 
-The official Odoo fiscal localization list reviewed covers many countries but did not show Armenia in the visible Odoo 19 accounting localization list. A third-party Odoo Apps Store module exists for Armenian accounting/localization, priced separately, with Armenian chart of accounts, cities, states, and ZIP/postal-address support.
+The official the reference ERP fiscal localization list reviewed covers many countries but did not show Armenia in the visible the reference ERP 19 accounting localization list. A third-party the reference ERP Apps Store module exists for Armenian accounting/localization, priced separately, with Armenian chart of accounts, cities, states, and ZIP/postal-address support.
 
-Sources: [Odoo Accounting/Fiscal Localizations](https://www.odoo.com/documentation/19.0/applications/finance/accounting.html), [Armenian Accounting and Localization third-party app](https://apps.odoo.com/apps/modules/16.0/l10n_hy).
+Sources: [the reference ERP Accounting/Fiscal Localizations](https://www.the reference ERP.com/documentation/19.0/applications/finance/accounting.html), [Armenian Accounting and Localization third-party app](https://apps.the reference ERP.com/apps/modules/16.0/l10n_hy).
 
 Implication for A1:
 
@@ -217,9 +217,9 @@ Current A1 strengths:
 - Copilot: Armenian legal/accounting advisory, citations, guarded proposed actions, Open Notebook supplemental sources.
 - Security/governance: RBAC, MFA/session controls, audit packets, tenant routing, public route throttling, payload redaction, many malformed-input/path-id guards.
 
-Major A1 gaps relative to Odoo:
+Major A1 gaps relative to the reference ERP:
 
-| Area | Odoo capability | A1 status | Priority |
+| Area | the reference ERP capability | A1 status | Priority |
 |---|---|---|---|
 | Product catalog | Products, variants, UoM, pricelists, discounts, margins | Shipped core product master + quote-line integration + Catalog & Inventory UI; variants/UoM/pricelists still missing | P0 |
 | Inventory/WMS | Warehouses, locations, stock moves, lots/serials, replenishment, valuation | Shipped core locations/quants/moves + sidebar workspace; advanced WMS and valuation still missing | P0 |
@@ -248,7 +248,7 @@ Major A1 gaps relative to Odoo:
 
 ### Phase 0 - Shared Product And Localization Kernel
 
-Goal: Create the data spine required for Odoo-like sales, inventory, purchase, POS, eCommerce, and manufacturing.
+Goal: Create the data spine required for the reference ERP-like sales, inventory, purchase, POS, eCommerce, and manufacturing.
 
 Deliverables:
 
@@ -279,7 +279,7 @@ Acceptance:
 
 ### Phase 1 - Inventory And Purchase Core
 
-Goal: Close the largest Odoo ERP gap first.
+Goal: Close the largest the reference ERP gap first.
 
 Deliverables:
 
@@ -315,7 +315,7 @@ Acceptance:
 
 ### Phase 2 - POS And Retail Fiscal Workflow
 
-Goal: Build Armenian retail flow with Odoo-like browser POS but A1-specific fiscal evidence.
+Goal: Build Armenian retail flow with the reference ERP-like browser POS but A1-specific fiscal evidence.
 
 Deliverables:
 
@@ -371,7 +371,7 @@ Acceptance:
 
 ### Phase 4 - Light Manufacturing, Repair, And Quality
 
-Goal: Capture Odoo MRP's most valuable SMB workflows without overbuilding enterprise MRP.
+Goal: Capture the reference ERP MRP's most valuable SMB workflows without overbuilding enterprise MRP.
 
 Deliverables:
 
@@ -421,7 +421,7 @@ Acceptance:
 
 ### Phase 6 - Marketing, Communications, And Omnichannel Intake
 
-Goal: Add Odoo-style campaign execution but tuned to Armenian SMB channels.
+Goal: Add the reference ERP-style campaign execution but tuned to Armenian SMB channels.
 
 Deliverables:
 
@@ -466,7 +466,7 @@ Acceptance:
 
 ### Phase 8 - Studio-Lite And Safe Automation
 
-Goal: Offer Odoo Studio's business flexibility without letting tenants break audited Armenian flows.
+Goal: Offer the reference ERP Studio's business flexibility without letting tenants break audited Armenian flows.
 
 Deliverables:
 
@@ -490,7 +490,7 @@ Acceptance:
 
 ### Phase 9 - A1 AI Agent Platform
 
-Goal: Generalize Copilot into Odoo-style agents while keeping A1's stronger governance.
+Goal: Generalize Copilot into the reference ERP-style agents while keeping A1's stronger governance.
 
 Deliverables:
 
@@ -617,28 +617,28 @@ Each new module must ship with:
 
 ## Research Methodology
 
-The research pass used official Odoo documentation and the Odoo Apps Store where possible. Firecrawl/Exa MCP tools from the `deep-research` skill were not exposed in this Codex session, so the available web search/browser tool was used instead.
+The research pass used official the reference ERP documentation and the the reference ERP Apps Store where possible. Firecrawl/Exa MCP tools from the `deep-research` skill were not exposed in this Codex session, so the available web search/browser tool was used instead.
 
 Sources reviewed:
 
-1. [Odoo 19 User Docs](https://www.odoo.com/documentation/19.0/applications.html) - app suite taxonomy.
-2. [Odoo Accounting and Invoicing](https://www.odoo.com/documentation/19.0/applications/finance/accounting.html) - finance/accounting scope.
-3. [Odoo CRM](https://www.odoo.com/documentation/19.0/applications/sales/crm.html) - CRM scope.
-4. [Odoo Sales](https://www.odoo.com/documentation/19.0/applications/sales/sales.html) - sales order, quoting, pricing, subscriptions.
-5. [Odoo Inventory](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/inventory.html) - WMS and stock features.
-6. [Odoo Purchase](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/purchase.html) - procurement scope.
-7. [Odoo Manufacturing](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/manufacturing.html) - MRP scope.
-8. [Odoo PLM](https://www.odoo.com/documentation/19.0/applications/inventory_and_mrp/plm.html) - engineering change/approval scope.
-9. [Odoo Point of Sale](https://www.odoo.com/documentation/19.0/applications/sales/point_of_sale.html) - retail/POS scope.
-10. [Odoo eCommerce](https://www.odoo.com/documentation/19.0/applications/websites/ecommerce.html) - storefront/checkout scope.
-11. [Odoo Employees](https://www.odoo.com/documentation/19.0/applications/hr/employees.html) - HR employee scope.
-12. [Odoo Project](https://www.odoo.com/documentation/19.0/applications/services/project.html) - project management scope.
-13. [Odoo Helpdesk](https://www.odoo.com/documentation/19.0/applications/services/helpdesk.html) - support ticket scope.
-14. [Odoo Documents](https://www.odoo.com/documentation/19.0/applications/productivity/documents.html) - document cabinet scope.
-15. [Odoo Sign](https://www.odoo.com/documentation/19.0/applications/productivity/sign.html) - online signature scope.
-16. [Odoo Studio](https://www.odoo.com/documentation/19.0/applications/studio.html) - no-code customization scope.
-17. [Odoo AI Agents](https://www.odoo.com/documentation/19.0/applications/productivity/ai/agents.html) - AI agents, topics, tools, sources.
-18. [Odoo AI Fields](https://www.odoo.com/documentation/19.0/applications/productivity/ai/fields.html) - AI-generated form values.
-19. [Odoo Pricing](https://www.odoo.com/pricing) - deployment/pricing modes.
-20. [Odoo On-premise Documentation](https://www.odoo.com/documentation/19.0/administration/on_premise.html) - on-prem install/maintenance category.
-21. [Armenian Accounting and Localization App](https://apps.odoo.com/apps/modules/16.0/l10n_hy) - third-party Armenia localization evidence.
+1. [the reference ERP 19 User Docs](https://www.the reference ERP.com/documentation/19.0/applications.html) - app suite taxonomy.
+2. [the reference ERP Accounting and Invoicing](https://www.the reference ERP.com/documentation/19.0/applications/finance/accounting.html) - finance/accounting scope.
+3. [the reference ERP CRM](https://www.the reference ERP.com/documentation/19.0/applications/sales/crm.html) - CRM scope.
+4. [the reference ERP Sales](https://www.the reference ERP.com/documentation/19.0/applications/sales/sales.html) - sales order, quoting, pricing, subscriptions.
+5. [the reference ERP Inventory](https://www.the reference ERP.com/documentation/19.0/applications/inventory_and_mrp/inventory.html) - WMS and stock features.
+6. [the reference ERP Purchase](https://www.the reference ERP.com/documentation/19.0/applications/inventory_and_mrp/purchase.html) - procurement scope.
+7. [the reference ERP Manufacturing](https://www.the reference ERP.com/documentation/19.0/applications/inventory_and_mrp/manufacturing.html) - MRP scope.
+8. [the reference ERP PLM](https://www.the reference ERP.com/documentation/19.0/applications/inventory_and_mrp/plm.html) - engineering change/approval scope.
+9. [the reference ERP Point of Sale](https://www.the reference ERP.com/documentation/19.0/applications/sales/point_of_sale.html) - retail/POS scope.
+10. [the reference ERP eCommerce](https://www.the reference ERP.com/documentation/19.0/applications/websites/ecommerce.html) - storefront/checkout scope.
+11. [the reference ERP Employees](https://www.the reference ERP.com/documentation/19.0/applications/hr/employees.html) - HR employee scope.
+12. [the reference ERP Project](https://www.the reference ERP.com/documentation/19.0/applications/services/project.html) - project management scope.
+13. [the reference ERP Helpdesk](https://www.the reference ERP.com/documentation/19.0/applications/services/helpdesk.html) - support ticket scope.
+14. [the reference ERP Documents](https://www.the reference ERP.com/documentation/19.0/applications/productivity/documents.html) - document cabinet scope.
+15. [the reference ERP Sign](https://www.the reference ERP.com/documentation/19.0/applications/productivity/sign.html) - online signature scope.
+16. [the reference ERP Studio](https://www.the reference ERP.com/documentation/19.0/applications/studio.html) - no-code customization scope.
+17. [the reference ERP AI Agents](https://www.the reference ERP.com/documentation/19.0/applications/productivity/ai/agents.html) - AI agents, topics, tools, sources.
+18. [the reference ERP AI Fields](https://www.the reference ERP.com/documentation/19.0/applications/productivity/ai/fields.html) - AI-generated form values.
+19. [the reference ERP Pricing](https://www.the reference ERP.com/pricing) - deployment/pricing modes.
+20. [the reference ERP On-premise Documentation](https://www.the reference ERP.com/documentation/19.0/administration/on_premise.html) - on-prem install/maintenance category.
+21. [Armenian Accounting and Localization App](https://apps.the reference ERP.com/apps/modules/16.0/l10n_hy) - third-party Armenia localization evidence.
