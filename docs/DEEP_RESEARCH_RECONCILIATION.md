@@ -20,7 +20,7 @@ For this project, "focused" does not mean dropping Armenian finance. HayHashvapa
 | Zoho One is stronger for breadth, standardization, central administration, and one invoice. | Adopt | Keep the suite shell, launcher, app catalog, user/app entitlement model, role administration, audit log, and subscription concept as core. |
 | Salesforce is stronger for CRM depth, platform/data extensibility, ecosystem reach, AI/agent layer, and enterprise deployment controls. | Localize | Do not copy Salesforce scale; implement Salesforce-grade patterns for customer profile, sales process, service console, workflow governance, analytics semantics, and AI guardrails. |
 | Avoid cloning either suite end-to-end. | Adopt | Replace "build all 50+ app equivalents" with a smaller platform: identity, CRM, deal/order orchestration, service, workflow, integration, analytics, documents, and Armenian finance. |
-| Build a focused operating layer for customer/account master data, pipeline/order orchestration, service/ticketing, workflow/integration automation, analytics, roles/admin, documents/contracts, and selected mobile/field workflows. | Adopt | This becomes the primary roadmap structure after the shell. |
+| Build a focused operating layer for customer/account master data, Tube/order orchestration, service/ticketing, workflow/integration automation, analytics, roles/admin, documents/contracts, and selected mobile/field workflows. | Adopt | This becomes the primary roadmap structure after the shell. |
 | Integrate commodity capabilities such as email, calendaring, office docs, payroll, and generic chat rather than rebuilding them. | Localize | Integrate Gmail/Google Calendar/Drive/WhatsApp/Telegram. Do not build email hosting, office suite, or generic chat. Payroll is the exception only where HayHashvapah already provides Armenian payroll/accounting functionality. |
 | Salesforce is not a single all-department suite equivalent to Zoho One. | Adopt | Avoid treating Salesforce as an app-count checklist. Use it only for depth benchmarks in CRM, service, data, automation, security, and AI. |
 | Zoho's builder layer includes low-code, Flow, RPA, extensions, and serverless. | Localize | Build an internal Workflow Studio and Integration Hub first. Defer RPA and end-user low-code until domain APIs stabilize. |
@@ -47,7 +47,7 @@ These assumptions in the earlier planning should now be treated as superseded:
 | Identity, org model, roles, audit | P0 | Required foundation for all suite functions. |
 | Core CRM | P0 | Highest-reuse object layer for customer operations. |
 | Customer 360 master profile | P0 | The central data product; connects CRM, service, finance, campaigns, documents, and legal state. |
-| Deal/order orchestration | P0 | Converts pipeline into operational and financial work. |
+| Deal/order orchestration | P0 | Converts Tube into operational and financial work. |
 | Service Hub / Desk | P0 | Promoted because Salesforce service depth is a key benchmark and Armenian SMBs need operator workflows. |
 | Workflow Studio | P0 | Product multiplier; must support approvals, dry-run, audit, and retries. |
 | Integration Hub | P1 | Needed for Gmail, Calendar, Drive, WhatsApp, Telegram, e-signature, bank/accounting, and future migrations. |

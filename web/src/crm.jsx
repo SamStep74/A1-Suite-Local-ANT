@@ -9,7 +9,7 @@ export function CrmQuotesPanel({ data, actionState, onRequestApproval }) {
       <div className="panel-head">
         <div>
           <span className="section-label">A1 CRM</span>
-          <h2>Quotes pipeline</h2>
+          <h2>Quotes Tube</h2>
         </div>
         <strong className="aging-badge">{quotes.length} quotes</strong>
       </div>
@@ -44,7 +44,7 @@ export function CrmDealsBoard({ data }) {
   return (
     <article className="panel crm-deals-board-panel">
       <div className="panel-head">
-        <div><span className="section-label">A1 CRM</span><h2>Deals · pipeline</h2></div>
+        <div><span className="section-label">A1 CRM</span><h2>Deals · Tube</h2></div>
         <strong className="aging-badge">{deals.length} deals</strong>
       </div>
       {Object.entries(byStage).map(([stage, list]) => (

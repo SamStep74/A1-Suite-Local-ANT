@@ -6518,7 +6518,7 @@ function seedIfEmpty(db) {
   `).run("user-support", orgId, "support@armosphera.local", "Support Lead", "Support", hashPassword(DEFAULT_PASSWORD), now);
 
   const apps = [
-    ["crm", "Armosphera CRM", "Sales", "Customers, deals, quotes, inbox, tasks, and Armenian SMB pipelines.", "/app/crm", "partial-integration", 1],
+    ["crm", "Armosphera CRM", "Sales", "Customers, deals, quotes, inbox, tasks, and Armenian SMB Tubes.", "/app/crm", "partial-integration", 1],
     ["finance", "HayHashvapah Finance", "Finance", "Accounting, invoices, VAT, payroll, bank import, period locks, and Armenian legal RAG.", "/app/finance", "partial-integration", 2],
     ["copilot", "Legal & Accounting Copilot", "AI", "Armenian-first cited legal, accounting, payroll, month-close, privacy, and e-sign guidance.", "/app/copilot", "controlled-advisory", 3],
     ["desk", "Armosphera Desk", "Service", "Tickets, SLA-lite, channels, support knowledge, and customer portal.", "/app/desk", "new", 4],

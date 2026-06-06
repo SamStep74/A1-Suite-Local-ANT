@@ -68,7 +68,7 @@ End state = functional parity with Zoho One's ~45 apps, expressed as coherent Ar
 | Zoho One app(s) | Armosphera One Claude module | Phase |
 |---|---|---|
 | Directory, admin, security, MDM, OneAuth, Vault | **Directory & Admin** — auth, RBAC, app-entitlements, MFA, audit, secrets | P0 ✓ |
-| CRM, Bigin | **CRM** — leads, deals, forecast categories, deal health, quotes, pipeline, activities | P0 ✓ |
+| CRM, Bigin | **CRM** — leads, deals, forecast categories, deal health, quotes, Tube, activities | P0 ✓ |
 | Books, Invoice, Expense, Payroll, Billing | **Finance** — HayHashvapah engine: accounting, VAT, payroll, ՀԴՄ/SRC, period locks, receivables | P0 ✓ |
 | Desk, Assist | **Desk** — cases, SLA, operator console, escalation, CSAT, knowledge | P0 ✓ |
 | Flow (RPA deferred) | **Flow / Workflow Studio** — events, approvals, dry-run, retry, rollback, versioning | P0 ✓ |
