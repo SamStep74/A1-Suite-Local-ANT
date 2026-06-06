@@ -60,6 +60,7 @@ export function PurchaseWorkspacePanel({
   onCreateOrder,
   onConfirmOrder,
   onReceiveOrder,
+  onReturnOrder,
   onBillOrder
 }) {
   const orders = data?.orders?.orders || [];
@@ -86,6 +87,7 @@ export function PurchaseWorkspacePanel({
   const [unitCost, setUnitCost] = useState("");
   const [note, setNote] = useState("Purchase request for Armenian SMB stock replenishment.");
   const [receiptQuantities, setReceiptQuantities] = useState({});
+  const [returnQuantities, setReturnQuantities] = useState({});
 
   const selectedItem = stockableItems.find(item => item.id === (catalogItemId || stockableItems[0]?.id));
   const defaultItemId = selectedItem?.id || "";
@@ -137,15 +139,31 @@ export function PurchaseWorkspacePanel({
     return (order.lines || []).find(line => Number(line.remainingQuantity || 0) > 0);
   }
 
+  function nextReturnableLine(order) {
+    if (order.status !== "partial" && order.status !== "received") return null;
+    return (order.lines || []).find(line => Number(line.returnableQuantity || line.receivedQuantity || 0) > 0);
+  }
+
   function receiptQuantityFor(order, line) {
     const key = `${order.id}:${line.id}`;
     const fallback = Number(line.remainingQuantity || 1);
     return Math.min(fallback, integerInput(receiptQuantities[key] || fallback));
   }
 
+  function returnQuantityFor(order, line) {
+    const key = `${order.id}:${line.id}`;
+    const fallback = Number(line.returnableQuantity || line.receivedQuantity || 1);
+    return Math.min(fallback, integerInput(returnQuantities[key] || fallback));
+  }
+
   function changeReceiptQuantity(order, line, value) {
     const key = `${order.id}:${line.id}`;
     setReceiptQuantities(current => ({ ...current, [key]: value }));
+  }
+
+  function changeReturnQuantity(order, line, value) {
+    const key = `${order.id}:${line.id}`;
+    setReturnQuantities(current => ({ ...current, [key]: value }));
   }
 
   return (
@@ -183,6 +201,7 @@ export function PurchaseWorkspacePanel({
         <div className="aging-summary purchase-analytics-summary">
           <div className="metric"><span>price coverage</span><strong>{priceCoveragePercent}%</strong></div>
           <div className="metric"><span>remaining qty</span><strong>{Number(purchaseSummary.remainingQuantity || 0)}</strong></div>
+          <div className="metric"><span>returned qty</span><strong>{Number(purchaseSummary.returnedQuantity || 0)}</strong></div>
           <div className="metric"><span>active prices</span><strong>{Number(priceCoverage.activePriceCount || 0)}</strong></div>
           <div className="metric"><span>covered items</span><strong>{Number(priceCoverage.coveredStockableItemCount || 0)}/{Number(priceCoverage.stockableCatalogItemCount || 0)}</strong></div>
         </div>
@@ -220,13 +239,16 @@ export function PurchaseWorkspacePanel({
           {orders.slice(0, 8).map(order => {
             const busyConfirm = actionBusy(actionState, "purchase-confirm", order.id);
             const busyReceive = actionBusy(actionState, "purchase-receive", order.id);
+            const busyReturn = actionBusy(actionState, "purchase-return", order.id);
             const busyBill = actionBusy(actionState, "purchase-bill", order.id);
             const receivableLine = nextReceivableLine(order);
+            const returnableLine = nextReturnableLine(order);
             return (
               <div className={`row purchase-order ${order.status}`} key={order.id}>
                 <span>
                   {order.orderNumber} · {order.supplier} · {statusLabel(order.status)} · {order.lines?.[0]?.catalogSku || "no lines"}
                   {Number(order.orderedQuantity || 0) > 0 && ` · received ${Number(order.receivedQuantity || 0)}/${Number(order.orderedQuantity || 0)}`}
+                  {Number(order.returnedQuantity || 0) > 0 && ` · returned ${Number(order.returnedQuantity || 0)}`}
                 </span>
                 <strong>{amd(order.total)}</strong>
                 <div className="row-actions">
@@ -252,6 +274,26 @@ export function PurchaseWorkspacePanel({
                         disabled={busyReceive}
                       >
                         {busyReceive ? "Receiving" : "Receive"}
+                      </button>
+                    </>
+                  )}
+                  {canWrite && returnableLine && (
+                    <>
+                      <input
+                        className="mini-quantity"
+                        aria-label={`Return quantity for ${order.orderNumber}`}
+                        inputMode="numeric"
+                        value={returnQuantities[`${order.id}:${returnableLine.id}`] ?? String(returnableLine.returnableQuantity || returnableLine.receivedQuantity || 1)}
+                        onChange={event => changeReturnQuantity(order, returnableLine, event.target.value)}
+                        disabled={busyReturn}
+                      />
+                      <button
+                        className="mini-action secondary"
+                        type="button"
+                        onClick={() => onReturnOrder?.(order, { lineId: returnableLine.id, quantity: returnQuantityFor(order, returnableLine) })}
+                        disabled={busyReturn}
+                      >
+                        {busyReturn ? "Returning" : "Return"}
                       </button>
                     </>
                   )}

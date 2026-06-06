@@ -39,6 +39,7 @@ test("purchase: RFQ -> confirmed PO -> stock receipt -> vendor bill", async () =
     const before = {
       purchaseOrders: rowCount(app, "purchase_orders", orgId),
       purchaseLines: rowCount(app, "purchase_order_lines", orgId),
+      purchaseReturns: rowCount(app, "purchase_returns", orgId),
       stockMoves: rowCount(app, "stock_moves", orgId),
       bills: rowCount(app, "bills", orgId),
       billAudits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?").get(orgId, "finance.bill.created").count,
@@ -534,6 +535,239 @@ test("purchase: partial receipts preserve receipt evidence and block billing unt
     assert.ok(backupTables.purchase_receipts.some(item => item.purchase_order_id === order.id && item.quantity === 2));
     assert.ok(backupTables.purchase_receipts.some(item => item.purchase_order_id === order.id && item.quantity === 3));
     assert.ok(backupTables.purchase_order_lines.some(item => item.purchase_order_id === order.id && item.received_quantity === 5));
+  } finally {
+    await app.close();
+  }
+});
+
+test("purchase: supplier returns reverse stock evidence before billing", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const accountant = await login(app, "accountant@armosphera.local");
+    const owner = await login(app);
+    const orgId = "org-armosphera-demo";
+    const openPeriod = app.db.prepare("SELECT period_key FROM finance_periods WHERE org_id = ? AND status = 'open' LIMIT 1").get(orgId).period_key;
+    const before = {
+      stockMoves: rowCount(app, "stock_moves", orgId),
+      receipts: rowCount(app, "purchase_receipts", orgId),
+      returns: rowCount(app, "purchase_returns", orgId),
+      bills: rowCount(app, "bills", orgId),
+      events: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE org_id = ? AND event_type LIKE ?").get(orgId, "purchase.order.%").count,
+      audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type LIKE ?").get(orgId, "purchase.order.%").count,
+      mainStock: stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity
+    };
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/purchase/orders",
+      headers: { cookie: operator },
+      payload: {
+        orderNumber: "PO-RETURN-0001",
+        supplier: "Yerevan Hardware Supply",
+        supplierTaxId: "01234568",
+        orderDate: `${openPeriod}-10`,
+        expectedDate: `${openPeriod}-12`,
+        lines: [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 4, unitCost: 60000 }]
+      }
+    });
+    assert.equal(created.statusCode, 200, created.body);
+    const order = created.json().order;
+    const line = order.lines[0];
+
+    const confirmed = await app.inject({ method: "POST", url: `/api/purchase/orders/${order.id}/confirm`, headers: { cookie: operator }, payload: {} });
+    assert.equal(confirmed.statusCode, 200, confirmed.body);
+    const received = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/receive`,
+      headers: { cookie: operator },
+      payload: {
+        receivedAt: `${openPeriod}-12`,
+        reference: "RCPT-PO-RETURN-0001",
+        lines: [{ lineId: line.id, quantity: 4 }]
+      }
+    });
+    assert.equal(received.statusCode, 200, received.body);
+    assert.equal(received.json().order.status, "received");
+    assert.equal(stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity, before.mainStock + 4);
+
+    const returned = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/return`,
+      headers: { cookie: operator },
+      payload: {
+        returnedAt: `${openPeriod}-13`,
+        reference: "RTN-PO-RETURN-0001-A",
+        reason: "One scanner failed incoming quality check.",
+        lines: [{ lineId: line.id, quantity: 1 }]
+      }
+    });
+    assert.equal(returned.statusCode, 200, returned.body);
+    const returnedBody = returned.json();
+    assert.equal(returnedBody.order.status, "partial");
+    assert.equal(returnedBody.order.receivedQuantity, 3);
+    assert.equal(returnedBody.order.returnedQuantity, 1);
+    assert.equal(returnedBody.order.remainingQuantity, 1);
+    assert.equal(returnedBody.order.returnCount, 1);
+    assert.equal(returnedBody.order.lines[0].receivedQuantity, 3);
+    assert.equal(returnedBody.order.lines[0].returnedQuantity, 1);
+    assert.equal(returnedBody.order.lines[0].returnableQuantity, 3);
+    assert.equal(returnedBody.order.lines[0].returns.length, 1);
+    assert.equal(returnedBody.returns[0].quantity, 1);
+    assert.equal(returnedBody.returns[0].reason, "One scanner failed incoming quality check.");
+    assert.equal(returnedBody.stockMoves[0].moveType, "return");
+    assert.equal(returnedBody.stockMoves[0].sourceLocationCode, "WH/STOCK");
+    assert.equal(returnedBody.stockMoves[0].destinationLocationCode, "SUPPLIERS");
+    assert.equal(returnedBody.stockMoves[0].quantity, 1);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 2);
+    assert.equal(rowCount(app, "purchase_receipts", orgId), before.receipts + 1);
+    assert.equal(rowCount(app, "purchase_returns", orgId), before.returns + 1);
+    assert.equal(stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity, before.mainStock + 3);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE org_id = ? AND event_type LIKE ?").get(orgId, "purchase.order.%").count, before.events + 4);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type LIKE ?").get(orgId, "purchase.order.%").count, before.audits + 4);
+
+    const duplicateReturn = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/return`,
+      headers: { cookie: operator },
+      payload: {
+        returnedAt: `${openPeriod}-13`,
+        reference: "RTN-PO-RETURN-0001-A",
+        reason: "One scanner failed incoming quality check.",
+        lines: [{ lineId: line.id, quantity: 1 }]
+      }
+    });
+    assert.equal(duplicateReturn.statusCode, 200, duplicateReturn.body);
+    assert.equal(duplicateReturn.json().idempotent, true);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 2);
+    assert.equal(rowCount(app, "purchase_returns", orgId), before.returns + 1);
+
+    const conflictingReturn = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/return`,
+      headers: { cookie: operator },
+      payload: {
+        returnedAt: `${openPeriod}-13`,
+        reference: "RTN-PO-RETURN-0001-A",
+        reason: "Changed evidence should not rewrite the return.",
+        lines: [{ lineId: line.id, quantity: 1 }]
+      }
+    });
+    assert.equal(conflictingReturn.statusCode, 409, conflictingReturn.body);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 2);
+    assert.equal(rowCount(app, "purchase_returns", orgId), before.returns + 1);
+
+    const overReturn = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/return`,
+      headers: { cookie: operator },
+      payload: {
+        returnedAt: `${openPeriod}-14`,
+        reference: "RTN-PO-RETURN-0001-OVER",
+        reason: "Cannot return more than net received.",
+        lines: [{ lineId: line.id, quantity: 4 }]
+      }
+    });
+    assert.equal(overReturn.statusCode, 409, overReturn.body);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 2);
+    assert.equal(rowCount(app, "purchase_returns", orgId), before.returns + 1);
+
+    const fullReturn = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/return`,
+      headers: { cookie: operator },
+      payload: {
+        returnedAt: `${openPeriod}-14`,
+        reference: "RTN-PO-RETURN-0001-FULL",
+        reason: "Return all remaining received units before replacement shipment.",
+        lines: [{ lineId: line.id, quantity: 3 }]
+      }
+    });
+    assert.equal(fullReturn.statusCode, 200, fullReturn.body);
+    assert.equal(fullReturn.json().order.status, "confirmed");
+    assert.equal(fullReturn.json().order.receivedQuantity, 0);
+    assert.equal(fullReturn.json().order.returnedQuantity, 4);
+    assert.equal(stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity, before.mainStock);
+
+    const duplicateFullReturn = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/return`,
+      headers: { cookie: operator },
+      payload: {
+        returnedAt: `${openPeriod}-14`,
+        reference: "RTN-PO-RETURN-0001-FULL",
+        reason: "Return all remaining received units before replacement shipment.",
+        lines: [{ lineId: line.id, quantity: 3 }]
+      }
+    });
+    assert.equal(duplicateFullReturn.statusCode, 200, duplicateFullReturn.body);
+    assert.equal(duplicateFullReturn.json().idempotent, true);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 3);
+    assert.equal(rowCount(app, "purchase_returns", orgId), before.returns + 2);
+
+    const earlyBill = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/bill`,
+      headers: { cookie: accountant },
+      payload: { billDate: `${openPeriod}-14`, dueDate: `${openPeriod}-24` }
+    });
+    assert.equal(earlyBill.statusCode, 409, earlyBill.body);
+    assert.equal(rowCount(app, "bills", orgId), before.bills);
+
+    const replacementReceipt = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/receive`,
+      headers: { cookie: operator },
+      payload: {
+        receivedAt: `${openPeriod}-15`,
+        reference: "RCPT-PO-RETURN-0001-REPLACEMENT",
+        lines: [{ lineId: line.id, quantity: 4 }]
+      }
+    });
+    assert.equal(replacementReceipt.statusCode, 200, replacementReceipt.body);
+    assert.equal(replacementReceipt.json().order.status, "received");
+    assert.equal(replacementReceipt.json().order.receivedQuantity, 4);
+    assert.equal(stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity, before.mainStock + 4);
+
+    const billed = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/bill`,
+      headers: { cookie: accountant },
+      payload: { billDate: `${openPeriod}-15`, dueDate: `${openPeriod}-24` }
+    });
+    assert.equal(billed.statusCode, 200, billed.body);
+    assert.equal(billed.json().order.status, "billed");
+    assert.equal(billed.json().bill.total, 288000);
+
+    const billedReturn = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/return`,
+      headers: { cookie: operator },
+      payload: {
+        returnedAt: `${openPeriod}-16`,
+        reference: "RTN-PO-RETURN-0001-BILLED",
+        lines: [{ lineId: line.id, quantity: 1 }]
+      }
+    });
+    assert.equal(billedReturn.statusCode, 409, billedReturn.body);
+    assert.equal(rowCount(app, "purchase_returns", orgId), before.returns + 2);
+
+    const analytics = await app.inject({ method: "GET", url: "/api/purchase/analytics", headers: { cookie: owner } });
+    assert.equal(analytics.statusCode, 200, analytics.body);
+    assert.equal(analytics.json().summary.returnedQuantity, 4);
+    assert.equal(analytics.json().vendorPerformance[0].returnedQuantity, 4);
+
+    const backup = await app.inject({
+      method: "POST",
+      url: "/api/admin/backups",
+      headers: { cookie: owner },
+      payload: { note: "Purchase returns must restore with stock evidence." }
+    });
+    assert.equal(backup.statusCode, 200, backup.body);
+    const backupTables = backup.json().backup.payload.tables;
+    assert.ok(backupTables.purchase_returns.some(item => item.purchase_order_id === order.id && item.quantity === 1 && item.reference === "RTN-PO-RETURN-0001-A"));
+    assert.ok(backupTables.purchase_returns.some(item => item.purchase_order_id === order.id && item.quantity === 3 && item.reference === "RTN-PO-RETURN-0001-FULL"));
   } finally {
     await app.close();
   }
@@ -1174,6 +1408,57 @@ test("purchase: role gates and metadata guards reject writes before mutation", a
       payload: { receivedAt: `${openPeriod}-09`, reference: "RCPT-GUARD" }
     });
     assert.equal(received.statusCode, 200, received.body);
+    const receivedLineId = received.json().order.lines[0].id;
+    const supportReturnDenied = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${orderId}/return`,
+      headers: { cookie: support },
+      payload: {
+        returnedAt: `${openPeriod}-10`,
+        reference: "RTN-SUPPORT-DENIED",
+        lines: [{ lineId: receivedLineId, quantity: 1 }]
+      }
+    });
+    assert.equal(supportReturnDenied.statusCode, 403, supportReturnDenied.body);
+    const malformedReturnBodies = [
+      { returnedAt: null, reference: "RTN-BAD-NULL", lines: [{ lineId: receivedLineId, quantity: 1 }] },
+      ["secret-purchase-return-array-token"],
+      { returnedAt: "2026-02-30", reference: "RTN-BAD-DATE", lines: [{ lineId: receivedLineId, quantity: 1 }] },
+      { returnedAt: `${openPeriod}-10`, reference: "RTN-BAD-REASON", reason: "bad\nsecret-purchase-return-reason-token", lines: [{ lineId: receivedLineId, quantity: 1 }] },
+      { returnedAt: `${openPeriod}-10`, reference: "RTN-BAD-LINES", lines: [] },
+      { returnedAt: `${openPeriod}-10`, reference: "RTN-BAD-QTY", lines: [{ lineId: receivedLineId, quantity: 0 }] },
+      { returnedAt: `${openPeriod}-10`, reference: "RTN-BAD-LINE", lines: [{ lineId: `${receivedLineId}\nsecret-purchase-return-line-token`, quantity: 1 }] }
+    ];
+    for (const payload of malformedReturnBodies) {
+      const before = counts();
+      const response = await app.inject({ method: "POST", url: `/api/purchase/orders/${orderId}/return`, headers: { cookie: owner }, payload });
+      assert.equal(response.statusCode, 400, response.body);
+      assert.doesNotMatch(response.body, /secret-purchase-/);
+      assert.deepEqual(counts(), before);
+    }
+    app.db.exec(`
+      CREATE TEMP TRIGGER purchase_test_fail_return_insert
+      BEFORE INSERT ON purchase_returns
+      WHEN NEW.purchase_order_id = '${orderId}'
+      BEGIN
+        SELECT RAISE(ABORT, 'purchase return trigger fail');
+      END;
+    `);
+    const beforeFailedReturn = counts();
+    const failedReturn = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${orderId}/return`,
+      headers: { cookie: owner },
+      payload: {
+        returnedAt: `${openPeriod}-10`,
+        reference: "RTN-GUARD",
+        lines: [{ lineId: receivedLineId, quantity: 1 }]
+      }
+    });
+    assert.equal(failedReturn.statusCode, 500, failedReturn.body);
+    assert.deepEqual(counts(), beforeFailedReturn);
+    assert.equal(app.db.prepare("SELECT received_quantity FROM purchase_order_lines WHERE org_id = ? AND id = ?").get(orgId, receivedLineId).received_quantity, 1);
+    app.db.exec("DROP TRIGGER purchase_test_fail_return_insert");
     const operatorBillDenied = await app.inject({
       method: "POST",
       url: `/api/purchase/orders/${orderId}/bill`,
