@@ -258,8 +258,8 @@ Status: shipped in the local prototype on 2026-05-26.
 - Conversion is idempotent: repeating conversion for the same lead returns the existing customer, deal, and activity.
 - Added suite events and audit records for `crm.lead.created` and `crm.lead.converted`.
 - Connected CRM activities into Customer 360 and tenant backup scope.
-- Updated the workspace with an Armosphera CRM Lead Pipeline panel for capture, scoring visibility, qualified pipeline value, and hot-lead conversion.
-- Added API tests proving lead capture/scoring/routing, qualified pipeline summary, conversion propagation into Customer 360/timeline, idempotency, audit capture, and auditor write rejection.
+- Updated the workspace with an Armosphera CRM Lead Tube panel for capture, scoring visibility, qualified Tube value, and hot-lead conversion.
+- Added API tests proving lead capture/scoring/routing, qualified Tube summary, conversion propagation into Customer 360/timeline, idempotency, audit capture, and auditor write rejection.
 
 ## Implemented Slice 19: CRM Forecast And Deal Health
 
@@ -334,7 +334,7 @@ Status: shipped in the local prototype on 2026-05-26.
 
 - Added marketing campaign and campaign attribution records for Armenia SMB lead/customer influence tracking.
 - Seeded a pilot Instagram/WhatsApp campaign with lead and customer/deal attribution.
-- Added `/api/campaigns/performance` for campaign spend, lead count, customer count, influenced pipeline, accepted revenue, paid revenue, and ROI percent.
+- Added `/api/campaigns/performance` for campaign spend, lead count, customer count, influenced Tube, accepted revenue, paid revenue, and ROI percent.
 - Campaign paid revenue uses payment receipts and paid HayHashvapah invoices from attributed customers.
 - Added campaign semantic metrics into `/api/analytics`.
 - Connected campaign attribution and customer-specific campaign performance back into Customer 360 and tenant backup scope.
@@ -349,7 +349,7 @@ Status: shipped in the local prototype on 2026-05-26.
 - Added `/api/analytics/receivables-aging` for deterministic Armenia-localized receivables reporting as of `2026-05-26`.
 - Grouped open HayHashvapah invoices into current, 1-30, 31-60, 61-90, and 90+ day aging buckets.
 - Added invoice-level drilldowns with customer, due date, days past due, bucket label, and CRM next-action guidance.
-- Embedded receivables aging into `/api/analytics` beside pipeline, service, automation, and campaign metrics.
+- Embedded receivables aging into `/api/analytics` beside Tube, service, automation, and campaign metrics.
 - Connected customer-specific aging evidence back into Customer 360 while preserving redaction for non-owner views.
 - Updated the workspace with a HayHashvapah Analytics receivables aging panel and Customer 360 receivable evidence rows.
 - Added API tests proving accountant analytics access, bucket totals, invoice drilldowns, analytics propagation, and Customer 360 evidence.
@@ -539,7 +539,7 @@ Status: shipped in the local prototype on 2026-05-27.
 
 - Added an analytics semantic layer for Zoho One parity so KPI cards now carry explicit definitions, formulas, source apps, owner roles, refresh cadence, record counts, and drilldown URLs.
 - Added `/api/analytics/semantic-metrics` and `/api/analytics/semantic-metrics/:id/drilldown` with analytics app access control.
-- Implemented metric definitions for pipeline value, weighted forecast, campaign ROI, receivables aging, overdue exposure, ticket backlog, SLA risk, and Armenia VAT/SRC readiness.
+- Implemented metric definitions for Tube value, weighted forecast, campaign ROI, receivables aging, overdue exposure, ticket backlog, SLA risk, and Armenia VAT/SRC readiness.
 - Added drilldown records that connect overdue exposure back to HayHashvapah invoice records and SLA risk back to Armosphera Desk cases.
 - Connected the metric catalog into the existing `/api/analytics` payload for role-aware dashboards and reporting.
 - Updated the workspace dashboard with a dense Metric Catalog panel using Armosphera CRM / HayHashvapah visual language.
@@ -582,7 +582,7 @@ Status: shipped in the local prototype on 2026-05-27.
 - Added role-specific dashboards for Owner, Admin, Accountant, Salesperson, Operator, Support, Service Manager, and Auditor.
 - Owner/Admin dashboards prioritize operating metrics, report generation, overdue exposure, and SLA risk.
 - Accountant dashboards prioritize receivables aging, overdue exposure, VAT/SRC readiness, snapshot capture, and accountant report export.
-- Sales dashboards prioritize pipeline value, weighted forecast, campaign ROI, and CRM forecast actions.
+- Sales dashboards prioritize Tube value, weighted forecast, campaign ROI, and CRM forecast actions.
 - Support and Service Manager dashboards prioritize ticket backlog and SLA risk without exposing HayHashvapah finance context to Support.
 - Auditor dashboards expose read-only report and checksum evidence without write permissions.
 - Added role permission flags for analytics app access, snapshot capture, owner report creation, accountant report creation, report reading, finance app access, and sensitive finance visibility.
@@ -2175,7 +2175,7 @@ Status: shipped in the local prototype on 2026-05-28.
 ### Slice 201 - CRM Lead Conversion Metadata Guard
 
 - CRM lead conversion now rejects non-plain-object request bodies before mutating customer, deal, profile, activity, suite-event, or audit state.
-- Submitted forecast categories, deal titles, and next-step text must be structurally safe before they can become conversion, pipeline, or Customer 360 evidence.
+- Submitted forecast categories, deal titles, and next-step text must be structurally safe before they can become conversion, Tube, or Customer 360 evidence.
 - Forecast categories must remain in the CRM forecast enum, deal titles and next steps reject object/array/control-character/overlong input, and omitted fields still preserve the existing hot-lead/default-title/default-next-step behavior.
 - Rejected malformed conversion requests return `400`, keep submitted payload secrets out of error bodies, leave `customers`, `customer_profiles`, `customer_profile_sources`, `deals`, conversion activities, suite events, audit events, and lead conversion pointers unchanged.
 - Verification for the checkpoint: focused CRM conversion tests = 4 pass; `test/api.test.js` = 200 pass; `npm test` = 398 pass; `npm run build:ui` = pass; smoke = pass with `apps=10`.
@@ -2183,7 +2183,7 @@ Status: shipped in the local prototype on 2026-05-28.
 ### Slice 202 - CRM Deal Forecast Metadata Guard
 
 - CRM deal forecast updates now reject missing or non-plain-object request bodies before upserting forecast rows or writing suite/audit evidence.
-- Submitted forecast categories, close dates, and manager notes must be structurally safe before they can become pipeline, Customer 360, or audit evidence.
+- Submitted forecast categories, close dates, and manager notes must be structurally safe before they can become Tube, Customer 360, or audit evidence.
 - Forecast category remains limited to `pipeline`, `best_case`, `commit`, or `omitted`; close dates must be exact ISO calendar dates; manager notes reject object/array/control-character/overlong input.
 - Rejected malformed forecast updates return `400`, keep submitted payload secrets out of error bodies, leave forecast/suite/audit counts unchanged, and leave an existing forecast row byte-for-byte unchanged.
 - Lead conversion default deal-title generation now keeps no-body conversions valid for CRM or Forms leads with a maximum-length company name by bounding the generated default title to the deal title limit.

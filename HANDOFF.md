@@ -25,7 +25,7 @@ Every arrow is a **validated FK between modules** sharing `customers` / `deals` 
 
 | Domain | Status | Key capability |
 |---|---|---|
-| **CRM** | complete (BE+UI) | leads, deals, quotes pipeline, activity timeline |
+| **CRM** | complete (BE+UI) | leads, deals, quotes Tube, activity timeline |
 | **Finance** | complete (BE+UI) | double-entry ledger on RA chart of accounts; AR/AP/expenses/payroll/VAT/statements/opening-balances; history lists |
 | **Desk** | complete (BE+UI) | helpdesk: create/list/transition/reassign, escalation governance |
 | **People-HR** | complete (BE+UI) | employee registry (ՀՎՀՀ/salary) → payroll → ledger |

@@ -24,6 +24,7 @@ import {
 
 const money = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 const sensitiveMoney = value => value === null || value === "restricted" ? "restricted" : money(value);
+const forecastCategoryLabel = value => value === "pipeline" ? "Tube" : (value || "Tube");
 const semanticMetricValue = metric => {
   if (!metric) return "";
   if (metric.unit === "AMD") return money(metric.value);
@@ -5495,7 +5496,7 @@ function Customer360({ data, actionState, onAskLegal, onRecordPromise, onSendRem
       <div className="rows">
         {data.crm.deals.map(deal => (
           <div className="row" key={deal.id}>
-            <span>{deal.title} · {deal.forecastCategory || "pipeline"} · {deal.healthStatus || "unreviewed"}</span>
+            <span>{deal.title} · {forecastCategoryLabel(deal.forecastCategory)} · {deal.healthStatus || "unreviewed"}</span>
             <strong>{sensitiveMoney(deal.value)}</strong>
           </div>
         ))}
@@ -5706,7 +5707,7 @@ function LeadPipeline({ data, actionState, onCaptureLead, onConvertLead }) {
       <div className="panel-head">
         <div>
           <span className="section-label">A1 CRM</span>
-          <h2>Lead pipeline</h2>
+          <h2>Lead Tube</h2>
         </div>
         <button
           className="mini-action"
@@ -5719,7 +5720,7 @@ function LeadPipeline({ data, actionState, onCaptureLead, onConvertLead }) {
       </div>
       <div className="lead-summary">
         <Metric label="hot leads" value={data.summary?.hot || 0} />
-        <Metric label="qualified pipeline" value={money(data.summary?.qualifiedPipeline || 0)} />
+        <Metric label="qualified Tube" value={money(data.summary?.qualifiedPipeline || 0)} />
         <Metric label="converted" value={data.summary?.converted || 0} />
       </div>
       <div className="lead-list">
@@ -5762,7 +5763,7 @@ function CampaignRoiPanel({ data }) {
       </div>
       <div className="campaign-summary">
         <Metric label="spend" value={money(data.summary?.totalSpend || 0)} />
-        <Metric label="pipeline" value={money(data.summary?.influencedPipeline || 0)} />
+        <Metric label="Tube" value={money(data.summary?.influencedPipeline || 0)} />
         <Metric label="paid revenue" value={money(data.summary?.paidRevenue || 0)} />
       </div>
       <div className="campaign-list">
@@ -5997,7 +5998,7 @@ function ForecastPanel({ data, actionState, onUpdateForecast, onGenerateDealRisk
       <div className="forecast-categories">
         {(data.categories || []).map(category => (
           <div className="forecast-category" key={category.forecastCategory}>
-            <span>{category.forecastCategory}</span>
+            <span>{forecastCategoryLabel(category.forecastCategory)}</span>
             <strong>{money(category.weightedValue)}</strong>
             <em>{category.count} deals · {money(category.value)}</em>
           </div>
@@ -6007,7 +6008,7 @@ function ForecastPanel({ data, actionState, onUpdateForecast, onGenerateDealRisk
         {deals.slice(0, 4).map(deal => (
           <div className={`forecast-deal ${deal.healthStatus}`} key={deal.id}>
             <div>
-              <span>{deal.stage} · {deal.forecastCategory}</span>
+              <span>{deal.stage} · {forecastCategoryLabel(deal.forecastCategory)}</span>
               <strong>{deal.title}</strong>
               <em>{deal.customerName} · {money(deal.weightedValue || 0)}</em>
             </div>

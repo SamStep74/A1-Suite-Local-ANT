@@ -42632,7 +42632,7 @@ function getCampaignPerformance(db, orgId, customerId = "") {
   return {
     summary,
     definitions: {
-      influencedPipeline: "Open deal value from attributed leads and customers",
+      influencedPipeline: "Open Tube deal value from attributed leads and customers",
       acceptedRevenue: "Accepted quote totals from attributed quote or deal context",
       paidRevenue: "Paid invoices and payment receipts from attributed customers",
       roiPercent: "(paid revenue - campaign spend) / campaign spend"
@@ -42851,11 +42851,11 @@ function getSemanticMetrics(db, orgId, user = null, reportDate = DEFAULT_REPORT_
   const metrics = [
     {
       id: "pipeline-value",
-      label: "Pipeline value",
+      label: "Tube value",
       value: forecast.totals.value,
       unit: "AMD",
       formula: "Sum open CRM deal value",
-      definition: "Total AMD value of non-won CRM deals that remain in the operating pipeline.",
+      definition: "Total AMD value of non-won CRM deals that remain in the operating Tube.",
       sourceApps: ["Armosphera CRM"],
       refreshCadence: "live",
       ownerRole: "Salesperson",

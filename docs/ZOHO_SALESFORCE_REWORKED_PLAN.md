@@ -64,7 +64,7 @@ The current CRM foundation is useful, but the next plan needs Salesforce-grade s
 - Price books, bundles, discounts, tax-aware quote-to-invoice handoff.
 - Sales coaching signals and next-best-action suggestions.
 
-Salesforce reference point: Sales Cloud emphasizes activity management, lead management, account/opportunity management, forecast management, pipeline management, reporting dashboards, workflow automation, and quote/contract approvals.
+Salesforce reference point: Sales Cloud emphasizes activity management, lead management, account/opportunity management, forecast management, Tube management, reporting dashboards, workflow automation, and quote/contract approvals.
 
 ### 4. Automation Needs Governance, Not Just Triggers
 
@@ -84,7 +84,7 @@ Salesforce reference point: Agentforce 360 publicly frames hybrid reasoning and 
 
 The current analytics endpoint is a dashboard aggregator. The reworked plan requires a small semantic layer:
 
-- Standard metrics with definitions: pipeline value, forecast, conversion, CAC-lite, campaign ROI, receivables aging, overdue exposure, ticket backlog, SLA risk, tax/VAT readiness.
+- Standard metrics with definitions: Tube value, forecast, conversion, CAC-lite, campaign ROI, receivables aging, overdue exposure, ticket backlog, SLA risk, tax/VAT readiness.
 - Drill-down from KPI to record list.
 - Time-series snapshots.
 - Exportable owner/accountant reports.
@@ -144,7 +144,7 @@ Acceptance:
 Build:
 
 - Lead/account/contact/deal/activity objects.
-- Pipeline stages with required fields.
+- Tube stages with required fields.
 - Forecast and deal health.
 - Lead scoring/routing.
 - Quote approval and quote-to-invoice handoff.

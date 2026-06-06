@@ -49,7 +49,7 @@ Comparison to A1:
 
 ### CRM, Sales, Quotes, And Subscriptions
 
-Odoo CRM manages leads, opportunities, pipelines, forecasts, meetings/next activities, lead acquisition from web forms/email/manual entry, quotation creation, predictive scoring, lead reports, and forecast reports.
+Odoo CRM manages leads, opportunities, Tubes, forecasts, meetings/next activities, lead acquisition from web forms/email/manual entry, quotation creation, predictive scoring, lead reports, and forecast reports.
 
 Source: [Odoo CRM](https://www.odoo.com/documentation/19.0/applications/sales/crm.html).
 
@@ -132,7 +132,7 @@ Odoo Project manages tasks, activities, profitability, milestones, templates, re
 
 Source: [Odoo Project](https://www.odoo.com/documentation/19.0/applications/services/project.html).
 
-Odoo Helpdesk is ticket-based support with configurable teams, dashboards, pipelines, ticket stages, prioritization, and customer submission flows.
+Odoo Helpdesk is ticket-based support with configurable teams, dashboards, Tubes, ticket stages, prioritization, and customer submission flows.
 
 Source: [Odoo Helpdesk](https://www.odoo.com/documentation/19.0/applications/services/helpdesk.html).
 
@@ -405,7 +405,7 @@ Deliverables:
 - Overtime evidence.
 - Equipment assignment.
 - Onboarding/offboarding checklist.
-- Recruitment pipeline.
+- Recruitment Tube.
 - Fleet basics.
 
 Armenian localization:
@@ -439,7 +439,7 @@ Armenian localization:
 
 Acceptance:
 
-- A1 can run compliant Armenian campaigns and measure pipeline/revenue impact.
+- A1 can run compliant Armenian campaigns and measure Tube/revenue impact.
 
 ### Phase 7 - Documents Cabinet, Knowledge, Spreadsheet, Dashboards
 
