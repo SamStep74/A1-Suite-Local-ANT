@@ -1238,6 +1238,84 @@ textarea {
 .row span { min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 .row strong { flex: 0 0 auto; }
 
+.row.crm-quote-row {
+  align-items: stretch;
+  display: grid;
+  gap: 8px;
+}
+
+.crm-quote-summary {
+  align-items: center;
+  display: flex;
+  gap: 10px;
+  justify-content: space-between;
+  min-width: 0;
+}
+
+.crm-quote-summary span {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.quote-pricing-evidence {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+  min-width: 0;
+}
+
+.crm-quote-row .quote-pricing-chip,
+.crm-quote-row .quote-pricing-more {
+  align-items: center;
+  background: rgba(45, 108, 223, 0.07);
+  border: 1px solid rgba(45, 108, 223, 0.16);
+  border-radius: 8px;
+  color: var(--ink);
+  display: inline-flex;
+  gap: 6px;
+  max-width: 100%;
+  min-height: 26px;
+  overflow: visible;
+  padding: 5px 7px;
+  white-space: normal;
+}
+
+.crm-quote-row .quote-pricing-chip.warning {
+  background: rgba(215, 139, 47, 0.1);
+  border-color: rgba(215, 139, 47, 0.28);
+}
+
+.crm-quote-row .quote-pricing-chip b,
+.crm-quote-row .quote-pricing-chip em,
+.crm-quote-row .quote-pricing-more {
+  font-size: 11px;
+  line-height: 1.25;
+}
+
+.crm-quote-row .quote-pricing-chip b {
+  color: var(--ink);
+  flex: 0 1 auto;
+  font-weight: 900;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.crm-quote-row .quote-pricing-chip em {
+  color: var(--muted);
+  font-style: normal;
+  overflow-wrap: anywhere;
+  white-space: normal;
+}
+
+.crm-quote-row .quote-pricing-more {
+  color: var(--muted);
+  font-weight: 900;
+}
+
 .row-actions {
   display: flex;
   flex: 0 0 auto;

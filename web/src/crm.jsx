@@ -2,6 +2,55 @@ import React, { useState } from "react";
 
 const amd = value => `${Number(value || 0).toLocaleString("hy-AM")} AMD`;
 
+const pricingSourceLabels = {
+  catalog_price_list: "price list",
+  catalog_item: "catalog item",
+  manual: "manual"
+};
+
+const marginStatusLabels = {
+  ok: "margin ok",
+  below_minimum: "below minimum"
+};
+
+function pricingSourceLabel(source) {
+  return pricingSourceLabels[source] || source || "manual";
+}
+
+function marginStatusLabel(status) {
+  return marginStatusLabels[status] || status || "";
+}
+
+function quoteLineTitle(line, index) {
+  const sku = line.variantSku || line.catalogSku || "";
+  const name = line.variantName || line.catalogName || line.description || "";
+  if (sku && name) return `${sku} · ${name}`;
+  return sku || name || `Line ${index + 1}`;
+}
+
+function quoteLineEvidence(line) {
+  const parts = [];
+  if (line.catalogPriceListCode) parts.push(line.catalogPriceListCode);
+  else parts.push(pricingSourceLabel(line.pricingSource));
+  if (line.pricingCustomerSegment) parts.push(line.pricingCustomerSegment);
+  if (Number(line.quantity || 0) > 0 && Number(line.unitPrice || 0) > 0) {
+    parts.push(`${Number(line.quantity || 0).toLocaleString("hy-AM")} x ${amd(line.unitPrice)}`);
+  }
+  if (Number(line.discountAmount || 0) > 0) parts.push(`${amd(line.discountAmount)} discount`);
+  if (line.marginStatus) parts.push(marginStatusLabel(line.marginStatus));
+  return parts.join(" · ");
+}
+
+function quotePricingEvidenceLines(quote) {
+  return ((quote && quote.lines) || []).filter(line => (
+    line.pricingSource ||
+    line.catalogPriceListCode ||
+    line.pricingCustomerSegment ||
+    Number(line.discountAmount || 0) > 0 ||
+    line.marginStatus
+  ));
+}
+
 export function CrmQuotesPanel({ data, actionState, onRequestApproval }) {
   const quotes = (data && data.quotes) || [];
   return (
@@ -14,22 +63,43 @@ export function CrmQuotesPanel({ data, actionState, onRequestApproval }) {
         <strong className="aging-badge">{quotes.length} quotes</strong>
       </div>
       <div className="rows">
-        {quotes.map(quote => (
-          <div className="row" key={quote.id}>
-            <span>{quote.customerName} · {quote.number || quote.title || quote.id} · {quote.status}</span>
-            <strong>{amd(quote.total)}</strong>
-            {quote.status === "draft" && onRequestApproval && (
-              <button
-                className="mini-action"
-                type="button"
-                disabled={actionState === `quote:approve:${quote.id}`}
-                onClick={() => onRequestApproval(quote.id)}
-              >
-                {actionState === `quote:approve:${quote.id}` ? "Requesting" : "Request release"}
-              </button>
-            )}
-          </div>
-        ))}
+        {quotes.map(quote => {
+          const evidenceLines = quotePricingEvidenceLines(quote);
+          const visibleEvidenceLines = evidenceLines.slice(0, 3);
+          const hiddenEvidenceCount = evidenceLines.length - visibleEvidenceLines.length;
+          return (
+            <div className="row crm-quote-row" key={quote.id}>
+              <div className="crm-quote-summary">
+                <span>{quote.customerName} · {quote.number || quote.title || quote.id} · {quote.status}</span>
+                <strong>{amd(quote.total)}</strong>
+                {quote.status === "draft" && onRequestApproval && (
+                  <button
+                    className="mini-action"
+                    type="button"
+                    disabled={actionState === `quote:approve:${quote.id}`}
+                    onClick={() => onRequestApproval(quote.id)}
+                  >
+                    {actionState === `quote:approve:${quote.id}` ? "Requesting" : "Request release"}
+                  </button>
+                )}
+              </div>
+              {visibleEvidenceLines.length > 0 && (
+                <div className="quote-pricing-evidence">
+                  {visibleEvidenceLines.map((line, index) => (
+                    <span
+                      className={`quote-pricing-chip ${line.marginStatus === "below_minimum" ? "warning" : ""}`}
+                      key={`${line.id || line.catalogItemId || line.description || "line"}-${index}`}
+                    >
+                      <b>{quoteLineTitle(line, index)}</b>
+                      <em>{quoteLineEvidence(line)}</em>
+                    </span>
+                  ))}
+                  {hiddenEvidenceCount > 0 && <span className="quote-pricing-more">+{hiddenEvidenceCount} lines</span>}
+                </div>
+              )}
+            </div>
+          );
+        })}
         {quotes.length === 0 && <div className="row"><span>No quotes yet</span></div>}
       </div>
     </article>
