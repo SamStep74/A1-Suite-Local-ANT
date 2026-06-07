@@ -255,7 +255,7 @@ for both НДФЛ and страховые взносы, and checks payroll previe
 reporting for a rounded-up tax case. Verification passed: syntax checks for
 `server/vendor/a1-localization-ru/src/payroll.js`, `test/kopeck-s7-ru-tax-rounding.test.js`, the
 patched S5 payroll validator test, and the RU vendor wiring test; focused RU payroll/locale/kopeck
-regression pass (`node --test --test-concurrency=4 --test-timeout=60000 test/localization-ru-vendor-wiring.test.js test/locale.test.js test/kopeck-s7-ru-tax-rounding.test.js test/kopeck-s5-app-validators.test.js test/payroll-endpoints.test.js test/ledger-ru-payroll-contributions.test.js`, 32 pass, 0 fail);
+regression pass (`node --test --test-concurrency=4 --test-timeout=60000 test/localization-ru-vendor-wiring.test.js test/locale-money-scale.test.js test/kopeck-s7-ru-tax-rounding.test.js test/kopeck-s5-app-validators.test.js test/payroll-endpoints.test.js test/ledger-ru-payroll-contributions.test.js`, 30 pass, 0 fail);
 `git diff --check`; full `npm test` (799 pass, 0 fail, 0 cancelled); `npm run build:ui` with the
 existing Vite large-chunk warning; and fresh smoke (`apps=12`, `kpis=4`).
 
