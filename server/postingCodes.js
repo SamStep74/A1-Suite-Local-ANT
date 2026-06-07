@@ -23,6 +23,7 @@ const POSTING_CODES = Object.freeze({
     payrollExpense: "714", // расход на оплату труда
     payrollNet: "521", // net wages → AP
     payrollWithholdings: "525", // удержания
+    payrollContributions: null, // no separate employer-contribution account in the RA model
   }),
   ru: Object.freeze({
     receivable: "62", // Расчёты с покупателями и заказчиками
@@ -35,6 +36,7 @@ const POSTING_CODES = Object.freeze({
     payrollExpense: "26", // расход на оплату труда
     payrollNet: "70", // Расчёты с персоналом по оплате труда (net)
     payrollWithholdings: "68", // НДФЛ (Расчёты по налогам и сборам)
+    payrollContributions: "69", // Страховые взносы (employer social contributions)
   }),
 });
 

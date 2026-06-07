@@ -320,6 +320,11 @@ function postPayrollRun(db, orgId, run) {
   const ids = [];
   if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: C.payrollExpense, creditCode: C.payrollNet, amount: net, memo: `Payroll net ${run.employeeName || run.id}`, sourceType: "payroll", sourceId: run.id, periodKey }));
   if (deductions > 0) ids.push(postEntry(db, orgId, { date, debitCode: C.payrollExpense, creditCode: C.payrollWithholdings, amount: deductions, memo: `Payroll withholdings ${run.id}`, sourceType: "payroll", sourceId: run.id, periodKey }));
+  // Employer social contributions (RU страховые взносы → 69): an additional employer EXPENSE,
+  // not withheld from the employee. Posted only when the caller supplies the amount AND the
+  // active locale defines a contributions account (the RA model has none).
+  const contributions = Math.round(Number(run.employerContributions) || 0);
+  if (contributions > 0 && C.payrollContributions) ids.push(postEntry(db, orgId, { date, debitCode: C.payrollExpense, creditCode: C.payrollContributions, amount: contributions, memo: `Payroll contributions ${run.id}`, sourceType: "payroll", sourceId: run.id, periodKey }));
   return ids.filter(Boolean);
 }
 
