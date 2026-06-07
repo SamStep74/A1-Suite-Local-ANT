@@ -9,6 +9,18 @@ async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
   return res.headers["set-cookie"];
 }
 
+async function withLocale(value, fn) {
+  const prev = process.env.A1_LOCALE;
+  if (value === undefined) delete process.env.A1_LOCALE;
+  else process.env.A1_LOCALE = value;
+  try {
+    return await fn();
+  } finally {
+    if (prev === undefined) delete process.env.A1_LOCALE;
+    else process.env.A1_LOCALE = prev;
+  }
+}
+
 // A billable project: customer + 5 hours (300 min) of logged time. At 10000 AMD/hr → 50000 gross.
 async function billableProject(app, cookie) {
   const proj = (await app.inject({ method: "POST", url: "/api/projects", headers: { cookie },
@@ -90,4 +102,40 @@ test("vat-versioning: GET /api/finance/tax-rates lists effective-dated rows (aut
     assert.ok(vat[0].effectiveDate && typeof vat[0].rate === "number", "row carries effectiveDate + numeric rate");
     assert.strictEqual(vat.find(r => r.effectiveDate <= "2026-06-30").rate, 0.2, "current VAT is 20%");
   } finally { await app.close(); }
+});
+
+test("vat-versioning: workflow draft invoice uses effective rate and stores RUB minor units", async () => {
+  await withLocale("ru", async () => {
+    const app = buildApp({ dbPath: ":memory:" });
+    try {
+      await app.ready();
+      const owner = await login(app);
+      const orgId = app.db.prepare("SELECT org_id FROM users WHERE email = ?").get(DEFAULT_EMAIL).org_id;
+      app.db.prepare("UPDATE deals SET value = ?, currency = 'RUB' WHERE org_id = ? AND id = ?")
+        .run(1220.55, orgId, "deal-nare-retainer");
+      app.db.prepare("INSERT OR IGNORE INTO tax_rates (id, org_id, kind, effective_date, config, note, created_at) VALUES (?, ?, 'vat', ?, ?, ?, ?)")
+        .run(`taxrate-${orgId}-ru-vat-2026`, orgId, "2026-01-01", JSON.stringify({ rate: 0.22 }), "RF 2026 VAT 22%", new Date().toISOString());
+
+      const decision = await app.inject({
+        method: "POST",
+        url: "/api/workflow/approvals/approval-deal-nare-invoice/decision",
+        headers: { cookie: owner },
+        payload: { decision: "approved", note: "Prepare RUB draft invoice" }
+      });
+      assert.strictEqual(decision.statusCode, 200, decision.body);
+
+      const executed = await app.inject({
+        method: "POST",
+        url: "/api/workflow/approvals/approval-deal-nare-invoice/execute",
+        headers: { cookie: owner }
+      });
+      assert.strictEqual(executed.statusCode, 200, executed.body);
+      const draft = executed.json().draftInvoice;
+      assert.strictEqual(draft.total, 122055);
+      assert.strictEqual(draft.subtotal, 100045);
+      assert.strictEqual(draft.vat, 22010);
+    } finally {
+      await app.close();
+    }
+  });
 });
