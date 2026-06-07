@@ -55,12 +55,16 @@ Locale-specific behavior of the existing routes:
 > locale-keyed, so RU invoices/payments/expenses/bills/payroll post to real RU accounts
 > (AR=62, revenue=90, output VAT=68, cash=51, AP=60, input VAT=19, expense=26, payroll
 > wages=70 / НДФЛ=68). A fresh RU org now produces a coherent ledger + trial balance.
-> ⏳ **Remaining:** locale-aware **opening-balance** rules (RU equity=84) — opening balances
-> are still AM-only; RUB **kopeck precision** (whole-ruble v1 today); statement cash-account
-> detection (RU 50/51); and ledger-derived RU VAT reporting needs 68 **subaccounts** (68.01/
-> 68.02) to separate НДС from НДФЛ — until then `ledger.vatReport` stays indicative for RU and
-> the clean RF НДС settlement is `POST /api/finance/vat-return/compute`. AM is byte-identical
-> throughout.
+> ✅ **Opening balances** (`server/openingBalanceRules.js`) — locale-aware openable accounts +
+> sides, offsetting to the opening-balance equity account (RU **84** / AM 331). A fresh RU org
+> can enter its opening trial balance.
+> ✅ **Statement cash detection** — `accounting.financialStatements` takes an injected cash
+> matcher (`postingCodes.cashMatcherFor`): RU cash = 50/51/52/55/57, AM = 25x.
+> ⏳ **Remaining:** RUB **kopeck precision** (whole-ruble v1 today, would need a DB migration);
+> ledger-derived RU VAT reporting needs 68 **subaccounts** (68.01/68.02) to separate НДС from
+> НДФЛ — until then `ledger.vatReport` stays indicative for RU and the clean RF НДС settlement
+> is `POST /api/finance/vat-return/compute`; and the employer-contribution payroll leg
+> (страховые взносы → 69). AM is byte-identical throughout.
 
 ## Reference / lookups (GET)
 

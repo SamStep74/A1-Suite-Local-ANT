@@ -4,6 +4,7 @@ const accounting = require("./accounting");
 const locale = require("./locale");
 const { projectAccount, chartSourceFor } = require("./chartProjection");
 const { postingCodesFor } = require("./postingCodes");
+const { openingBalanceConfigFor } = require("./openingBalanceRules");
 
 // Locale-aware chart of accounts. The active fiscal profile (A1_LOCALE → "am" default | "ru")
 // is resolved through the locale facade and projected onto the seeding shape {code,name,type}:
@@ -34,23 +35,31 @@ const CHART = Object.freeze(
   locale.profileFor("am").chartOfAccounts.accounts().map((a) => projectAccount("am", a))
 );
 
-const OPENING_BALANCE_EQUITY_CODE = "331";
 const INPUT_VAT_ACCOUNT_CODE = "226";
 const LEGACY_INPUT_VAT_ACCOUNT_CODE = "526";
 const INPUT_VAT_ACCOUNT_CODES = [INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE];
-const OPENING_BALANCE_ACCOUNT_RULES = Object.freeze([
-  { code: "111", side: "debit" },
-  { code: "112", side: "credit" },
-  { code: "221", side: "debit" },
-  { code: "226", side: "debit" },
-  { code: "251", side: "debit" },
-  { code: "252", side: "debit" },
-  { code: "521", side: "credit" },
-  { code: "524", side: "credit" },
-  { code: "525", side: "credit" }
-]);
-const OPENING_BALANCE_RULE_BY_CODE = new Map(OPENING_BALANCE_ACCOUNT_RULES.map(rule => [rule.code, rule]));
-const OPENING_BALANCE_ACCOUNT_CODES = Object.freeze(OPENING_BALANCE_ACCOUNT_RULES.map(rule => rule.code));
+
+// Locale-aware opening-balance rules (equity offset + openable accounts/sides), cached per
+// locale and resolved via server/openingBalanceRules.js. Internal logic uses obConfig();
+// the exported AM constants below stay the Republic-of-Armenia set for backward compatibility.
+const _obCache = new Map();
+function obConfig() {
+  const code = locale.activeLocale();
+  let c = _obCache.get(code);
+  if (!c) {
+    const cfg = openingBalanceConfigFor(code);
+    c = {
+      equityCode: cfg.equityCode,
+      rules: cfg.rules,
+      ruleByCode: new Map(cfg.rules.map((r) => [r.code, r])),
+      codes: cfg.rules.map((r) => r.code),
+    };
+    _obCache.set(code, c);
+  }
+  return c;
+}
+const OPENING_BALANCE_EQUITY_CODE = openingBalanceConfigFor("am").equityCode;
+const OPENING_BALANCE_ACCOUNT_CODES = Object.freeze(openingBalanceConfigFor("am").rules.map((r) => r.code));
 const CHART_SOURCE = chartSourceFor("am", CHART.length);
 
 function ensureChartOfAccounts(db, orgId) {
@@ -63,11 +72,13 @@ function ensureChartOfAccounts(db, orgId) {
 }
 
 function chartOfAccounts() {
+  const ob = obConfig();
   return {
     source: activeChartSource(),
     classes: activeClasses(),
-    openingBalanceAccountCodes: [...OPENING_BALANCE_ACCOUNT_CODES],
-    openingBalanceAccounts: OPENING_BALANCE_ACCOUNT_RULES.map(rule => {
+    openingBalanceEquityCode: ob.equityCode,
+    openingBalanceAccountCodes: [...ob.codes],
+    openingBalanceAccounts: ob.rules.map(rule => {
       const account = accountByCode(rule.code) || {};
       return { code: rule.code, name: account.name || rule.code, type: account.type || "", side: rule.side };
     }),
@@ -111,17 +122,17 @@ function accountByCode(code) {
 }
 
 function isOpeningBalanceAccountCode(code) {
-  return OPENING_BALANCE_ACCOUNT_CODES.includes(String(code));
+  return obConfig().codes.includes(String(code));
 }
 
 function openingBalanceAccountByCode(code) {
   const account = accountByCode(code);
-  const rule = OPENING_BALANCE_RULE_BY_CODE.get(String(code));
+  const rule = obConfig().ruleByCode.get(String(code));
   return account && rule ? { ...account, side: rule.side } : null;
 }
 
 function openingBalanceSideForCode(code) {
-  const rule = OPENING_BALANCE_RULE_BY_CODE.get(String(code));
+  const rule = obConfig().ruleByCode.get(String(code));
   return rule ? rule.side : null;
 }
 
@@ -137,8 +148,9 @@ function normalizeOpeningBalanceSide(account, side) {
 // as accumulated depreciation are modeled as credit-side account metadata, not
 // client-controlled side overrides.
 function postOpeningBalance(db, orgId, entry) {
+  const equityCode = obConfig().equityCode;
   const code = String(entry.code || "");
-  if (code === OPENING_BALANCE_EQUITY_CODE) return []; // never set the contra directly
+  if (code === equityCode) return []; // never set the contra directly
   const account = openingBalanceAccountByCode(code);
   if (!account) return []; // unknown or non-balance-sheet account code — skip
   const side = normalizeOpeningBalanceSide(account, entry.side);
@@ -157,8 +169,8 @@ function postOpeningBalance(db, orgId, entry) {
   const periodKey = entry.period_key || entry.periodKey || "";
   const sourceId = `ob-${date}-${code}`;
   const leg = side === "debit"
-    ? { debitCode: code, creditCode: OPENING_BALANCE_EQUITY_CODE }
-    : { debitCode: OPENING_BALANCE_EQUITY_CODE, creditCode: code };
+    ? { debitCode: code, creditCode: equityCode }
+    : { debitCode: equityCode, creditCode: code };
   const id = postEntry(db, orgId, {
     date, ...leg, amount,
     memo: `Opening balance ${code}`, sourceType: "opening_balance", sourceId, periodKey
@@ -194,10 +206,11 @@ function openingBalances(db, orgId) {
   const rows = db.prepare(
     "SELECT entry_date, debit_code, credit_code, amount FROM ledger_journal WHERE org_id = ? AND source_type = 'opening_balance' ORDER BY entry_date, id"
   ).all(orgId);
+  const equityCode = obConfig().equityCode;
   const byCode = new Map(activeChart().map(a => [a.code, a]));
   const entries = rows.map(r => {
-    const code = r.debit_code === OPENING_BALANCE_EQUITY_CODE ? r.credit_code : r.debit_code;
-    const side = r.debit_code === OPENING_BALANCE_EQUITY_CODE ? "credit" : "debit";
+    const code = r.debit_code === equityCode ? r.credit_code : r.debit_code;
+    const side = r.debit_code === equityCode ? "credit" : "debit";
     const acc = byCode.get(code) || {};
     return { code, name: acc.name || code, type: acc.type || "", side, amount: accounting.roundMoney(r.amount), date: r.entry_date };
   });

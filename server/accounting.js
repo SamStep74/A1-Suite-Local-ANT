@@ -256,7 +256,7 @@
    * balance sheet, and a direct cash-flow summary. Pure function — same result
    * on server, client, and in tests.
    */
-  function financialStatements(account, period = {}) {
+  function financialStatements(account, period = {}, options = {}) {
     const accById = new Map((account.accounts || []).map((a) => [a.id, a]));
     const balances = calculateBalances(account, period);
     const groups = { asset: [], liability: [], equity: [], income: [], expense: [] };
@@ -281,9 +281,12 @@
     const totalLiabilities = sum(groups.liability);
     const totalEquity = sum(groups.equity);
 
-    const cashIds = new Set(
-      (account.accounts || []).filter((a) => a.type === "asset" && /^25/.test(String(a.code))).map((a) => a.id),
-    );
+    // Cash detection is locale-specific (RA cash = 25x; RF = 50/51/52/55/57). The caller may
+    // inject `options.isCashAccount`; default to the historical RA /^25/ prefix.
+    const isCashAccount = typeof options.isCashAccount === "function"
+      ? options.isCashAccount
+      : (a) => a.type === "asset" && /^25/.test(String(a.code));
+    const cashIds = new Set((account.accounts || []).filter(isCashAccount).map((a) => a.id));
     let cashIn = 0;
     let cashOut = 0;
     filterByPeriod(account.journal, period).forEach((entry) => {

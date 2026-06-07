@@ -42,4 +42,15 @@ function postingCodesFor(localeCode) {
   return POSTING_CODES[localeCode] || POSTING_CODES.am;
 }
 
-module.exports = { POSTING_CODES, postingCodesFor };
+// Cash-account matcher for cash-flow statements. RA cash = 25x prefix; RF cash = касса /
+// расчётный / валютный / спец / переводы в пути (50/51/52/55/57). Used by
+// accounting.financialStatements (which stays pure — the matcher is injected by the caller).
+const RU_CASH_CODES = new Set(["50", "51", "52", "55", "57"]);
+function cashMatcherFor(localeCode) {
+  if (localeCode === "ru") {
+    return (a) => a.type === "asset" && RU_CASH_CODES.has(String(a.code));
+  }
+  return (a) => a.type === "asset" && /^25/.test(String(a.code));
+}
+
+module.exports = { POSTING_CODES, postingCodesFor, cashMatcherFor };

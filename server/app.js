@@ -128,6 +128,7 @@ const payroll = require("./payroll");
 const copilot = require("./copilot");
 const vatReturn = require("./vatReturn");
 const locale = require("./locale");
+const postingCodes = require("./postingCodes");
 const settingsStore = require("./settingsStore");
 const aiProvider = require("./aiProvider");
 const openNotebook = require("./openNotebook");
@@ -4388,7 +4389,7 @@ ${controls}
 
   app.get("/api/finance/statements", async request => {
     const user = await app.auth(request);
-    return accounting.financialStatements(ledger.buildLedgerModel(db, user.org_id));
+    return accounting.financialStatements(ledger.buildLedgerModel(db, user.org_id), {}, { isCashAccount: postingCodes.cashMatcherFor(locale.activeLocale()) });
   });
 
   app.post("/api/payroll/calculate", async request => {
