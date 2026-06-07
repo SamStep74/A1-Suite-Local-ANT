@@ -40,14 +40,22 @@ Locale-specific behavior of the existing routes:
 - `phone` — RA +374 (8-digit NSN) / RF +7 (10-digit NSN).
 - `payroll/compute` — RA `computePayroll(gross)` / RF `computeMonthlyPayroll`; response shapes differ per regime.
 - `einvoice/build` — RA SRC e-invoice / RF УПД (формат 5.03).
-- `vat-return/compute` — **RA only.** The RF package ships VAT settlement math, not a
-  return-form engine, so under `A1_LOCALE=ru` this route returns **501**
-  (`VAT_RETURN_FORM_UNSUPPORTED_LOCALE`).
+- `vat-return/compute` — RA returns the SRC multi-line form (decree N 298-Ն); RF returns the
+  **РФ НДС settlement** (`kind: "ru-nds-return"`, RUB, 2026 rates 22/10/0; output/input VAT +
+  net payable with a per-rate breakdown — `server/ruVatReturn.js`). Input-driven
+  (sales/purchases body), not the official ФНС declaration form.
 
-> **Scope / follow-ups.** Deep accounting seeding (`server/ledger.js` chart bootstrap)
-> and the `app.js` VAT-return report still bind the RA engines directly; making those
-> locale-aware (RF chart seeding + an РФ VAT-return form) is the next increment. The
-> facade + API surface above are locale-aware today.
+> **Deep accounting (slice status).** ✅ Chart-of-accounts DB **seeding** is locale-aware —
+> under `A1_LOCALE=ru` a fresh org seeds the 73-account 94н chart into `ledger_accounts`
+> (`server/chartProjection.js` projects {code,ru,section,nature}→{code,name,type}; resolved
+> via `server/locale.js`). The input-driven RF НДС settlement is live. The ledger-derived
+> VAT report (`GET /api/finance/vat-return`, `ledger.vatReport`) degrades honestly under RU
+> (RUB, no AM branding) and persistence (`POST /api/finance/vat-returns`) returns 501 for RU.
+> ⏳ **Next slice:** the business-event → account-code **posting map** (RU AR=62, revenue=90,
+> output VAT=68, cash=51, AP=60, input VAT=19, expense=26, payroll 70/68/69, opening-balance
+> equity=84) so RU invoices/payments/expenses/payroll/opening-balances post to real RU
+> accounts; then RUB kopeck precision (whole-ruble v1 today) and statement cash-account
+> detection. AM is byte-identical throughout.
 
 ## Reference / lookups (GET)
 

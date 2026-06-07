@@ -1,13 +1,37 @@
 "use strict";
 const crypto = require("node:crypto");
 const accounting = require("./accounting");
-const { ACCOUNT_CLASSES, STANDARD_ACCOUNTS } = require("./armeniaChartOfAccounts");
+const locale = require("./locale");
+const { projectAccount, chartSourceFor } = require("./chartProjection");
 
-const CHART = STANDARD_ACCOUNTS.map((account) => ({
-  code: account.code,
-  name: account.hy,
-  type: account.type
-}));
+// Locale-aware chart of accounts. The active fiscal profile (A1_LOCALE → "am" default | "ru")
+// is resolved through the locale facade and projected onto the seeding shape {code,name,type}:
+// AM is the historical identity (name=hy, type=type); RU is План счетов 94н (name=ru, derived
+// type). Resolved charts are cached per locale; activeChart() never freezes to one locale at
+// module load, so the runtime switch reaches seeding/reports. The exported CHART/CHART_SOURCE
+// stay the AM projection for backward compatibility — all internal logic uses activeChart().
+const _chartCache = new Map();
+function activeChart() {
+  const code = locale.activeLocale();
+  let chart = _chartCache.get(code);
+  if (!chart) {
+    chart = Object.freeze(
+      locale.profileFor(code).chartOfAccounts.accounts().map((a) => projectAccount(code, a))
+    );
+    _chartCache.set(code, chart);
+  }
+  return chart;
+}
+function activeClasses() {
+  return locale.profileFor(locale.activeLocale()).chartOfAccounts.classes();
+}
+function activeChartSource() {
+  return chartSourceFor(locale.activeLocale(), activeChart().length);
+}
+
+const CHART = Object.freeze(
+  locale.profileFor("am").chartOfAccounts.accounts().map((a) => projectAccount("am", a))
+);
 
 const OPENING_BALANCE_EQUITY_CODE = "331";
 const INPUT_VAT_ACCOUNT_CODE = "226";
@@ -26,17 +50,12 @@ const OPENING_BALANCE_ACCOUNT_RULES = Object.freeze([
 ]);
 const OPENING_BALANCE_RULE_BY_CODE = new Map(OPENING_BALANCE_ACCOUNT_RULES.map(rule => [rule.code, rule]));
 const OPENING_BALANCE_ACCOUNT_CODES = Object.freeze(OPENING_BALANCE_ACCOUNT_RULES.map(rule => rule.code));
-const CHART_SOURCE = Object.freeze({
-  title: "ՀՀ հաշվապահական հաշվառման հաշվային պլան",
-  sourceUrl: "https://www.arlis.am/hy/acts/75961",
-  publisher: "ՀՀ ֆինանսների նախարարություն",
-  accountCount: CHART.length
-});
+const CHART_SOURCE = chartSourceFor("am", CHART.length);
 
 function ensureChartOfAccounts(db, orgId) {
   const insert = db.prepare("INSERT OR IGNORE INTO ledger_accounts (id, org_id, code, name, type) VALUES (?, ?, ?, ?, ?)");
   const update = db.prepare("UPDATE ledger_accounts SET name = ?, type = ? WHERE org_id = ? AND code = ?");
-  for (const a of CHART) {
+  for (const a of activeChart()) {
     insert.run(`acct-${orgId}-${a.code}`, orgId, a.code, a.name, a.type);
     update.run(a.name, a.type, orgId, a.code);
   }
@@ -44,14 +63,14 @@ function ensureChartOfAccounts(db, orgId) {
 
 function chartOfAccounts() {
   return {
-    source: CHART_SOURCE,
-    classes: ACCOUNT_CLASSES,
+    source: activeChartSource(),
+    classes: activeClasses(),
     openingBalanceAccountCodes: [...OPENING_BALANCE_ACCOUNT_CODES],
     openingBalanceAccounts: OPENING_BALANCE_ACCOUNT_RULES.map(rule => {
       const account = accountByCode(rule.code) || {};
       return { code: rule.code, name: account.name || rule.code, type: account.type || "", side: rule.side };
     }),
-    accounts: CHART
+    accounts: activeChart()
   };
 }
 
@@ -87,7 +106,7 @@ function postEntry(db, orgId, entry) {
 }
 
 function accountByCode(code) {
-  return CHART.find(a => a.code === String(code)) || null;
+  return activeChart().find(a => a.code === String(code)) || null;
 }
 
 function isOpeningBalanceAccountCode(code) {
@@ -174,7 +193,7 @@ function openingBalances(db, orgId) {
   const rows = db.prepare(
     "SELECT entry_date, debit_code, credit_code, amount FROM ledger_journal WHERE org_id = ? AND source_type = 'opening_balance' ORDER BY entry_date, id"
   ).all(orgId);
-  const byCode = new Map(CHART.map(a => [a.code, a]));
+  const byCode = new Map(activeChart().map(a => [a.code, a]));
   const entries = rows.map(r => {
     const code = r.debit_code === OPENING_BALANCE_EQUITY_CODE ? r.credit_code : r.debit_code;
     const side = r.debit_code === OPENING_BALANCE_EQUITY_CODE ? "credit" : "debit";
@@ -246,6 +265,20 @@ function postExpensePosted(db, orgId, expense) {
 }
 
 function vatReport(db, orgId, periodKey = "") {
+  // RU ledger VAT awaits the locale-aware posting-code remap (a later slice): RU postings
+  // do not use the AM 524/226 codes this report filters on, so degrade honestly rather than
+  // emit AM-branded zeros. The RF НДС settlement is available via the input-driven
+  // POST /api/finance/vat-return/compute.
+  if (locale.activeLocale() === "ru") {
+    return {
+      periodKey: periodKey || "all",
+      currency: "RUB",
+      outputVat: 0,
+      inputVat: 0,
+      netVatPayable: 0,
+      note: "RU ledger-derived VAT is pending the locale-aware posting-code remap; use POST /api/finance/vat-return/compute for the RF НДС settlement.",
+    };
+  }
   const filter = periodKey ? "AND period_key = ?" : "";
   const args = periodKey ? [orgId, periodKey] : [orgId];
   const outputVat = db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM ledger_journal WHERE org_id = ? AND credit_code = '524' ${filter}`).get(...args).v;

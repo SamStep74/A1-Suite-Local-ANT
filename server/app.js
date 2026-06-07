@@ -127,6 +127,7 @@ const ledger = require("./ledger");
 const payroll = require("./payroll");
 const copilot = require("./copilot");
 const vatReturn = require("./vatReturn");
+const locale = require("./locale");
 const settingsStore = require("./settingsStore");
 const aiProvider = require("./aiProvider");
 const openNotebook = require("./openNotebook");
@@ -54907,6 +54908,22 @@ function normalizeFinanceVatReportQuery(query) {
 }
 
 function buildFinanceVatReturn(db, orgId, periodKey = "") {
+  if (locale.activeLocale() === "ru") {
+    // RU ledger-derived VAT awaits the locale-aware posting-code remap (later slice). Report
+    // honestly (RUB, no AM "armenian-vat-return" branding) rather than AM-coded zeros. The RF
+    // НДС settlement is available via POST /api/finance/vat-return/compute (input-driven).
+    return {
+      kind: "ru-nds-return-indicative",
+      periodKey: periodKey || "all",
+      currency: "RUB",
+      source: "posted-ledger",
+      taxableSales: 0, taxablePurchases: 0,
+      outputVat: 0, inputVat: 0, net: 0, payable: 0, creditCarried: 0,
+      sales: { lineCount: 0, taxableBase: 0, outputVat: 0 },
+      purchases: { lineCount: 0, taxableBase: 0, inputVat: 0 },
+      note: "RU ledger-derived VAT awaits the locale-aware posting-code remap; use POST /api/finance/vat-return/compute for the RF НДС settlement.",
+    };
+  }
   const inputs = getVatReturnLedgerInputs(db, orgId, periodKey);
   const calculation = vatReturn.computeVatReturn(inputs);
   return {
@@ -55064,6 +55081,12 @@ function formatFinanceSrcExport(row, options = {}) {
 }
 
 function createFinanceVatReturn(db, user, body) {
+  if (locale.activeLocale() === "ru") {
+    const err = new Error("RU VAT-return persistence is not yet available; use POST /api/finance/vat-return/compute for the RF НДС settlement.");
+    err.statusCode = 501;
+    err.code = "RU_VAT_RETURN_PERSIST_UNSUPPORTED";
+    throw err;
+  }
   const { periodKey, note } = normalizeFinanceVatReturnBody(body);
 
   const period = getFinancePeriod(db, user.org_id, periodKey);

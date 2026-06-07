@@ -94,16 +94,14 @@ test("GET /config + engines serve the RF profile when A1_LOCALE=ru", async () =>
   });
 });
 
-test("RU has no VAT-return form (501); AM still computes one", async () => {
+test("vat-return/compute: RU returns the RF НДС settlement, AM returns the SRC form", async () => {
   await withLocale("ru", async () => {
-    await assert.rejects(
-      () => app.call("POST", "/api/finance/vat-return/compute", { body: { sales: [], purchases: [] } }),
-      (err) => {
-        assert.equal(err.statusCode, 501);
-        assert.equal(err.code, "VAT_RETURN_FORM_UNSUPPORTED_LOCALE");
-        return true;
-      },
-    );
+    const res = await app.call("POST", "/api/finance/vat-return/compute", {
+      body: { sales: [{ netAmount: 1000, vatRate: 22 }], purchases: [] },
+    });
+    assert.equal(res.kind, "ru-nds-return");
+    assert.equal(res.currency, "RUB");
+    assert.equal(res.outputVat, 220); // 1000 * 22% (2026 base rate)
   });
   await withLocale("am", async () => {
     const res = await app.call("POST", "/api/finance/vat-return/compute", {

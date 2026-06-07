@@ -11,6 +11,7 @@
 // to minimize the footprint inside the large app.js.
 
 const locale = require("./locale");
+const { computeRuVatReturn } = require("./ruVatReturn");
 
 const MAX_QUERY_TEXT_LENGTH = 160;
 const MAX_JSON_STRING_LENGTH = 1000;
@@ -35,13 +36,6 @@ function invalidLocalizationMetadata(message = "Localization request requires sa
   const error = new Error(message);
   error.statusCode = 400;
   error.code = "INVALID_LOCALIZATION_METADATA";
-  return error;
-}
-
-function unsupportedForLocale(message, code) {
-  const error = new Error(message);
-  error.statusCode = 501;
-  error.code = code;
   return error;
 }
 
@@ -199,13 +193,11 @@ function registerLocalizationRoutes(app) {
   app.post("/api/finance/vat-return/compute", async (request) => {
     await app.auth(request);
     const L = locale.active();
-    if (!L.vat.supportsReturnForm) {
-      throw unsupportedForLocale(
-        `VAT-return form is not available for locale "${L.locale}"`,
-        "VAT_RETURN_FORM_UNSUPPORTED_LOCALE",
-      );
-    }
     const period = normalizeVatReturnPeriod(request.body);
+    if (!L.vat.supportsReturnForm) {
+      // RU has no SRC-style return form; compute the RF НДС settlement from the period inputs.
+      return computeRuVatReturn(period, L.vat);
+    }
     const form = L.vat.returnForm(period);
     return {
       summary: L.vat.computeReturn(period),
