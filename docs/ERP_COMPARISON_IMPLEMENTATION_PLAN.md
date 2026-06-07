@@ -221,7 +221,7 @@ Major A1 gaps relative to the reference ERP:
 
 | Area | the reference ERP capability | A1 status | Priority |
 |---|---|---|---|
-| Product catalog | Products, variants, UoM, pricelists, discounts, margins | Shipped core product master + quote-line integration + Catalog & Inventory UI + governed UoM catalog + seeded variant spine + margin evidence + first sales pricelist spine + first sales discount evidence; advanced discount rules and margin rules still missing | P0 |
+| Product catalog | Products, variants, UoM, pricelists, discounts, margins | Shipped core product master + quote-line integration + Catalog & Inventory UI + governed UoM catalog + seeded variant spine + margin evidence + first sales pricelist spine + first sales discount evidence + first margin-rule evidence; advanced configurable discount and margin rules still missing | P0 |
 | Inventory/WMS | Warehouses, locations, stock moves, lots/serials, replenishment, valuation | Shipped core locations/quants/moves + sidebar workspace; advanced WMS and valuation still missing | P0 |
 | Purchase/procurement | RFQ, PO, vendor pricelists, tender/blanket orders, vendor bills | Shipped RFQ/PO -> partial/full receipt -> supplier return -> AP bill spine plus first Purchase sidebar workspace, vendor/pricelist defaults, receipt/return evidence, procurement analytics, and Vendor 360; tenders, advanced vendor lifecycle, landed costs, billed-return credit notes, and replenishment analytics still missing | P0 |
 | POS | Browser POS, offline mode, cash sessions, stock sync, receipts | Missing | P1 |

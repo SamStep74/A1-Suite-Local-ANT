@@ -398,6 +398,7 @@ function registerApi(app, db, options = {}) {
     return {
       categories: getCatalogCategories(db, user.org_id),
       unitsOfMeasure: getCatalogUnitsOfMeasure(db, user.org_id),
+      marginRules: getCatalogMarginRules(db, user.org_id),
       priceLists: getCatalogPriceLists(db, user.org_id)
     };
   });
@@ -408,6 +409,12 @@ function registerApi(app, db, options = {}) {
     return { priceLists: getCatalogPriceLists(db, user.org_id) };
   });
 
+  app.get("/api/catalog/margin-rules", async request => {
+    const user = await app.auth(request);
+    requireCatalogReader(user);
+    return { marginRules: getCatalogMarginRules(db, user.org_id) };
+  });
+
   app.get("/api/catalog/items", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
@@ -416,6 +423,7 @@ function registerApi(app, db, options = {}) {
       items: getCatalogItems(db, user.org_id, filters),
       categories: getCatalogCategories(db, user.org_id),
       unitsOfMeasure: getCatalogUnitsOfMeasure(db, user.org_id),
+      marginRules: getCatalogMarginRules(db, user.org_id),
       priceLists: getCatalogPriceLists(db, user.org_id)
     };
   });
@@ -41984,6 +41992,7 @@ const ORG_BACKUP_TABLES = [
   "catalog_item_variants",
   "catalog_price_lists",
   "catalog_price_list_items",
+  "catalog_margin_rules",
   "stock_locations",
   "stock_quants",
   "stock_moves",
@@ -48183,7 +48192,24 @@ function getCatalogUnitsOfMeasure(db, orgId) {
   `).all(orgId);
 }
 
+function getCatalogMarginRules(db, orgId) {
+  return db.prepare(`
+    SELECT id, code, name, scope_type AS scopeType, scope_value AS scopeValue,
+      minimum_margin_percent AS minimumMarginPercent,
+      target_margin_percent AS targetMarginPercent,
+      status, created_at AS createdAt, updated_at AS updatedAt
+    FROM catalog_margin_rules
+    WHERE org_id = ?
+    ORDER BY status = 'archived', scope_type, scope_value, code
+  `).all(orgId).map(rule => ({
+    ...rule,
+    minimumMarginPercent: Number(rule.minimumMarginPercent),
+    targetMarginPercent: Number(rule.targetMarginPercent)
+  }));
+}
+
 function getCatalogPriceLists(db, orgId) {
+  const marginRules = getCatalogMarginRules(db, orgId).filter(rule => rule.status === "active");
   const lists = db.prepare(`
     SELECT id, code, name, customer_segment AS customerSegment, currency,
       status, starts_at AS startsAt, ends_at AS endsAt,
@@ -48199,9 +48225,12 @@ function getCatalogPriceLists(db, orgId) {
       catalog_price_list_items.catalog_item_id AS catalogItemId,
       catalog_items.sku AS catalogSku,
       catalog_items.name AS catalogName,
+      catalog_items.item_type AS itemType,
+      catalog_items.standard_cost AS itemStandardCost,
       catalog_price_list_items.catalog_item_variant_id AS catalogItemVariantId,
       catalog_item_variants.sku AS variantSku,
       catalog_item_variants.name AS variantName,
+      catalog_item_variants.standard_cost AS variantStandardCost,
       catalog_price_list_items.min_quantity AS minQuantity,
       catalog_price_list_items.list_price AS listPrice,
       catalog_price_list_items.discount_percent AS discountPercent,
@@ -48217,7 +48246,7 @@ function getCatalogPriceLists(db, orgId) {
     WHERE catalog_price_list_items.org_id = ?
     ORDER BY catalog_price_list_items.status = 'archived',
       catalog_items.sku, catalog_item_variants.sku, catalog_price_list_items.min_quantity
-  `).all(orgId).map(formatCatalogPriceListItem);
+  `).all(orgId).map(row => formatCatalogPriceListItem(row, marginRules));
   const byList = new Map();
   for (const item of items) {
     const rows = byList.get(item.priceListId) || [];
@@ -48227,21 +48256,26 @@ function getCatalogPriceLists(db, orgId) {
   return lists.map(list => ({ ...list, items: byList.get(list.id) || [] }));
 }
 
-function formatCatalogPriceListItem(row) {
+function formatCatalogPriceListItem(row, marginRules = []) {
   const discountPercent = Number(row.discountPercent || 0);
+  const discountEvidence = catalogDiscountEvidence(row.listPrice, discountPercent);
+  const standardCost = Number(row.variantStandardCost == null ? row.itemStandardCost : row.variantStandardCost);
   return {
     id: row.id,
     priceListId: row.priceListId,
     catalogItemId: row.catalogItemId,
     catalogSku: row.catalogSku,
     catalogName: row.catalogName,
+    itemType: row.itemType,
     catalogItemVariantId: row.catalogItemVariantId || null,
     variantSku: row.variantSku || "",
     variantName: row.variantName || "",
     minQuantity: row.minQuantity,
     listPrice: row.listPrice,
     discountPercent,
-    ...catalogDiscountEvidence(row.listPrice, discountPercent),
+    ...discountEvidence,
+    standardCost,
+    ...catalogPriceListMarginEvidence(discountEvidence.netPrice, standardCost, row.itemType, marginRules),
     currency: row.currency,
     status: row.status,
     createdAt: row.createdAt,
@@ -48387,6 +48421,37 @@ function catalogDiscountEvidence(listPrice, discountPercent) {
     discountAmount,
     netPrice: price - discountAmount
   };
+}
+
+function catalogPriceListMarginEvidence(netPrice, standardCost, itemType, marginRules = []) {
+  const price = Number(netPrice || 0);
+  const cost = Number(standardCost || 0);
+  const marginAmount = price - cost;
+  const marginPercent = price > 0 ? Math.round((marginAmount / price) * 10000) / 100 : null;
+  const rule = resolveCatalogMarginRule(itemType, marginRules);
+  if (!rule) {
+    return {
+      marginAmount,
+      marginPercent,
+      marginRuleCode: "",
+      minimumMarginPercent: null,
+      targetMarginPercent: null,
+      marginStatus: "no_rule"
+    };
+  }
+  return {
+    marginAmount,
+    marginPercent,
+    marginRuleCode: rule.code,
+    minimumMarginPercent: rule.minimumMarginPercent,
+    targetMarginPercent: rule.targetMarginPercent,
+    marginStatus: marginPercent == null ? "not_priced" : marginPercent < rule.minimumMarginPercent ? "below_minimum" : "ok"
+  };
+}
+
+function resolveCatalogMarginRule(itemType, marginRules = []) {
+  return marginRules.find(rule => rule.scopeType === "item_type" && rule.scopeValue === itemType)
+    || marginRules.find(rule => rule.scopeType === "global" && rule.scopeValue === "");
 }
 
 function normalizeCatalogItemQuery(query) {

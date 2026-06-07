@@ -598,6 +598,24 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_catalog_price_list_items_list
       ON catalog_price_list_items(org_id, price_list_id, status, catalog_item_id);
 
+    CREATE TABLE IF NOT EXISTS catalog_margin_rules (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      scope_type TEXT NOT NULL,
+      scope_value TEXT NOT NULL DEFAULT '',
+      minimum_margin_percent REAL NOT NULL,
+      target_margin_percent REAL NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, code)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_catalog_margin_rules_scope
+      ON catalog_margin_rules(org_id, status, scope_type, scope_value);
+
     CREATE TABLE IF NOT EXISTS stock_locations (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -7285,6 +7303,7 @@ function ensureCatalogLayer(db) {
     if (categoryCount === 0 || itemCount === 0) seedCatalogItems(db, org.id);
     backfillCatalogUnitsOfMeasureFromItems(db, org.id);
     seedCatalogItemVariants(db, org.id);
+    seedCatalogMarginRules(db, org.id);
     seedCatalogPriceLists(db, org.id);
   }
 }
@@ -8096,6 +8115,36 @@ function seedCatalogItemVariants(db, orgId) {
         now
       );
     }
+  }
+}
+
+function seedCatalogMarginRules(db, orgId) {
+  const now = new Date().toISOString();
+  const insertRule = db.prepare(`
+    INSERT OR IGNORE INTO catalog_margin_rules (
+      id, org_id, code, name, scope_type, scope_value,
+      minimum_margin_percent, target_margin_percent, status, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const rules = [
+    ["catmr-stockable-min-20", "STOCKABLE-MIN-20", "Stockable product minimum margin", "item_type", "stockable", 20, 30],
+    ["catmr-service-min-35", "SERVICE-MIN-35", "Service package minimum margin", "item_type", "service", 35, 55]
+  ];
+  for (const rule of rules) {
+    insertRule.run(
+      catalogSeedId(orgId, rule[0]),
+      orgId,
+      rule[1],
+      rule[2],
+      rule[3],
+      rule[4],
+      rule[5],
+      rule[6],
+      "active",
+      now,
+      now
+    );
   }
 }
 
