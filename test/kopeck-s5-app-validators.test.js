@@ -288,7 +288,7 @@ test("kopeck S5: payroll and people validators store RUB kopecks while calculato
       assert.equal(preview.json().payroll.gross, 10000050);
       assert.equal(preview.json().payroll.incomeTax, 1300000);
       assert.equal(preview.json().payroll.net, 8700050);
-      assert.equal(preview.json().payroll.employerInsurance, 3000015);
+      assert.equal(preview.json().payroll.employerInsurance, 3000000);
 
       const run = await app.inject({
         method: "POST",
@@ -302,13 +302,13 @@ test("kopeck S5: payroll and people validators store RUB kopecks while calculato
       assert.deepEqual(
         app.db.prepare("SELECT amount FROM ledger_journal WHERE org_id = ? AND source_type = 'payroll' AND source_id = ? ORDER BY amount")
           .all(orgId, run.json().run.id).map(row => row.amount),
-        [1300000, 3000015, 8700050]
+        [1300000, 3000000, 8700050]
       );
       const tb = Object.fromEntries((await app.inject({ method: "GET", url: "/api/finance/trial-balance", headers: { cookie } })).json().rows.map(row => [row.code, row]));
-      assert.equal(tb["26"].balance, 130000.65);
+      assert.equal(tb["26"].balance, 130000.5);
       assert.equal(tb["70"].balance, -87000.5);
       assert.equal(tb["68"].balance, -13000);
-      assert.equal(tb["69"].balance, -30000.15);
+      assert.equal(tb["69"].balance, -30000);
     } finally {
       await app.close();
     }

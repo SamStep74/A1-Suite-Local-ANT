@@ -69,7 +69,7 @@ function insuranceUnified(cumBase) {
   const b = Math.max(0, Number(cumBase) || 0);
   const within = Math.min(b, INSURANCE.unifiedBaseLimit);
   const above = Math.max(0, b - INSURANCE.unifiedBaseLimit);
-  return roundRub(within * INSURANCE.rateWithin + above * INSURANCE.rateAbove);
+  return roundToWholeRubles(within * INSURANCE.rateWithin + above * INSURANCE.rateAbove);
 }
 
 // МСП reduced tariff — MONTHLY mechanism: 30% up to 1.5×МРОТ, 15% above (2026).
@@ -78,7 +78,7 @@ function insuranceSmeMonthly(monthlyPay) {
   const threshold = INSURANCE.smeThresholdMultiplier * INSURANCE.mrot;
   const within = Math.min(p, threshold);
   const above = Math.max(0, p - threshold);
-  return roundRub(within * INSURANCE.rateWithin + above * INSURANCE.smeRateAbove);
+  return roundToWholeRubles(within * INSURANCE.rateWithin + above * INSURANCE.smeRateAbove);
 }
 
 // Monthly child standard deduction given YTD income and a list of children.
@@ -115,7 +115,7 @@ function computeMonthlyPayroll(opts = {}) {
 
   const employerInsurance = sme
     ? insuranceSmeMonthly(gross)
-    : roundRub(insuranceUnified(ytdGrossBefore + gross) - insuranceUnified(ytdGrossBefore));
+    : roundToWholeRubles(insuranceUnified(ytdGrossBefore + gross) - insuranceUnified(ytdGrossBefore));
 
   return {
     gross: roundRub(gross),

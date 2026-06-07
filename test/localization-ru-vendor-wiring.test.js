@@ -46,6 +46,23 @@ test("2026 payroll: gross 100,000 → НДФЛ 13,000 / net 87,000 / employer 30
   assert.equal(p.employerInsurance, 30000); // 30% unified страховые взносы
 });
 
+test("RU payroll: НДФЛ and страховые взносы round to whole rubles while gross/net keep kopecks", () => {
+  const p = pkg.payroll.computeMonthlyPayroll({ monthGross: 100000.5 });
+  assert.equal(p.gross, 100000.5);
+  assert.equal(p.ndfl, 13000);
+  assert.equal(p.net, 87000.5);
+  assert.equal(p.employerInsurance, 30000);
+  assert.equal(p.employerCost, 130000.5);
+});
+
+test("RU payroll: whole-ruble tax rounding uses the 50 kopeck threshold", () => {
+  const p = pkg.payroll.computeMonthlyPayroll({ monthGross: 100003.85 });
+  assert.equal(p.ndfl, 13001);
+  assert.equal(p.net, 87002.85);
+  assert.equal(p.employerInsurance, 30001);
+  assert.equal(p.employerCost, 130004.85);
+});
+
 test("RU payroll: non-resident НДФЛ ignores deductions", () => {
   const p = pkg.payroll.computeMonthlyPayroll({ monthGross: 100000, monthDeduction: 10000, resident: false });
   assert.equal(p.ndfl, 30000);

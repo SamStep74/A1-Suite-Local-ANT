@@ -2,7 +2,7 @@
 
 **Status:** In progress — S1 money-scale facade, S2 scale-aware shared accounting reports, S3
 ledger posting/report minor-unit contract, S4 app VAT/money splitters, S5 app input validators,
-and S6 active currency defaults are implemented; S7-S8 remain.
+S6 active currency defaults, and S7 RU tax rounding are implemented; S8 remains.
 **Scope:** A1-Suite-Local money model. Add RUB kopeck precision end-to-end while keeping AMD
 and all Armenian (AM) behavior **byte-for-byte identical**.
 **Author:** generated from a codebase-wide money-precision analysis (5-facet sweep of
@@ -68,7 +68,7 @@ All integer arithmetic is bounded by `Number.MAX_SAFE_INTEGER`; S3 must either l
 amount caps after multiplying by `10^subunit` or move RUB aggregate summation to BigInt/SQLite-side
 integer arithmetic before relying on exactness claims for large portfolios.
 
-> **RU tax-base exception:** RU tax computations (НДФЛ, страховые взносы) round to **whole rubles**
+> **RU tax/contribution amount exception:** RU tax computations (НДФЛ, страховые взносы) round to **whole rubles**
 > per НК РФ ст. 52. Storage stays exact kopecks; those specific computations apply whole-ruble
 > rounding via a **separate, clearly-named** facade helper (`roundToWholeMajor`) — never the
 > storage rounder.
@@ -151,7 +151,7 @@ across ~150 tables keep type `INTEGER`; only their documented **semantic contrac
    integer summation.
 8. **`server/app.js` hardcoded `'AMD'`:** derive currency from `locale.active().money.code` at the 6
    SQL INSERT literals and the `|| 'AMD'` response defaults (bundled with the schema DEFAULT review).
-9. **RU tax-base rounding:** wherever RU needs whole rubles (НДФЛ, страховые взносы), call
+9. **RU tax/contribution amount rounding:** wherever RU needs whole rubles (НДФЛ, страховые взносы), call
    `roundToWholeMajor` explicitly — never the storage rounder.
 
 ---
@@ -209,7 +209,7 @@ RUB (`subunit 2`, scale 100) is the **only** locale whose behavior changes.
 | **S4** | DONE — Migrate `app.js` VAT splitters + gross-up / VAT-on-net / weighted-avg-cost sites; unify stored-minor split helpers; fix stray `/1.2` rate bypass. | **high** |
 | **S5** | DONE — Fix `app.js` input validators (regex+convert pairs) to honor subunit. | medium |
 | **S6** | DONE — Kill hardcoded `'AMD'` (6 INSERTs + 15 column DEFAULTs) → derive from `locale.money.code`. | medium |
-| **S7** | RU tax-base whole-ruble rounding (`roundToWholeMajor`) for НДФЛ / взносы; storage stays kopecks. | medium |
+| **S7** | DONE — RU tax/contribution whole-ruble rounding (`roundToWholeMajor`) for НДФЛ / взносы; storage stays kopecks. | medium |
 | **S8** | Defensive no-op data migration (idempotent, subunit-keyed) + RUB enablement; checksum verification. | low |
 
 **S4 checkpoint proof (2026-06-07):** `server/app.js` now routes project billing, workflow draft
@@ -244,6 +244,21 @@ the new S6 test, and patched direct-insert tests; exact hardcoded-AMD scans in `
 `git diff --check`; full `npm test` (796 pass, 0 fail, 0 cancelled); `npm run build:ui` with the
 existing Vite large-chunk warning; and fresh smoke (`apps=12`, `kpis=4`).
 
+**S7 checkpoint proof (2026-06-07):** the vendored RU payroll engine now routes employer unified
+and SME страховые взносы through the whole-ruble tax helper instead of the kopeck storage rounder,
+matching the existing НДФЛ whole-ruble treatment while preserving kopecks on gross, net, and
+employer-cost amounts. The app payroll preview/run boundary still stores all money as integer
+minor units, so rounded RU tax/contribution amounts become whole-ruble values expressed in kopecks
+without changing ledger display semantics. Regression coverage proves `100000.50 RUB` keeps salary
+kopecks but stores employer insurance as `3000000` kopecks, verifies 50-kopeck whole-ruble round-up
+for both НДФЛ and страховые взносы, and checks payroll preview/run ledger rows plus trial-balance
+reporting for a rounded-up tax case. Verification passed: syntax checks for
+`server/vendor/a1-localization-ru/src/payroll.js`, `test/kopeck-s7-ru-tax-rounding.test.js`, the
+patched S5 payroll validator test, and the RU vendor wiring test; focused RU payroll/locale/kopeck
+regression pass (`node --test --test-concurrency=4 --test-timeout=60000 test/localization-ru-vendor-wiring.test.js test/locale.test.js test/kopeck-s7-ru-tax-rounding.test.js test/kopeck-s5-app-validators.test.js test/payroll-endpoints.test.js test/ledger-ru-payroll-contributions.test.js`, 32 pass, 0 fail);
+`git diff --check`; full `npm test` (799 pass, 0 fail, 0 cancelled); `npm run build:ui` with the
+existing Vite large-chunk warning; and fresh smoke (`apps=12`, `kpis=4`).
+
 ---
 
 ## 9. Key risks & mitigations
@@ -259,8 +274,8 @@ existing Vite large-chunk warning; and fresh smoke (`apps=12`, `kpis=4`).
   *Mitigation: S4 unifies them.*
 - **Validators drop kopecks** if regex and conversion aren't changed atomically. *Mitigation: S5.*
 - **Hardcoded `'AMD'`** mislabels RUB rows even after precision is fixed. *Mitigation: S6.*
-- **RU tax bases** legally round to whole rubles — a blanket ×100 is wrong there. *Mitigation: S7
-  distinct rounder.*
+- **RU tax/contribution amounts** legally round to whole rubles — a blanket ×100 is wrong there. *Mitigation: S7
+  uses a distinct whole-ruble rounder for НДФЛ and страховые взносы.*
 - **Float temptation** (`metric_value REAL` exists) — re-introduces the bug. *Mitigation: REAL ruled
   out for money.*
 - **One-currency-per-org invariant** must hold for runtime scale resolution. *Mitigation: assert in S8.*
