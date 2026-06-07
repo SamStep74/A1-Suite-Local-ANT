@@ -101,9 +101,33 @@ function assertPeriodOpen(db, orgId, periodKey) {
   if (row && row.status === "closed") throw new PeriodLockedError(periodKey);
 }
 
+function activeMoney() {
+  return locale.active().money;
+}
+
+function toMinor(value) {
+  const minor = activeMoney().toMinor(value);
+  return Number.isSafeInteger(minor) ? minor : 0;
+}
+
+function fromMinor(value) {
+  return activeMoney().fromMinor(Math.round(Number(value) || 0));
+}
+
+function assertMinorUnitInteger(amount) {
+  const value = Number(amount);
+  if (!Number.isSafeInteger(value)) {
+    const err = new Error("Ledger amount must be a minor-unit integer");
+    err.code = "INVALID_LEDGER_AMOUNT";
+    err.statusCode = 400;
+    throw err;
+  }
+  return value;
+}
+
 function postEntry(db, orgId, entry) {
   const { date, debitCode, creditCode, amount, memo = "", sourceType = "", sourceId = "", periodKey = "" } = entry;
-  const value = Math.round(Number(amount) || 0);
+  const value = assertMinorUnitInteger(amount);
   if (value <= 0) return null;
   assertPeriodOpen(db, orgId, periodKey);
   ensureChartOfAccounts(db, orgId);
@@ -163,7 +187,7 @@ function postOpeningBalance(db, orgId, entry) {
   db.prepare(
     "DELETE FROM ledger_journal WHERE org_id = ? AND source_type = 'opening_balance' AND (debit_code = ? OR credit_code = ?)"
   ).run(orgId, code, code);
-  const amount = Math.round(Number(entry.amount) || 0);
+  const amount = toMinor(entry.amount);
   if (amount <= 0) return []; // amount <= 0 clears this account's opening balance
   const date = String(entry.date || entry.asOf || new Date().toISOString().slice(0, 10)).slice(0, 10);
   const periodKey = entry.period_key || entry.periodKey || "";
@@ -212,21 +236,19 @@ function openingBalances(db, orgId) {
     const code = r.debit_code === equityCode ? r.credit_code : r.debit_code;
     const side = r.debit_code === equityCode ? "credit" : "debit";
     const acc = byCode.get(code) || {};
-    return { code, name: acc.name || code, type: acc.type || "", side, amount: accounting.roundMoney(r.amount), date: r.entry_date };
+    return { code, name: acc.name || code, type: acc.type || "", side, amount: fromMinor(r.amount), amountMinor: Math.round(Number(r.amount) || 0), date: r.entry_date };
   });
-  const openingEquity = accounting.roundMoney(
-    entries.reduce((s, r) => s + (r.side === "debit" ? r.amount : -r.amount), 0)
-  );
-  return { entries, count: entries.length, openingEquity };
+  const openingEquity = fromMinor(entries.reduce((s, r) => s + (r.side === "debit" ? r.amountMinor : -r.amountMinor), 0));
+  return { entries: entries.map(({ amountMinor, ...entry }) => entry), count: entries.length, openingEquity };
 }
 
 function postInvoicePosted(db, orgId, invoice) {
-  const total = Math.round(Number(invoice.total) || 0);
-  const vat = Math.round(Number(invoice.vat) || 0);
+  const total = toMinor(invoice.total);
+  const vat = toMinor(invoice.vat);
   // Prefer the source document's net (subtotal) so the ledger matches the invoice
   // exactly; fall back to total - vat when no subtotal is supplied.
   const hasSubtotal = invoice.subtotal !== undefined && invoice.subtotal !== null && invoice.subtotal !== "";
-  const net = hasSubtotal ? Math.round(Number(invoice.subtotal) || 0) : total - vat;
+  const net = hasSubtotal ? toMinor(invoice.subtotal) : total - vat;
   const date = invoice.date || invoice.issue_date || new Date().toISOString().slice(0, 10);
   const periodKey = invoice.period_key || "";
   const C = postingCodesFor(locale.activeLocale());
@@ -240,7 +262,7 @@ function postPaymentReceived(db, orgId, payment) {
   const C = postingCodesFor(locale.activeLocale());
   return [postEntry(db, orgId, {
     date: payment.date || payment.paid_at || new Date().toISOString().slice(0, 10),
-    debitCode: C.cash, creditCode: C.receivable, amount: payment.amount,
+    debitCode: C.cash, creditCode: C.receivable, amount: toMinor(payment.amount),
     memo: `Payment ${payment.id}`, sourceType: "payment", sourceId: payment.id, periodKey: payment.period_key || ""
   })].filter(Boolean);
 }
@@ -262,16 +284,16 @@ function trialBalance(db, orgId) {
   const rows = Object.entries(balances).map(([code, b]) => {
     totalDebit += b.debit; totalCredit += b.credit;
     const acc = byCode.get(code) || {};
-    return { code, name: acc.name || code, type: acc.type || "", debit: accounting.roundMoney(b.debit), credit: accounting.roundMoney(b.credit), balance: accounting.roundMoney(b.balance) };
+    return { code, name: acc.name || code, type: acc.type || "", debit: fromMinor(b.debit), credit: fromMinor(b.credit), balance: fromMinor(b.balance) };
   }).sort((a, b) => String(a.code).localeCompare(String(b.code)));
-  return { rows, totalDebit: accounting.roundMoney(totalDebit), totalCredit: accounting.roundMoney(totalCredit), balanced: Math.abs(totalDebit - totalCredit) < 0.01 };
+  return { rows, totalDebit: fromMinor(totalDebit), totalCredit: fromMinor(totalCredit), balanced: Math.round(totalDebit) === Math.round(totalCredit) };
 }
 
 function postExpensePosted(db, orgId, expense) {
-  const total = Math.round(Number(expense.total) || 0);
-  const vat = Math.round(Number(expense.vat) || 0);
+  const total = toMinor(expense.total);
+  const vat = toMinor(expense.vat);
   const hasSubtotal = expense.subtotal !== undefined && expense.subtotal !== null && expense.subtotal !== "";
-  const net = hasSubtotal ? Math.round(Number(expense.subtotal) || 0) : total - vat;
+  const net = hasSubtotal ? toMinor(expense.subtotal) : total - vat;
   const date = expense.date || expense.incurred_on || new Date().toISOString().slice(0, 10);
   const periodKey = expense.period_key || "";
   const C = postingCodesFor(locale.activeLocale());
@@ -303,17 +325,17 @@ function vatReport(db, orgId, periodKey = "") {
     .get(...(periodKey ? [orgId, ...INPUT_VAT_ACCOUNT_CODES, periodKey] : [orgId, ...INPUT_VAT_ACCOUNT_CODES])).v;
   return {
     periodKey: periodKey || "all",
-    outputVat: accounting.roundMoney(outputVat),
-    inputVat: accounting.roundMoney(inputVat),
-    netVatPayable: accounting.roundMoney(outputVat - inputVat),
+    outputVat: fromMinor(outputVat),
+    inputVat: fromMinor(inputVat),
+    netVatPayable: fromMinor(outputVat - inputVat),
     note: "Indicative VAT from posted ledger entries; review with an Armenian accountant before filing."
   };
 }
 
 function postPayrollRun(db, orgId, run) {
-  const gross = Math.round(Number(run.gross) || 0);
-  const net = Math.round(Number(run.net) || 0);
-  const deductions = Math.round(Number(run.totalDeductions != null ? run.totalDeductions : gross - net) || 0);
+  const gross = toMinor(run.gross);
+  const net = toMinor(run.net);
+  const deductions = run.totalDeductions != null ? toMinor(run.totalDeductions) : gross - net;
   const date = run.date || run.run_date || new Date().toISOString().slice(0, 10);
   const periodKey = run.period_key || "";
   const C = postingCodesFor(locale.activeLocale());
@@ -323,16 +345,16 @@ function postPayrollRun(db, orgId, run) {
   // Employer social contributions (RU страховые взносы → 69): an additional employer EXPENSE,
   // not withheld from the employee. Posted only when the caller supplies the amount AND the
   // active locale defines a contributions account (the RA model has none).
-  const contributions = Math.round(Number(run.employerContributions) || 0);
+  const contributions = toMinor(run.employerContributions);
   if (contributions > 0 && C.payrollContributions) ids.push(postEntry(db, orgId, { date, debitCode: C.payrollExpense, creditCode: C.payrollContributions, amount: contributions, memo: `Payroll contributions ${run.id}`, sourceType: "payroll", sourceId: run.id, periodKey }));
   return ids.filter(Boolean);
 }
 
 function postBillPosted(db, orgId, bill) {
-  const total = Math.round(Number(bill.total) || 0);
-  const vat = Math.round(Number(bill.vat) || 0);
+  const total = toMinor(bill.total);
+  const vat = toMinor(bill.vat);
   const hasSubtotal = bill.subtotal !== undefined && bill.subtotal !== null && bill.subtotal !== "";
-  const net = hasSubtotal ? Math.round(Number(bill.subtotal) || 0) : total - vat;
+  const net = hasSubtotal ? toMinor(bill.subtotal) : total - vat;
   const date = bill.date || bill.bill_date || new Date().toISOString().slice(0, 10);
   const periodKey = bill.period_key || "";
   const C = postingCodesFor(locale.activeLocale());
@@ -346,7 +368,7 @@ function postBillPayment(db, orgId, payment) {
   const C = postingCodesFor(locale.activeLocale());
   return [postEntry(db, orgId, {
     date: payment.date || payment.paid_at || new Date().toISOString().slice(0, 10),
-    debitCode: C.payable, creditCode: C.cash, amount: payment.amount,
+    debitCode: C.payable, creditCode: C.cash, amount: toMinor(payment.amount),
     memo: `Bill payment ${payment.id}`, sourceType: "bill_payment", sourceId: payment.id, periodKey: payment.period_key || ""
   })].filter(Boolean);
 }

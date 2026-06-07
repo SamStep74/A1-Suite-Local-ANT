@@ -4389,7 +4389,10 @@ ${controls}
 
   app.get("/api/finance/statements", async request => {
     const user = await app.auth(request);
-    return accounting.financialStatements(ledger.buildLedgerModel(db, user.org_id), {}, { isCashAccount: postingCodes.cashMatcherFor(locale.activeLocale()) });
+    return accounting.financialStatements(ledger.buildLedgerModel(db, user.org_id), {}, {
+      isCashAccount: postingCodes.cashMatcherFor(locale.activeLocale()),
+      money: locale.active().money
+    });
   });
 
   app.post("/api/payroll/calculate", async request => {

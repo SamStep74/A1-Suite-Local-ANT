@@ -42,6 +42,34 @@ test("RU invoice → DR62 (AR) / CR90 (revenue) + CR68 (output VAT), balanced", 
   });
 });
 
+test("RU invoice with kopecks stores integer minor units and displays rubles", () => {
+  withLocale("ru", () => {
+    const { db, orgId } = freshDb();
+    ledger.postInvoicePosted(db, orgId, {
+      id: "inv-kopecks",
+      number: "INV-K",
+      subtotal: 1000.45,
+      vat: 220.1,
+      total: 1220.55,
+      date: "2026-05-10"
+    });
+
+    const raw = db.prepare(`
+      SELECT debit_code AS debitCode, credit_code AS creditCode, amount
+      FROM ledger_journal
+      WHERE org_id = ?
+      ORDER BY memo
+    `).all(orgId);
+    assert.deepEqual(raw.map((r) => r.amount).sort((a, b) => a - b), [22010, 100045]);
+
+    const b = balances(db, orgId);
+    assert.equal(b["62"].balance, 1220.55);
+    assert.equal(b["90"].balance, -1000.45);
+    assert.equal(b["68"].balance, -220.1);
+    assert.equal(ledger.trialBalance(db, orgId).balanced, true);
+  });
+});
+
 test("RU payment → DR51 (bank) / CR62 (AR)", () => {
   withLocale("ru", () => {
     const { db, orgId } = freshDb();
@@ -50,6 +78,19 @@ test("RU payment → DR51 (bank) / CR62 (AR)", () => {
     const b = balances(db, orgId);
     assert.equal(b["51"].balance, 1000); // bank debit
     assert.equal(b["62"].balance, 0); // AR settled
+  });
+});
+
+test("RU payment with kopecks clears AR using integer minor units", () => {
+  withLocale("ru", () => {
+    const { db, orgId } = freshDb();
+    ledger.postInvoicePosted(db, orgId, { id: "inv-1", total: 1220.55, vat: 220.1, subtotal: 1000.45, date: "2026-05-10" });
+    ledger.postPaymentReceived(db, orgId, { id: "pay-1", amount: 1220.55, date: "2026-05-12" });
+    const rawPayment = db.prepare("SELECT amount FROM ledger_journal WHERE org_id = ? AND source_type = 'payment'").get(orgId);
+    assert.equal(rawPayment.amount, 122055);
+    const b = balances(db, orgId);
+    assert.equal(b["51"].balance, 1220.55);
+    assert.equal(b["62"].balance, 0);
   });
 });
 
@@ -63,6 +104,33 @@ test("RU expense → DR26 (expense) / CR60 (AP) + DR19 (input VAT)", () => {
     assert.equal(b["26"].balance, 1000); // expense debit
     assert.equal(b["19"].balance, 220); // input VAT debit
     assert.equal(b["60"].balance, -1220); // AP credit
+  });
+});
+
+test("postEntry contract: direct amount is already integer minor units", () => {
+  withLocale("ru", () => {
+    const { db, orgId } = freshDb();
+    const id = ledger.postEntry(db, orgId, {
+      date: "2026-05-10",
+      debitCode: "51",
+      creditCode: "90",
+      amount: 12345,
+      sourceType: "manual",
+      sourceId: "manual-kopecks"
+    });
+    assert.ok(id);
+    const raw = db.prepare("SELECT amount FROM ledger_journal WHERE org_id = ? AND id = ?").get(orgId, id);
+    assert.equal(raw.amount, 12345);
+    const b = balances(db, orgId);
+    assert.equal(b["51"].balance, 123.45);
+    assert.throws(() => ledger.postEntry(db, orgId, {
+      date: "2026-05-10",
+      debitCode: "51",
+      creditCode: "90",
+      amount: 123.45,
+      sourceType: "manual",
+      sourceId: "manual-decimal"
+    }), /minor-unit integer/);
   });
 });
 

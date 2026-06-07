@@ -49,6 +49,33 @@ test("RU opening balances offset to equity 84 and the ledger balances", () => {
   });
 });
 
+test("RU opening balances preserve kopecks as integer minor units", () => {
+  withLocale("ru", () => {
+    const { db, orgId } = freshDb();
+    const res = ledger.postOpeningBalances(db, orgId, {
+      asOf: "2026-01-01",
+      entries: [
+        { code: "51", amount: 1000.55 },
+        { code: "60", amount: 250.4 },
+      ],
+    });
+    assert.equal(res.count, 2);
+    const raw = db.prepare(`
+      SELECT debit_code AS debitCode, credit_code AS creditCode, amount
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = 'opening_balance'
+      ORDER BY amount
+    `).all(orgId);
+    assert.deepEqual(raw.map((r) => r.amount), [25040, 100055]);
+    const ob = ledger.openingBalances(db, orgId);
+    const byCode = Object.fromEntries(ob.entries.map((e) => [e.code, e]));
+    assert.equal(byCode["51"].amount, 1000.55);
+    assert.equal(byCode["60"].amount, 250.4);
+    assert.equal(ob.openingEquity, 750.15);
+    assert.equal(ledger.trialBalance(db, orgId).balanced, true);
+  });
+});
+
 test("RU rejects AM-only opening-balance codes; accepts RU codes", () => {
   withLocale("ru", () => {
     const { db, orgId } = freshDb();
