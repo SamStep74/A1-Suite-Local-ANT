@@ -474,6 +474,13 @@ test("catalog: quote lines resolve active product metadata", async () => {
   try {
     await app.ready();
     const owner = await login(app);
+    const orgId = "org-armosphera-demo";
+    app.db.prepare(`
+      UPDATE catalog_price_list_items
+      SET discount_percent = ?, updated_at = ?
+      WHERE org_id = ? AND price_list_id = ? AND catalog_item_id = ?
+        AND catalog_item_variant_id IS NULL
+    `).run(20, new Date().toISOString(), orgId, "catpl-standard-sales", "catitem-salon-inbox-package");
 
     const createdQuote = await app.inject({
       method: "POST",
@@ -495,10 +502,48 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(line.catalogSku, "A1-SALON-INBOX");
     assert.equal(line.catalogName, "Instagram and WhatsApp inbox setup");
     assert.equal(line.description, "Instagram and WhatsApp inbox setup");
-    assert.equal(line.unitPrice, 950000);
-    assert.equal(line.total, 1900000);
+    assert.equal(line.unitPrice, 760000);
+    assert.equal(line.total, 1520000);
     assert.equal(line.vatMode, "standard");
     assert.equal(line.fiscalReceiptRequired, true);
+
+    app.db.prepare("UPDATE customers SET segment = ? WHERE org_id = ? AND id = ?")
+      .run("loyalty", orgId, "cust-ani");
+    const loyaltyQuote = await app.inject({
+      method: "POST",
+      url: "/api/crm/quotes",
+      headers: { cookie: owner },
+      payload: {
+        customerId: "cust-ani",
+        dealId: "deal-ani-inbox",
+        title: "Loyalty scanner package",
+        validUntil: "2026-07-31",
+        lines: [
+          { catalogItemId: "catitem-pos-barcode-scanner", quantity: 1 }
+        ]
+      }
+    });
+    assert.equal(loyaltyQuote.statusCode, 200, loyaltyQuote.body);
+    assert.equal(loyaltyQuote.json().quote.lines[0].unitPrice, 76500);
+    assert.equal(loyaltyQuote.json().quote.lines[0].total, 76500);
+
+    const overrideQuote = await app.inject({
+      method: "POST",
+      url: "/api/crm/quotes",
+      headers: { cookie: owner },
+      payload: {
+        customerId: "cust-ani",
+        dealId: "deal-ani-inbox",
+        title: "Explicit scanner override",
+        validUntil: "2026-07-31",
+        lines: [
+          { catalogItemId: "catitem-pos-barcode-scanner", quantity: 1, unitPrice: 83000 }
+        ]
+      }
+    });
+    assert.equal(overrideQuote.statusCode, 200, overrideQuote.body);
+    assert.equal(overrideQuote.json().quote.lines[0].unitPrice, 83000);
+    assert.equal(overrideQuote.json().quote.lines[0].total, 83000);
 
     const archived = await app.inject({
       method: "PATCH",

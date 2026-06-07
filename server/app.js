@@ -50797,6 +50797,8 @@ function createCrmQuote(db, user, body) {
   const quoteInput = normalizeCrmQuoteInput(body);
   const customerId = quoteInput.customerId;
   assertCustomer(db, user.org_id, customerId);
+  const customer = getCustomerSummary(db, user.org_id, customerId);
+  const customerSegment = catalogPricingSegmentFromCustomer(customer?.segment);
   const dealId = quoteInput.dealId;
   const deal = dealId ? getDeal(db, user.org_id, dealId) : null;
   if (!deal || deal.customerId !== customerId) {
@@ -50806,7 +50808,7 @@ function createCrmQuote(db, user, body) {
   }
   const title = quoteInput.title || deal.title || "";
   const { validUntil } = quoteInput;
-  const lines = quoteInput.lines.map(line => resolveCatalogQuoteLine(db, user.org_id, line));
+  const lines = quoteInput.lines.map(line => resolveCatalogQuoteLine(db, user.org_id, line, { customerSegment }));
   if (title.length < 4 || title.length > 200 || lines.length === 0) {
     const err = new Error("Quote requires title, valid until date, and at least one line");
     err.statusCode = 400;
@@ -50970,7 +50972,7 @@ function normalizeCrmQuoteLineCatalogItemId(line) {
   return itemId;
 }
 
-function resolveCatalogQuoteLine(db, orgId, line) {
+function resolveCatalogQuoteLine(db, orgId, line, options = {}) {
   if (!line.catalogItemId) {
     return { ...line, vatMode: "standard", fiscalReceiptRequired: false };
   }
@@ -50980,8 +50982,22 @@ function resolveCatalogQuoteLine(db, orgId, line) {
     err.statusCode = 422;
     throw err;
   }
-  const description = line.description || item.name;
-  const unitPrice = line.unitPrice || item.listPrice;
+  let pricing = null;
+  if (line.unitPrice <= 0) {
+    try {
+      pricing = resolveCatalogPricing(db, orgId, {
+        catalogItemId: line.catalogItemId,
+        catalogItemVariantId: "",
+        customerSegment: options.customerSegment || "standard",
+        quantity: line.quantity
+      });
+    } catch (err) {
+      if (err?.statusCode !== 404 || err.message !== "Catalog price not found") throw err;
+      pricing = { catalogName: item.name, netPrice: item.listPrice };
+    }
+  }
+  const description = line.description || pricing?.catalogName || item.name;
+  const unitPrice = line.unitPrice > 0 ? line.unitPrice : pricing.netPrice;
   const total = line.quantity * unitPrice;
   if (!Number.isSafeInteger(total) || total <= 0 || total > 1000000000000) {
     throwInvalidCrmQuoteMetadata();
@@ -50994,6 +51010,13 @@ function resolveCatalogQuoteLine(db, orgId, line) {
     vatMode: item.vatMode,
     fiscalReceiptRequired: item.fiscalReceiptRequired
   };
+}
+
+function catalogPricingSegmentFromCustomer(segment) {
+  if (typeof segment !== "string") return "standard";
+  const normalized = segment.trim().toLowerCase().replace(/\s+/g, "-");
+  if (!normalized || !/^[a-z0-9._-]+$/.test(normalized)) return "standard";
+  return normalized;
 }
 
 function calculateCrmQuoteTotals(lines, vatRate = 0.2) {
