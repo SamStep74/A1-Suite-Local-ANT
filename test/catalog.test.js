@@ -527,6 +527,43 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(loyaltyQuote.json().quote.lines[0].unitPrice, 76500);
     assert.equal(loyaltyQuote.json().quote.lines[0].total, 76500);
 
+    const variantQuote = await app.inject({
+      method: "POST",
+      url: "/api/crm/quotes",
+      headers: { cookie: owner },
+      payload: {
+        customerId: "cust-ani",
+        dealId: "deal-ani-inbox",
+        title: "Variant scanner package",
+        validUntil: "2026-07-31",
+        lines: [
+          {
+            catalogItemId: "catitem-pos-barcode-scanner",
+            catalogItemVariantId: "catvar-pos-scanner-usb",
+            quantity: 1
+          }
+        ]
+      }
+    });
+    assert.equal(variantQuote.statusCode, 200, variantQuote.body);
+    const variantLine = variantQuote.json().quote.lines[0];
+    assert.equal(variantLine.catalogItemId, "catitem-pos-barcode-scanner");
+    assert.equal(variantLine.catalogItemVariantId, "catvar-pos-scanner-usb");
+    assert.equal(variantLine.catalogSku, "HW-BARCODE-SCANNER");
+    assert.equal(variantLine.catalogName, "POS barcode scanner");
+    assert.equal(variantLine.variantSku, "HW-BARCODE-SCANNER-USB");
+    assert.equal(variantLine.variantName, "USB barcode scanner");
+    assert.equal(variantLine.description, "USB barcode scanner");
+    assert.equal(variantLine.unitPrice, 76500);
+    assert.equal(variantLine.total, 76500);
+    const storedVariantLine = app.db.prepare(`
+      SELECT catalog_item_id AS catalogItemId, catalog_item_variant_id AS catalogItemVariantId
+      FROM quote_lines
+      WHERE org_id = ? AND quote_id = ?
+    `).get(orgId, variantQuote.json().quote.id);
+    assert.equal(storedVariantLine.catalogItemId, "catitem-pos-barcode-scanner");
+    assert.equal(storedVariantLine.catalogItemVariantId, "catvar-pos-scanner-usb");
+
     const overrideQuote = await app.inject({
       method: "POST",
       url: "/api/crm/quotes",
@@ -544,6 +581,48 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(overrideQuote.statusCode, 200, overrideQuote.body);
     assert.equal(overrideQuote.json().quote.lines[0].unitPrice, 83000);
     assert.equal(overrideQuote.json().quote.lines[0].total, 83000);
+
+    const malformedVariant = await app.inject({
+      method: "POST",
+      url: "/api/crm/quotes",
+      headers: { cookie: owner },
+      payload: {
+        customerId: "cust-ani",
+        dealId: "deal-ani-inbox",
+        title: "Malformed variant quote",
+        validUntil: "2026-07-31",
+        lines: [
+          {
+            catalogItemId: "catitem-pos-barcode-scanner",
+            catalogItemVariantId: "catvar-pos-scanner-usb\nsecret-variant-token",
+            quantity: 1
+          }
+        ]
+      }
+    });
+    assert.equal(malformedVariant.statusCode, 400, malformedVariant.body);
+    assert.doesNotMatch(malformedVariant.body, /secret-variant-token/);
+
+    const mismatchedVariant = await app.inject({
+      method: "POST",
+      url: "/api/crm/quotes",
+      headers: { cookie: owner },
+      payload: {
+        customerId: "cust-ani",
+        dealId: "deal-ani-inbox",
+        title: "Mismatched variant quote",
+        validUntil: "2026-07-31",
+        lines: [
+          {
+            catalogItemId: "catitem-salon-inbox-package",
+            catalogItemVariantId: "catvar-pos-scanner-usb",
+            quantity: 1
+          }
+        ]
+      }
+    });
+    assert.equal(mismatchedVariant.statusCode, 422, mismatchedVariant.body);
+    assert.match(mismatchedVariant.body, /Catalog item variant is required for quote line/);
 
     const archived = await app.inject({
       method: "PATCH",

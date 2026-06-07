@@ -958,6 +958,7 @@ function initSchema(db) {
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       quote_id TEXT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
       catalog_item_id TEXT REFERENCES catalog_items(id) ON DELETE SET NULL,
+      catalog_item_variant_id TEXT REFERENCES catalog_item_variants(id) ON DELETE SET NULL,
       description TEXT NOT NULL,
       quantity INTEGER NOT NULL,
       unit_price INTEGER NOT NULL,
@@ -7287,6 +7288,7 @@ function ensureCatalogLayer(db) {
   const quoteLineColumns = new Set(db.prepare("PRAGMA table_info(quote_lines)").all().map(column => column.name));
   const quoteLineAdditions = {
     catalog_item_id: "TEXT",
+    catalog_item_variant_id: "TEXT",
     vat_mode: "TEXT NOT NULL DEFAULT 'standard'",
     fiscal_receipt_required: "INTEGER NOT NULL DEFAULT 0"
   };
@@ -7294,6 +7296,7 @@ function ensureCatalogLayer(db) {
     if (!quoteLineColumns.has(name)) db.exec(`ALTER TABLE quote_lines ADD COLUMN ${name} ${definition}`);
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_quote_lines_catalog_item ON quote_lines(org_id, catalog_item_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_quote_lines_catalog_item_variant ON quote_lines(org_id, catalog_item_variant_id)");
 
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {

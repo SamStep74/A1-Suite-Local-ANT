@@ -177,10 +177,13 @@ test("existing quote line tables receive catalog columns before app startup inde
   try {
     const columns = new Set(app.db.prepare("PRAGMA table_info(quote_lines)").all().map(column => column.name));
     assert.equal(columns.has("catalog_item_id"), true);
+    assert.equal(columns.has("catalog_item_variant_id"), true);
     assert.equal(columns.has("vat_mode"), true);
     assert.equal(columns.has("fiscal_receipt_required"), true);
     const index = app.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get("idx_quote_lines_catalog_item");
     assert.equal(index.name, "idx_quote_lines_catalog_item");
+    const variantIndex = app.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get("idx_quote_lines_catalog_item_variant");
+    assert.equal(variantIndex.name, "idx_quote_lines_catalog_item_variant");
   } finally {
     await app.close();
     fs.rmSync(root, { recursive: true, force: true });

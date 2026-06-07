@@ -48468,6 +48468,18 @@ function getCatalogItemVariants(db, orgId) {
   `).all(orgId).map(formatCatalogItemVariant);
 }
 
+function getCatalogItemVariant(db, orgId, variantId) {
+  const row = db.prepare(`
+    SELECT id, catalog_item_id AS catalogItemId, sku, name,
+      attributes_json AS attributesJson, unit_of_measure AS unitOfMeasure,
+      list_price AS listPrice, standard_cost AS standardCost,
+      currency, status, created_at AS createdAt, updated_at AS updatedAt
+    FROM catalog_item_variants
+    WHERE org_id = ? AND id = ?
+  `).get(orgId, variantId);
+  return row ? formatCatalogItemVariant(row) : null;
+}
+
 function formatCatalogItemVariant(row) {
   return {
     id: row.id,
@@ -50721,7 +50733,10 @@ function throwInvalidPublicQuoteToken() {
 function getQuoteLines(db, orgId, quoteId) {
   return db.prepare(`
     SELECT quote_lines.id, quote_lines.catalog_item_id AS catalogItemId,
+      quote_lines.catalog_item_variant_id AS catalogItemVariantId,
       catalog_items.sku AS catalogSku, catalog_items.name AS catalogName,
+      catalog_item_variants.sku AS variantSku,
+      catalog_item_variants.name AS variantName,
       quote_lines.description, quote_lines.quantity, quote_lines.unit_price AS unitPrice,
       quote_lines.total, quote_lines.vat_mode AS vatMode,
       quote_lines.fiscal_receipt_required AS fiscalReceiptRequired,
@@ -50729,6 +50744,8 @@ function getQuoteLines(db, orgId, quoteId) {
     FROM quote_lines
     LEFT JOIN catalog_items ON catalog_items.id = quote_lines.catalog_item_id
       AND catalog_items.org_id = quote_lines.org_id
+    LEFT JOIN catalog_item_variants ON catalog_item_variants.id = quote_lines.catalog_item_variant_id
+      AND catalog_item_variants.org_id = quote_lines.org_id
     WHERE quote_lines.org_id = ? AND quote_lines.quote_id = ?
     ORDER BY quote_lines.position
   `).all(orgId, quoteId).map(line => ({
@@ -50848,10 +50865,11 @@ function createCrmQuote(db, user, body) {
   );
   const insertLine = db.prepare(`
     INSERT INTO quote_lines (
-      id, org_id, quote_id, catalog_item_id, description, quantity, unit_price,
-      total, vat_mode, fiscal_receipt_required, position
+      id, org_id, quote_id, catalog_item_id, catalog_item_variant_id,
+      description, quantity, unit_price, total, vat_mode, fiscal_receipt_required,
+      position
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const line of lines) {
     insertLine.run(
@@ -50859,6 +50877,7 @@ function createCrmQuote(db, user, body) {
       user.org_id,
       quoteId,
       line.catalogItemId || null,
+      line.catalogItemVariantId || null,
       line.description,
       line.quantity,
       line.unitPrice,
@@ -50941,6 +50960,7 @@ function normalizeCrmQuoteLine(line, index) {
     throwInvalidCrmQuoteMetadata();
   }
   const catalogItemId = normalizeCrmQuoteLineCatalogItemId(line);
+  const catalogItemVariantId = normalizeCrmQuoteLineCatalogItemVariantId(line, { catalogItemId });
   const description = normalizeCrmQuoteLineText(line, "description", { required: !catalogItemId, minLength: 3, maxLength: 500 });
   const quantity = normalizeCrmQuoteLineAmount(line, "quantity", { fallback: 1, min: 1, max: 100000 });
   const unitPriceMajor = normalizeCrmQuoteLineAmount(line, "unitPrice", { altField: "unit_price", required: !catalogItemId, fallback: 0, min: catalogItemId ? 0 : 1, max: 1000000000, money: true });
@@ -50951,6 +50971,7 @@ function normalizeCrmQuoteLine(line, index) {
   }
   return {
     catalogItemId,
+    catalogItemVariantId,
     description,
     quantity,
     unitPrice,
@@ -50972,6 +50993,22 @@ function normalizeCrmQuoteLineCatalogItemId(line) {
   return itemId;
 }
 
+function normalizeCrmQuoteLineCatalogItemVariantId(line, options = {}) {
+  const value = Object.prototype.hasOwnProperty.call(line, "catalogItemVariantId")
+    ? line.catalogItemVariantId
+    : line.catalog_item_variant_id;
+  if (value === undefined || value === "") return "";
+  if (!options.catalogItemId) throwInvalidCrmQuoteMetadata();
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidCrmQuoteMetadata();
+  }
+  const variantId = value.trim();
+  if (!variantId || variantId.length > 160 || !/^[a-z0-9-]+$/.test(variantId)) {
+    throwInvalidCrmQuoteMetadata();
+  }
+  return variantId;
+}
+
 function resolveCatalogQuoteLine(db, orgId, line, options = {}) {
   if (!line.catalogItemId) {
     return { ...line, vatMode: "standard", fiscalReceiptRequired: false };
@@ -50982,21 +51019,27 @@ function resolveCatalogQuoteLine(db, orgId, line, options = {}) {
     err.statusCode = 422;
     throw err;
   }
+  const variant = line.catalogItemVariantId ? getCatalogItemVariant(db, orgId, line.catalogItemVariantId) : null;
+  if (line.catalogItemVariantId && (!variant || variant.status !== "active" || variant.catalogItemId !== item.id)) {
+    const err = new Error("Catalog item variant is required for quote line");
+    err.statusCode = 422;
+    throw err;
+  }
   let pricing = null;
   if (line.unitPrice <= 0) {
     try {
       pricing = resolveCatalogPricing(db, orgId, {
         catalogItemId: line.catalogItemId,
-        catalogItemVariantId: "",
+        catalogItemVariantId: line.catalogItemVariantId || "",
         customerSegment: options.customerSegment || "standard",
         quantity: line.quantity
       });
     } catch (err) {
       if (err?.statusCode !== 404 || err.message !== "Catalog price not found") throw err;
-      pricing = { catalogName: item.name, netPrice: item.listPrice };
+      pricing = { catalogName: item.name, variantName: variant?.name || "", netPrice: variant?.listPrice || item.listPrice };
     }
   }
-  const description = line.description || pricing?.catalogName || item.name;
+  const description = line.description || pricing?.variantName || variant?.name || pricing?.catalogName || item.name;
   const unitPrice = line.unitPrice > 0 ? line.unitPrice : pricing.netPrice;
   const total = line.quantity * unitPrice;
   if (!Number.isSafeInteger(total) || total <= 0 || total > 1000000000000) {
