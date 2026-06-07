@@ -48228,6 +48228,7 @@ function getCatalogPriceLists(db, orgId) {
 }
 
 function formatCatalogPriceListItem(row) {
+  const discountPercent = Number(row.discountPercent || 0);
   return {
     id: row.id,
     priceListId: row.priceListId,
@@ -48239,7 +48240,8 @@ function formatCatalogPriceListItem(row) {
     variantName: row.variantName || "",
     minQuantity: row.minQuantity,
     listPrice: row.listPrice,
-    discountPercent: Number(row.discountPercent || 0),
+    discountPercent,
+    ...catalogDiscountEvidence(row.listPrice, discountPercent),
     currency: row.currency,
     status: row.status,
     createdAt: row.createdAt,
@@ -48375,6 +48377,15 @@ function catalogMarginEvidence(listPrice, standardCost) {
   return {
     marginAmount,
     marginPercent: price > 0 ? Math.round((marginAmount / price) * 10000) / 100 : null
+  };
+}
+
+function catalogDiscountEvidence(listPrice, discountPercent) {
+  const price = Number(listPrice || 0);
+  const discountAmount = Math.round((price * Number(discountPercent || 0)) / 100);
+  return {
+    discountAmount,
+    netPrice: price - discountAmount
   };
 }
 

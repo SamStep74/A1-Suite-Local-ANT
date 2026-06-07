@@ -8101,7 +8101,24 @@ function seedCatalogItemVariants(db, orgId) {
 
 function seedCatalogPriceLists(db, orgId) {
   const now = new Date().toISOString();
-  const priceListId = catalogSeedId(orgId, "catpl-standard-sales");
+  const priceLists = [
+    {
+      baseId: "catpl-standard-sales",
+      itemBaseId: "catpli-standard-sales",
+      code: "STANDARD-SALES",
+      name: "Standard sales price list",
+      customerSegment: "standard",
+      discountPercent: 0
+    },
+    {
+      baseId: "catpl-loyalty-10",
+      itemBaseId: "catpli-loyalty-10",
+      code: "LOYALTY-10",
+      name: "Loyalty 10% discount",
+      customerSegment: "loyalty",
+      discountPercent: 10
+    }
+  ];
   const insertList = db.prepare(`
     INSERT OR IGNORE INTO catalog_price_lists (
       id, org_id, code, name, customer_segment, currency, status,
@@ -8109,19 +8126,21 @@ function seedCatalogPriceLists(db, orgId) {
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  insertList.run(
-    priceListId,
-    orgId,
-    "STANDARD-SALES",
-    "Standard sales price list",
-    "standard",
-    currencyForOrg(db, orgId),
-    "active",
-    null,
-    null,
-    now,
-    now
-  );
+  for (const list of priceLists) {
+    insertList.run(
+      catalogSeedId(orgId, list.baseId),
+      orgId,
+      list.code,
+      list.name,
+      list.customerSegment,
+      currencyForOrg(db, orgId),
+      "active",
+      null,
+      null,
+      now,
+      now
+    );
+  }
 
   const items = db.prepare(`
     SELECT id, list_price, currency
@@ -8147,37 +8166,40 @@ function seedCatalogPriceLists(db, orgId) {
     )
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  for (const item of items) {
-    insertItem.run(
-      catalogSeedId(orgId, `catpli-standard-sales-${item.id}`),
-      orgId,
-      priceListId,
-      item.id,
-      null,
-      1,
-      item.list_price,
-      0,
-      item.currency,
-      "active",
-      now,
-      now
-    );
-  }
-  for (const variant of variants) {
-    insertItem.run(
-      catalogSeedId(orgId, `catpli-standard-sales-${variant.id}`),
-      orgId,
-      priceListId,
-      variant.catalogItemId,
-      variant.id,
-      1,
-      variant.listPrice,
-      0,
-      variant.currency,
-      "active",
-      now,
-      now
-    );
+  for (const list of priceLists) {
+    const priceListId = catalogSeedId(orgId, list.baseId);
+    for (const item of items) {
+      insertItem.run(
+        catalogSeedId(orgId, `${list.itemBaseId}-${item.id}`),
+        orgId,
+        priceListId,
+        item.id,
+        null,
+        1,
+        item.list_price,
+        list.discountPercent,
+        item.currency,
+        "active",
+        now,
+        now
+      );
+    }
+    for (const variant of variants) {
+      insertItem.run(
+        catalogSeedId(orgId, `${list.itemBaseId}-${variant.id}`),
+        orgId,
+        priceListId,
+        variant.catalogItemId,
+        variant.id,
+        1,
+        variant.listPrice,
+        list.discountPercent,
+        variant.currency,
+        "active",
+        now,
+        now
+      );
+    }
   }
 }
 

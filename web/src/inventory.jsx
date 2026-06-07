@@ -44,6 +44,9 @@ export function InventoryWorkspacePanel({ data, canMove, actionState, onCreateMo
   const categories = catalog.categories || [];
   const priceLists = catalog.priceLists || [];
   const variantCount = items.reduce((total, item) => total + Number(item.variantCount ?? item.variants?.length ?? 0), 0);
+  const discountPriceListCount = priceLists.filter(list => (
+    (list.items || []).some(item => Number(item.discountPercent || 0) > 0)
+  )).length;
 
   const stockableItems = useMemo(() => items.filter(item => item.status === "active" && item.trackStock), [items]);
   const internalLocations = useMemo(() => locations.filter(location => location.status === "active" && location.locationType === "internal"), [locations]);
@@ -109,6 +112,7 @@ export function InventoryWorkspacePanel({ data, canMove, actionState, onCreateMo
           <span>{categories.length} categories</span>
           <span>{variantCount} variants</span>
           <span>{priceLists.length} price lists</span>
+          <span>{discountPriceListCount} discount lists</span>
           <span>{locations.length} governed locations</span>
         </div>
       </article>

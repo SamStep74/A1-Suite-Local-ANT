@@ -46,12 +46,31 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     const standardPriceList = body.priceLists.find(list => list.code === "STANDARD-SALES");
     assert.ok(standardPriceList, "standard sales price list is seeded");
     assert.equal(standardPriceList.customerSegment, "standard");
-    assert.ok(standardPriceList.items.some(item => item.catalogItemId === "catitem-pos-barcode-scanner" && item.listPrice === 85000));
+    const standardScannerPrice = standardPriceList.items.find(item => item.catalogItemId === "catitem-pos-barcode-scanner" && item.catalogItemVariantId === null);
+    assert.ok(standardScannerPrice, "standard scanner parent price row is seeded");
+    assert.equal(standardScannerPrice.listPrice, 85000);
+    assert.equal(standardScannerPrice.discountPercent, 0);
+    assert.equal(standardScannerPrice.discountAmount, 0);
+    assert.equal(standardScannerPrice.netPrice, 85000);
     assert.ok(standardPriceList.items.some(item => (
       item.catalogItemId === "catitem-pos-barcode-scanner"
       && item.catalogItemVariantId === "catvar-pos-scanner-usb"
       && item.variantSku === "HW-BARCODE-SCANNER-USB"
       && item.listPrice === 85000
+    )));
+    const loyaltyPriceList = body.priceLists.find(list => list.code === "LOYALTY-10");
+    assert.ok(loyaltyPriceList, "loyalty discount sales price list is seeded");
+    assert.equal(loyaltyPriceList.customerSegment, "loyalty");
+    const loyaltyScannerPrice = loyaltyPriceList.items.find(item => item.catalogItemId === "catitem-pos-barcode-scanner" && item.catalogItemVariantId === null);
+    assert.ok(loyaltyScannerPrice, "loyalty scanner parent price row is seeded");
+    assert.equal(loyaltyScannerPrice.discountPercent, 10);
+    assert.equal(loyaltyScannerPrice.discountAmount, 8500);
+    assert.equal(loyaltyScannerPrice.netPrice, 76500);
+    assert.ok(loyaltyPriceList.items.some(item => (
+      item.catalogItemVariantId === "catvar-pos-scanner-usb"
+      && item.discountPercent === 10
+      && item.discountAmount === 8500
+      && item.netPrice === 76500
     )));
     assert.ok(body.items.length >= 4, "seeded catalog items present");
 
@@ -59,6 +78,7 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.equal(priceListResponse.statusCode, 200, priceListResponse.body);
     const priceListBody = priceListResponse.json();
     assert.deepEqual(priceListBody.priceLists.find(list => list.code === "STANDARD-SALES"), standardPriceList);
+    assert.deepEqual(priceListBody.priceLists.find(list => list.code === "LOYALTY-10"), loyaltyPriceList);
 
     const tourismPackage = body.items.find(item => item.id === "catitem-tourism-booking-workflow");
     assert.ok(tourismPackage, "tourism catalog package is seeded");
@@ -110,6 +130,7 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     const accountantPriceLists = await app.inject({ method: "GET", url: "/api/catalog/price-lists", headers: { cookie: accountant } });
     assert.equal(accountantPriceLists.statusCode, 200, accountantPriceLists.body);
     assert.ok(accountantPriceLists.json().priceLists.some(list => list.code === "STANDARD-SALES" && list.items.length >= body.items.length));
+    assert.ok(accountantPriceLists.json().priceLists.some(list => list.code === "LOYALTY-10" && list.items.length >= body.items.length));
 
     const accountantCreate = await app.inject({
       method: "POST",
@@ -140,8 +161,12 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.ok(backup.json().backup.payload.tables.catalog_item_variants.some(variant => variant.sku === "HW-BARCODE-SCANNER-USB"));
     assert.ok(Array.isArray(backup.json().backup.payload.tables.catalog_price_lists));
     assert.ok(backup.json().backup.payload.tables.catalog_price_lists.some(list => list.code === "STANDARD-SALES"));
+    assert.ok(backup.json().backup.payload.tables.catalog_price_lists.some(list => list.code === "LOYALTY-10"));
     assert.ok(Array.isArray(backup.json().backup.payload.tables.catalog_price_list_items));
-    assert.ok(backup.json().backup.payload.tables.catalog_price_list_items.some(item => item.catalog_item_id === "catitem-pos-barcode-scanner"));
+    assert.ok(backup.json().backup.payload.tables.catalog_price_list_items.some(item => (
+      item.catalog_item_id === "catitem-pos-barcode-scanner"
+      && item.discount_percent === 10
+    )));
   } finally {
     await app.close();
   }
