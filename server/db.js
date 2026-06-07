@@ -561,6 +561,43 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_catalog_item_variants_item
       ON catalog_item_variants(org_id, catalog_item_id, status, sku);
 
+    CREATE TABLE IF NOT EXISTS catalog_price_lists (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      customer_segment TEXT NOT NULL DEFAULT '',
+      currency TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      starts_at TEXT,
+      ends_at TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, code)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_catalog_price_lists_status
+      ON catalog_price_lists(org_id, status, code);
+
+    CREATE TABLE IF NOT EXISTS catalog_price_list_items (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      price_list_id TEXT NOT NULL REFERENCES catalog_price_lists(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+      catalog_item_variant_id TEXT REFERENCES catalog_item_variants(id) ON DELETE SET NULL,
+      min_quantity INTEGER NOT NULL DEFAULT 1,
+      list_price INTEGER NOT NULL,
+      discount_percent REAL NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, price_list_id, catalog_item_id, catalog_item_variant_id, min_quantity)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_catalog_price_list_items_list
+      ON catalog_price_list_items(org_id, price_list_id, status, catalog_item_id);
+
     CREATE TABLE IF NOT EXISTS stock_locations (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -7248,6 +7285,7 @@ function ensureCatalogLayer(db) {
     if (categoryCount === 0 || itemCount === 0) seedCatalogItems(db, org.id);
     backfillCatalogUnitsOfMeasureFromItems(db, org.id);
     seedCatalogItemVariants(db, org.id);
+    seedCatalogPriceLists(db, org.id);
   }
 }
 
@@ -8058,6 +8096,88 @@ function seedCatalogItemVariants(db, orgId) {
         now
       );
     }
+  }
+}
+
+function seedCatalogPriceLists(db, orgId) {
+  const now = new Date().toISOString();
+  const priceListId = catalogSeedId(orgId, "catpl-standard-sales");
+  const insertList = db.prepare(`
+    INSERT OR IGNORE INTO catalog_price_lists (
+      id, org_id, code, name, customer_segment, currency, status,
+      starts_at, ends_at, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  insertList.run(
+    priceListId,
+    orgId,
+    "STANDARD-SALES",
+    "Standard sales price list",
+    "standard",
+    currencyForOrg(db, orgId),
+    "active",
+    null,
+    null,
+    now,
+    now
+  );
+
+  const items = db.prepare(`
+    SELECT id, list_price, currency
+    FROM catalog_items
+    WHERE org_id = ? AND status = 'active'
+    ORDER BY sku
+  `).all(orgId);
+  const variants = db.prepare(`
+    SELECT catalog_item_variants.id, catalog_item_variants.catalog_item_id AS catalogItemId,
+      catalog_item_variants.list_price AS listPrice, catalog_item_variants.currency
+    FROM catalog_item_variants
+    JOIN catalog_items ON catalog_items.id = catalog_item_variants.catalog_item_id
+      AND catalog_items.org_id = catalog_item_variants.org_id
+    WHERE catalog_item_variants.org_id = ?
+      AND catalog_item_variants.status = 'active'
+      AND catalog_items.status = 'active'
+    ORDER BY catalog_items.sku, catalog_item_variants.sku
+  `).all(orgId);
+  const insertItem = db.prepare(`
+    INSERT OR IGNORE INTO catalog_price_list_items (
+      id, org_id, price_list_id, catalog_item_id, catalog_item_variant_id,
+      min_quantity, list_price, discount_percent, currency, status, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const item of items) {
+    insertItem.run(
+      catalogSeedId(orgId, `catpli-standard-sales-${item.id}`),
+      orgId,
+      priceListId,
+      item.id,
+      null,
+      1,
+      item.list_price,
+      0,
+      item.currency,
+      "active",
+      now,
+      now
+    );
+  }
+  for (const variant of variants) {
+    insertItem.run(
+      catalogSeedId(orgId, `catpli-standard-sales-${variant.id}`),
+      orgId,
+      priceListId,
+      variant.catalogItemId,
+      variant.id,
+      1,
+      variant.listPrice,
+      0,
+      variant.currency,
+      "active",
+      now,
+      now
+    );
   }
 }
 

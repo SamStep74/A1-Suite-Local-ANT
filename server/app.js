@@ -397,8 +397,15 @@ function registerApi(app, db, options = {}) {
     requireCatalogReader(user);
     return {
       categories: getCatalogCategories(db, user.org_id),
-      unitsOfMeasure: getCatalogUnitsOfMeasure(db, user.org_id)
+      unitsOfMeasure: getCatalogUnitsOfMeasure(db, user.org_id),
+      priceLists: getCatalogPriceLists(db, user.org_id)
     };
+  });
+
+  app.get("/api/catalog/price-lists", async request => {
+    const user = await app.auth(request);
+    requireCatalogReader(user);
+    return { priceLists: getCatalogPriceLists(db, user.org_id) };
   });
 
   app.get("/api/catalog/items", async request => {
@@ -408,7 +415,8 @@ function registerApi(app, db, options = {}) {
     return {
       items: getCatalogItems(db, user.org_id, filters),
       categories: getCatalogCategories(db, user.org_id),
-      unitsOfMeasure: getCatalogUnitsOfMeasure(db, user.org_id)
+      unitsOfMeasure: getCatalogUnitsOfMeasure(db, user.org_id),
+      priceLists: getCatalogPriceLists(db, user.org_id)
     };
   });
 
@@ -41974,6 +41982,8 @@ const ORG_BACKUP_TABLES = [
   "catalog_units_of_measure",
   "catalog_items",
   "catalog_item_variants",
+  "catalog_price_lists",
+  "catalog_price_list_items",
   "stock_locations",
   "stock_quants",
   "stock_moves",
@@ -48171,6 +48181,70 @@ function getCatalogUnitsOfMeasure(db, orgId) {
     WHERE org_id = ?
     ORDER BY status = 'archived', kind, code
   `).all(orgId);
+}
+
+function getCatalogPriceLists(db, orgId) {
+  const lists = db.prepare(`
+    SELECT id, code, name, customer_segment AS customerSegment, currency,
+      status, starts_at AS startsAt, ends_at AS endsAt,
+      created_at AS createdAt, updated_at AS updatedAt
+    FROM catalog_price_lists
+    WHERE org_id = ?
+    ORDER BY status = 'archived', code
+  `).all(orgId);
+  if (!lists.length) return [];
+  const items = db.prepare(`
+    SELECT catalog_price_list_items.id,
+      catalog_price_list_items.price_list_id AS priceListId,
+      catalog_price_list_items.catalog_item_id AS catalogItemId,
+      catalog_items.sku AS catalogSku,
+      catalog_items.name AS catalogName,
+      catalog_price_list_items.catalog_item_variant_id AS catalogItemVariantId,
+      catalog_item_variants.sku AS variantSku,
+      catalog_item_variants.name AS variantName,
+      catalog_price_list_items.min_quantity AS minQuantity,
+      catalog_price_list_items.list_price AS listPrice,
+      catalog_price_list_items.discount_percent AS discountPercent,
+      catalog_price_list_items.currency,
+      catalog_price_list_items.status,
+      catalog_price_list_items.created_at AS createdAt,
+      catalog_price_list_items.updated_at AS updatedAt
+    FROM catalog_price_list_items
+    JOIN catalog_items ON catalog_items.id = catalog_price_list_items.catalog_item_id
+      AND catalog_items.org_id = catalog_price_list_items.org_id
+    LEFT JOIN catalog_item_variants ON catalog_item_variants.id = catalog_price_list_items.catalog_item_variant_id
+      AND catalog_item_variants.org_id = catalog_price_list_items.org_id
+    WHERE catalog_price_list_items.org_id = ?
+    ORDER BY catalog_price_list_items.status = 'archived',
+      catalog_items.sku, catalog_item_variants.sku, catalog_price_list_items.min_quantity
+  `).all(orgId).map(formatCatalogPriceListItem);
+  const byList = new Map();
+  for (const item of items) {
+    const rows = byList.get(item.priceListId) || [];
+    rows.push(item);
+    byList.set(item.priceListId, rows);
+  }
+  return lists.map(list => ({ ...list, items: byList.get(list.id) || [] }));
+}
+
+function formatCatalogPriceListItem(row) {
+  return {
+    id: row.id,
+    priceListId: row.priceListId,
+    catalogItemId: row.catalogItemId,
+    catalogSku: row.catalogSku,
+    catalogName: row.catalogName,
+    catalogItemVariantId: row.catalogItemVariantId || null,
+    variantSku: row.variantSku || "",
+    variantName: row.variantName || "",
+    minQuantity: row.minQuantity,
+    listPrice: row.listPrice,
+    discountPercent: Number(row.discountPercent || 0),
+    currency: row.currency,
+    status: row.status,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
 }
 
 function getCatalogItems(db, orgId, filters = {}) {

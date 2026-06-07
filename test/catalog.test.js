@@ -33,6 +33,8 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
 
     const unauthenticated = await app.inject({ method: "GET", url: "/api/catalog/items" });
     assert.equal(unauthenticated.statusCode, 401);
+    const unauthenticatedPriceLists = await app.inject({ method: "GET", url: "/api/catalog/price-lists" });
+    assert.equal(unauthenticatedPriceLists.statusCode, 401);
 
     const owner = await login(app);
     const listed = await app.inject({ method: "GET", url: "/api/catalog/items", headers: { cookie: owner } });
@@ -41,7 +43,22 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.ok(body.categories.some(category => category.id === "catcat-tourism-packages"));
     assert.ok(body.unitsOfMeasure.some(unit => unit.code === "unit" && unit.kind === "unit"));
     assert.ok(body.unitsOfMeasure.some(unit => unit.code === "package" && unit.kind === "service"));
+    const standardPriceList = body.priceLists.find(list => list.code === "STANDARD-SALES");
+    assert.ok(standardPriceList, "standard sales price list is seeded");
+    assert.equal(standardPriceList.customerSegment, "standard");
+    assert.ok(standardPriceList.items.some(item => item.catalogItemId === "catitem-pos-barcode-scanner" && item.listPrice === 85000));
+    assert.ok(standardPriceList.items.some(item => (
+      item.catalogItemId === "catitem-pos-barcode-scanner"
+      && item.catalogItemVariantId === "catvar-pos-scanner-usb"
+      && item.variantSku === "HW-BARCODE-SCANNER-USB"
+      && item.listPrice === 85000
+    )));
     assert.ok(body.items.length >= 4, "seeded catalog items present");
+
+    const priceListResponse = await app.inject({ method: "GET", url: "/api/catalog/price-lists", headers: { cookie: owner } });
+    assert.equal(priceListResponse.statusCode, 200, priceListResponse.body);
+    const priceListBody = priceListResponse.json();
+    assert.deepEqual(priceListBody.priceLists.find(list => list.code === "STANDARD-SALES"), standardPriceList);
 
     const tourismPackage = body.items.find(item => item.id === "catitem-tourism-booking-workflow");
     assert.ok(tourismPackage, "tourism catalog package is seeded");
@@ -83,11 +100,16 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     const support = await login(app, "support@armosphera.local");
     const supportDenied = await app.inject({ method: "GET", url: "/api/catalog/items", headers: { cookie: support } });
     assert.equal(supportDenied.statusCode, 403);
+    const supportPriceListDenied = await app.inject({ method: "GET", url: "/api/catalog/price-lists", headers: { cookie: support } });
+    assert.equal(supportPriceListDenied.statusCode, 403);
 
     const accountant = await login(app, "accountant@armosphera.local");
     const accountantList = await app.inject({ method: "GET", url: "/api/catalog/items?itemType=service", headers: { cookie: accountant } });
     assert.equal(accountantList.statusCode, 200, accountantList.body);
     assert.ok(accountantList.json().items.every(item => item.itemType === "service"));
+    const accountantPriceLists = await app.inject({ method: "GET", url: "/api/catalog/price-lists", headers: { cookie: accountant } });
+    assert.equal(accountantPriceLists.statusCode, 200, accountantPriceLists.body);
+    assert.ok(accountantPriceLists.json().priceLists.some(list => list.code === "STANDARD-SALES" && list.items.length >= body.items.length));
 
     const accountantCreate = await app.inject({
       method: "POST",
@@ -116,6 +138,10 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.ok(backup.json().backup.payload.tables.catalog_units_of_measure.some(unit => unit.code === "unit"));
     assert.ok(Array.isArray(backup.json().backup.payload.tables.catalog_item_variants));
     assert.ok(backup.json().backup.payload.tables.catalog_item_variants.some(variant => variant.sku === "HW-BARCODE-SCANNER-USB"));
+    assert.ok(Array.isArray(backup.json().backup.payload.tables.catalog_price_lists));
+    assert.ok(backup.json().backup.payload.tables.catalog_price_lists.some(list => list.code === "STANDARD-SALES"));
+    assert.ok(Array.isArray(backup.json().backup.payload.tables.catalog_price_list_items));
+    assert.ok(backup.json().backup.payload.tables.catalog_price_list_items.some(item => item.catalog_item_id === "catitem-pos-barcode-scanner"));
   } finally {
     await app.close();
   }

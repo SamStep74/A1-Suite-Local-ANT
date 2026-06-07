@@ -42,6 +42,7 @@ export function InventoryWorkspacePanel({ data, canMove, actionState, onCreateMo
   const locations = stockData.locations || [];
   const moves = movesData.moves || [];
   const categories = catalog.categories || [];
+  const priceLists = catalog.priceLists || [];
   const variantCount = items.reduce((total, item) => total + Number(item.variantCount ?? item.variants?.length ?? 0), 0);
 
   const stockableItems = useMemo(() => items.filter(item => item.status === "active" && item.trackStock), [items]);
@@ -107,6 +108,7 @@ export function InventoryWorkspacePanel({ data, canMove, actionState, onCreateMo
         <div className="meta-row">
           <span>{categories.length} categories</span>
           <span>{variantCount} variants</span>
+          <span>{priceLists.length} price lists</span>
           <span>{locations.length} governed locations</span>
         </div>
       </article>
