@@ -16,9 +16,36 @@
   "use strict";
 
   const DAY_MS = 24 * 60 * 60 * 1000;
+  const LEGACY_MONEY_SCALE = Object.freeze({
+    injected: false,
+    toMinor: (value) => Math.round((Number(value) || 0) * 100),
+    fromMinor: (value) => Math.round((Number(value) || 0)) / 100,
+    fromStored: (value) => Math.round((Number(value) || 0) * 100) / 100,
+    nonZero: (value) => Math.abs(value) > 0.0001,
+    balanced: (left, right) => Math.abs(left - right) < 0.01,
+  });
 
-  function roundMoney(value) {
-    return Math.round((Number(value) || 0) * 100) / 100;
+  function moneyScaleFromOptions(options = {}) {
+    const money = options.money || options.moneyScale;
+    if (!money || typeof money.toMinor !== "function" || typeof money.fromMinor !== "function") {
+      return LEGACY_MONEY_SCALE;
+    }
+    return {
+      injected: true,
+      subunit: Number.isInteger(money.subunit) ? money.subunit : 0,
+      toMinor: (value) => money.toMinor(value),
+      fromMinor: (value) => money.fromMinor(value),
+      // With an injected scale the accounting model stores integer minor units already.
+      fromStored: (value) => money.fromMinor(Math.round(Number(value) || 0)),
+      nonZero: (minorValue) => Math.abs(Math.round(Number(minorValue) || 0)) >= 1,
+      balanced: (leftMinor, rightMinor) => Math.round(leftMinor) === Math.round(rightMinor),
+    };
+  }
+
+  function roundMoney(value, options = {}) {
+    const scale = moneyScaleFromOptions(options);
+    if (!scale.injected) return scale.fromStored(value);
+    return scale.fromMinor(scale.toMinor(value));
   }
 
   function isValidDate(value) {
@@ -257,6 +284,7 @@
    * on server, client, and in tests.
    */
   function financialStatements(account, period = {}, options = {}) {
+    const scale = moneyScaleFromOptions(options);
     const accById = new Map((account.accounts || []).map((a) => [a.id, a]));
     const balances = calculateBalances(account, period);
     const groups = { asset: [], liability: [], equity: [], income: [], expense: [] };
@@ -266,20 +294,25 @@
       if (!acc || !groups[acc.type]) continue;
       // Assets and expenses are debit-natured; liabilities, equity, income are credit-natured.
       const debitNatured = acc.type === "asset" || acc.type === "expense";
-      const amount = roundMoney(debitNatured ? bal.balance : -bal.balance);
-      groups[acc.type].push({ id, code: acc.code, name: acc.name, amount });
+      const rawAmount = debitNatured ? bal.balance : -bal.balance;
+      const minorAmount = scale.injected ? Math.round(Number(rawAmount) || 0) : roundMoney(rawAmount);
+      groups[acc.type].push({ id, code: acc.code, name: acc.name, amount: scale.fromStored(rawAmount), minorAmount });
     }
 
-    const sum = (rows) => roundMoney(rows.reduce((s, r) => s + r.amount, 0));
-    const nonZero = (rows) => rows.filter((r) => Math.abs(r.amount) > 0.0001).sort((a, b) => String(a.code).localeCompare(String(b.code)));
+    const sumMinor = (rows) => rows.reduce((s, r) => s + r.minorAmount, 0);
+    const display = (value) => scale.injected ? scale.fromMinor(value) : roundMoney(value);
+    const publicRows = (rows) => rows
+      .filter((r) => scale.nonZero(scale.injected ? r.minorAmount : r.amount))
+      .sort((a, b) => String(a.code).localeCompare(String(b.code)))
+      .map(({ minorAmount, ...row }) => row);
 
-    const totalIncome = sum(groups.income);
-    const totalExpense = sum(groups.expense);
-    const netProfit = roundMoney(totalIncome - totalExpense);
+    const totalIncomeMinor = sumMinor(groups.income);
+    const totalExpenseMinor = sumMinor(groups.expense);
+    const netProfitMinor = totalIncomeMinor - totalExpenseMinor;
 
-    const totalAssets = sum(groups.asset);
-    const totalLiabilities = sum(groups.liability);
-    const totalEquity = sum(groups.equity);
+    const totalAssetsMinor = sumMinor(groups.asset);
+    const totalLiabilitiesMinor = sumMinor(groups.liability);
+    const totalEquityMinor = sumMinor(groups.equity);
 
     // Cash detection is locale-specific (RA cash = 25x; RF = 50/51/52/55/57). The caller may
     // inject `options.isCashAccount`; default to the historical RA /^25/ prefix.
@@ -294,31 +327,31 @@
       if (cashIds.has(entry.creditAccount)) cashOut += Number(entry.amount) || 0;
     });
 
-    const equityAndLiabilities = roundMoney(totalLiabilities + totalEquity + netProfit);
+    const equityAndLiabilitiesMinor = totalLiabilitiesMinor + totalEquityMinor + netProfitMinor;
 
     return {
       incomeStatement: {
-        income: nonZero(groups.income),
-        expense: nonZero(groups.expense),
-        totalIncome,
-        totalExpense,
-        netProfit,
+        income: publicRows(groups.income),
+        expense: publicRows(groups.expense),
+        totalIncome: display(totalIncomeMinor),
+        totalExpense: display(totalExpenseMinor),
+        netProfit: display(netProfitMinor),
       },
       balanceSheet: {
-        assets: nonZero(groups.asset),
-        liabilities: nonZero(groups.liability),
-        equity: nonZero(groups.equity),
-        totalAssets,
-        totalLiabilities,
-        totalEquity,
-        retainedEarnings: netProfit,
-        totalEquityAndLiabilities: equityAndLiabilities,
-        balanced: Math.abs(totalAssets - equityAndLiabilities) < 0.01,
+        assets: publicRows(groups.asset),
+        liabilities: publicRows(groups.liability),
+        equity: publicRows(groups.equity),
+        totalAssets: display(totalAssetsMinor),
+        totalLiabilities: display(totalLiabilitiesMinor),
+        totalEquity: display(totalEquityMinor),
+        retainedEarnings: display(netProfitMinor),
+        totalEquityAndLiabilities: display(equityAndLiabilitiesMinor),
+        balanced: scale.balanced(totalAssetsMinor, equityAndLiabilitiesMinor),
       },
       cashFlow: {
-        cashIn: roundMoney(cashIn),
-        cashOut: roundMoney(cashOut),
-        netCashChange: roundMoney(cashIn - cashOut),
+        cashIn: scale.fromStored(cashIn),
+        cashOut: scale.fromStored(cashOut),
+        netCashChange: scale.fromStored(cashIn - cashOut),
       },
     };
   }
@@ -410,6 +443,7 @@
   return {
     DAY_MS,
     roundMoney,
+    moneyScaleFromOptions,
     isValidDate,
     inPeriod,
     filterByPeriod,

@@ -1,6 +1,6 @@
 # RFC: RUB kopeck (minor-unit) precision migration
 
-**Status:** Draft / proposed — not yet implemented. Plan only.
+**Status:** In progress — S1 money-scale facade and S2 scale-aware shared accounting reports are implemented; S3-S8 remain.
 **Scope:** A1-Suite-Local money model. Add RUB kopeck precision end-to-end while keeping AMD
 and all Armenian (AM) behavior **byte-for-byte identical**.
 **Author:** generated from a codebase-wide money-precision analysis (5-facet sweep of
@@ -186,8 +186,8 @@ RUB (`subunit 2`, scale 100) is the **only** locale whose behavior changes.
 
 | # | Slice | Risk |
 |---|---|---|
-| **S1** | Money-scale utility behind the locale facade (`subunit`/`toMinor`/`fromMinor`/`roundToWholeMajor`); pure addition, unit-tested (AM identity, RU ×100 EPSILON-safe). | low |
-| **S2** | Make `accounting.js` scale-aware via options injection; retighten epsilons; ship Node + browser together. | medium |
+| **S1** | DONE — Money-scale utility behind the locale facade (`subunit`/`toMinor`/`fromMinor`/`roundToWholeMajor`); pure addition, unit-tested (AM identity, RU ×100 EPSILON-safe). | low |
+| **S2** | DONE — Make `accounting.js` scale-aware via options injection; retighten epsilons; ship Node + browser together. | medium |
 | **S3** | Migrate `ledger.js` posting + report sites; define `postEntry` minor-unit contract; fix balanced tolerance → `=== 0`. | **high** |
 | **S4** | Migrate `app.js` VAT splitters + gross-up / VAT-on-net / weighted-avg-cost sites; unify the 3 splitters; fix stray `/1.2` rate bypass. | **high** |
 | **S5** | Fix `app.js` input validators (regex+convert pairs) to honor subunit. | medium |
