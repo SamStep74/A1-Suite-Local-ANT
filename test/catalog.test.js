@@ -62,11 +62,18 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     )));
     assert.equal(scanner.trackStock, true);
     assert.equal(scanner.standardCost, 62000);
+    assert.equal(scanner.marginAmount, 23000);
+    assert.equal(scanner.marginPercent, 27.06);
 
     const scannerDetail = await app.inject({ method: "GET", url: "/api/catalog/items/catitem-pos-barcode-scanner", headers: { cookie: owner } });
     assert.equal(scannerDetail.statusCode, 200, scannerDetail.body);
     assert.equal(scannerDetail.json().item.variantCount, 2);
-    assert.ok(scannerDetail.json().item.variants.some(variant => variant.sku === "HW-BARCODE-SCANNER-BT" && variant.attributes.connectivity === "Bluetooth"));
+    assert.ok(scannerDetail.json().item.variants.some(variant => (
+      variant.sku === "HW-BARCODE-SCANNER-BT"
+      && variant.attributes.connectivity === "Bluetooth"
+      && variant.marginAmount === 23000
+      && variant.marginPercent === 27.06
+    )));
     app.db.prepare("UPDATE catalog_item_variants SET attributes_json = ? WHERE org_id = ? AND id = ?").run("{", "org-armosphera-demo", "catvar-pos-scanner-bt");
     const malformedVariantDetail = await app.inject({ method: "GET", url: "/api/catalog/items/catitem-pos-barcode-scanner", headers: { cookie: owner } });
     assert.equal(malformedVariantDetail.statusCode, 200, malformedVariantDetail.body);

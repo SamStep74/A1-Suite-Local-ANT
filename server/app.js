@@ -48230,6 +48230,7 @@ function formatCatalogItem(row) {
     unitOfMeasure: row.unit_of_measure,
     listPrice: row.list_price,
     standardCost: row.standard_cost,
+    ...catalogMarginEvidence(row.list_price, row.standard_cost),
     currency: row.currency,
     vatMode: row.vat_mode,
     trackStock: Boolean(row.track_stock),
@@ -48280,6 +48281,7 @@ function formatCatalogItemVariant(row) {
     unitOfMeasure: row.unitOfMeasure,
     listPrice: row.listPrice,
     standardCost: row.standardCost,
+    ...catalogMarginEvidence(row.listPrice, row.standardCost),
     currency: row.currency,
     status: row.status,
     createdAt: row.createdAt,
@@ -48290,6 +48292,16 @@ function formatCatalogItemVariant(row) {
 function safeCatalogAttributes(value) {
   const parsed = safeJson(value);
   return isPlainObject(parsed) ? parsed : {};
+}
+
+function catalogMarginEvidence(listPrice, standardCost) {
+  const price = Number(listPrice || 0);
+  const cost = Number(standardCost || 0);
+  const marginAmount = price - cost;
+  return {
+    marginAmount,
+    marginPercent: price > 0 ? Math.round((marginAmount / price) * 10000) / 100 : null
+  };
 }
 
 function normalizeCatalogItemQuery(query) {

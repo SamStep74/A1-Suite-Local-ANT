@@ -20,6 +20,10 @@ function variantLabel(item) {
   return count === 1 ? "1 variant" : `${count} variants`;
 }
 
+function marginLabel(item) {
+  return item?.marginPercent == null ? "margin n/a" : `margin ${Number(item.marginPercent).toLocaleString("hy-AM")}%`;
+}
+
 export function InventoryWorkspacePanel({ data, canMove, actionState, onCreateMove }) {
   const [catalogItemId, setCatalogItemId] = useState("");
   const [moveType, setMoveType] = useState("transfer");
@@ -138,7 +142,7 @@ export function InventoryWorkspacePanel({ data, canMove, actionState, onCreateMo
           {items.slice(0, 8).map(item => (
             <div className="row inventory-catalog" key={item.id}>
               <span>{item.sku} · {item.name} · {item.categoryName || item.itemType} · {item.unitOfMeasure || "unit"} · {variantLabel(item)}</span>
-              <strong>{amd(item.listPrice)}</strong>
+              <strong>{amd(item.listPrice)} · {marginLabel(item)}</strong>
             </div>
           ))}
           {items.length === 0 && <div className="row"><span>No catalog items yet</span></div>}
