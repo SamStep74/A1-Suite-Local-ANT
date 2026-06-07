@@ -7,6 +7,43 @@ const payroll = require("./payroll");
 
 const DEFAULT_EMAIL = "owner@armosphera.local";
 const DEFAULT_PASSWORD = "change-me-now";
+const MONEY_PRECISION_MIGRATION_ID = "rub-kopeck-minor-units-s8";
+const MONEY_PRECISION_COLUMN_NAMES = new Set([
+  "amount",
+  "average_cost",
+  "budget",
+  "credit_carried",
+  "estimated_value",
+  "first_month_total",
+  "gross",
+  "gross_salary",
+  "income_tax",
+  "input_vat",
+  "lifetime_value",
+  "list_price",
+  "monthly_ops_fee",
+  "monthly_total",
+  "net",
+  "open_receivables",
+  "output_vat",
+  "payable",
+  "pension",
+  "promised_amount",
+  "setup_fee",
+  "stamp_duty",
+  "standard_cost",
+  "subtotal",
+  "taxable_purchases",
+  "taxable_sales",
+  "total",
+  "total_cost",
+  "total_deductions",
+  "unit_cost",
+  "unit_price",
+  "value",
+  "vat",
+  "weighted_value"
+]);
 
 function activeSeedCurrency() {
   return locale.active().money.code;
@@ -19,6 +56,187 @@ function activeSeedLocale() {
 function currencyForOrg(db, orgId) {
   const row = db.prepare("SELECT currency FROM organizations WHERE id = ?").get(orgId);
   return String(row?.currency || activeSeedCurrency()).trim().toUpperCase();
+}
+
+function quoteIdentifier(name) {
+  const text = String(name || "");
+  if (!/^[A-Za-z_][A-Za-z0-9_]*$/.test(text)) {
+    throw new Error(`Unsafe SQLite identifier: ${text}`);
+  }
+  return `"${text}"`;
+}
+
+function moneySubunitForCurrency(currency) {
+  const code = String(currency || "").trim().toUpperCase();
+  if (code === locale.profileFor("am").money.code) return locale.profileFor("am").money.subunit;
+  if (code === locale.profileFor("ru").money.code) return locale.profileFor("ru").money.subunit;
+  throw new Error(`Unsupported money precision currency: ${code || "(blank)"}`);
+}
+
+function moneyPrecisionTargets(db) {
+  const tables = db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all();
+  const targets = [];
+  for (const table of tables) {
+    const columns = db.prepare(`PRAGMA table_info(${quoteIdentifier(table.name)})`).all();
+    const columnNames = new Set(columns.map((column) => column.name));
+    if (!columnNames.has("org_id")) continue;
+    const moneyColumns = columns
+      .filter((column) => MONEY_PRECISION_COLUMN_NAMES.has(column.name) && /INT/i.test(String(column.type || "")))
+      .map((column) => column.name);
+    if (moneyColumns.length === 0) continue;
+    targets.push({
+      table: table.name,
+      columns: moneyColumns,
+      hasCurrency: columnNames.has("currency")
+    });
+  }
+  return targets;
+}
+
+function checksumMoneyPrecisionTargets(db, targets) {
+  const globalHash = crypto.createHash("sha256");
+  const tableReports = [];
+  for (const target of targets) {
+    const tableHash = crypto.createHash("sha256");
+    const selectedColumns = ["org_id", ...target.columns].map(quoteIdentifier).join(", ");
+    const rows = db.prepare(`SELECT rowid AS __rowid, ${selectedColumns} FROM ${quoteIdentifier(target.table)} ORDER BY org_id, rowid`).all();
+    tableHash.update(target.table);
+    tableHash.update("\0");
+    tableHash.update(target.columns.join(","));
+    for (const row of rows) {
+      const values = target.columns.map((column) => row[column]);
+      tableHash.update("\0");
+      tableHash.update(String(row.org_id || ""));
+      tableHash.update("\0");
+      tableHash.update(String(row.__rowid));
+      tableHash.update("\0");
+      tableHash.update(JSON.stringify(values));
+    }
+    const checksum = tableHash.digest("hex");
+    globalHash.update(target.table);
+    globalHash.update("\0");
+    globalHash.update(checksum);
+    tableReports.push({
+      table: target.table,
+      columns: target.columns,
+      rowCount: rows.length,
+      checksum
+    });
+  }
+  return { checksum: globalHash.digest("hex"), tables: tableReports };
+}
+
+function assertMoneyPrecisionCurrencyInvariant(db, targets) {
+  const orgs = db.prepare("SELECT id, currency FROM organizations ORDER BY id").all();
+  for (const org of orgs) moneySubunitForCurrency(org.currency);
+  for (const target of targets) {
+    if (!target.hasCurrency) continue;
+    const mismatch = db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM ${quoteIdentifier(target.table)} AS item
+      JOIN organizations AS org ON org.id = item.org_id
+      WHERE UPPER(TRIM(item.currency)) <> UPPER(TRIM(org.currency))
+    `).get().count;
+    if (mismatch > 0) {
+      throw new Error(`Kopeck S8 currency invariant failed: ${target.table}.currency differs from organizations.currency for ${mismatch} row(s)`);
+    }
+  }
+}
+
+function ensureMoneyPrecisionMigration(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS money_precision_migrations (
+      id TEXT PRIMARY KEY,
+      applied_at TEXT NOT NULL,
+      status TEXT NOT NULL,
+      target_currencies TEXT NOT NULL,
+      table_count INTEGER NOT NULL,
+      column_count INTEGER NOT NULL,
+      rows_checked INTEGER NOT NULL,
+      rows_scaled INTEGER NOT NULL,
+      checksum_before TEXT NOT NULL,
+      checksum_after TEXT NOT NULL,
+      report TEXT NOT NULL
+    )
+  `);
+
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const existing = db.prepare("SELECT id FROM money_precision_migrations WHERE id = ?").get(MONEY_PRECISION_MIGRATION_ID);
+    if (existing) {
+      db.exec("COMMIT");
+      return;
+    }
+
+    const targets = moneyPrecisionTargets(db);
+    assertMoneyPrecisionCurrencyInvariant(db, targets);
+    const before = checksumMoneyPrecisionTargets(db, targets);
+    const orgs = db.prepare("SELECT id, currency FROM organizations ORDER BY id").all()
+      .map((org) => {
+        const currency = String(org.currency || "").trim().toUpperCase();
+        const subunit = moneySubunitForCurrency(currency);
+        return { id: org.id, currency, subunit, factor: 10 ** subunit };
+      });
+    let rowsScaled = 0;
+    const scaledByCurrency = {};
+    const scaledByTable = {};
+
+    for (const org of orgs) {
+      if (org.subunit <= 0) continue;
+      for (const target of targets) {
+        const rowCount = db.prepare(`SELECT COUNT(*) AS count FROM ${quoteIdentifier(target.table)} WHERE org_id = ?`).get(org.id).count;
+        if (rowCount === 0) continue;
+        const assignments = target.columns.map((column) => `${quoteIdentifier(column)} = ${quoteIdentifier(column)} * ${org.factor}`).join(", ");
+        db.prepare(`UPDATE ${quoteIdentifier(target.table)} SET ${assignments} WHERE org_id = ?`).run(org.id);
+        rowsScaled += rowCount;
+        scaledByCurrency[org.currency] = (scaledByCurrency[org.currency] || 0) + rowCount;
+        scaledByTable[target.table] = (scaledByTable[target.table] || 0) + rowCount;
+      }
+    }
+
+    const after = checksumMoneyPrecisionTargets(db, targets);
+    const rowCount = before.tables.reduce((sum, table) => sum + table.rowCount, 0);
+    const columnCount = targets.reduce((sum, target) => sum + target.columns.length, 0);
+    const report = {
+      migrationId: MONEY_PRECISION_MIGRATION_ID,
+      targets: targets.map((target) => ({ table: target.table, columns: target.columns })),
+      currencies: orgs.map((org) => ({ currency: org.currency, subunit: org.subunit, factor: org.factor })),
+      rowsScaled,
+      scaledByCurrency,
+      scaledByTable,
+      checksums: {
+        before: before.checksum,
+        after: after.checksum,
+        unchanged: before.checksum === after.checksum
+      },
+      before: before.tables,
+      after: after.tables
+    };
+
+    db.prepare(`
+      INSERT INTO money_precision_migrations (
+        id, applied_at, status, target_currencies, table_count, column_count,
+        rows_checked, rows_scaled, checksum_before, checksum_after, report
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      MONEY_PRECISION_MIGRATION_ID,
+      new Date().toISOString(),
+      "applied",
+      JSON.stringify(orgs.map((org) => ({ currency: org.currency, subunit: org.subunit, factor: org.factor }))),
+      targets.length,
+      columnCount,
+      rowCount,
+      rowsScaled,
+      before.checksum,
+      after.checksum,
+      JSON.stringify(report)
+    );
+    db.exec("COMMIT");
+  } catch (error) {
+    try { db.exec("ROLLBACK"); } catch {}
+    throw error;
+  }
 }
 
 function openDatabase(dbPath) {
@@ -47,6 +265,7 @@ function openDatabase(dbPath) {
   ensurePurchaseLayer(db);
   ensureMarketingLayer(db);
   ensureAnalyticsLayer(db);
+  ensureMoneyPrecisionMigration(db);
   return db;
 }
 
@@ -8029,6 +8248,7 @@ module.exports = {
   resolvePayrollConfig,
   resolveVatRate,
   __test: {
+    ensureMoneyPrecisionMigration,
     seedInventoryCore
   }
 };

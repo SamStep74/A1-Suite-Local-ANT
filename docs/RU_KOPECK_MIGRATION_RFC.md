@@ -1,8 +1,8 @@
 # RFC: RUB kopeck (minor-unit) precision migration
 
-**Status:** In progress — S1 money-scale facade, S2 scale-aware shared accounting reports, S3
+**Status:** Complete — S1 money-scale facade, S2 scale-aware shared accounting reports, S3
 ledger posting/report minor-unit contract, S4 app VAT/money splitters, S5 app input validators,
-S6 active currency defaults, and S7 RU tax rounding are implemented; S8 remains.
+S6 active currency defaults, S7 RU tax rounding, and S8 defensive data migration are implemented.
 **Scope:** A1-Suite-Local money model. Add RUB kopeck precision end-to-end while keeping AMD
 and all Armenian (AM) behavior **byte-for-byte identical**.
 **Author:** generated from a codebase-wide money-precision analysis (5-facet sweep of
@@ -162,12 +162,14 @@ Existing rows are **all currently AMD whole-dram integers**, so under Option D t
 **literal no-op for existing data**: AMD `subunit = 0` → factor `10^0 = 1` → `minor = round(major·1)`
 = the existing value unchanged. **No AMD value is rewritten.**
 
-Implement as an **idempotent, double-application-guarded** step (schema_version / migration marker)
-that, keyed off `currency → subunit`, multiplies a money column by `10^subunit` **only** for rows
-whose currency has `subunit > 0`. On the current all-AMD database every affected row is `subunit 0`,
-so the UPDATE multiplies by 1 — verified by **pre/post per-table checksum equality**. Assert the
-one-currency-per-org invariant before running, and first migrate any locale-selected seed org to the
-active currency/locale (`ru-RU`/`RUB` for `A1_LOCALE=ru`) so the scale source is not stale.
+Implemented as an **idempotent, double-application-guarded** step in `server/db.js` with a
+`money_precision_migrations` marker. The migration discovers tenant money targets from SQLite
+schema metadata, verifies every currency-bearing target row matches `organizations.currency`, records
+pre/post per-table SHA-256 checksums, and multiplies money columns by `10^subunit` **only** for orgs
+whose currency has `subunit > 0`. On AMD databases every affected row remains `subunit 0`, so no
+money value is rewritten and pre/post checksums are equal. Fresh `A1_LOCALE=ru` databases seed
+`ru-RU`/`RUB` first, then scale the legacy whole-ruble seed rows into stored kopecks once and record
+the report under the marker.
 
 **Forward path for RUB:** a new RUB tenant writes integer kopecks from day one via the facade
 (`toMinor` at every write site) — no backfill ever needed. The `subunit > 0` branch exists only to
@@ -210,7 +212,7 @@ RUB (`subunit 2`, scale 100) is the **only** locale whose behavior changes.
 | **S5** | DONE — Fix `app.js` input validators (regex+convert pairs) to honor subunit. | medium |
 | **S6** | DONE — Kill hardcoded `'AMD'` (6 INSERTs + 15 column DEFAULTs) → derive from `locale.money.code`. | medium |
 | **S7** | DONE — RU tax/contribution whole-ruble rounding (`roundToWholeMajor`) for НДФЛ / взносы; storage stays kopecks. | medium |
-| **S8** | Defensive no-op data migration (idempotent, subunit-keyed) + RUB enablement; checksum verification. | low |
+| **S8** | DONE — Defensive no-op data migration (idempotent, subunit-keyed) + RUB enablement; checksum verification. | low |
 
 **S4 checkpoint proof (2026-06-07):** `server/app.js` now routes project billing, workflow draft
 invoice creation, CRM quote totals, purchase explicit unit costs, stock explicit unit costs, and
@@ -259,6 +261,17 @@ regression pass (`node --test --test-concurrency=4 --test-timeout=60000 test/loc
 `git diff --check`; full `npm test` (799 pass, 0 fail, 0 cancelled); `npm run build:ui` with the
 existing Vite large-chunk warning; and fresh smoke (`apps=12`, `kpis=4`).
 
+**S8 checkpoint proof (2026-06-07):** `server/db.js` now runs the final defensive money-precision
+migration after seed/repair layers. The migration marker is inserted once, checksum reports cover the
+money target tables and columns, AMD legacy rows stay unchanged with equal before/after checksums,
+RUB legacy rows scale from whole rubles to kopecks once, mixed per-row currency evidence fails before
+the marker is written, and fresh RU seeds store money as kopecks behind the marker. Verification
+passed: syntax checks for `server/db.js` and `test/kopeck-s8-data-migration.test.js`; focused S8
+migration regression pass (`node --test --test-concurrency=4 --test-timeout=60000 test/kopeck-s8-data-migration.test.js`, 4 pass, 0 fail);
+wider kopeck/accounting regression pass (`node --test --test-concurrency=4 --test-timeout=60000 test/kopeck-s8-data-migration.test.js test/kopeck-s6-active-currency-defaults.test.js test/kopeck-s7-ru-tax-rounding.test.js test/kopeck-s5-app-validators.test.js test/kopeck-input-validators.test.js test/project-billing.test.js test/catalog.test.js test/purchase.test.js test/payroll-endpoints.test.js test/ledger-ru-posting.test.js test/ledger-ru-payroll-contributions.test.js test/vat-rate-versioning.test.js`, 57 pass, 0 fail);
+`git diff --check`; full `npm test` (803 pass, 0 fail, 0 cancelled); `npm run build:ui` with the
+existing Vite large-chunk warning; and fresh smoke (`apps=12`, `kpis=4`).
+
 ---
 
 ## 9. Key risks & mitigations
@@ -278,7 +291,8 @@ existing Vite large-chunk warning; and fresh smoke (`apps=12`, `kpis=4`).
   uses a distinct whole-ruble rounder for НДФЛ and страховые взносы.*
 - **Float temptation** (`metric_value REAL` exists) — re-introduces the bug. *Mitigation: REAL ruled
   out for money.*
-- **One-currency-per-org invariant** must hold for runtime scale resolution. *Mitigation: assert in S8.*
+- **One-currency-per-org invariant** must hold for runtime scale resolution. *Mitigation: S8 asserts
+  currency-bearing rows match `organizations.currency` before writing the migration marker.*
 
 ---
 
