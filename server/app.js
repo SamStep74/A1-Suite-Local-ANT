@@ -3110,11 +3110,11 @@ function registerApi(app, db, options = {}) {
     const agg = db.prepare("SELECT COALESCE(SUM(minutes), 0) AS minutes, COUNT(*) AS entries FROM project_time_entries WHERE org_id = ? AND project_id = ? AND billed_invoice_id IS NULL").get(user.org_id, project.id);
     const unbilledMinutes = agg.minutes;
     const hours = Math.round((unbilledMinutes / 60) * 100) / 100;
-    const total = hourlyRate > 0 ? Math.round((unbilledMinutes / 60) * hourlyRate) : 0;
+    const grossMajor = hourlyRate > 0 ? (unbilledMinutes / 60) * hourlyRate : 0;
     // VAT rate in force on the as-of date (defaults to today); the bill-time route freezes
     // the rate on the chosen issue date, so the preview accepts the same asOf for parity.
     const vatRate = resolveVatRate(db, user.org_id, asOf);
-    const { subtotal, vat } = splitVatInclusive(total, vatRate);
+    const { subtotal, vat, total } = splitVatInclusive(grossMajor, vatRate);
     return { preview: { projectId: project.id, customerId: project.customerId, unbilledMinutes, unbilledEntries: agg.entries, hours, hourlyRate, subtotal, vat, total, vatRate, currency: "AMD" } };
   });
 
@@ -3146,12 +3146,12 @@ function registerApi(app, db, options = {}) {
     const unbilled = db.prepare("SELECT id, minutes FROM project_time_entries WHERE org_id = ? AND project_id = ? AND billed_invoice_id IS NULL").all(user.org_id, project.id);
     const totalMinutes = unbilled.reduce((sum, e) => sum + (Number(e.minutes) || 0), 0);
     if (totalMinutes <= 0) { const e = new Error("No unbilled time to invoice"); e.statusCode = 400; throw e; }
-    const total = Math.round((totalMinutes / 60) * hourlyRate);
-    if (!(total > 0)) { const e = new Error("Computed invoice total is zero"); e.statusCode = 400; throw e; }
+    const grossMajor = (totalMinutes / 60) * hourlyRate;
     // Freeze the VAT split at the rate in force on the invoice's issue date (effective-dated),
     // so recomputing a historical period uses the rate that applied THEN, not today's.
     const vatRate = resolveVatRate(db, user.org_id, issueDate);
-    const { subtotal, vat } = splitVatInclusive(total, vatRate);
+    const { subtotal, vat, total } = splitVatInclusive(grossMajor, vatRate);
+    if (!(total > 0)) { const e = new Error("Computed invoice total is zero"); e.statusCode = 400; throw e; }
     const draftId = randomId("draft-inv");
     const number = `DRAFT-PRJ-${project.id.replace(/^proj-/, "").toUpperCase().replace(/[^A-Z0-9]+/g, "-").slice(0, 18)}-${periodKey.replace("-", "")}`;
     const dueDate = addDays(issueDate, dueDays);
@@ -4589,15 +4589,39 @@ function randomId(prefix) {
   return `${prefix}-${crypto.randomBytes(8).toString("hex")}`;
 }
 
-// VAT-inclusive split at a given rate: a gross `total` already includes VAT at `rate`
-// (e.g. 0.2), so subtotal = round(total / (1 + rate)) and vat = total − subtotal. Centralizes
-// the formerly-hardcoded /1.2 so every call site is rate-aware (the rate comes from
-// resolveVatRate, effective-dated as of the invoice's issue date).
+function activeMoney() {
+  return locale.active().money;
+}
+
+function toMinorAmount(value) {
+  const minor = activeMoney().toMinor(value);
+  return Number.isSafeInteger(minor) ? minor : 0;
+}
+
+function fromMinorAmount(value) {
+  return activeMoney().fromMinor(Math.round(Number(value) || 0));
+}
+
+function normalizeVatFraction(rate) {
+  return Number(rate) > 0 ? Number(rate) : 0.2;
+}
+
+// VAT-inclusive split at a given rate: a gross `total` is supplied in major units and already
+// includes VAT at `rate` (e.g. 0.2). The returned amounts are stored integer minor units.
 function splitVatInclusive(total, rate) {
-  const t = Math.round(Number(total) || 0);
-  const r = Number(rate) > 0 ? Number(rate) : 0.2;
+  return splitStoredVatInclusive(toMinorAmount(total), rate);
+}
+
+function splitStoredVatInclusive(totalMinor, rate) {
+  const t = Math.round(Number(totalMinor) || 0);
+  const r = normalizeVatFraction(rate);
   const subtotal = Math.round(t / (1 + r));
-  return { subtotal, vat: t - subtotal };
+  return { subtotal, vat: t - subtotal, total: t };
+}
+
+function vatFromStoredNet(subtotalMinor, rate) {
+  const vat = Math.round((Math.round(Number(subtotalMinor) || 0)) * normalizeVatFraction(rate));
+  return Number.isSafeInteger(vat) ? vat : 0;
 }
 
 function getMfaStatus(db, user) {
@@ -48704,7 +48728,7 @@ function resolveStockMoveUnitCost(db, orgId, item, input, sourceLocation) {
     `).get(orgId, item.id, sourceLocation.id);
     return quant ? quant.average_cost : item.standardCost || 0;
   }
-  return input.unitCost || item.standardCost || 0;
+  return input.unitCost ? toMinorAmount(input.unitCost) : item.standardCost || 0;
 }
 
 function adjustStockQuant(db, orgId, catalogItemId, locationId, quantityDelta, unitCost, now) {
@@ -49796,13 +49820,13 @@ function buildPurchaseOrderLine(db, orgId, line, orderDate, vatRate, vendorId = 
     err.statusCode = 422;
     throw err;
   }
-  const explicitUnitCost = line.unitCost || 0;
+  const explicitUnitCost = line.unitCost ? toMinorAmount(line.unitCost) : 0;
   const vendorPrice = !explicitUnitCost && vendorId ? getBestPurchaseVendorPrice(db, orgId, vendorId, item.id, line.quantity, orderDate) : null;
   const unitCost = explicitUnitCost || vendorPrice?.unitCost || item.standardCost;
   if (!Number.isSafeInteger(unitCost) || unitCost <= 0) throwInvalidPurchaseMetadata();
   const subtotal = line.quantity * unitCost;
   if (!Number.isSafeInteger(subtotal)) throwInvalidPurchaseMetadata();
-  const vat = item.vatMode === "standard" ? Math.round(subtotal * vatRate) : 0;
+  const vat = item.vatMode === "standard" ? vatFromStoredNet(subtotal, vatRate) : 0;
   if (!Number.isSafeInteger(vat) || !Number.isSafeInteger(subtotal + vat)) throwInvalidPurchaseMetadata();
   return {
     catalogItemId: item.id,
@@ -50518,7 +50542,8 @@ function normalizeCrmQuoteLine(line, index) {
   const catalogItemId = normalizeCrmQuoteLineCatalogItemId(line);
   const description = normalizeCrmQuoteLineText(line, "description", { required: !catalogItemId, minLength: 3, maxLength: 500 });
   const quantity = normalizeCrmQuoteLineAmount(line, "quantity", { fallback: 1, min: 1, max: 100000 });
-  const unitPrice = normalizeCrmQuoteLineAmount(line, "unitPrice", { altField: "unit_price", required: !catalogItemId, fallback: 0, min: catalogItemId ? 0 : 1, max: 1000000000 });
+  const unitPriceMajor = normalizeCrmQuoteLineAmount(line, "unitPrice", { altField: "unit_price", required: !catalogItemId, fallback: 0, min: catalogItemId ? 0 : 1, max: 1000000000 });
+  const unitPrice = unitPriceMajor > 0 ? toMinorAmount(unitPriceMajor) : 0;
   const total = quantity * unitPrice;
   if (!catalogItemId && (!Number.isSafeInteger(total) || total <= 0 || total > 1000000000000)) {
     throwInvalidCrmQuoteMetadata();
@@ -50573,18 +50598,16 @@ function resolveCatalogQuoteLine(db, orgId, line) {
 }
 
 function calculateCrmQuoteTotals(lines, vatRate = 0.2) {
-  const standardVatRate = Number.isFinite(vatRate) && vatRate >= 0 ? vatRate : 0.2;
   return lines.reduce((totals, line) => {
     const lineTotal = line.total;
     const lineVatMode = line.vatMode || "standard";
-    const lineSubtotal = lineVatMode === "standard"
-      ? Math.round(lineTotal / (1 + standardVatRate))
-      : lineTotal;
-    const lineVat = lineVatMode === "standard" ? lineTotal - lineSubtotal : 0;
+    const split = lineVatMode === "standard"
+      ? splitStoredVatInclusive(lineTotal, vatRate)
+      : { subtotal: lineTotal, vat: 0, total: lineTotal };
     return {
-      subtotal: totals.subtotal + lineSubtotal,
-      vat: totals.vat + lineVat,
-      total: totals.total + lineTotal
+      subtotal: totals.subtotal + split.subtotal,
+      vat: totals.vat + split.vat,
+      total: totals.total + split.total
     };
   }, { subtotal: 0, vat: 0, total: 0 });
 }
@@ -54051,9 +54074,11 @@ function createDraftInvoiceFromApproval(db, user, approval, now) {
 
   const quoteId = String(payload.quoteId || "").trim();
   const quote = quoteId ? getQuote(db, user.org_id, quoteId) : null;
-  const total = quote && quote.dealId === deal.id ? Number(quote.total || 0) : Number(deal.value || 0);
-  const subtotal = Math.round(total / 1.2);
-  const vat = total - subtotal;
+  const vatRate = resolveVatRate(db, user.org_id, issueDate);
+  const split = quote && quote.dealId === deal.id
+    ? splitStoredVatInclusive(quote.total, vatRate)
+    : splitVatInclusive(Number(deal.value || 0), vatRate);
+  const { subtotal, vat, total } = split;
   const draftId = randomId("draft-inv");
   const number = `DRAFT-${deal.id.replace(/^deal-/, "").toUpperCase().replace(/[^A-Z0-9]+/g, "-")}`;
   const dueDate = addDays(issueDate, Number(payload.dueDays || 14));
@@ -54151,9 +54176,9 @@ function postDraftInvoice(db, user, draftInvoice, body) {
   ledger.postInvoicePosted(db, user.org_id, {
     id: invoiceId,
     number,
-    total: draftInvoice.total,
-    vat: draftInvoice.vat,
-    subtotal: draftInvoice.subtotal,
+    total: fromMinorAmount(draftInvoice.total),
+    vat: fromMinorAmount(draftInvoice.vat),
+    subtotal: fromMinorAmount(draftInvoice.subtotal),
     period_key: draftInvoice.periodKey,
     date: draftInvoice.issueDate
   });

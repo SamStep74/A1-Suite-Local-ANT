@@ -9,6 +9,18 @@ async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
   return res.headers["set-cookie"];
 }
 
+async function withLocale(value, fn) {
+  const prev = process.env.A1_LOCALE;
+  if (value === undefined) delete process.env.A1_LOCALE;
+  else process.env.A1_LOCALE = value;
+  try {
+    return await fn();
+  } finally {
+    if (prev === undefined) delete process.env.A1_LOCALE;
+    else process.env.A1_LOCALE = prev;
+  }
+}
+
 async function createBillableProject(app, cookie) {
   // A project linked to a customer, with 3 hours (180 min) of logged time.
   const proj = (await app.inject({ method: "POST", url: "/api/projects", headers: { cookie },
@@ -70,6 +82,51 @@ test("project-billing: unbilled time → posted invoice → ledger; entries mark
     const preview3 = (await app.inject({ method: "GET", url: `/api/projects/${proj}/billing-preview?hourlyRate=10000`, headers: { cookie: owner } })).json();
     assert.strictEqual(preview3.preview.unbilledMinutes, 30, "new entry is unbilled");
   } finally { await app.close(); }
+});
+
+test("project-billing: RU billing stores kopecks while ledger reports rubles", async () => {
+  await withLocale("ru", async () => {
+    const app = buildApp({ dbPath: ":memory:" });
+    try {
+      await app.ready();
+      const owner = await login(app);
+      const orgId = app.db.prepare("SELECT org_id FROM users WHERE email = ?").get(DEFAULT_EMAIL).org_id;
+      app.db.prepare("INSERT OR IGNORE INTO tax_rates (id, org_id, kind, effective_date, config, note, created_at) VALUES (?, ?, 'vat', ?, ?, ?, ?)")
+        .run(`taxrate-${orgId}-ru-vat-2026`, orgId, "2026-01-01", JSON.stringify({ rate: 0.22 }), "RF 2026 VAT 22%", new Date().toISOString());
+
+      const projectId = (await app.inject({
+        method: "POST",
+        url: "/api/projects",
+        headers: { cookie: owner },
+        payload: { name: "RUB billing", customerId: "cust-ani", status: "active" }
+      })).json().project.id;
+      await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/time-entries`,
+        headers: { cookie: owner },
+        payload: { minutes: 60, entryDate: "2026-05-10", note: "RUB hour" }
+      });
+
+      const billed = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/bill-time`,
+        headers: { cookie: owner },
+        payload: { hourlyRate: 1000, issueDate: "2026-05-15" }
+      });
+      assert.strictEqual(billed.statusCode, 200, billed.body);
+      assert.strictEqual(billed.json().invoice.total, 100000);
+      assert.strictEqual(billed.json().invoice.vat, 18033);
+
+      const tb = (await app.inject({ method: "GET", url: "/api/finance/trial-balance", headers: { cookie: owner } })).json();
+      const byCode = Object.fromEntries(tb.rows.map(row => [String(row.code), row]));
+      assert.strictEqual(byCode["62"].debit, 1000);
+      assert.strictEqual(byCode["90"].credit, 819.67);
+      assert.strictEqual(byCode["68"].credit, 180.33);
+      assert.strictEqual(tb.balanced, true);
+    } finally {
+      await app.close();
+    }
+  });
 });
 
 test("project-billing: rejects malformed bill-time metadata before persistence", async () => {

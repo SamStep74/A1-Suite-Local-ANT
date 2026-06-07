@@ -14,6 +14,18 @@ async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
   return response.headers["set-cookie"];
 }
 
+async function withLocale(value, fn) {
+  const prev = process.env.A1_LOCALE;
+  if (value === undefined) delete process.env.A1_LOCALE;
+  else process.env.A1_LOCALE = value;
+  try {
+    return await fn();
+  } finally {
+    if (prev === undefined) delete process.env.A1_LOCALE;
+    else process.env.A1_LOCALE = prev;
+  }
+}
+
 test("catalog: seeded product spine is auth-gated and role scoped", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -410,4 +422,39 @@ test("catalog: quote totals respect catalog VAT modes", async () => {
   } finally {
     await app.close();
   }
+});
+
+test("catalog: RU custom quote lines store kopecks and split VAT per line", async () => {
+  await withLocale("ru", async () => {
+    const app = buildApp({ dbPath: ":memory:" });
+    try {
+      await app.ready();
+      const owner = await login(app);
+      const orgId = "org-armosphera-demo";
+      app.db.prepare("INSERT OR IGNORE INTO tax_rates (id, org_id, kind, effective_date, config, note, created_at) VALUES (?, ?, 'vat', ?, ?, ?, ?)")
+        .run(`taxrate-${orgId}-ru-vat-2026`, orgId, "2026-01-01", JSON.stringify({ rate: 0.22 }), "RF 2026 VAT 22%", new Date().toISOString());
+
+      const response = await app.inject({
+        method: "POST",
+        url: "/api/crm/quotes",
+        headers: { cookie: owner },
+        payload: {
+          customerId: "cust-van",
+          dealId: "deal-van-season",
+          title: "RUB custom quote",
+          validUntil: "2026-07-31",
+          lines: [{ description: "RUB setup", quantity: 1, unitPrice: 1221 }]
+        }
+      });
+      assert.equal(response.statusCode, 200, response.body);
+      const quote = response.json().quote;
+      assert.equal(quote.total, 122100);
+      assert.equal(quote.subtotal, 100082);
+      assert.equal(quote.vat, 22018);
+      assert.equal(quote.lines[0].unitPrice, 122100);
+      assert.equal(quote.lines[0].total, 122100);
+    } finally {
+      await app.close();
+    }
+  });
 });
