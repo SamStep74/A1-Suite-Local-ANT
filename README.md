@@ -8,8 +8,9 @@
 
 Sovereign, self-hostable Armenian business operating system with phased one-to-one
 Zoho One functional parity. Runs entirely on your own server: data and database stay
-local, and outbound network is off by default. AI provider switching (local model by
-default, cloud opt-in) is scaffolded for an upcoming milestone.
+local, and outbound network is off by default. The Copilot uses local deterministic
+guidance unless OpenRouter and any Open Notebook source are explicitly configured
+and allowed through the same deny-until-listed egress gate.
 
 Built by evolving the Armosphera-One prototype; folds in HayHashvapah Finance
 (incl. RA-law RAG) and Armosphera CRM assets over the roadmap. See the design spec at
@@ -46,10 +47,11 @@ Demo owner:
 - Outbound network is OFF by default. To allow specific outbound calls (e.g. opt-in
   webhooks or cloud AI), set `ARMOSPHERA_ONE_ALLOW_EGRESS=1` and list hosts in
   `ARMOSPHERA_ONE_EGRESS_ALLOWLIST` (comma-separated). Loopback is always allowed.
-- AI provider config is scaffolded but not yet wired to a live call path in this
-  foundation milestone. The intended posture: a local model by default
-  (`AI_PROVIDER=local`, Ollama on `127.0.0.1:11434`), with cloud providers opt-in per
-  deployment and subject to the same egress allowlist above.
+- The AI core is wired through the vendored `@a1/ai` package. OpenRouter is the
+  single opt-in cloud provider for the live model menu, and Open Notebook can be
+  enabled as an advisory supplemental source beside the local RA-law RAG. With no
+  key configured or egress disabled, the model menu falls back to bundled entries
+  and Copilot responses stay offline-deterministic. See `docs/AI.md`.
 
 ## Armenian localization & fiscal engines
 
@@ -120,9 +122,14 @@ left in a broken state.
 | `ARMOSPHERA_ONE_DB` | Legacy DB file path override | `<data dir>/armosphera-one.db` |
 | `ARMOSPHERA_ONE_ALLOW_EGRESS` | `1` to permit outbound calls | off |
 | `ARMOSPHERA_ONE_EGRESS_ALLOWLIST` | Allowed outbound hosts (comma-separated) | empty |
-| `AI_PROVIDER` | Scaffolding (not yet wired): `local` / `claude` / `openai` / `auto` | `local` |
-| `LOCAL_AI_BASE_URL` | Local AI endpoint (Ollama, OpenAI-compatible) | `http://127.0.0.1:11434/v1` |
-| `LOCAL_AI_MODEL` | Local AI model | `gemma3:4b` |
+| `OPENROUTER_API_KEY` | Optional OpenRouter key for the egress-gated live model menu and Copilot policy | empty |
+| `A1_MODEL_DEFAULT` / `A1_MODEL_COPILOT` / `A1_MODEL_FINANCE` / `A1_MODEL_CRM` / `A1_MODEL_DOCS` | Optional per-aspect model policy overrides; empty means auto/live-menu selection | empty |
+| `OPEN_NOTEBOOK_ENABLED` | `1` to include Open Notebook hits as advisory supplemental Copilot sources | off |
+| `OPEN_NOTEBOOK_BASE_URL` | Open Notebook endpoint, allowed only when egress policy permits that host | empty |
+| `OPEN_NOTEBOOK_API_KEY` | Optional Open Notebook API key, stored/redacted like other AI secrets | empty |
+| `AI_PROVIDER` | Local-first legacy provider hint retained for compatibility; Copilot cloud provider is OpenRouter | `local` |
+| `LOCAL_AI_BASE_URL` | Local AI endpoint (Ollama, OpenAI-compatible) retained for local-first compatibility | `http://127.0.0.1:11434/v1` |
+| `LOCAL_AI_MODEL` | Local AI model retained for local-first compatibility | `gemma3:4b` |
 | `ARMOSPHERA_ONE_LAWS_DB` | Override the legal KB path | `<data dir>/laws.sqlite` |
 | `LAW_EMBED_MODEL` | Local embedder model for semantic search | `bge-m3` |
 | `LAW_EMBED_BASE` | Local embedder base URL (loopback) | `http://127.0.0.1:11434` |
