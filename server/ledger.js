@@ -3,6 +3,7 @@ const crypto = require("node:crypto");
 const accounting = require("./accounting");
 const locale = require("./locale");
 const { projectAccount, chartSourceFor } = require("./chartProjection");
+const { postingCodesFor } = require("./postingCodes");
 
 // Locale-aware chart of accounts. The active fiscal profile (A1_LOCALE → "am" default | "ru")
 // is resolved through the locale facade and projected onto the seeding shape {code,name,type}:
@@ -215,16 +216,18 @@ function postInvoicePosted(db, orgId, invoice) {
   const net = hasSubtotal ? Math.round(Number(invoice.subtotal) || 0) : total - vat;
   const date = invoice.date || invoice.issue_date || new Date().toISOString().slice(0, 10);
   const periodKey = invoice.period_key || "";
+  const C = postingCodesFor(locale.activeLocale());
   const ids = [];
-  if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: "221", creditCode: "611", amount: net, memo: `Invoice ${invoice.number || invoice.id}`, sourceType: "invoice", sourceId: invoice.id, periodKey }));
-  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: "221", creditCode: "524", amount: vat, memo: `VAT ${invoice.number || invoice.id}`, sourceType: "invoice", sourceId: invoice.id, periodKey }));
+  if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: C.receivable, creditCode: C.revenue, amount: net, memo: `Invoice ${invoice.number || invoice.id}`, sourceType: "invoice", sourceId: invoice.id, periodKey }));
+  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: C.receivable, creditCode: C.outputVat, amount: vat, memo: `VAT ${invoice.number || invoice.id}`, sourceType: "invoice", sourceId: invoice.id, periodKey }));
   return ids.filter(Boolean);
 }
 
 function postPaymentReceived(db, orgId, payment) {
+  const C = postingCodesFor(locale.activeLocale());
   return [postEntry(db, orgId, {
     date: payment.date || payment.paid_at || new Date().toISOString().slice(0, 10),
-    debitCode: "251", creditCode: "221", amount: payment.amount,
+    debitCode: C.cash, creditCode: C.receivable, amount: payment.amount,
     memo: `Payment ${payment.id}`, sourceType: "payment", sourceId: payment.id, periodKey: payment.period_key || ""
   })].filter(Boolean);
 }
@@ -258,9 +261,10 @@ function postExpensePosted(db, orgId, expense) {
   const net = hasSubtotal ? Math.round(Number(expense.subtotal) || 0) : total - vat;
   const date = expense.date || expense.incurred_on || new Date().toISOString().slice(0, 10);
   const periodKey = expense.period_key || "";
+  const C = postingCodesFor(locale.activeLocale());
   const ids = [];
-  if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: "711", creditCode: "521", amount: net, memo: `Expense ${expense.description || expense.id}`, sourceType: "expense", sourceId: expense.id, periodKey }));
-  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: INPUT_VAT_ACCOUNT_CODE, creditCode: "521", amount: vat, memo: `Input VAT ${expense.id}`, sourceType: "expense", sourceId: expense.id, periodKey }));
+  if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: C.expense, creditCode: C.payable, amount: net, memo: `Expense ${expense.description || expense.id}`, sourceType: "expense", sourceId: expense.id, periodKey }));
+  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: C.inputVat, creditCode: C.payable, amount: vat, memo: `Input VAT ${expense.id}`, sourceType: "expense", sourceId: expense.id, periodKey }));
   return ids.filter(Boolean);
 }
 
@@ -299,9 +303,10 @@ function postPayrollRun(db, orgId, run) {
   const deductions = Math.round(Number(run.totalDeductions != null ? run.totalDeductions : gross - net) || 0);
   const date = run.date || run.run_date || new Date().toISOString().slice(0, 10);
   const periodKey = run.period_key || "";
+  const C = postingCodesFor(locale.activeLocale());
   const ids = [];
-  if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: "714", creditCode: "521", amount: net, memo: `Payroll net ${run.employeeName || run.id}`, sourceType: "payroll", sourceId: run.id, periodKey }));
-  if (deductions > 0) ids.push(postEntry(db, orgId, { date, debitCode: "714", creditCode: "525", amount: deductions, memo: `Payroll withholdings ${run.id}`, sourceType: "payroll", sourceId: run.id, periodKey }));
+  if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: C.payrollExpense, creditCode: C.payrollNet, amount: net, memo: `Payroll net ${run.employeeName || run.id}`, sourceType: "payroll", sourceId: run.id, periodKey }));
+  if (deductions > 0) ids.push(postEntry(db, orgId, { date, debitCode: C.payrollExpense, creditCode: C.payrollWithholdings, amount: deductions, memo: `Payroll withholdings ${run.id}`, sourceType: "payroll", sourceId: run.id, periodKey }));
   return ids.filter(Boolean);
 }
 
@@ -312,16 +317,18 @@ function postBillPosted(db, orgId, bill) {
   const net = hasSubtotal ? Math.round(Number(bill.subtotal) || 0) : total - vat;
   const date = bill.date || bill.bill_date || new Date().toISOString().slice(0, 10);
   const periodKey = bill.period_key || "";
+  const C = postingCodesFor(locale.activeLocale());
   const ids = [];
-  if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: "711", creditCode: "521", amount: net, memo: `Bill ${bill.supplier || bill.id}`, sourceType: "bill", sourceId: bill.id, periodKey }));
-  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: INPUT_VAT_ACCOUNT_CODE, creditCode: "521", amount: vat, memo: `Bill VAT ${bill.id}`, sourceType: "bill", sourceId: bill.id, periodKey }));
+  if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: C.expense, creditCode: C.payable, amount: net, memo: `Bill ${bill.supplier || bill.id}`, sourceType: "bill", sourceId: bill.id, periodKey }));
+  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: C.inputVat, creditCode: C.payable, amount: vat, memo: `Bill VAT ${bill.id}`, sourceType: "bill", sourceId: bill.id, periodKey }));
   return ids.filter(Boolean);
 }
 
 function postBillPayment(db, orgId, payment) {
+  const C = postingCodesFor(locale.activeLocale());
   return [postEntry(db, orgId, {
     date: payment.date || payment.paid_at || new Date().toISOString().slice(0, 10),
-    debitCode: "521", creditCode: "251", amount: payment.amount,
+    debitCode: C.payable, creditCode: C.cash, amount: payment.amount,
     memo: `Bill payment ${payment.id}`, sourceType: "bill_payment", sourceId: payment.id, periodKey: payment.period_key || ""
   })].filter(Boolean);
 }
