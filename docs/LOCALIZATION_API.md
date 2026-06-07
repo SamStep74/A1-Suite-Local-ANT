@@ -63,8 +63,11 @@ Locale-specific behavior of the existing routes:
 > ⏳ **Remaining:** RUB **kopeck precision** (whole-ruble v1 today, would need a DB migration);
 > ledger-derived RU VAT reporting needs 68 **subaccounts** (68.01/68.02) to separate НДС from
 > НДФЛ — until then `ledger.vatReport` stays indicative for RU and the clean RF НДС settlement
-> is `POST /api/finance/vat-return/compute`; and the employer-contribution payroll leg
-> (страховые взносы → 69). AM is byte-identical throughout.
+> is `POST /api/finance/vat-return/compute`. AM is byte-identical throughout.
+>
+> ✅ **Employer payroll contributions** — `postPayrollRun` posts the RU страховые взносы leg
+> (DR expense / CR **69**) when `employerContributions` is supplied; the RA model has no such
+> account, so AM payroll is unchanged.
 
 ## Reference / lookups (GET)
 
