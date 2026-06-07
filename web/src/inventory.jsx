@@ -51,6 +51,8 @@ export function InventoryWorkspacePanel({ data, canMove, actionState, onCreateMo
   const quantityBreakCount = priceLists.reduce((total, list) => (
     total + (list.items || []).filter(item => Number(item.minQuantity || 1) > 1).length
   ), 0);
+  const categoryMarginRuleCount = marginRules.filter(rule => rule.scopeType === "category").length;
+  const categoryMarginRuleLabel = categoryMarginRuleCount === 1 ? "category rule" : "category rules";
   const marginAlertCount = priceLists.reduce((total, list) => (
     total + (list.items || []).filter(item => item.marginStatus === "below_minimum").length
   ), 0);
@@ -122,6 +124,7 @@ export function InventoryWorkspacePanel({ data, canMove, actionState, onCreateMo
           <span>{discountPriceListCount} discount lists</span>
           <span>{quantityBreakCount} quantity breaks</span>
           <span>{marginRules.length} margin rules</span>
+          <span>{categoryMarginRuleCount} {categoryMarginRuleLabel}</span>
           <span>{marginAlertCount} margin alerts</span>
           <span>{locations.length} governed locations</span>
         </div>

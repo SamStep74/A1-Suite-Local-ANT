@@ -53,6 +53,11 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.equal(stockableMarginRule.scopeValue, "stockable");
     assert.equal(stockableMarginRule.minimumMarginPercent, 20);
     assert.ok(body.marginRules.some(rule => rule.code === "SERVICE-MIN-35" && rule.minimumMarginPercent === 35));
+    const hardwareMarginRule = body.marginRules.find(rule => rule.code === "HARDWARE-MIN-25");
+    assert.ok(hardwareMarginRule, "hardware category margin rule is seeded");
+    assert.equal(hardwareMarginRule.scopeType, "category");
+    assert.equal(hardwareMarginRule.scopeValue, "catcat-hardware");
+    assert.equal(hardwareMarginRule.minimumMarginPercent, 25);
     const standardPriceList = body.priceLists.find(list => list.code === "STANDARD-SALES");
     assert.ok(standardPriceList, "standard sales price list is seeded");
     assert.equal(standardPriceList.customerSegment, "standard");
@@ -63,21 +68,24 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.equal(standardScannerPrice.discountAmount, 0);
     assert.equal(standardScannerPrice.netPrice, 85000);
     assert.equal(standardScannerPrice.standardCost, 62000);
-    assert.equal(standardScannerPrice.marginRuleCode, "STOCKABLE-MIN-20");
+    assert.equal(standardScannerPrice.categoryId, "catcat-hardware");
+    assert.equal(standardScannerPrice.categoryName, "POS and device hardware");
+    assert.equal(standardScannerPrice.marginRuleCode, "HARDWARE-MIN-25");
     assert.equal(standardScannerPrice.marginAmount, 23000);
     assert.equal(standardScannerPrice.marginPercent, 27.06);
-    assert.equal(standardScannerPrice.minimumMarginPercent, 20);
-    assert.equal(standardScannerPrice.targetMarginPercent, 30);
+    assert.equal(standardScannerPrice.minimumMarginPercent, 25);
+    assert.equal(standardScannerPrice.targetMarginPercent, 35);
     assert.equal(standardScannerPrice.marginStatus, "ok");
     const standardScannerBreak = standardPriceList.items.find(item => item.catalogItemId === "catitem-pos-barcode-scanner" && item.catalogItemVariantId === null && item.minQuantity === 5);
     assert.ok(standardScannerBreak, "standard scanner quantity-break price row is seeded");
     assert.equal(standardScannerBreak.discountPercent, 5);
     assert.equal(standardScannerBreak.discountAmount, 4250);
     assert.equal(standardScannerBreak.netPrice, 80750);
-    assert.equal(standardScannerBreak.marginRuleCode, "STOCKABLE-MIN-20");
+    assert.equal(standardScannerBreak.marginRuleCode, "HARDWARE-MIN-25");
     assert.equal(standardScannerBreak.marginAmount, 18750);
     assert.equal(standardScannerBreak.marginPercent, 23.22);
-    assert.equal(standardScannerBreak.marginStatus, "ok");
+    assert.equal(standardScannerBreak.minimumMarginPercent, 25);
+    assert.equal(standardScannerBreak.marginStatus, "below_minimum");
     assert.ok(standardPriceList.items.some(item => (
       item.catalogItemId === "catitem-pos-barcode-scanner"
       && item.catalogItemVariantId === "catvar-pos-scanner-usb"
@@ -99,10 +107,10 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.equal(loyaltyScannerPrice.discountAmount, 8500);
     assert.equal(loyaltyScannerPrice.netPrice, 76500);
     assert.equal(loyaltyScannerPrice.standardCost, 62000);
-    assert.equal(loyaltyScannerPrice.marginRuleCode, "STOCKABLE-MIN-20");
+    assert.equal(loyaltyScannerPrice.marginRuleCode, "HARDWARE-MIN-25");
     assert.equal(loyaltyScannerPrice.marginAmount, 14500);
     assert.equal(loyaltyScannerPrice.marginPercent, 18.95);
-    assert.equal(loyaltyScannerPrice.minimumMarginPercent, 20);
+    assert.equal(loyaltyScannerPrice.minimumMarginPercent, 25);
     assert.equal(loyaltyScannerPrice.marginStatus, "below_minimum");
     assert.ok(loyaltyPriceList.items.some(item => (
       item.catalogItemVariantId === "catvar-pos-scanner-usb"
@@ -143,9 +151,9 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
       standardCost: 62000,
       marginAmount: 23000,
       marginPercent: 27.06,
-      marginRuleCode: "STOCKABLE-MIN-20",
-      minimumMarginPercent: 20,
-      targetMarginPercent: 30,
+      marginRuleCode: "HARDWARE-MIN-25",
+      minimumMarginPercent: 25,
+      targetMarginPercent: 35,
       marginStatus: "ok",
       currency: "AMD"
     });
@@ -162,7 +170,9 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.equal(quantityBreakPricing.json().pricing.discountPercent, 5);
     assert.equal(quantityBreakPricing.json().pricing.discountAmount, 4250);
     assert.equal(quantityBreakPricing.json().pricing.netPrice, 80750);
-    assert.equal(quantityBreakPricing.json().pricing.marginStatus, "ok");
+    assert.equal(quantityBreakPricing.json().pricing.marginRuleCode, "HARDWARE-MIN-25");
+    assert.equal(quantityBreakPricing.json().pricing.minimumMarginPercent, 25);
+    assert.equal(quantityBreakPricing.json().pricing.marginStatus, "below_minimum");
     const variantPricing = await app.inject({ method: "GET", url: "/api/catalog/pricing/resolve?catalogItemId=catitem-pos-barcode-scanner&catalogItemVariantId=catvar-pos-scanner-usb&customerSegment=loyalty", headers: { cookie: owner } });
     assert.equal(variantPricing.statusCode, 200, variantPricing.body);
     assert.equal(variantPricing.json().pricing.catalogItemVariantId, "catvar-pos-scanner-usb");
@@ -244,6 +254,7 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     const accountantMarginRules = await app.inject({ method: "GET", url: "/api/catalog/margin-rules", headers: { cookie: accountant } });
     assert.equal(accountantMarginRules.statusCode, 200, accountantMarginRules.body);
     assert.ok(accountantMarginRules.json().marginRules.some(rule => rule.code === "STOCKABLE-MIN-20"));
+    assert.ok(accountantMarginRules.json().marginRules.some(rule => rule.code === "HARDWARE-MIN-25" && rule.scopeType === "category"));
 
     const accountantCreate = await app.inject({
       method: "POST",
@@ -287,6 +298,11 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     )));
     assert.ok(Array.isArray(backup.json().backup.payload.tables.catalog_margin_rules));
     assert.ok(backup.json().backup.payload.tables.catalog_margin_rules.some(rule => rule.code === "STOCKABLE-MIN-20"));
+    assert.ok(backup.json().backup.payload.tables.catalog_margin_rules.some(rule => (
+      rule.code === "HARDWARE-MIN-25"
+      && rule.scope_type === "category"
+      && rule.scope_value === "catcat-hardware"
+    )));
   } finally {
     await app.close();
   }
@@ -564,7 +580,7 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(bulkScannerLine.catalogPriceListCode, "STANDARD-SALES");
     assert.equal(bulkScannerLine.pricingCustomerSegment, "standard");
     assert.equal(bulkScannerLine.discountAmount, 4250);
-    assert.equal(bulkScannerLine.marginStatus, "ok");
+    assert.equal(bulkScannerLine.marginStatus, "below_minimum");
 
     app.db.prepare("UPDATE customers SET segment = ? WHERE org_id = ? AND id = ?")
       .run("loyalty", orgId, "cust-ani");

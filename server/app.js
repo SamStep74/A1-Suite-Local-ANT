@@ -48232,6 +48232,8 @@ function getCatalogPriceLists(db, orgId) {
       catalog_price_list_items.catalog_item_id AS catalogItemId,
       catalog_items.sku AS catalogSku,
       catalog_items.name AS catalogName,
+      catalog_items.category_id AS categoryId,
+      catalog_categories.name AS categoryName,
       catalog_items.item_type AS itemType,
       catalog_items.standard_cost AS itemStandardCost,
       catalog_price_list_items.catalog_item_variant_id AS catalogItemVariantId,
@@ -48248,6 +48250,8 @@ function getCatalogPriceLists(db, orgId) {
     FROM catalog_price_list_items
     JOIN catalog_items ON catalog_items.id = catalog_price_list_items.catalog_item_id
       AND catalog_items.org_id = catalog_price_list_items.org_id
+    LEFT JOIN catalog_categories ON catalog_categories.id = catalog_items.category_id
+      AND catalog_categories.org_id = catalog_items.org_id
     LEFT JOIN catalog_item_variants ON catalog_item_variants.id = catalog_price_list_items.catalog_item_variant_id
       AND catalog_item_variants.org_id = catalog_price_list_items.org_id
     WHERE catalog_price_list_items.org_id = ?
@@ -48353,6 +48357,8 @@ function formatCatalogPriceListItem(row, marginRules = []) {
     catalogItemId: row.catalogItemId,
     catalogSku: row.catalogSku,
     catalogName: row.catalogName,
+    categoryId: row.categoryId,
+    categoryName: row.categoryName || "",
     itemType: row.itemType,
     catalogItemVariantId: row.catalogItemVariantId || null,
     variantSku: row.variantSku || "",
@@ -48362,7 +48368,10 @@ function formatCatalogPriceListItem(row, marginRules = []) {
     discountPercent,
     ...discountEvidence,
     standardCost,
-    ...catalogPriceListMarginEvidence(discountEvidence.netPrice, standardCost, row.itemType, marginRules),
+    ...catalogPriceListMarginEvidence(discountEvidence.netPrice, standardCost, {
+      itemType: row.itemType,
+      categoryId: row.categoryId
+    }, marginRules),
     currency: row.currency,
     status: row.status,
     createdAt: row.createdAt,
@@ -48522,12 +48531,12 @@ function catalogDiscountEvidence(listPrice, discountPercent) {
   };
 }
 
-function catalogPriceListMarginEvidence(netPrice, standardCost, itemType, marginRules = []) {
+function catalogPriceListMarginEvidence(netPrice, standardCost, context = {}, marginRules = []) {
   const price = Number(netPrice || 0);
   const cost = Number(standardCost || 0);
   const marginAmount = price - cost;
   const marginPercent = price > 0 ? Math.round((marginAmount / price) * 10000) / 100 : null;
-  const rule = resolveCatalogMarginRule(itemType, marginRules);
+  const rule = resolveCatalogMarginRule(context, marginRules);
   if (!rule) {
     return {
       marginAmount,
@@ -48548,8 +48557,9 @@ function catalogPriceListMarginEvidence(netPrice, standardCost, itemType, margin
   };
 }
 
-function resolveCatalogMarginRule(itemType, marginRules = []) {
-  return marginRules.find(rule => rule.scopeType === "item_type" && rule.scopeValue === itemType)
+function resolveCatalogMarginRule(context = {}, marginRules = []) {
+  return marginRules.find(rule => rule.scopeType === "category" && rule.scopeValue === context.categoryId)
+    || marginRules.find(rule => rule.scopeType === "item_type" && rule.scopeValue === context.itemType)
     || marginRules.find(rule => rule.scopeType === "global" && rule.scopeValue === "");
 }
 

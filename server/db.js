@@ -8145,7 +8145,8 @@ function seedCatalogMarginRules(db, orgId) {
   `);
   const rules = [
     ["catmr-stockable-min-20", "STOCKABLE-MIN-20", "Stockable product minimum margin", "item_type", "stockable", 20, 30],
-    ["catmr-service-min-35", "SERVICE-MIN-35", "Service package minimum margin", "item_type", "service", 35, 55]
+    ["catmr-service-min-35", "SERVICE-MIN-35", "Service package minimum margin", "item_type", "service", 35, 55],
+    ["catmr-hardware-min-25", "HARDWARE-MIN-25", "POS hardware category minimum margin", "category", catalogSeedId(orgId, "catcat-hardware"), 25, 35]
   ];
   for (const rule of rules) {
     insertRule.run(
