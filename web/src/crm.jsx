@@ -37,6 +37,10 @@ function quoteLineEvidence(line) {
     parts.push(`${Number(line.quantity || 0).toLocaleString("hy-AM")} x ${amd(line.unitPrice)}`);
   }
   if (Number(line.discountAmount || 0) > 0) parts.push(`${amd(line.discountAmount)} discount`);
+  if (line.marginRuleCode) {
+    const minimum = line.marginRuleMinimumPercent == null ? "" : ` min ${Number(line.marginRuleMinimumPercent).toLocaleString("hy-AM")}%`;
+    parts.push(`${line.marginRuleCode}${minimum}`);
+  }
   if (line.marginStatus) parts.push(marginStatusLabel(line.marginStatus));
   return parts.join(" · ");
 }
@@ -47,6 +51,7 @@ function quotePricingEvidenceLines(quote) {
     line.catalogPriceListCode ||
     line.pricingCustomerSegment ||
     Number(line.discountAmount || 0) > 0 ||
+    line.marginRuleCode ||
     line.marginStatus
   ));
 }

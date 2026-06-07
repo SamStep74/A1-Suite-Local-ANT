@@ -965,6 +965,9 @@ function initSchema(db) {
       pricing_customer_segment TEXT NOT NULL DEFAULT '',
       discount_amount INTEGER NOT NULL DEFAULT 0,
       margin_status TEXT NOT NULL DEFAULT '',
+      margin_rule_code TEXT NOT NULL DEFAULT '',
+      margin_rule_minimum_percent REAL,
+      margin_rule_target_percent REAL,
       description TEXT NOT NULL,
       quantity INTEGER NOT NULL,
       unit_price INTEGER NOT NULL,
@@ -7301,6 +7304,9 @@ function ensureCatalogLayer(db) {
     pricing_customer_segment: "TEXT NOT NULL DEFAULT ''",
     discount_amount: "INTEGER NOT NULL DEFAULT 0",
     margin_status: "TEXT NOT NULL DEFAULT ''",
+    margin_rule_code: "TEXT NOT NULL DEFAULT ''",
+    margin_rule_minimum_percent: "REAL",
+    margin_rule_target_percent: "REAL",
     vat_mode: "TEXT NOT NULL DEFAULT 'standard'",
     fiscal_receipt_required: "INTEGER NOT NULL DEFAULT 0"
   };

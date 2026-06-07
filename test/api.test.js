@@ -184,6 +184,9 @@ test("existing quote line tables receive catalog columns before app startup inde
     assert.equal(columns.has("pricing_customer_segment"), true);
     assert.equal(columns.has("discount_amount"), true);
     assert.equal(columns.has("margin_status"), true);
+    assert.equal(columns.has("margin_rule_code"), true);
+    assert.equal(columns.has("margin_rule_minimum_percent"), true);
+    assert.equal(columns.has("margin_rule_target_percent"), true);
     assert.equal(columns.has("vat_mode"), true);
     assert.equal(columns.has("fiscal_receipt_required"), true);
     const index = app.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get("idx_quote_lines_catalog_item");

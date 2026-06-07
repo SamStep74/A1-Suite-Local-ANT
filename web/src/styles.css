@@ -1254,9 +1254,8 @@ textarea {
 
 .crm-quote-summary span {
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .quote-pricing-evidence {
@@ -1274,6 +1273,7 @@ textarea {
   border-radius: 8px;
   color: var(--ink);
   display: inline-flex;
+  flex-wrap: wrap;
   gap: 6px;
   max-width: 100%;
   min-height: 26px;
@@ -1299,9 +1299,8 @@ textarea {
   flex: 0 1 auto;
   font-weight: 900;
   min-width: 0;
-  overflow: hidden;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  overflow-wrap: anywhere;
+  white-space: normal;
 }
 
 .crm-quote-row .quote-pricing-chip em {

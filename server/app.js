@@ -50750,6 +50750,9 @@ function getQuoteLines(db, orgId, quoteId) {
       quote_lines.pricing_customer_segment AS pricingCustomerSegment,
       quote_lines.discount_amount AS discountAmount,
       quote_lines.margin_status AS marginStatus,
+      quote_lines.margin_rule_code AS marginRuleCode,
+      quote_lines.margin_rule_minimum_percent AS marginRuleMinimumPercent,
+      quote_lines.margin_rule_target_percent AS marginRuleTargetPercent,
       catalog_items.sku AS catalogSku, catalog_items.name AS catalogName,
       catalog_item_variants.sku AS variantSku,
       catalog_item_variants.name AS variantName,
@@ -50766,6 +50769,8 @@ function getQuoteLines(db, orgId, quoteId) {
     ORDER BY quote_lines.position
   `).all(orgId, quoteId).map(line => ({
     ...line,
+    marginRuleMinimumPercent: line.marginRuleMinimumPercent == null ? null : Number(line.marginRuleMinimumPercent),
+    marginRuleTargetPercent: line.marginRuleTargetPercent == null ? null : Number(line.marginRuleTargetPercent),
     fiscalReceiptRequired: Boolean(line.fiscalReceiptRequired)
   }));
 }
@@ -50883,10 +50888,11 @@ function createCrmQuote(db, user, body) {
     INSERT INTO quote_lines (
       id, org_id, quote_id, catalog_item_id, catalog_item_variant_id,
       catalog_price_list_id, catalog_price_list_code, pricing_source,
-      pricing_customer_segment, discount_amount, margin_status, description,
-      quantity, unit_price, total, vat_mode, fiscal_receipt_required, position
+      pricing_customer_segment, discount_amount, margin_status,
+      margin_rule_code, margin_rule_minimum_percent, margin_rule_target_percent,
+      description, quantity, unit_price, total, vat_mode, fiscal_receipt_required, position
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const line of lines) {
     insertLine.run(
@@ -50901,6 +50907,9 @@ function createCrmQuote(db, user, body) {
       line.pricingCustomerSegment || "",
       line.discountAmount || 0,
       line.marginStatus || "",
+      line.marginRuleCode || "",
+      line.marginRuleMinimumPercent == null ? null : line.marginRuleMinimumPercent,
+      line.marginRuleTargetPercent == null ? null : line.marginRuleTargetPercent,
       line.description,
       line.quantity,
       line.unitPrice,
@@ -51092,7 +51101,10 @@ function quoteLinePricingEvidence(pricing, line = {}) {
       catalogPriceListCode: "",
       pricingCustomerSegment: "",
       discountAmount: 0,
-      marginStatus: ""
+      marginStatus: "",
+      marginRuleCode: "",
+      marginRuleMinimumPercent: null,
+      marginRuleTargetPercent: null
     };
   }
   return {
@@ -51101,7 +51113,10 @@ function quoteLinePricingEvidence(pricing, line = {}) {
     catalogPriceListCode: pricing.priceListCode || "",
     pricingCustomerSegment: pricing.customerSegment || "",
     discountAmount: Number(pricing.discountAmount || 0),
-    marginStatus: pricing.marginStatus || ""
+    marginStatus: pricing.marginStatus || "",
+    marginRuleCode: pricing.marginRuleCode || "",
+    marginRuleMinimumPercent: pricing.minimumMarginPercent == null ? null : Number(pricing.minimumMarginPercent),
+    marginRuleTargetPercent: pricing.targetMarginPercent == null ? null : Number(pricing.targetMarginPercent)
   };
 }
 

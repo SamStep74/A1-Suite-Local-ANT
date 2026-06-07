@@ -554,6 +554,9 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(line.pricingCustomerSegment, "standard");
     assert.equal(line.discountAmount, 190000);
     assert.equal(line.marginStatus, "ok");
+    assert.equal(line.marginRuleCode, "SERVICE-MIN-35");
+    assert.equal(line.marginRuleMinimumPercent, 35);
+    assert.equal(line.marginRuleTargetPercent, 55);
     assert.equal(line.vatMode, "standard");
     assert.equal(line.fiscalReceiptRequired, true);
 
@@ -581,6 +584,9 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(bulkScannerLine.pricingCustomerSegment, "standard");
     assert.equal(bulkScannerLine.discountAmount, 4250);
     assert.equal(bulkScannerLine.marginStatus, "below_minimum");
+    assert.equal(bulkScannerLine.marginRuleCode, "HARDWARE-MIN-25");
+    assert.equal(bulkScannerLine.marginRuleMinimumPercent, 25);
+    assert.equal(bulkScannerLine.marginRuleTargetPercent, 35);
 
     app.db.prepare("UPDATE customers SET segment = ? WHERE org_id = ? AND id = ?")
       .run("loyalty", orgId, "cust-ani");
@@ -607,6 +613,9 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(loyaltyQuote.json().quote.lines[0].pricingCustomerSegment, "loyalty");
     assert.equal(loyaltyQuote.json().quote.lines[0].discountAmount, 8500);
     assert.equal(loyaltyQuote.json().quote.lines[0].marginStatus, "below_minimum");
+    assert.equal(loyaltyQuote.json().quote.lines[0].marginRuleCode, "HARDWARE-MIN-25");
+    assert.equal(loyaltyQuote.json().quote.lines[0].marginRuleMinimumPercent, 25);
+    assert.equal(loyaltyQuote.json().quote.lines[0].marginRuleTargetPercent, 35);
 
     const variantQuote = await app.inject({
       method: "POST",
@@ -643,6 +652,9 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(variantLine.pricingCustomerSegment, "loyalty");
     assert.equal(variantLine.discountAmount, 8500);
     assert.equal(variantLine.marginStatus, "below_minimum");
+    assert.equal(variantLine.marginRuleCode, "HARDWARE-MIN-25");
+    assert.equal(variantLine.marginRuleMinimumPercent, 25);
+    assert.equal(variantLine.marginRuleTargetPercent, 35);
     const storedVariantLine = app.db.prepare(`
       SELECT catalog_item_id AS catalogItemId,
         catalog_item_variant_id AS catalogItemVariantId,
@@ -651,7 +663,10 @@ test("catalog: quote lines resolve active product metadata", async () => {
         pricing_source AS pricingSource,
         pricing_customer_segment AS pricingCustomerSegment,
         discount_amount AS discountAmount,
-        margin_status AS marginStatus
+        margin_status AS marginStatus,
+        margin_rule_code AS marginRuleCode,
+        margin_rule_minimum_percent AS marginRuleMinimumPercent,
+        margin_rule_target_percent AS marginRuleTargetPercent
       FROM quote_lines
       WHERE org_id = ? AND quote_id = ?
     `).get(orgId, variantQuote.json().quote.id);
@@ -663,6 +678,9 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(storedVariantLine.pricingCustomerSegment, "loyalty");
     assert.equal(storedVariantLine.discountAmount, 8500);
     assert.equal(storedVariantLine.marginStatus, "below_minimum");
+    assert.equal(storedVariantLine.marginRuleCode, "HARDWARE-MIN-25");
+    assert.equal(storedVariantLine.marginRuleMinimumPercent, 25);
+    assert.equal(storedVariantLine.marginRuleTargetPercent, 35);
 
     const overrideQuote = await app.inject({
       method: "POST",
@@ -686,6 +704,9 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(overrideQuote.json().quote.lines[0].catalogPriceListCode, "");
     assert.equal(overrideQuote.json().quote.lines[0].discountAmount, 0);
     assert.equal(overrideQuote.json().quote.lines[0].marginStatus, "");
+    assert.equal(overrideQuote.json().quote.lines[0].marginRuleCode, "");
+    assert.equal(overrideQuote.json().quote.lines[0].marginRuleMinimumPercent, null);
+    assert.equal(overrideQuote.json().quote.lines[0].marginRuleTargetPercent, null);
 
     const malformedVariant = await app.inject({
       method: "POST",
