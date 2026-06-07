@@ -48,10 +48,10 @@ test("RU payroll run posts НДФЛ to 68 and employer insurance to 69", async (
       payload: { employeeName: "Иван", gross: 100000, runDate: `${openPeriod}-28` },
     });
     assert.strictEqual(run.statusCode, 200, run.body);
-    assert.strictEqual(run.json().run.incomeTax, 13000);
-    assert.strictEqual(run.json().run.totalDeductions, 13000);
-    assert.strictEqual(run.json().run.net, 87000);
-    assert.strictEqual(run.json().run.employerInsurance, 30000);
+    assert.strictEqual(run.json().run.incomeTax, 1300000);
+    assert.strictEqual(run.json().run.totalDeductions, 1300000);
+    assert.strictEqual(run.json().run.net, 8700000);
+    assert.strictEqual(run.json().run.employerInsurance, 3000000);
     const tb = await app.inject({ method: "GET", url: "/api/finance/trial-balance", headers: { cookie } });
     const byCode = Object.fromEntries(tb.json().rows.map(r => [r.code, r]));
     assert.strictEqual(byCode["26"].balance, 130000);

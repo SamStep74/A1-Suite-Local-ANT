@@ -1,8 +1,8 @@
 # RFC: RUB kopeck (minor-unit) precision migration
 
 **Status:** In progress — S1 money-scale facade, S2 scale-aware shared accounting reports, S3
-ledger posting/report minor-unit contract, and S4 app VAT/money splitters are implemented; S5-S8
-remain.
+ledger posting/report minor-unit contract, S4 app VAT/money splitters, and S5 app input validators
+are implemented; S6-S8 remain.
 **Scope:** A1-Suite-Local money model. Add RUB kopeck precision end-to-end while keeping AMD
 and all Armenian (AM) behavior **byte-for-byte identical**.
 **Author:** generated from a codebase-wide money-precision analysis (5-facet sweep of
@@ -207,7 +207,7 @@ RUB (`subunit 2`, scale 100) is the **only** locale whose behavior changes.
 | **S2** | DONE — Make `accounting.js` scale-aware via options injection; retighten epsilons; ship Node + browser together. | medium |
 | **S3** | DONE — Migrate `ledger.js` posting + report sites; define `postEntry` minor-unit contract; fix balanced tolerance → `=== 0`; inject active money scale into finance statements. | **high** |
 | **S4** | DONE — Migrate `app.js` VAT splitters + gross-up / VAT-on-net / weighted-avg-cost sites; unify stored-minor split helpers; fix stray `/1.2` rate bypass. | **high** |
-| **S5** | Fix `app.js` input validators (regex+convert pairs) to honor subunit. | medium |
+| **S5** | DONE — Fix `app.js` input validators (regex+convert pairs) to honor subunit. | medium |
 | **S6** | Kill hardcoded `'AMD'` (6 INSERTs + 15 column DEFAULTs) → derive from `locale.money.code`. | medium |
 | **S7** | RU tax-base whole-ruble rounding (`roundToWholeMajor`) for НДФЛ / взносы; storage stays kopecks. | medium |
 | **S8** | Defensive no-op data migration (idempotent, subunit-keyed) + RUB enablement; checksum verification. | low |
@@ -218,6 +218,17 @@ purchase VAT-on-net calculations through shared locale minor-unit helpers. Verif
 focused project/VAT S4 suite (11 pass), adjacent catalog/purchase suite (14 pass), full `npm test`
 (786 pass, 0 fail, 0 cancelled), `npm run build:ui` with the existing Vite large-chunk warning, and
 fresh smoke (`apps=12`, `kpis=4`).
+
+**S5 checkpoint proof (2026-06-07):** `server/app.js` now validates money input text/number shapes
+against the active locale subunit before converting stored app-table money to integer minor units.
+Finance expense/bill/payment/receipt/bank imports, opening balances, payroll run/preview inputs,
+People salary, CRM lead/deal value, collection promises, project hourly billing, catalog prices,
+inventory unit costs, and purchase/vendor unit costs no longer drop RUB kopecks. Calculator and
+ledger boundaries descale stored values back to major units before invoking existing major-unit
+engines, while AM integer-only validators still reject fractional money where they rejected it
+before. Verification passed: focused S5 validator suites (7 pass), opening-balance regression (5
+pass), `git diff --check`, full `npm test` (793 pass, 0 fail, 0 cancelled), `npm run build:ui`
+with the existing Vite large-chunk warning, and fresh smoke (`apps=12`, `kpis=4`).
 
 ---
 

@@ -111,8 +111,9 @@ test("vat-versioning: workflow draft invoice uses effective rate and stores RUB 
       await app.ready();
       const owner = await login(app);
       const orgId = app.db.prepare("SELECT org_id FROM users WHERE email = ?").get(DEFAULT_EMAIL).org_id;
+      // S5 stores CRM deal money in active-locale minor units: 1,220.55 RUB -> 122,055 kopecks.
       app.db.prepare("UPDATE deals SET value = ?, currency = 'RUB' WHERE org_id = ? AND id = ?")
-        .run(1220.55, orgId, "deal-nare-retainer");
+        .run(122055, orgId, "deal-nare-retainer");
       app.db.prepare("INSERT OR IGNORE INTO tax_rates (id, org_id, kind, effective_date, config, note, created_at) VALUES (?, ?, 'vat', ?, ?, ?, ?)")
         .run(`taxrate-${orgId}-ru-vat-2026`, orgId, "2026-01-01", JSON.stringify({ rate: 0.22 }), "RF 2026 VAT 22%", new Date().toISOString());
 

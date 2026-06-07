@@ -2982,28 +2982,12 @@ function registerApi(app, db, options = {}) {
       if (required) throwInvalidProjectMetadata(error);
       return fallback;
     }
-    if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
-      throwInvalidProjectMetadata(error);
-    }
-    let amount;
-    if (typeof value === "number") {
-      amount = value;
-    } else if (typeof value === "string") {
-      if (/[\x00-\x1f\x7f]/.test(value)) {
-        throwInvalidProjectMetadata(error);
-      }
-      const text = value.trim();
-      if (!/^\d+(?:\.0+)?$/.test(text)) {
-        throwInvalidProjectMetadata(error);
-      }
-      amount = Number(text);
-    } else {
-      throwInvalidProjectMetadata(error);
-    }
-    if (!Number.isSafeInteger(amount) || amount < min || amount > max) {
-      throwInvalidProjectMetadata(error);
-    }
-    return amount;
+    return toValidatedMajorMoneyInput(value, () => throwInvalidProjectMetadata(error), {
+      min,
+      max,
+      positive: min > 0,
+      zeroSubunitFraction: "zeroes"
+    });
   }
 
   function normalizeProjectPeriodKey(body, field, fallback) {
@@ -4602,6 +4586,79 @@ function fromMinorAmount(value) {
   return activeMoney().fromMinor(Math.round(Number(value) || 0));
 }
 
+function activeMoneySubunit() {
+  const subunit = Number(activeMoney().subunit);
+  return Number.isSafeInteger(subunit) && subunit > 0 ? subunit : 0;
+}
+
+function moneyInputPattern(options = {}) {
+  const { allowNegative = false, zeroSubunitFraction = "any" } = options;
+  const sign = allowNegative ? "-?" : "";
+  const subunit = activeMoneySubunit();
+  if (subunit > 0) {
+    return new RegExp(`^${sign}\\d+(?:\\.\\d{1,${subunit}})?$`);
+  }
+  if (zeroSubunitFraction === "none") {
+    return new RegExp(`^${sign}\\d+$`);
+  }
+  if (zeroSubunitFraction === "zeroes") {
+    return new RegExp(`^${sign}\\d+(?:\\.0+)?$`);
+  }
+  return new RegExp(`^${sign}\\d+(?:\\.\\d+)?$`);
+}
+
+function parseMajorMoneyInput(value, throwInvalid, options = {}) {
+  const { allowNegative = false, zeroSubunitFraction = "any", maxLength = 40 } = options;
+  if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
+    throwInvalid();
+  }
+  let text;
+  if (typeof value === "number") {
+    text = String(value);
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalid();
+    }
+    text = value.trim();
+  } else {
+    throwInvalid();
+  }
+  if (!text || text.length > maxLength || !moneyInputPattern({ allowNegative, zeroSubunitFraction }).test(text)) {
+    throwInvalid();
+  }
+  const amount = Number(text);
+  if (!Number.isFinite(amount) || (!allowNegative && amount < 0)) {
+    throwInvalid();
+  }
+  return amount;
+}
+
+function toStoredMoneyInput(value, throwInvalid, options = {}) {
+  const { min = 0, max = 1000000000000, positive = false, allowNegative = false, zeroSubunitFraction = "any", maxLength = 40 } = options;
+  const amount = parseMajorMoneyInput(value, throwInvalid, { allowNegative, zeroSubunitFraction, maxLength });
+  if (amount < min || amount > max) {
+    throwInvalid();
+  }
+  const stored = activeMoney().toMinor(amount);
+  if (!Number.isSafeInteger(stored) || (positive ? stored <= 0 : stored < 0)) {
+    throwInvalid();
+  }
+  return stored;
+}
+
+function toValidatedMajorMoneyInput(value, throwInvalid, options = {}) {
+  const { min = 0, max = 1000000000000, positive = false, allowNegative = false, zeroSubunitFraction = "any", maxLength = 40 } = options;
+  const amount = parseMajorMoneyInput(value, throwInvalid, { allowNegative, zeroSubunitFraction, maxLength });
+  if (amount < min || amount > max) {
+    throwInvalid();
+  }
+  const stored = activeMoney().toMinor(amount);
+  if (!Number.isSafeInteger(stored) || (positive ? stored <= 0 : stored < 0)) {
+    throwInvalid();
+  }
+  return amount;
+}
+
 function normalizeVatFraction(rate) {
   return Number(rate) > 0 ? Number(rate) : 0.2;
 }
@@ -5618,28 +5675,7 @@ function normalizePeopleEmployeeSalary(body, field, options = {}) {
   if (value === undefined || value === "") {
     return fallback;
   }
-  if (value === null || Array.isArray(value) || typeof value === "object") {
-    throwInvalidPeopleEmployee();
-  }
-  let salary;
-  if (typeof value === "number") {
-    salary = value;
-  } else if (typeof value === "string") {
-    if (/[\x00-\x1f\x7f]/.test(value)) {
-      throwInvalidPeopleEmployee();
-    }
-    const text = value.trim();
-    if (!/^-?\d+(?:\.\d+)?$/.test(text)) {
-      throwInvalidPeopleEmployee();
-    }
-    salary = Number(text);
-  } else {
-    throwInvalidPeopleEmployee();
-  }
-  if (!Number.isFinite(salary) || salary < 0) {
-    throwInvalidPeopleEmployee();
-  }
-  return Math.round(salary);
+  return toStoredMoneyInput(value, throwInvalidPeopleEmployee);
 }
 
 function normalizePeopleEmployeeDate(body, field) {
@@ -42386,26 +42422,7 @@ function normalizeCrmLeadText(body, field, options = {}) {
 function normalizeCrmLeadEstimatedValue(body) {
   const value = Object.prototype.hasOwnProperty.call(body, "estimatedValue") ? body.estimatedValue : undefined;
   if (value === undefined || value === "") return 0;
-  if (value === null) {
-    throwInvalidCrmLeadMetadata();
-  }
-  let parsed;
-  if (typeof value === "number") {
-    parsed = value;
-  } else if (typeof value === "string") {
-    const text = value.trim();
-    if (!text || text.length > 20 || /[\x00-\x1f\x7f]/.test(text) || !/^\d+(\.\d{1,2})?$/.test(text)) {
-      throwInvalidCrmLeadMetadata();
-    }
-    parsed = Number(text);
-  } else {
-    throwInvalidCrmLeadMetadata();
-  }
-  const amount = Math.round(parsed);
-  if (!Number.isSafeInteger(amount) || amount < 0 || amount > 100000000000) {
-    throwInvalidCrmLeadMetadata();
-  }
-  return amount;
+  return toStoredMoneyInput(value, throwInvalidCrmLeadMetadata, { max: 100000000000, maxLength: 20 });
 }
 
 function throwInvalidCrmLeadMetadata(message = "Lead requires safe metadata") {
@@ -42517,8 +42534,9 @@ function throwInvalidCrmListQueryMetadata() {
 
 function calculateCrmLeadScore(lead) {
   let score = 20;
-  if (lead.estimatedValue >= 2000000) score += 25;
-  else if (lead.estimatedValue >= 800000) score += 15;
+  const estimatedValue = fromMinorAmount(lead.estimatedValue);
+  if (estimatedValue >= 2000000) score += 25;
+  else if (estimatedValue >= 800000) score += 15;
   if (lead.taxId) score += 15;
   if (/(clinic|wellness|beauty|tour|քլինիք|կլինիկ|սրահ)/i.test(lead.segment)) score += 10;
   if (/(whatsapp|telegram|instagram|facebook)/i.test(`${lead.source} ${lead.channel}`)) score += 10;
@@ -48375,22 +48393,9 @@ function normalizeCatalogMoney(body, field, options = {}) {
   let value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
   if (value === undefined || value === "") {
     if (required) throwInvalidCatalogMetadata();
-    value = fallback;
+    return fallback;
   }
-  if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") throwInvalidCatalogMetadata();
-  let amount;
-  if (typeof value === "number") {
-    amount = value;
-  } else if (typeof value === "string") {
-    if (/[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
-    const text = value.trim();
-    if (!/^\d+$/.test(text)) throwInvalidCatalogMetadata();
-    amount = Number(text);
-  } else {
-    throwInvalidCatalogMetadata();
-  }
-  if (!Number.isSafeInteger(amount) || amount < min || amount > max) throwInvalidCatalogMetadata();
-  return amount;
+  return toStoredMoneyInput(value, throwInvalidCatalogMetadata, { min, max, zeroSubunitFraction: "none" });
 }
 
 function normalizeCatalogCurrency(body, field, fallback = "AMD") {
@@ -48728,7 +48733,7 @@ function resolveStockMoveUnitCost(db, orgId, item, input, sourceLocation) {
     `).get(orgId, item.id, sourceLocation.id);
     return quant ? quant.average_cost : item.standardCost || 0;
   }
-  return input.unitCost ? toMinorAmount(input.unitCost) : item.standardCost || 0;
+  return input.unitCost || item.standardCost || 0;
 }
 
 function adjustStockQuant(db, orgId, catalogItemId, locationId, quantityDelta, unitCost, now) {
@@ -48836,7 +48841,7 @@ function normalizeStockMoveBody(body) {
     destinationLocationId: normalizeInventoryText(body, "destinationLocationId", { idLike: true }),
     moveType: normalizeInventoryChoice(body, "moveType", ["inbound", "outbound", "receipt", "delivery", "adjustment", "transfer", "scrap", "return"], "adjustment", false),
     quantity: normalizeInventoryInteger(body, "quantity", { required: true, min: 1, max: 1000000000 }),
-    unitCost: normalizeInventoryInteger(body, "unitCost", { fallback: 0, min: 0, max: 1000000000000 }),
+    unitCost: normalizeInventoryMoney(body, "unitCost", { fallback: 0, min: 0, max: 1000000000000 }),
     reason: normalizeInventoryText(body, "reason", { fallback: "", maxLength: 500 }),
     reference: normalizeInventoryText(body, "reference", { fallback: "", maxLength: 160 })
   };
@@ -48900,6 +48905,16 @@ function normalizeInventoryInteger(body, field, options = {}) {
   }
   if (!Number.isSafeInteger(amount) || amount < min || amount > max) throwInvalidInventoryMetadata();
   return amount;
+}
+
+function normalizeInventoryMoney(body, field, options = {}) {
+  const { required = false, fallback = 0, min = 0, max = 1000000000000 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidInventoryMetadata();
+    return fallback;
+  }
+  return toStoredMoneyInput(value, throwInvalidInventoryMetadata, { min, max, positive: min > 0, zeroSubunitFraction: "none" });
 }
 
 function normalizeInventoryPathId(value) {
@@ -49820,7 +49835,7 @@ function buildPurchaseOrderLine(db, orgId, line, orderDate, vatRate, vendorId = 
     err.statusCode = 422;
     throw err;
   }
-  const explicitUnitCost = line.unitCost ? toMinorAmount(line.unitCost) : 0;
+  const explicitUnitCost = line.unitCost || 0;
   const vendorPrice = !explicitUnitCost && vendorId ? getBestPurchaseVendorPrice(db, orgId, vendorId, item.id, line.quantity, orderDate) : null;
   const unitCost = explicitUnitCost || vendorPrice?.unitCost || item.standardCost;
   if (!Number.isSafeInteger(unitCost) || unitCost <= 0) throwInvalidPurchaseMetadata();
@@ -50040,7 +50055,7 @@ function normalizePurchaseVendorPrices(body) {
     seen.add(key);
     return {
       catalogItemId,
-      unitCost: normalizePurchaseInteger(price, "unitCost", { required: true, min: 1, max: 1000000000000 }),
+      unitCost: normalizePurchaseMoney(price, "unitCost", { required: true, min: 1, max: 1000000000000 }),
       minQuantity,
       leadTimeDays: normalizePurchaseInteger(price, "leadTimeDays", { fallback: 0, min: 0, max: 365 }),
       validFrom,
@@ -50076,7 +50091,7 @@ function normalizePurchaseLines(body) {
       catalogItemId: normalizePurchaseText(line, "catalogItemId", { required: true, maxLength: 160, idLike: true }),
       description: normalizePurchaseText(line, "description", { fallback: "", maxLength: 200 }),
       quantity: normalizePurchaseInteger(line, "quantity", { required: true, min: 1, max: 1000000 }),
-      unitCost: normalizePurchaseInteger(line, "unitCost", { fallback: 0, min: 0, max: 1000000000000 })
+      unitCost: normalizePurchaseMoney(line, "unitCost", { fallback: 0, min: 0, max: 1000000000000 })
     };
   });
 }
@@ -50180,6 +50195,16 @@ function normalizePurchaseInteger(body, field, options = {}) {
   }
   if (!Number.isSafeInteger(amount) || amount < min || amount > max) throwInvalidPurchaseMetadata();
   return amount;
+}
+
+function normalizePurchaseMoney(body, field, options = {}) {
+  const { required = false, fallback = 0, min = 0, max = 1000000000000 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidPurchaseMetadata();
+    return fallback;
+  }
+  return toStoredMoneyInput(value, throwInvalidPurchaseMetadata, { min, max, positive: min > 0, zeroSubunitFraction: "none" });
 }
 
 function normalizePurchaseChoice(body, field, allowed, fallback) {
@@ -50542,7 +50567,7 @@ function normalizeCrmQuoteLine(line, index) {
   const catalogItemId = normalizeCrmQuoteLineCatalogItemId(line);
   const description = normalizeCrmQuoteLineText(line, "description", { required: !catalogItemId, minLength: 3, maxLength: 500 });
   const quantity = normalizeCrmQuoteLineAmount(line, "quantity", { fallback: 1, min: 1, max: 100000 });
-  const unitPriceMajor = normalizeCrmQuoteLineAmount(line, "unitPrice", { altField: "unit_price", required: !catalogItemId, fallback: 0, min: catalogItemId ? 0 : 1, max: 1000000000 });
+  const unitPriceMajor = normalizeCrmQuoteLineAmount(line, "unitPrice", { altField: "unit_price", required: !catalogItemId, fallback: 0, min: catalogItemId ? 0 : 1, max: 1000000000, money: true });
   const unitPrice = unitPriceMajor > 0 ? toMinorAmount(unitPriceMajor) : 0;
   const total = quantity * unitPrice;
   if (!catalogItemId && (!Number.isSafeInteger(total) || total <= 0 || total > 1000000000000)) {
@@ -50630,7 +50655,7 @@ function normalizeCrmQuoteLineText(body, field, options = {}) {
 }
 
 function normalizeCrmQuoteLineAmount(body, field, options = {}) {
-  const { altField = "", fallback, required = false, min = 0, max = 1000000000 } = options;
+  const { altField = "", fallback, required = false, min = 0, max = 1000000000, money = false } = options;
   let value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
   if (value === undefined && altField && Object.prototype.hasOwnProperty.call(body, altField)) {
     value = body[altField];
@@ -50641,6 +50666,9 @@ function normalizeCrmQuoteLineAmount(body, field, options = {}) {
   }
   if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
     throwInvalidCrmQuoteMetadata();
+  }
+  if (money) {
+    return toValidatedMajorMoneyInput(value, throwInvalidCrmQuoteMetadata, { min, max, zeroSubunitFraction: "none" });
   }
   let amount;
   if (typeof value === "number") {
@@ -53084,9 +53112,9 @@ function createFinanceExpense(db, user, body) {
   ledger.postExpensePosted(db, user.org_id, {
     id,
     description: input.description,
-    subtotal: input.subtotal,
-    vat: input.vat,
-    total,
+    subtotal: fromMinorAmount(input.subtotal),
+    vat: fromMinorAmount(input.vat),
+    total: fromMinorAmount(total),
     date: input.incurredOn,
     period_key: periodKey
   });
@@ -53114,32 +53142,7 @@ function normalizeFinanceExpenseAmount(body, field, options = {}) {
     if (required) throwInvalidFinanceExpense();
     return fallback;
   }
-  if (value === null || Array.isArray(value) || typeof value === "object") {
-    throwInvalidFinanceExpense();
-  }
-  let amount;
-  if (typeof value === "number") {
-    amount = value;
-  } else if (typeof value === "string") {
-    if (/[\x00-\x1f\x7f]/.test(value)) {
-      throwInvalidFinanceExpense();
-    }
-    const text = value.trim();
-    if (!/^-?\d+(?:\.\d+)?$/.test(text)) {
-      throwInvalidFinanceExpense();
-    }
-    amount = Number(text);
-  } else {
-    throwInvalidFinanceExpense();
-  }
-  if (!Number.isFinite(amount)) {
-    throwInvalidFinanceExpense();
-  }
-  const rounded = Math.round(amount);
-  if (required ? rounded <= 0 : rounded < 0) {
-    throwInvalidFinanceExpense();
-  }
-  return rounded;
+  return toStoredMoneyInput(value, throwInvalidFinanceExpense, { positive: required });
 }
 
 function normalizeFinanceExpenseDate(body, field) {
@@ -53250,9 +53253,9 @@ function createFinanceBillFromInput(db, user, input) {
   ledger.postBillPosted(db, user.org_id, {
     id,
     supplier: input.supplier,
-    subtotal: input.subtotal,
-    vat: input.vat,
-    total,
+    subtotal: fromMinorAmount(input.subtotal),
+    vat: fromMinorAmount(input.vat),
+    total: fromMinorAmount(total),
     date: input.billDate,
     period_key: periodKey
   });
@@ -53294,35 +53297,7 @@ function normalizeFinanceBillAmount(body, field, options = {}) {
     if (required) throwInvalidFinanceBill();
     return fallback;
   }
-  if (value === null || Array.isArray(value) || typeof value === "object") {
-    throwInvalidFinanceBill();
-  }
-  let amount;
-  if (typeof value === "number") {
-    amount = value;
-  } else if (typeof value === "string") {
-    if (/[\x00-\x1f\x7f]/.test(value)) {
-      throwInvalidFinanceBill();
-    }
-    const text = value.trim();
-    if (!/^-?\d+(?:\.\d+)?$/.test(text)) {
-      throwInvalidFinanceBill();
-    }
-    amount = Number(text);
-  } else {
-    throwInvalidFinanceBill();
-  }
-  if (!Number.isFinite(amount)) {
-    throwInvalidFinanceBill();
-  }
-  if (amount < 0) {
-    throwInvalidFinanceBill();
-  }
-  const rounded = Math.round(amount);
-  if (required ? rounded <= 0 : rounded < 0) {
-    throwInvalidFinanceBill();
-  }
-  return rounded;
+  return toStoredMoneyInput(value, throwInvalidFinanceBill, { positive: required });
 }
 
 function normalizeFinanceBillDate(body, field, options = {}) {
@@ -53419,7 +53394,7 @@ function payFinanceBill(db, user, bill, body) {
   const paidTotal = db.prepare("SELECT COALESCE(SUM(amount),0) AS p FROM bill_payments WHERE org_id = ? AND bill_id = ?").get(user.org_id, bill.id).p;
   const status = paidTotal >= bill.total ? "paid" : "partial";
   db.prepare("UPDATE bills SET status = ? WHERE org_id = ? AND id = ?").run(status, user.org_id, bill.id);
-  ledger.postBillPayment(db, user.org_id, { id, amount: input.amount, date: input.paidAt, period_key: periodKey });
+  ledger.postBillPayment(db, user.org_id, { id, amount: fromMinorAmount(input.amount), date: input.paidAt, period_key: periodKey });
   audit(db, user.org_id, user.id, "finance.bill.paid", { billId: bill.id, paymentId: id, amount: input.amount });
   return { payment: { id, billId: bill.id, amount: input.amount, paidAt: input.paidAt, status } };
 }
@@ -53443,32 +53418,7 @@ function normalizeFinanceBillPaymentAmount(body, field, options = {}) {
     if (required) throwInvalidFinanceBillPayment();
     return fallback;
   }
-  if (value === null || Array.isArray(value) || typeof value === "object") {
-    throwInvalidFinanceBillPayment();
-  }
-  let amount;
-  if (typeof value === "number") {
-    amount = value;
-  } else if (typeof value === "string") {
-    if (/[\x00-\x1f\x7f]/.test(value)) {
-      throwInvalidFinanceBillPayment();
-    }
-    const text = value.trim();
-    if (!/^-?\d+(?:\.\d+)?$/.test(text)) {
-      throwInvalidFinanceBillPayment();
-    }
-    amount = Number(text);
-  } else {
-    throwInvalidFinanceBillPayment();
-  }
-  if (!Number.isFinite(amount) || amount < 0) {
-    throwInvalidFinanceBillPayment();
-  }
-  const rounded = Math.round(amount);
-  if (required ? rounded <= 0 : rounded < 0) {
-    throwInvalidFinanceBillPayment();
-  }
-  return rounded;
+  return toStoredMoneyInput(value, throwInvalidFinanceBillPayment, { positive: required });
 }
 
 function normalizeFinanceBillPaymentDate(body, field) {
@@ -53626,29 +53576,7 @@ function normalizeFinanceOpeningBalanceAmount(entry) {
   if (value === undefined || value === "" || value === null || Array.isArray(value) || typeof value === "object") {
     throwInvalidFinanceOpeningBalances();
   }
-  let amount;
-  if (typeof value === "number") {
-    amount = value;
-  } else if (typeof value === "string") {
-    if (/[\x00-\x1f\x7f]/.test(value)) {
-      throwInvalidFinanceOpeningBalances();
-    }
-    const text = value.trim();
-    if (!/^-?\d+(?:\.\d+)?$/.test(text)) {
-      throwInvalidFinanceOpeningBalances();
-    }
-    amount = Number(text);
-  } else {
-    throwInvalidFinanceOpeningBalances();
-  }
-  if (!Number.isFinite(amount) || amount < 0) {
-    throwInvalidFinanceOpeningBalances();
-  }
-  const rounded = Math.round(amount);
-  if (amount > 0 && rounded <= 0) {
-    throwInvalidFinanceOpeningBalances();
-  }
-  return rounded;
+  return toValidatedMajorMoneyInput(value, throwInvalidFinanceOpeningBalances, { zeroSubunitFraction: "zeroes" });
 }
 
 function throwInvalidFinanceOpeningBalances() {
@@ -53739,10 +53667,10 @@ function persistPayrollRun(db, user, input) {
   ledger.postPayrollRun(db, user.org_id, {
     id,
     employeeName: input.employeeName,
-    gross: calc.gross,
-    net: calc.net,
-    totalDeductions: calc.totalDeductions,
-    employerInsurance: calc.employerInsurance,
+    gross: fromMinorAmount(calc.gross),
+    net: fromMinorAmount(calc.net),
+    totalDeductions: fromMinorAmount(calc.totalDeductions),
+    employerInsurance: fromMinorAmount(calc.employerInsurance),
     date: input.runDate,
     period_key: periodKey
   });
@@ -53765,9 +53693,10 @@ function persistPayrollRun(db, user, input) {
 }
 
 function calculateValidatedPayroll(db, orgId, gross, configOverride, asOf) {
-  validatePayrollRunConfigForGross(configOverride, gross);
+  const grossMajor = fromMinorAmount(gross);
+  validatePayrollRunConfigForGross(configOverride, grossMajor);
   if (locale.activeLocale() === "ru") {
-    const calc = locale.active().payroll.computeMonthly({ gross });
+    const calc = locale.active().payroll.computeMonthly({ gross: grossMajor });
     const normalized = {
       gross: calc.gross,
       incomeTax: calc.ndfl || 0,
@@ -53781,15 +53710,28 @@ function calculateValidatedPayroll(db, orgId, gross, configOverride, asOf) {
     if (normalized.net < 0 || normalized.totalDeductions > normalized.gross) {
       throwInvalidFinancePayrollRun();
     }
-    return normalized;
+    return normalizePayrollCalcToStored(normalized);
   }
   // Explicit rate overrides are supported, but empty config still uses the effective-dated resolver.
   const config = configOverride || resolvePayrollConfig(db, orgId, asOf);
-  const calc = payroll.calculatePayroll(gross, { config });
+  const calc = payroll.calculatePayroll(grossMajor, { config });
   if (calc.net < 0 || calc.totalDeductions > calc.gross) {
     throwInvalidFinancePayrollRun();
   }
-  return calc;
+  return normalizePayrollCalcToStored(calc);
+}
+
+function normalizePayrollCalcToStored(calc) {
+  return {
+    gross: toMinorAmount(calc.gross),
+    incomeTax: toMinorAmount(calc.incomeTax || 0),
+    pension: toMinorAmount(calc.pension || 0),
+    stampDuty: toMinorAmount(calc.stampDuty || 0),
+    totalDeductions: toMinorAmount(calc.totalDeductions || 0),
+    net: toMinorAmount(calc.net),
+    employerInsurance: toMinorAmount(calc.employerInsurance || 0),
+    employerCost: toMinorAmount(calc.employerCost || calc.gross)
+  };
 }
 
 function normalizeFinancePayrollCalculateBody(body) {
@@ -53831,32 +53773,7 @@ function normalizeFinancePayrollRunAmount(body, field, options = {}) {
     if (required) throwInvalidFinancePayrollRun();
     return fallback;
   }
-  if (value === null || Array.isArray(value) || typeof value === "object") {
-    throwInvalidFinancePayrollRun();
-  }
-  let amount;
-  if (typeof value === "number") {
-    amount = value;
-  } else if (typeof value === "string") {
-    if (/[\x00-\x1f\x7f]/.test(value)) {
-      throwInvalidFinancePayrollRun();
-    }
-    const text = value.trim();
-    if (!/^-?\d+(?:\.\d+)?$/.test(text)) {
-      throwInvalidFinancePayrollRun();
-    }
-    amount = Number(text);
-  } else {
-    throwInvalidFinancePayrollRun();
-  }
-  if (!Number.isFinite(amount) || amount < 0) {
-    throwInvalidFinancePayrollRun();
-  }
-  const rounded = Math.round(amount);
-  if (required ? rounded <= 0 : rounded < 0) {
-    throwInvalidFinancePayrollRun();
-  }
-  return rounded;
+  return toStoredMoneyInput(value, throwInvalidFinancePayrollRun, { positive: required });
 }
 
 function normalizeFinancePayrollRunDate(body, field) {
@@ -54077,7 +53994,7 @@ function createDraftInvoiceFromApproval(db, user, approval, now) {
   const vatRate = resolveVatRate(db, user.org_id, issueDate);
   const split = quote && quote.dealId === deal.id
     ? splitStoredVatInclusive(quote.total, vatRate)
-    : splitVatInclusive(Number(deal.value || 0), vatRate);
+    : splitStoredVatInclusive(Number(deal.value || 0), vatRate);
   const { subtotal, vat, total } = split;
   const draftId = randomId("draft-inv");
   const number = `DRAFT-${deal.id.replace(/^deal-/, "").toUpperCase().replace(/[^A-Z0-9]+/g, "-")}`;
@@ -54225,7 +54142,7 @@ async function recordInvoicePayment(db, user, invoice, body) {
     user.org_id,
     invoice.customerId,
     invoice.id,
-    Math.round(amount),
+    amount,
     "AMD",
     paidAt,
     method,
@@ -54252,17 +54169,17 @@ async function recordInvoicePayment(db, user, invoice, body) {
     payload: {
       invoiceId: invoice.id,
       number: invoice.number,
-      amount: Math.round(amount),
+      amount,
       method,
       reference,
       periodKey
     }
   });
-  audit(db, user.org_id, user.id, "finance.payment.received", { invoiceId: invoice.id, paymentId, amount: Math.round(amount), reference });
+  audit(db, user.org_id, user.id, "finance.payment.received", { invoiceId: invoice.id, paymentId, amount, reference });
   ledger.postPaymentReceived(db, user.org_id, {
     id: paymentId,
     invoice_id: invoice.id,
-    amount: Math.round(amount),
+    amount: fromMinorAmount(amount),
     date: paidAt,
     period_key: periodKey
   });
@@ -54316,17 +54233,7 @@ function normalizeInvoicePaymentAmount(body) {
   if (value === undefined || value === "" || value === null) {
     throwInvalidInvoicePayment();
   }
-  if (typeof value === "string" && /[\x00-\x1f\x7f]/.test(value)) {
-    throwInvalidInvoicePayment();
-  }
-  if (typeof value !== "number" && typeof value !== "string") {
-    throwInvalidInvoicePayment();
-  }
-  const amount = Number(typeof value === "string" ? value.trim() : value);
-  if (!Number.isFinite(amount) || amount <= 0) {
-    throwInvalidInvoicePayment();
-  }
-  return amount;
+  return toStoredMoneyInput(value, throwInvalidInvoicePayment, { positive: true });
 }
 
 function normalizeInvoicePaymentDate(body) {
@@ -54532,7 +54439,7 @@ async function reconcileFinanceBankTransaction(db, user, transactionId) {
     throw err;
   }
   const paymentResult = await recordInvoicePayment(db, user, invoice, {
-    amount: transaction.amount,
+    amount: fromMinorAmount(transaction.amount),
     paidAt: transaction.transactionDate,
     method: `bank-import:${transaction.bankName}`,
     reference: transaction.reference
@@ -54590,17 +54497,7 @@ function normalizeBankTransactionAmount(body) {
   if (value === undefined || value === "" || value === null) {
     throwInvalidBankTransactionImport();
   }
-  if (typeof value === "string" && /[\x00-\x1f\x7f]/.test(value)) {
-    throwInvalidBankTransactionImport();
-  }
-  if (typeof value !== "number" && typeof value !== "string") {
-    throwInvalidBankTransactionImport();
-  }
-  const amount = Math.round(Number(typeof value === "string" ? value.trim() : value));
-  if (!Number.isFinite(amount) || amount <= 0) {
-    throwInvalidBankTransactionImport();
-  }
-  return amount;
+  return toStoredMoneyInput(value, throwInvalidBankTransactionImport, { positive: true });
 }
 
 function normalizeBankTransactionDate(body) {
@@ -58087,22 +57984,11 @@ function normalizeCollectionAmount(body, field, invoice) {
   if (value === undefined || value === "" || value === null || Array.isArray(value) || typeof value === "object") {
     throwInvalidCollectionMetadata("Promised amount must be positive and not exceed the invoice total");
   }
-  let amount;
-  if (typeof value === "number") {
-    amount = value;
-  } else if (typeof value === "string") {
-    if (/[\x00-\x1f\x7f]/.test(value)) {
-      throwInvalidCollectionMetadata();
-    }
-    const text = value.trim();
-    if (!/^\d+(?:\.0+)?$/.test(text)) {
-      throwInvalidCollectionMetadata("Promised amount must be positive and not exceed the invoice total");
-    }
-    amount = Number(text);
-  } else {
-    throwInvalidCollectionMetadata();
-  }
-  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > invoice.total) {
+  const amount = toStoredMoneyInput(value, () => throwInvalidCollectionMetadata("Promised amount must be positive and not exceed the invoice total"), {
+    positive: true,
+    zeroSubunitFraction: "zeroes"
+  });
+  if (amount > invoice.total) {
     throwInvalidCollectionMetadata("Promised amount must be positive and not exceed the invoice total");
   }
   return amount;
@@ -58489,7 +58375,7 @@ function formatCollectionPromise(row) {
 }
 
 function buildCollectionMessageHy(invoice, promisedAmount, promisedOn) {
-  return `Հիշեցում․ խնդրում ենք մինչև ${promisedOn} վճարել ${promisedAmount.toLocaleString("en-US")} AMD ${invoice.number} հաշվի համար։`;
+  return `Հիշեցում․ խնդրում ենք մինչև ${promisedOn} վճարել ${fromMinorAmount(promisedAmount).toLocaleString("en-US")} AMD ${invoice.number} հաշվի համար։`;
 }
 
 function normalizeIsoDate(value, label) {
