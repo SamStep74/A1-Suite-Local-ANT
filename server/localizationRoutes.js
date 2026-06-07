@@ -1,18 +1,16 @@
-// RA localization API routes — exposes the localization/fiscal engines over HTTP.
+// Localization API routes — exposes the localization/fiscal engines over HTTP.
 //
-// Every handler is STATELESS (it calls a pure engine and touches no tenant data),
-// but still requires an authenticated session (app.auth) per the suite's access
-// policy. Registered from buildApp via registerLocalizationRoutes(app), kept in its
-// own module to minimize the footprint inside the large app.js.
+// Locale-aware: every handler resolves the ACTIVE locale profile via require("./locale")
+// (A1_LOCALE → "am" default | "ru") and calls the normalized facade, so the same routes
+// serve the Republic-of-Armenia (RA) or Russian-Federation (RF) engines depending on
+// deployment. With A1_LOCALE unset/"am" the responses are byte-identical to before.
 //
-// Payroll stays lazily required so this module remains isolated from app boot.
+// Every handler is STATELESS (it calls a pure engine and touches no tenant data), but
+// still requires an authenticated session (app.auth) per the suite's access policy.
+// Registered from buildApp via registerLocalizationRoutes(app), kept in its own module
+// to minimize the footprint inside the large app.js.
 
-const localization = require("./localization");
-const regions = require("./armeniaRegions");
-const phone = require("./armeniaPhone");
-const coa = require("./armeniaChartOfAccounts");
-const vatReturn = require("./vatReturn");
-const einvoice = require("./einvoice");
+const locale = require("./locale");
 
 const MAX_QUERY_TEXT_LENGTH = 160;
 const MAX_JSON_STRING_LENGTH = 1000;
@@ -26,13 +24,24 @@ function isPlainObject(value) {
 }
 
 function hasControlCharacters(value) {
-  return /[\u0000-\u001f\u007f]/.test(value);
+  for (let i = 0; i < value.length; i++) {
+    const c = value.charCodeAt(i);
+    if (c <= 0x1f || c === 0x7f) return true;
+  }
+  return false;
 }
 
 function invalidLocalizationMetadata(message = "Localization request requires safe metadata") {
   const error = new Error(message);
   error.statusCode = 400;
   error.code = "INVALID_LOCALIZATION_METADATA";
+  return error;
+}
+
+function unsupportedForLocale(message, code) {
+  const error = new Error(message);
+  error.statusCode = 501;
+  error.code = code;
   return error;
 }
 
@@ -85,7 +94,7 @@ function normalizePayrollGross(body) {
   const value = normalizeBodyObject(body).gross;
   const gross = typeof value === "number" ? value : (typeof value === "string" && value.trim() ? Number(value) : NaN);
   if (!Number.isFinite(gross) || gross < 0 || gross > MAX_PAYROLL_GROSS) {
-    throw invalidLocalizationMetadata("Payroll gross must be a safe non-negative AMD amount");
+    throw invalidLocalizationMetadata("Payroll gross must be a safe non-negative amount");
   }
   return gross;
 }
@@ -129,45 +138,77 @@ function normalizeEInvoiceBody(body) {
 }
 
 function registerLocalizationRoutes(app) {
-  // Full RA chart of accounts, or a single code via ?code=
-  app.get("/api/localization/chart-of-accounts", async (request) => {
+  // Active-locale profile: currency, tax-id label, phone country code, capabilities.
+  // Lets the frontend render the right labels/format for the deployment's locale.
+  app.get("/api/localization/config", async (request) => {
     await app.auth(request);
-    const code = normalizeOptionalQueryText(request.query, "code");
-    if (code) {
-      const account = coa.accountByCode(code);
-      return account
-        ? { ...account, normalBalance: coa.normalBalance(code) }
-        : { error: "unknown account code" };
-    }
-    return { classes: coa.ACCOUNT_CLASSES, accounts: coa.STANDARD_ACCOUNTS };
+    const L = locale.active();
+    return {
+      locale: L.locale,
+      locales: locale.LOCALES,
+      country: L.meta.country,
+      language: L.meta.language,
+      currency: L.meta.currency,
+      taxId: L.meta.taxId,
+      phone: L.meta.phone,
+      capabilities: {
+        vatReturnForm: L.meta.vat.supportsReturnForm,
+        payroll: L.payroll.supports,
+        chartOfAccounts: L.chartOfAccounts.accounts().length,
+        regions: L.regions.all().length,
+      },
+    };
   });
 
+  // Full chart of accounts for the active locale, or a single code via ?code=
+  app.get("/api/localization/chart-of-accounts", async (request) => {
+    await app.auth(request);
+    const L = locale.active();
+    const code = normalizeOptionalQueryText(request.query, "code");
+    if (code) {
+      const account = L.chartOfAccounts.byCode(code);
+      return account
+        ? { ...account, normalBalance: L.chartOfAccounts.normalBalance(code) }
+        : { error: "unknown account code" };
+    }
+    return { classes: L.chartOfAccounts.classes(), accounts: L.chartOfAccounts.accounts() };
+  });
+
+  // Validate the active locale's business tax id (RA ՀՎՀՀ / RF ИНН).
   app.get("/api/localization/hvhh", async (request) => {
     await app.auth(request);
-    return localization.validateHvhh(normalizeOptionalQueryText(request.query, "value"));
+    return locale.active().taxId.validate(normalizeOptionalQueryText(request.query, "value"));
   });
 
   app.get("/api/localization/regions", async (request) => {
     await app.auth(request);
-    return { regions: regions.REGIONS };
+    return { regions: locale.active().regions.all() };
   });
 
   app.get("/api/localization/phone", async (request) => {
     await app.auth(request);
+    const L = locale.active();
     const value = normalizeOptionalQueryText(request.query, "value");
     return {
-      valid: phone.isValidArmenianPhone(value),
-      e164: phone.e164(value),
-      formatted: phone.formatPhone(value),
+      valid: L.phone.isValid(value),
+      e164: L.phone.e164(value),
+      formatted: L.phone.format(value),
     };
   });
 
   app.post("/api/finance/vat-return/compute", async (request) => {
     await app.auth(request);
+    const L = locale.active();
+    if (!L.vat.supportsReturnForm) {
+      throw unsupportedForLocale(
+        `VAT-return form is not available for locale "${L.locale}"`,
+        "VAT_RETURN_FORM_UNSUPPORTED_LOCALE",
+      );
+    }
     const period = normalizeVatReturnPeriod(request.body);
-    const form = vatReturn.vatReturnForm(period);
+    const form = L.vat.returnForm(period);
     return {
-      summary: vatReturn.computeVatReturn(period),
+      summary: L.vat.computeReturn(period),
       form: form.lines,
       formSource: form.source,
       formLineDefinitions: form.lineDefinitions,
@@ -176,13 +217,8 @@ function registerLocalizationRoutes(app) {
 
   app.post("/api/finance/payroll/compute", async (request) => {
     await app.auth(request);
-    let payroll;
-    try {
-      payroll = require("./armeniaPayroll");
-    } catch {
-      return { error: "payroll engine unavailable" };
-    }
-    return payroll.computePayroll(normalizePayrollGross(request.body));
+    const gross = normalizePayrollGross(request.body);
+    return locale.active().payroll.computeMonthly(gross);
   });
 
   app.post("/api/finance/einvoice/build", async (request, reply) => {
@@ -190,7 +226,7 @@ function registerLocalizationRoutes(app) {
     if (reply && typeof reply.header === "function") {
       reply.header("content-type", "application/xml; charset=utf-8");
     }
-    return einvoice.buildEInvoiceXml(normalizeEInvoiceBody(request.body));
+    return locale.active().einvoice.build(normalizeEInvoiceBody(request.body));
   });
 }
 
