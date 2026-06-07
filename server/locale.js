@@ -60,9 +60,15 @@ function armenianProfile(pkg) {
     money: Object.freeze({
       code: "AMD",
       symbol: "֏",
+      subunit: 0, // dram has no minor unit
       round: (v) => localization.roundAmd(v),
       format: (v, opts) => localization.formatAmd(v, opts),
       parse: (v) => localization.parseAmd(v),
+      // Minor-unit scale (see docs/RU_KOPECK_MIGRATION_RFC.md). AMD subunit 0 → factor 1, so
+      // toMinor/fromMinor are the identity (a minor unit IS a whole dram) — AM stays no-op.
+      toMinor: (v) => localization.roundAmd(v),
+      fromMinor: (v) => localization.roundAmd(v),
+      roundToWholeMajor: (v) => localization.roundAmd(v),
     }),
     phone: Object.freeze({
       countryCode: phone.COUNTRY_CODE,
@@ -132,9 +138,16 @@ function russianProfile(pkg) {
     money: Object.freeze({
       code: "RUB",
       symbol: "₽",
+      subunit: 2, // копейка = 1/100 ruble
       round: (v) => money.roundRub(v),
       format: (v, opts) => money.formatRub(v, opts),
       parse: (v) => money.parseRub(v),
+      // Minor-unit scale (see docs/RU_KOPECK_MIGRATION_RFC.md). RUB subunit 2 → factor 100:
+      // toMinor returns integer kopecks (EPSILON-safe via roundRub), fromMinor returns rubles.
+      toMinor: (v) => Math.round((money.roundRub(v) + Number.EPSILON) * 100),
+      fromMinor: (v) => (Number(v) || 0) / 100,
+      // RU tax bases round to WHOLE rubles (НК РФ ст. 52) — distinct from storage rounding.
+      roundToWholeMajor: (v) => money.roundToWholeRubles(v),
     }),
     phone: Object.freeze({
       countryCode: phone.COUNTRY_CODE,
