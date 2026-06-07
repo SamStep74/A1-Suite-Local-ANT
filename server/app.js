@@ -409,6 +409,13 @@ function registerApi(app, db, options = {}) {
     return { priceLists: getCatalogPriceLists(db, user.org_id) };
   });
 
+  app.get("/api/catalog/pricing/resolve", async request => {
+    const user = await app.auth(request);
+    requireCatalogReader(user);
+    const query = normalizeCatalogPriceResolveQuery(request.query || {});
+    return { pricing: resolveCatalogPricing(db, user.org_id, query) };
+  });
+
   app.get("/api/catalog/margin-rules", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
@@ -48256,6 +48263,86 @@ function getCatalogPriceLists(db, orgId) {
   return lists.map(list => ({ ...list, items: byList.get(list.id) || [] }));
 }
 
+function resolveCatalogPricing(db, orgId, query) {
+  const item = getCatalogItem(db, orgId, query.catalogItemId);
+  if (!item || item.status !== "active") {
+    const err = new Error("Active catalog item not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const priceLists = getCatalogPriceLists(db, orgId).filter(list => list.status === "active");
+  const exactLists = priceLists.filter(list => list.customerSegment === query.customerSegment);
+  const candidateLists = exactLists.length
+    ? exactLists
+    : priceLists.filter(list => list.customerSegment === "standard" || list.code === "STANDARD-SALES");
+  const candidates = [];
+  for (const list of candidateLists) {
+    for (const row of list.items || []) {
+      if (row.status !== "active") continue;
+      if (row.catalogItemId !== query.catalogItemId) continue;
+      if (Number(row.minQuantity || 1) > query.quantity) continue;
+      const exactVariant = query.catalogItemVariantId && row.catalogItemVariantId === query.catalogItemVariantId;
+      const parentMatch = !row.catalogItemVariantId && (!query.catalogItemVariantId || !hasVariantPriceRow(list.items, query));
+      if (!exactVariant && !parentMatch) continue;
+      candidates.push({
+        list,
+        row,
+        variantFallback: Boolean(query.catalogItemVariantId && parentMatch)
+      });
+    }
+  }
+  candidates.sort((a, b) => (
+    Number(b.row.minQuantity || 1) - Number(a.row.minQuantity || 1)
+    || a.list.code.localeCompare(b.list.code)
+    || String(a.row.variantSku || "").localeCompare(String(b.row.variantSku || ""))
+  ));
+  const resolved = candidates[0];
+  if (!resolved) {
+    const err = new Error("Catalog price not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const { list, row, variantFallback } = resolved;
+  return {
+    catalogItemId: query.catalogItemId,
+    catalogItemVariantId: query.catalogItemVariantId || row.catalogItemVariantId,
+    requestedCustomerSegment: query.customerSegment,
+    quantity: query.quantity,
+    priceListId: list.id,
+    priceListCode: list.code,
+    priceListName: list.name,
+    customerSegment: list.customerSegment,
+    variantFallback,
+    itemType: row.itemType,
+    catalogSku: row.catalogSku,
+    catalogName: row.catalogName,
+    variantSku: row.variantSku,
+    variantName: row.variantName,
+    minQuantity: row.minQuantity,
+    listPrice: row.listPrice,
+    discountPercent: row.discountPercent,
+    discountAmount: row.discountAmount,
+    netPrice: row.netPrice,
+    standardCost: row.standardCost,
+    marginAmount: row.marginAmount,
+    marginPercent: row.marginPercent,
+    marginRuleCode: row.marginRuleCode,
+    minimumMarginPercent: row.minimumMarginPercent,
+    targetMarginPercent: row.targetMarginPercent,
+    marginStatus: row.marginStatus,
+    currency: row.currency
+  };
+}
+
+function hasVariantPriceRow(rows, query) {
+  return rows.some(row => (
+    row.status === "active"
+    && row.catalogItemId === query.catalogItemId
+    && row.catalogItemVariantId === query.catalogItemVariantId
+    && Number(row.minQuantity || 1) <= query.quantity
+  ));
+}
+
 function formatCatalogPriceListItem(row, marginRules = []) {
   const discountPercent = Number(row.discountPercent || 0);
   const discountEvidence = catalogDiscountEvidence(row.listPrice, discountPercent);
@@ -48463,6 +48550,19 @@ function normalizeCatalogItemQuery(query) {
   };
 }
 
+function normalizeCatalogPriceResolveQuery(query) {
+  const catalogItemId = normalizeCatalogQueryText(query, "catalogItemId", { maxLength: 160, idLike: true });
+  if (!catalogItemId) throwInvalidCatalogMetadata();
+  const customerSegment = normalizeCatalogQueryText(query, "customerSegment", { maxLength: 80 }) || "standard";
+  if (!/^[a-z0-9._-]+$/.test(customerSegment)) throwInvalidCatalogMetadata();
+  return {
+    catalogItemId,
+    catalogItemVariantId: normalizeCatalogQueryText(query, "catalogItemVariantId", { maxLength: 160, idLike: true }),
+    customerSegment,
+    quantity: normalizeCatalogQueryInteger(query, "quantity", { fallback: 1, min: 1, max: 1000000 })
+  };
+}
+
 function normalizeCatalogQueryChoice(query, field, allowed) {
   const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
   if (value === undefined || value === "") return "";
@@ -48481,6 +48581,17 @@ function normalizeCatalogQueryText(query, field, options = {}) {
   if (text.length > maxLength) throwInvalidCatalogMetadata();
   if (idLike && text && !/^[a-z0-9-]+$/.test(text)) throwInvalidCatalogMetadata();
   return text;
+}
+
+function normalizeCatalogQueryInteger(query, field, options = {}) {
+  const { fallback = 1, min = 1, max = 1000000 } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return fallback;
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
+  if (!/^[0-9]+$/.test(value.trim())) throwInvalidCatalogMetadata();
+  const number = Number(value.trim());
+  if (!Number.isSafeInteger(number) || number < min || number > max) throwInvalidCatalogMetadata();
+  return number;
 }
 
 function createCatalogItem(db, user, body) {

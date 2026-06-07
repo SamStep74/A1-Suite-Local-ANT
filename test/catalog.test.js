@@ -35,6 +35,8 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.equal(unauthenticated.statusCode, 401);
     const unauthenticatedPriceLists = await app.inject({ method: "GET", url: "/api/catalog/price-lists" });
     assert.equal(unauthenticatedPriceLists.statusCode, 401);
+    const unauthenticatedPricing = await app.inject({ method: "GET", url: "/api/catalog/pricing/resolve?catalogItemId=catitem-pos-barcode-scanner" });
+    assert.equal(unauthenticatedPricing.statusCode, 401);
     const unauthenticatedMarginRules = await app.inject({ method: "GET", url: "/api/catalog/margin-rules" });
     assert.equal(unauthenticatedMarginRules.statusCode, 401);
 
@@ -101,6 +103,59 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     const priceListBody = priceListResponse.json();
     assert.deepEqual(priceListBody.priceLists.find(list => list.code === "STANDARD-SALES"), standardPriceList);
     assert.deepEqual(priceListBody.priceLists.find(list => list.code === "LOYALTY-10"), loyaltyPriceList);
+    const standardPricing = await app.inject({ method: "GET", url: "/api/catalog/pricing/resolve?catalogItemId=catitem-pos-barcode-scanner", headers: { cookie: owner } });
+    assert.equal(standardPricing.statusCode, 200, standardPricing.body);
+    assert.deepEqual(standardPricing.json().pricing, {
+      catalogItemId: "catitem-pos-barcode-scanner",
+      catalogItemVariantId: null,
+      requestedCustomerSegment: "standard",
+      quantity: 1,
+      priceListId: "catpl-standard-sales",
+      priceListCode: "STANDARD-SALES",
+      priceListName: "Standard sales price list",
+      customerSegment: "standard",
+      variantFallback: false,
+      itemType: "stockable",
+      catalogSku: "HW-BARCODE-SCANNER",
+      catalogName: "POS barcode scanner",
+      variantSku: "",
+      variantName: "",
+      minQuantity: 1,
+      listPrice: 85000,
+      discountPercent: 0,
+      discountAmount: 0,
+      netPrice: 85000,
+      standardCost: 62000,
+      marginAmount: 23000,
+      marginPercent: 27.06,
+      marginRuleCode: "STOCKABLE-MIN-20",
+      minimumMarginPercent: 20,
+      targetMarginPercent: 30,
+      marginStatus: "ok",
+      currency: "AMD"
+    });
+    const loyaltyPricing = await app.inject({ method: "GET", url: "/api/catalog/pricing/resolve?catalogItemId=catitem-pos-barcode-scanner&customerSegment=loyalty&quantity=2", headers: { cookie: owner } });
+    assert.equal(loyaltyPricing.statusCode, 200, loyaltyPricing.body);
+    assert.equal(loyaltyPricing.json().pricing.priceListCode, "LOYALTY-10");
+    assert.equal(loyaltyPricing.json().pricing.quantity, 2);
+    assert.equal(loyaltyPricing.json().pricing.netPrice, 76500);
+    assert.equal(loyaltyPricing.json().pricing.marginStatus, "below_minimum");
+    const variantPricing = await app.inject({ method: "GET", url: "/api/catalog/pricing/resolve?catalogItemId=catitem-pos-barcode-scanner&catalogItemVariantId=catvar-pos-scanner-usb&customerSegment=loyalty", headers: { cookie: owner } });
+    assert.equal(variantPricing.statusCode, 200, variantPricing.body);
+    assert.equal(variantPricing.json().pricing.catalogItemVariantId, "catvar-pos-scanner-usb");
+    assert.equal(variantPricing.json().pricing.variantSku, "HW-BARCODE-SCANNER-USB");
+    assert.equal(variantPricing.json().pricing.variantFallback, false);
+    assert.equal(variantPricing.json().pricing.priceListCode, "LOYALTY-10");
+    assert.equal(variantPricing.json().pricing.marginStatus, "below_minimum");
+    const fallbackPricing = await app.inject({ method: "GET", url: "/api/catalog/pricing/resolve?catalogItemId=catitem-pos-barcode-scanner&customerSegment=vip", headers: { cookie: owner } });
+    assert.equal(fallbackPricing.statusCode, 200, fallbackPricing.body);
+    assert.equal(fallbackPricing.json().pricing.requestedCustomerSegment, "vip");
+    assert.equal(fallbackPricing.json().pricing.customerSegment, "standard");
+    assert.equal(fallbackPricing.json().pricing.priceListCode, "STANDARD-SALES");
+    const malformedPricing = await app.inject({ method: "GET", url: "/api/catalog/pricing/resolve?catalogItemId=catitem-pos-barcode-scanner&quantity=bad", headers: { cookie: owner } });
+    assert.equal(malformedPricing.statusCode, 400, malformedPricing.body);
+    const unknownPricing = await app.inject({ method: "GET", url: "/api/catalog/pricing/resolve?catalogItemId=catitem-missing", headers: { cookie: owner } });
+    assert.equal(unknownPricing.statusCode, 404, unknownPricing.body);
     const marginRuleResponse = await app.inject({ method: "GET", url: "/api/catalog/margin-rules", headers: { cookie: owner } });
     assert.equal(marginRuleResponse.statusCode, 200, marginRuleResponse.body);
     assert.deepEqual(marginRuleResponse.json().marginRules, body.marginRules);
@@ -147,6 +202,8 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.equal(supportDenied.statusCode, 403);
     const supportPriceListDenied = await app.inject({ method: "GET", url: "/api/catalog/price-lists", headers: { cookie: support } });
     assert.equal(supportPriceListDenied.statusCode, 403);
+    const supportPricingDenied = await app.inject({ method: "GET", url: "/api/catalog/pricing/resolve?catalogItemId=catitem-pos-barcode-scanner", headers: { cookie: support } });
+    assert.equal(supportPricingDenied.statusCode, 403);
     const supportMarginRuleDenied = await app.inject({ method: "GET", url: "/api/catalog/margin-rules", headers: { cookie: support } });
     assert.equal(supportMarginRuleDenied.statusCode, 403);
 
@@ -158,6 +215,9 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.equal(accountantPriceLists.statusCode, 200, accountantPriceLists.body);
     assert.ok(accountantPriceLists.json().priceLists.some(list => list.code === "STANDARD-SALES" && list.items.length >= body.items.length));
     assert.ok(accountantPriceLists.json().priceLists.some(list => list.code === "LOYALTY-10" && list.items.length >= body.items.length));
+    const accountantPricing = await app.inject({ method: "GET", url: "/api/catalog/pricing/resolve?catalogItemId=catitem-pos-barcode-scanner&customerSegment=loyalty", headers: { cookie: accountant } });
+    assert.equal(accountantPricing.statusCode, 200, accountantPricing.body);
+    assert.equal(accountantPricing.json().pricing.priceListCode, "LOYALTY-10");
     const accountantMarginRules = await app.inject({ method: "GET", url: "/api/catalog/margin-rules", headers: { cookie: accountant } });
     assert.equal(accountantMarginRules.statusCode, 200, accountantMarginRules.body);
     assert.ok(accountantMarginRules.json().marginRules.some(rule => rule.code === "STOCKABLE-MIN-20"));
