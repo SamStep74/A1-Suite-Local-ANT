@@ -6,6 +6,7 @@ const assert = require("node:assert/strict");
 const { openDatabase } = require("../server/db");
 const ledger = require("../server/ledger");
 const accounting = require("../server/accounting");
+const locale = require("../server/locale");
 const { cashMatcherFor } = require("../server/postingCodes");
 
 function withLocale(value, fn) {
@@ -42,7 +43,10 @@ test("RU cash-flow statement detects the bank account (51) as cash", () => {
     ledger.postInvoicePosted(db, orgId, { id: "inv-1", total: 1000, vat: 0, date: "2026-05-10" });
     ledger.postPaymentReceived(db, orgId, { id: "pay-1", amount: 1000, date: "2026-05-12" }); // DR51 / CR62
     const model = ledger.buildLedgerModel(db, orgId);
-    const fs = accounting.financialStatements(model, {}, { isCashAccount: cashMatcherFor("ru") });
+    const fs = accounting.financialStatements(model, {}, {
+      isCashAccount: cashMatcherFor("ru"),
+      money: locale.profileFor("ru").money
+    });
     assert.equal(fs.cashFlow.cashIn, 1000); // money into расчётный счёт 51
     assert.equal(fs.cashFlow.netCashChange, 1000);
   });
