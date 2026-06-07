@@ -504,6 +504,12 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(line.description, "Instagram and WhatsApp inbox setup");
     assert.equal(line.unitPrice, 760000);
     assert.equal(line.total, 1520000);
+    assert.equal(line.pricingSource, "catalog_price_list");
+    assert.equal(line.catalogPriceListId, "catpl-standard-sales");
+    assert.equal(line.catalogPriceListCode, "STANDARD-SALES");
+    assert.equal(line.pricingCustomerSegment, "standard");
+    assert.equal(line.discountAmount, 190000);
+    assert.equal(line.marginStatus, "ok");
     assert.equal(line.vatMode, "standard");
     assert.equal(line.fiscalReceiptRequired, true);
 
@@ -526,6 +532,12 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(loyaltyQuote.statusCode, 200, loyaltyQuote.body);
     assert.equal(loyaltyQuote.json().quote.lines[0].unitPrice, 76500);
     assert.equal(loyaltyQuote.json().quote.lines[0].total, 76500);
+    assert.equal(loyaltyQuote.json().quote.lines[0].pricingSource, "catalog_price_list");
+    assert.equal(loyaltyQuote.json().quote.lines[0].catalogPriceListId, "catpl-loyalty-10");
+    assert.equal(loyaltyQuote.json().quote.lines[0].catalogPriceListCode, "LOYALTY-10");
+    assert.equal(loyaltyQuote.json().quote.lines[0].pricingCustomerSegment, "loyalty");
+    assert.equal(loyaltyQuote.json().quote.lines[0].discountAmount, 8500);
+    assert.equal(loyaltyQuote.json().quote.lines[0].marginStatus, "below_minimum");
 
     const variantQuote = await app.inject({
       method: "POST",
@@ -556,13 +568,32 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(variantLine.description, "USB barcode scanner");
     assert.equal(variantLine.unitPrice, 76500);
     assert.equal(variantLine.total, 76500);
+    assert.equal(variantLine.pricingSource, "catalog_price_list");
+    assert.equal(variantLine.catalogPriceListId, "catpl-loyalty-10");
+    assert.equal(variantLine.catalogPriceListCode, "LOYALTY-10");
+    assert.equal(variantLine.pricingCustomerSegment, "loyalty");
+    assert.equal(variantLine.discountAmount, 8500);
+    assert.equal(variantLine.marginStatus, "below_minimum");
     const storedVariantLine = app.db.prepare(`
-      SELECT catalog_item_id AS catalogItemId, catalog_item_variant_id AS catalogItemVariantId
+      SELECT catalog_item_id AS catalogItemId,
+        catalog_item_variant_id AS catalogItemVariantId,
+        catalog_price_list_id AS catalogPriceListId,
+        catalog_price_list_code AS catalogPriceListCode,
+        pricing_source AS pricingSource,
+        pricing_customer_segment AS pricingCustomerSegment,
+        discount_amount AS discountAmount,
+        margin_status AS marginStatus
       FROM quote_lines
       WHERE org_id = ? AND quote_id = ?
     `).get(orgId, variantQuote.json().quote.id);
     assert.equal(storedVariantLine.catalogItemId, "catitem-pos-barcode-scanner");
     assert.equal(storedVariantLine.catalogItemVariantId, "catvar-pos-scanner-usb");
+    assert.equal(storedVariantLine.catalogPriceListId, "catpl-loyalty-10");
+    assert.equal(storedVariantLine.catalogPriceListCode, "LOYALTY-10");
+    assert.equal(storedVariantLine.pricingSource, "catalog_price_list");
+    assert.equal(storedVariantLine.pricingCustomerSegment, "loyalty");
+    assert.equal(storedVariantLine.discountAmount, 8500);
+    assert.equal(storedVariantLine.marginStatus, "below_minimum");
 
     const overrideQuote = await app.inject({
       method: "POST",
@@ -581,6 +612,11 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(overrideQuote.statusCode, 200, overrideQuote.body);
     assert.equal(overrideQuote.json().quote.lines[0].unitPrice, 83000);
     assert.equal(overrideQuote.json().quote.lines[0].total, 83000);
+    assert.equal(overrideQuote.json().quote.lines[0].pricingSource, "manual");
+    assert.equal(overrideQuote.json().quote.lines[0].catalogPriceListId, null);
+    assert.equal(overrideQuote.json().quote.lines[0].catalogPriceListCode, "");
+    assert.equal(overrideQuote.json().quote.lines[0].discountAmount, 0);
+    assert.equal(overrideQuote.json().quote.lines[0].marginStatus, "");
 
     const malformedVariant = await app.inject({
       method: "POST",

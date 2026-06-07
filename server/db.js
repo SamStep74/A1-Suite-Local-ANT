@@ -959,6 +959,12 @@ function initSchema(db) {
       quote_id TEXT NOT NULL REFERENCES quotes(id) ON DELETE CASCADE,
       catalog_item_id TEXT REFERENCES catalog_items(id) ON DELETE SET NULL,
       catalog_item_variant_id TEXT REFERENCES catalog_item_variants(id) ON DELETE SET NULL,
+      catalog_price_list_id TEXT REFERENCES catalog_price_lists(id) ON DELETE SET NULL,
+      catalog_price_list_code TEXT NOT NULL DEFAULT '',
+      pricing_source TEXT NOT NULL DEFAULT 'manual',
+      pricing_customer_segment TEXT NOT NULL DEFAULT '',
+      discount_amount INTEGER NOT NULL DEFAULT 0,
+      margin_status TEXT NOT NULL DEFAULT '',
       description TEXT NOT NULL,
       quantity INTEGER NOT NULL,
       unit_price INTEGER NOT NULL,
@@ -7289,6 +7295,12 @@ function ensureCatalogLayer(db) {
   const quoteLineAdditions = {
     catalog_item_id: "TEXT",
     catalog_item_variant_id: "TEXT",
+    catalog_price_list_id: "TEXT",
+    catalog_price_list_code: "TEXT NOT NULL DEFAULT ''",
+    pricing_source: "TEXT NOT NULL DEFAULT 'manual'",
+    pricing_customer_segment: "TEXT NOT NULL DEFAULT ''",
+    discount_amount: "INTEGER NOT NULL DEFAULT 0",
+    margin_status: "TEXT NOT NULL DEFAULT ''",
     vat_mode: "TEXT NOT NULL DEFAULT 'standard'",
     fiscal_receipt_required: "INTEGER NOT NULL DEFAULT 0"
   };
@@ -7297,6 +7309,7 @@ function ensureCatalogLayer(db) {
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_quote_lines_catalog_item ON quote_lines(org_id, catalog_item_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_quote_lines_catalog_item_variant ON quote_lines(org_id, catalog_item_variant_id)");
+  db.exec("CREATE INDEX IF NOT EXISTS idx_quote_lines_catalog_price_list ON quote_lines(org_id, catalog_price_list_id)");
 
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {

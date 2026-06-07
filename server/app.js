@@ -50734,6 +50734,12 @@ function getQuoteLines(db, orgId, quoteId) {
   return db.prepare(`
     SELECT quote_lines.id, quote_lines.catalog_item_id AS catalogItemId,
       quote_lines.catalog_item_variant_id AS catalogItemVariantId,
+      quote_lines.catalog_price_list_id AS catalogPriceListId,
+      quote_lines.catalog_price_list_code AS catalogPriceListCode,
+      quote_lines.pricing_source AS pricingSource,
+      quote_lines.pricing_customer_segment AS pricingCustomerSegment,
+      quote_lines.discount_amount AS discountAmount,
+      quote_lines.margin_status AS marginStatus,
       catalog_items.sku AS catalogSku, catalog_items.name AS catalogName,
       catalog_item_variants.sku AS variantSku,
       catalog_item_variants.name AS variantName,
@@ -50866,10 +50872,11 @@ function createCrmQuote(db, user, body) {
   const insertLine = db.prepare(`
     INSERT INTO quote_lines (
       id, org_id, quote_id, catalog_item_id, catalog_item_variant_id,
-      description, quantity, unit_price, total, vat_mode, fiscal_receipt_required,
-      position
+      catalog_price_list_id, catalog_price_list_code, pricing_source,
+      pricing_customer_segment, discount_amount, margin_status, description,
+      quantity, unit_price, total, vat_mode, fiscal_receipt_required, position
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   for (const line of lines) {
     insertLine.run(
@@ -50878,6 +50885,12 @@ function createCrmQuote(db, user, body) {
       quoteId,
       line.catalogItemId || null,
       line.catalogItemVariantId || null,
+      line.catalogPriceListId || null,
+      line.catalogPriceListCode || "",
+      line.pricingSource || "manual",
+      line.pricingCustomerSegment || "",
+      line.discountAmount || 0,
+      line.marginStatus || "",
       line.description,
       line.quantity,
       line.unitPrice,
@@ -51011,7 +51024,12 @@ function normalizeCrmQuoteLineCatalogItemVariantId(line, options = {}) {
 
 function resolveCatalogQuoteLine(db, orgId, line, options = {}) {
   if (!line.catalogItemId) {
-    return { ...line, vatMode: "standard", fiscalReceiptRequired: false };
+    return {
+      ...line,
+      ...quoteLinePricingEvidence(null, line),
+      vatMode: "standard",
+      fiscalReceiptRequired: false
+    };
   }
   const item = getCatalogItem(db, orgId, line.catalogItemId);
   if (!item || item.status !== "active") {
@@ -51036,7 +51054,7 @@ function resolveCatalogQuoteLine(db, orgId, line, options = {}) {
       });
     } catch (err) {
       if (err?.statusCode !== 404 || err.message !== "Catalog price not found") throw err;
-      pricing = { catalogName: item.name, variantName: variant?.name || "", netPrice: variant?.listPrice || item.listPrice };
+      pricing = { catalogName: item.name, variantName: variant?.name || "", netPrice: variant?.listPrice || item.listPrice, pricingSource: "catalog_item" };
     }
   }
   const description = line.description || pricing?.variantName || variant?.name || pricing?.catalogName || item.name;
@@ -51047,11 +51065,33 @@ function resolveCatalogQuoteLine(db, orgId, line, options = {}) {
   }
   return {
     ...line,
+    ...quoteLinePricingEvidence(pricing, line),
     description,
     unitPrice,
     total,
     vatMode: item.vatMode,
     fiscalReceiptRequired: item.fiscalReceiptRequired
+  };
+}
+
+function quoteLinePricingEvidence(pricing, line = {}) {
+  if (line.unitPrice > 0 || !pricing) {
+    return {
+      pricingSource: "manual",
+      catalogPriceListId: "",
+      catalogPriceListCode: "",
+      pricingCustomerSegment: "",
+      discountAmount: 0,
+      marginStatus: ""
+    };
+  }
+  return {
+    pricingSource: pricing.priceListId ? "catalog_price_list" : (pricing.pricingSource || "catalog_item"),
+    catalogPriceListId: pricing.priceListId || "",
+    catalogPriceListCode: pricing.priceListCode || "",
+    pricingCustomerSegment: pricing.customerSegment || "",
+    discountAmount: Number(pricing.discountAmount || 0),
+    marginStatus: pricing.marginStatus || ""
   };
 }
 

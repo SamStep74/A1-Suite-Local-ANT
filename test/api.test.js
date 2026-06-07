@@ -178,12 +178,20 @@ test("existing quote line tables receive catalog columns before app startup inde
     const columns = new Set(app.db.prepare("PRAGMA table_info(quote_lines)").all().map(column => column.name));
     assert.equal(columns.has("catalog_item_id"), true);
     assert.equal(columns.has("catalog_item_variant_id"), true);
+    assert.equal(columns.has("catalog_price_list_id"), true);
+    assert.equal(columns.has("catalog_price_list_code"), true);
+    assert.equal(columns.has("pricing_source"), true);
+    assert.equal(columns.has("pricing_customer_segment"), true);
+    assert.equal(columns.has("discount_amount"), true);
+    assert.equal(columns.has("margin_status"), true);
     assert.equal(columns.has("vat_mode"), true);
     assert.equal(columns.has("fiscal_receipt_required"), true);
     const index = app.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get("idx_quote_lines_catalog_item");
     assert.equal(index.name, "idx_quote_lines_catalog_item");
     const variantIndex = app.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get("idx_quote_lines_catalog_item_variant");
     assert.equal(variantIndex.name, "idx_quote_lines_catalog_item_variant");
+    const priceListIndex = app.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get("idx_quote_lines_catalog_price_list");
+    assert.equal(priceListIndex.name, "idx_quote_lines_catalog_price_list");
   } finally {
     await app.close();
     fs.rmSync(root, { recursive: true, force: true });
