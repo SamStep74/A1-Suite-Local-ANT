@@ -35,6 +35,30 @@ function activeLocale() {
   return normalizeLocale(process.env.A1_LOCALE);
 }
 
+function isPlainObject(value) {
+  return Boolean(value) && typeof value === "object" && Object.getPrototypeOf(value) === Object.prototype;
+}
+
+function payrollGross(input) {
+  if (isPlainObject(input)) {
+    return Number(input.monthGross != null ? input.monthGross : input.gross) || 0;
+  }
+  return Number(input) || 0;
+}
+
+function russianPayrollOptions(input) {
+  if (!isPlainObject(input)) return { monthGross: payrollGross(input) };
+  return {
+    ...input,
+    monthGross: payrollGross(input),
+  };
+}
+
+function russianInvoiceInput(invoice) {
+  if (!isPlainObject(invoice) || invoice.seller || !invoice.supplier) return invoice;
+  return { ...invoice, seller: invoice.supplier };
+}
+
 // --- Armenian (RA) adapter -------------------------------------------------
 
 function armenianProfile(pkg) {
@@ -95,7 +119,7 @@ function armenianProfile(pkg) {
     }),
     payroll: Object.freeze({
       supports: true,
-      computeMonthly: (grossMonthly) => payroll.computePayroll(grossMonthly),
+      computeMonthly: (input) => payroll.computePayroll(payrollGross(input)),
     }),
     vat: Object.freeze({
       supportsReturnForm: true,
@@ -143,8 +167,13 @@ function russianProfile(pkg) {
       format: (v, opts) => money.formatRub(v, opts),
       parse: (v) => money.parseRub(v),
       // Minor-unit scale (see docs/RU_KOPECK_MIGRATION_RFC.md). RUB subunit 2 → factor 100:
-      // toMinor returns integer kopecks (EPSILON-safe via roundRub), fromMinor returns rubles.
-      toMinor: (v) => Math.round((money.roundRub(v) + Number.EPSILON) * 100),
+      // toMinor returns integer kopecks, fromMinor returns rubles.
+      toMinor: (v) => {
+        const n = Number(v);
+        if (!Number.isFinite(n)) return 0;
+        const scaled = n * 100;
+        return Math.round(scaled + Math.sign(scaled || 1) * Number.EPSILON * Math.max(1, Math.abs(scaled)) * 4);
+      },
       fromMinor: (v) => (Number(v) || 0) / 100,
       // RU tax bases round to WHOLE rubles (НК РФ ст. 52) — distinct from storage rounding.
       roundToWholeMajor: (v) => money.roundToWholeRubles(v),
@@ -174,7 +203,7 @@ function russianProfile(pkg) {
     }),
     payroll: Object.freeze({
       supports: true,
-      computeMonthly: (grossMonthly) => payroll.computeMonthlyPayroll({ monthGross: grossMonthly }),
+      computeMonthly: (input) => payroll.computeMonthlyPayroll(russianPayrollOptions(input)),
     }),
     vat: Object.freeze({
       supportsReturnForm: false,
@@ -184,8 +213,8 @@ function russianProfile(pkg) {
       isValidRate: (rate, opts) => vat.isValidVatRate(rate, opts),
     }),
     einvoice: Object.freeze({
-      build: (invoice) => einvoice.buildEInvoiceXml(invoice),
-      validate: (invoice) => einvoice.validateEInvoice(invoice),
+      build: (invoice) => einvoice.buildEInvoiceXml(russianInvoiceInput(invoice)),
+      validate: (invoice) => einvoice.validateEInvoice(russianInvoiceInput(invoice)),
       totals: (lines) => einvoice.eInvoiceTotals(lines),
       normalizeLine: (line) => einvoice.normalizeLine(line),
     }),

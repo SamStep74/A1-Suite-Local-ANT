@@ -48,3 +48,10 @@ test("handles empty / missing input without throwing", () => {
   assert.deepEqual(r.salesByRate, []);
   assert.deepEqual(r.purchasesByRate, []);
 });
+
+test("rejects unsupported 2026 RF VAT rates instead of computing stale settlements", () => {
+  assert.throws(
+    () => computeRuVatReturn({ sales: [{ netAmount: 1000, vatRate: 20 }], purchases: [] }, ru.vat),
+    /Unsupported RU VAT rate: 20/,
+  );
+});

@@ -43,16 +43,28 @@ const INPUT_VAT_ACCOUNT_CODES = [INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUN
 // locale and resolved via server/openingBalanceRules.js. Internal logic uses obConfig();
 // the exported AM constants below stay the Republic-of-Armenia set for backward compatibility.
 const _obCache = new Map();
+function openingRuleSides(rule) {
+  return Array.isArray(rule.sides) && rule.sides.length ? rule.sides : [rule.side];
+}
+
 function obConfig() {
   const code = locale.activeLocale();
   let c = _obCache.get(code);
   if (!c) {
     const cfg = openingBalanceConfigFor(code);
+    const ruleByCode = new Map();
+    const codes = [];
+    for (const rule of cfg.rules) {
+      if (!ruleByCode.has(rule.code)) {
+        ruleByCode.set(rule.code, rule);
+        codes.push(rule.code);
+      }
+    }
     c = {
       equityCode: cfg.equityCode,
       rules: cfg.rules,
-      ruleByCode: new Map(cfg.rules.map((r) => [r.code, r])),
-      codes: cfg.rules.map((r) => r.code),
+      ruleByCode,
+      codes,
     };
     _obCache.set(code, c);
   }
@@ -63,9 +75,15 @@ const OPENING_BALANCE_ACCOUNT_CODES = Object.freeze(openingBalanceConfigFor("am"
 const CHART_SOURCE = chartSourceFor("am", CHART.length);
 
 function ensureChartOfAccounts(db, orgId) {
+  const chart = activeChart();
+  const codes = chart.map((a) => a.code);
+  if (codes.length) {
+    db.prepare(`DELETE FROM ledger_accounts WHERE org_id = ? AND code NOT IN (${codes.map(() => "?").join(", ")})`)
+      .run(orgId, ...codes);
+  }
   const insert = db.prepare("INSERT OR IGNORE INTO ledger_accounts (id, org_id, code, name, type) VALUES (?, ?, ?, ?, ?)");
   const update = db.prepare("UPDATE ledger_accounts SET name = ?, type = ? WHERE org_id = ? AND code = ?");
-  for (const a of activeChart()) {
+  for (const a of chart) {
     insert.run(`acct-${orgId}-${a.code}`, orgId, a.code, a.name, a.type);
     update.run(a.name, a.type, orgId, a.code);
   }
@@ -80,7 +98,7 @@ function chartOfAccounts() {
     openingBalanceAccountCodes: [...ob.codes],
     openingBalanceAccounts: ob.rules.map(rule => {
       const account = accountByCode(rule.code) || {};
-      return { code: rule.code, name: account.name || rule.code, type: account.type || "", side: rule.side };
+      return { code: rule.code, name: account.name || rule.code, type: account.type || "", side: rule.side, sides: openingRuleSides(rule) };
     }),
     accounts: activeChart()
   };
@@ -152,7 +170,7 @@ function isOpeningBalanceAccountCode(code) {
 function openingBalanceAccountByCode(code) {
   const account = accountByCode(code);
   const rule = obConfig().ruleByCode.get(String(code));
-  return account && rule ? { ...account, side: rule.side } : null;
+  return account && rule ? { ...account, side: rule.side, sides: openingRuleSides(rule) } : null;
 }
 
 function openingBalanceSideForCode(code) {
@@ -162,8 +180,9 @@ function openingBalanceSideForCode(code) {
 
 function normalizeOpeningBalanceSide(account, side) {
   const expected = account.side || openingBalanceSideForCode(account.code);
+  const allowed = Array.isArray(account.sides) && account.sides.length ? account.sides : [expected];
   if (side === undefined || side === null || side === "") return expected;
-  if ((side === "debit" || side === "credit") && side === expected) return side;
+  if ((side === "debit" || side === "credit") && allowed.includes(side)) return side;
   return null;
 }
 
@@ -345,7 +364,7 @@ function postPayrollRun(db, orgId, run) {
   // Employer social contributions (RU страховые взносы → 69): an additional employer EXPENSE,
   // not withheld from the employee. Posted only when the caller supplies the amount AND the
   // active locale defines a contributions account (the RA model has none).
-  const contributions = toMinor(run.employerContributions);
+  const contributions = toMinor(run.employerContributions != null ? run.employerContributions : run.employerInsurance);
   if (contributions > 0 && C.payrollContributions) ids.push(postEntry(db, orgId, { date, debitCode: C.payrollExpense, creditCode: C.payrollContributions, amount: contributions, memo: `Payroll contributions ${run.id}`, sourceType: "payroll", sourceId: run.id, periodKey }));
   return ids.filter(Boolean);
 }

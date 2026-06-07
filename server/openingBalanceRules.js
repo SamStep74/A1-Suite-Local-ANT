@@ -25,17 +25,21 @@ const OPENING_BALANCE_CONFIG = Object.freeze({
     equityCode: "84", // Нераспределённая прибыль (opening-balance offset)
     rules: Object.freeze([
       { code: "01", side: "debit" }, // основные средства
+      { code: "02", side: "credit" }, // амортизация основных средств
       { code: "04", side: "debit" }, // НМА
+      { code: "05", side: "credit" }, // амортизация НМА
       { code: "10", side: "debit" }, // материалы
       { code: "41", side: "debit" }, // товары
       { code: "43", side: "debit" }, // готовая продукция
       { code: "50", side: "debit" }, // касса
       { code: "51", side: "debit" }, // расчётный счёт
       { code: "52", side: "debit" }, // валютный счёт
+      { code: "55", side: "debit" }, // специальные счета в банках
+      { code: "57", side: "debit" }, // переводы в пути
       { code: "58", side: "debit" }, // финансовые вложения
-      { code: "62", side: "debit" }, // расчёты с покупателями (AR)
+      { code: "62", side: "debit", sides: Object.freeze(["debit", "credit"]) }, // расчёты с покупателями (AR / advances)
       { code: "19", side: "debit" }, // входной НДС
-      { code: "60", side: "credit" }, // расчёты с поставщиками (AP)
+      { code: "60", side: "credit", sides: Object.freeze(["credit", "debit"]) }, // расчёты с поставщиками (AP / prepayments)
       { code: "66", side: "credit" }, // краткосрочные кредиты
       { code: "67", side: "credit" }, // долгосрочные кредиты
       { code: "68", side: "credit" }, // налоги и сборы

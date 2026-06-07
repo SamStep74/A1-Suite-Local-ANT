@@ -84,6 +84,34 @@ test("RU rejects AM-only opening-balance codes; accepts RU codes", () => {
     assert.equal(ledger.openingBalanceAccountByCode("251"), null);
     assert.ok(ledger.openingBalanceAccountByCode("51"), "51 is openable under RU");
     assert.equal(ledger.openingBalanceSideForCode("60"), "credit");
+    assert.deepEqual(ledger.openingBalanceAccountByCode("60").sides, ["credit", "debit"]);
+    assert.deepEqual(ledger.openingBalanceAccountByCode("62").sides, ["debit", "credit"]);
+  });
+});
+
+test("RU opening balances accept depreciation, cash equivalents, and both settlement sides", () => {
+  withLocale("ru", () => {
+    const { db, orgId } = freshDb();
+    const res = ledger.postOpeningBalances(db, orgId, {
+      asOf: "2026-01-01",
+      entries: [
+        { code: "02", amount: 10000 },
+        { code: "05", amount: 5000 },
+        { code: "55", amount: 20000 },
+        { code: "57", amount: 30000 },
+        { code: "62", side: "credit", amount: 40000 },
+        { code: "60", side: "debit", amount: 60000 },
+      ],
+    });
+    assert.equal(res.count, 6);
+    const byCode = Object.fromEntries(ledger.openingBalances(db, orgId).entries.map((e) => [e.code, e]));
+    assert.equal(byCode["02"].side, "credit");
+    assert.equal(byCode["05"].side, "credit");
+    assert.equal(byCode["55"].side, "debit");
+    assert.equal(byCode["57"].side, "debit");
+    assert.equal(byCode["62"].side, "credit");
+    assert.equal(byCode["60"].side, "debit");
+    assert.equal(ledger.trialBalance(db, orgId).balanced, true);
   });
 });
 
@@ -92,7 +120,25 @@ test("chartOfAccounts() exposes the RU opening-balance config", () => {
     const coa = ledger.chartOfAccounts();
     assert.equal(coa.openingBalanceEquityCode, "84");
     assert.ok(coa.openingBalanceAccountCodes.includes("51"));
+    assert.ok(coa.openingBalanceAccountCodes.includes("55"));
+    assert.ok(coa.openingBalanceAccountCodes.includes("57"));
+    assert.ok(coa.openingBalanceAccountCodes.includes("02"));
+    assert.ok(coa.openingBalanceAccountCodes.includes("05"));
     assert.ok(!coa.openingBalanceAccountCodes.includes("251"));
+  });
+});
+
+test("ledger chart seeding removes stale rows when switching locales", () => {
+  const { db, orgId } = freshDb();
+  withLocale(undefined, () => {
+    ledger.ensureChartOfAccounts(db, orgId);
+    assert.ok(db.prepare("SELECT 1 FROM ledger_accounts WHERE org_id = ? AND code = '251'").get(orgId));
+  });
+  withLocale("ru", () => {
+    ledger.ensureChartOfAccounts(db, orgId);
+    assert.equal(db.prepare("SELECT COUNT(*) AS c FROM ledger_accounts WHERE org_id = ?").get(orgId).c, 73);
+    assert.equal(db.prepare("SELECT 1 FROM ledger_accounts WHERE org_id = ? AND code = '251'").get(orgId), undefined);
+    assert.ok(db.prepare("SELECT 1 FROM ledger_accounts WHERE org_id = ? AND code = '51'").get(orgId));
   });
 });
 

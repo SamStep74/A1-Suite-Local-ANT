@@ -84,13 +84,18 @@ function normalizeBodyObject(body) {
   return value;
 }
 
-function normalizePayrollGross(body) {
-  const value = normalizeBodyObject(body).gross;
+function normalizePayrollBody(body) {
+  const input = normalizeBodyObject(body);
+  const value = input.gross != null ? input.gross : input.monthGross;
   const gross = typeof value === "number" ? value : (typeof value === "string" && value.trim() ? Number(value) : NaN);
   if (!Number.isFinite(gross) || gross < 0 || gross > MAX_PAYROLL_GROSS) {
     throw invalidLocalizationMetadata("Payroll gross must be a safe non-negative amount");
   }
-  return gross;
+  return {
+    ...input,
+    gross,
+    monthGross: gross,
+  };
 }
 
 function normalizePlainObjectArray(body, key) {
@@ -209,8 +214,7 @@ function registerLocalizationRoutes(app) {
 
   app.post("/api/finance/payroll/compute", async (request) => {
     await app.auth(request);
-    const gross = normalizePayrollGross(request.body);
-    return locale.active().payroll.computeMonthly(gross);
+    return locale.active().payroll.computeMonthly(normalizePayrollBody(request.body));
   });
 
   app.post("/api/finance/einvoice/build", async (request, reply) => {

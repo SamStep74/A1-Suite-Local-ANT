@@ -53,12 +53,19 @@ per-row column. Chosen because it makes AMD a **literal no-op in both dimensions
 2. Because the codebase is **one-currency-per-org** (`organizations.currency`, `db.js:47`; and
    `ledger_journal` has no currency column → mono-currency by org), AMD-tenant data is **never
    rescaled or rewritten at all**.
+3. Before any migration reads `org.currency` as the scale source, `seedIfEmpty` and the migration
+   preflight must initialize/update the tenant's `organizations.locale` and `organizations.currency`
+   from the active locale. A fresh `A1_LOCALE=ru` database must not keep the seeded `hy-AM`/`AMD`
+   organization and then store RUB as whole rubles.
 
 RUB gets exact integer kopecks. The entire concern is isolated behind **one new money-scale
 utility** exposed through the `locale.money` facade (`subunit`, `toMinor(major)→int`,
 `fromMinor(int)→major`), so call sites stop hard-coding `Math.round` and instead express intent
 ("round to whole minor unit"). Integer arithmetic preserves double-entry balance and the
 derive-one-leg-by-subtraction discipline exactly — avoiding Option B's fatal flaw.
+All integer arithmetic is bounded by `Number.MAX_SAFE_INTEGER`; S3 must either lower per-row major
+amount caps after multiplying by `10^subunit` or move RUB aggregate summation to BigInt/SQLite-side
+integer arithmetic before relying on exactness claims for large portfolios.
 
 > **RU tax-base exception:** RU tax computations (НДФЛ, страховые взносы) round to **whole rubles**
 > per НК РФ ст. 52. Storage stays exact kopecks; those specific computations apply whole-ruble
@@ -85,7 +92,8 @@ across ~150 tables keep type `INTEGER`; only their documented **semantic contrac
   `catalog_items.list_price/standard_cost`; `stock_quants.average_cost`; `stock_moves.unit_cost/total_cost`;
   `payroll_runs.{gross,income_tax,pension,stamp_duty,total_deductions,net}`; `people_employees.gross_salary`;
   `deals.value`; `customers.lifetime_value/open_receivables`; `crm_leads.estimated_value`;
-  `marketing_campaigns.budget`; `crm_deal_forecasts.weighted_value`; `crm_collection_promises.promised_amount`.
+  `marketing_campaigns.budget`; `crm_deal_forecasts.weighted_value`; `crm_collection_promises.promised_amount`;
+  `ai_invoice_overdue_explanations.amount/vat` (checksum input copied from invoice totals).
 - **`pilot_*` templated cohort** (~120 tables, derived/denormalized, also carry `payload` JSON +
   `checksum`): `subtotal/total/amount/monthly_total/setup_fee/monthly_ops_fee/first_month_total` shift
   to minor-unit semantics as **one templated change**, not 120 bespoke ones.
@@ -124,7 +132,11 @@ across ~150 tables keep type `INTEGER`; only their documented **semantic contrac
    on already-minor integers). Make it scale-aware via the **existing options-injection pattern** (the
    file is intentionally currency-agnostic and must **not** import locale). Retighten the epsilons
    (`> 0.0001` nonZero, `< 0.01` balanced) to `!== 0` / `< 1` minor unit. Ship to **both** runtimes
-   (Node `require` + browser `window.HHVAccounting`) simultaneously.
+   (Node `require` + browser `window.HHVAccounting`) simultaneously. Thread that scale/descale
+   option through **every** exported report calculator and caller (`calculateSummary`,
+   `calculateTaxReport`, `calculateReceivables`, `calculatePayables`, budget/cash-flow/reporting
+   callers such as `ledger.payablesReport`), not only `financialStatements`, so RUB reports never
+   surface 100x minor-unit totals.
 6. **`server/app.js`:** actually **use** `locale.active().money` (imported but unused for precision).
    Route the three VAT splitters through one facade-backed helper, preserving `subtotal+vat===total`
    by deriving one leg: `splitVatInclusive`, `calculateCrmQuoteTotals` per-line split, and the stray
@@ -133,7 +145,9 @@ across ~150 tables keep type `INTEGER`; only their documented **semantic contrac
 7. **`server/app.js` input validators:** fix the regex+`Math.round` **pairs** so user-entered kopecks
    aren't silently dropped (expense amount, the 4 `normalize*` validators, employee salary, CRM lead
    value, bank-transaction import). Validate against the active currency's subunit and convert via
-   `toMinor`.
+   `toMinor`. For RUB, cap validated major-unit inputs so `major * 100` and expected aggregate sums
+   stay within `Number.MAX_SAFE_INTEGER`, or explicitly route aggregate math through BigInt/SQLite
+   integer summation.
 8. **`server/app.js` hardcoded `'AMD'`:** derive currency from `locale.active().money.code` at the 6
    SQL INSERT literals and the `|| 'AMD'` response defaults (bundled with the schema DEFAULT review).
 9. **RU tax-base rounding:** wherever RU needs whole rubles (НДФЛ, страховые взносы), call
@@ -151,7 +165,8 @@ Implement as an **idempotent, double-application-guarded** step (schema_version 
 that, keyed off `currency → subunit`, multiplies a money column by `10^subunit` **only** for rows
 whose currency has `subunit > 0`. On the current all-AMD database every affected row is `subunit 0`,
 so the UPDATE multiplies by 1 — verified by **pre/post per-table checksum equality**. Assert the
-one-currency-per-org invariant before running.
+one-currency-per-org invariant before running, and first migrate any locale-selected seed org to the
+active currency/locale (`ru-RU`/`RUB` for `A1_LOCALE=ru`) so the scale source is not stale.
 
 **Forward path for RUB:** a new RUB tenant writes integer kopecks from day one via the facade
 (`toMinor` at every write site) — no backfill ever needed. The `subunit > 0` branch exists only to
