@@ -130,7 +130,7 @@ export function InventoryWorkspacePanel({ data, canMove, actionState, onCreateMo
         <div className="rows">
           {items.slice(0, 8).map(item => (
             <div className="row inventory-catalog" key={item.id}>
-              <span>{item.sku} · {item.name} · {item.categoryName || item.itemType}</span>
+              <span>{item.sku} · {item.name} · {item.categoryName || item.itemType} · {item.unitOfMeasure || "unit"}</span>
               <strong>{amd(item.listPrice)}</strong>
             </div>
           ))}

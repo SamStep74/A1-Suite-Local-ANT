@@ -496,6 +496,22 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_catalog_categories_status
       ON catalog_categories(org_id, status, name);
 
+    CREATE TABLE IF NOT EXISTS catalog_units_of_measure (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      code TEXT NOT NULL,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      precision INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, code)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_catalog_units_of_measure_status
+      ON catalog_units_of_measure(org_id, status, kind, code);
+
     CREATE TABLE IF NOT EXISTS catalog_items (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -7206,9 +7222,11 @@ function ensureCatalogLayer(db) {
 
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {
+    seedCatalogUnitsOfMeasure(db, org.id);
     const categoryCount = db.prepare("SELECT COUNT(*) AS count FROM catalog_categories WHERE org_id = ?").get(org.id).count;
     const itemCount = db.prepare("SELECT COUNT(*) AS count FROM catalog_items WHERE org_id = ?").get(org.id).count;
     if (categoryCount === 0 || itemCount === 0) seedCatalogItems(db, org.id);
+    backfillCatalogUnitsOfMeasureFromItems(db, org.id);
   }
 }
 
@@ -7813,6 +7831,7 @@ function seedCatalogItems(db, orgId) {
   const currency = currencyForOrg(db, orgId);
   const categorySeedId = baseId => catalogSeedId(orgId, baseId);
   const itemSeedId = baseId => catalogSeedId(orgId, baseId);
+  seedCatalogUnitsOfMeasure(db, orgId);
   const insertCategory = db.prepare(`
     INSERT OR IGNORE INTO catalog_categories (
       id, org_id, name, slug, parent_category_id, status, created_at, updated_at
@@ -7918,6 +7937,50 @@ function seedCatalogItems(db, orgId) {
   ];
   for (const item of items) {
     insertItem.run(itemSeedId(item[0]), orgId, categorySeedId(item[1]), item[2], item[3], item[4], item[5], item[6], item[7], item[8], item[9], item[10], item[11], item[12], item[13], item[14], null, now, now);
+  }
+}
+
+function seedCatalogUnitsOfMeasure(db, orgId) {
+  const now = new Date().toISOString();
+  const unitSeedId = baseId => catalogSeedId(orgId, baseId);
+  const insertUnit = db.prepare(`
+    INSERT OR IGNORE INTO catalog_units_of_measure (
+      id, org_id, code, name, kind, precision, status, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const units = [
+    ["catuom-unit", "unit", "Unit", "unit", 0, "active"],
+    ["catuom-package", "package", "Package", "service", 0, "active"],
+    ["catuom-hour", "hour", "Hour", "time", 2, "active"],
+    ["catuom-kg", "kg", "Kilogram", "weight", 3, "active"],
+    ["catuom-liter", "liter", "Liter", "volume", 3, "active"]
+  ];
+  for (const unit of units) {
+    insertUnit.run(unitSeedId(unit[0]), orgId, unit[1], unit[2], unit[3], unit[4], unit[5], now, now);
+  }
+}
+
+function backfillCatalogUnitsOfMeasureFromItems(db, orgId) {
+  const now = new Date().toISOString();
+  const insertUnit = db.prepare(`
+    INSERT OR IGNORE INTO catalog_units_of_measure (
+      id, org_id, code, name, kind, precision, status, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const rows = db.prepare(`
+    SELECT DISTINCT TRIM(unit_of_measure) AS code
+    FROM catalog_items
+    WHERE org_id = ?
+      AND unit_of_measure IS NOT NULL
+      AND TRIM(unit_of_measure) <> ''
+  `).all(orgId);
+  for (const row of rows) {
+    const code = String(row.code || "").trim();
+    if (!code) continue;
+    const digest = crypto.createHash("sha256").update(`${orgId}:${code}`).digest("hex").slice(0, 16);
+    insertUnit.run(catalogSeedId(orgId, `catuom-custom-${digest}`), orgId, code, code, "custom", 0, "active", now, now);
   }
 }
 
@@ -8248,6 +8311,7 @@ module.exports = {
   resolvePayrollConfig,
   resolveVatRate,
   __test: {
+    backfillCatalogUnitsOfMeasureFromItems,
     ensureMoneyPrecisionMigration,
     seedInventoryCore
   }

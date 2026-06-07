@@ -395,14 +395,21 @@ function registerApi(app, db, options = {}) {
   app.get("/api/catalog/categories", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
-    return { categories: getCatalogCategories(db, user.org_id) };
+    return {
+      categories: getCatalogCategories(db, user.org_id),
+      unitsOfMeasure: getCatalogUnitsOfMeasure(db, user.org_id)
+    };
   });
 
   app.get("/api/catalog/items", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
     const filters = normalizeCatalogItemQuery(request.query || {});
-    return { items: getCatalogItems(db, user.org_id, filters), categories: getCatalogCategories(db, user.org_id) };
+    return {
+      items: getCatalogItems(db, user.org_id, filters),
+      categories: getCatalogCategories(db, user.org_id),
+      unitsOfMeasure: getCatalogUnitsOfMeasure(db, user.org_id)
+    };
   });
 
   app.get("/api/catalog/items/:id", async request => {
@@ -41964,6 +41971,7 @@ const ORG_BACKUP_TABLES = [
   "audit_export_packets",
   "app_assignments",
   "catalog_categories",
+  "catalog_units_of_measure",
   "catalog_items",
   "stock_locations",
   "stock_quants",
@@ -48155,6 +48163,15 @@ function getCatalogCategories(db, orgId) {
   `).all(orgId);
 }
 
+function getCatalogUnitsOfMeasure(db, orgId) {
+  return db.prepare(`
+    SELECT id, code, name, kind, precision, status, created_at AS createdAt, updated_at AS updatedAt
+    FROM catalog_units_of_measure
+    WHERE org_id = ?
+    ORDER BY status = 'archived', kind, code
+  `).all(orgId);
+}
+
 function getCatalogItems(db, orgId, filters = {}) {
   const where = ["catalog_items.org_id = ?"];
   const params = [orgId];
@@ -48254,6 +48271,7 @@ function normalizeCatalogQueryText(query, field, options = {}) {
 function createCatalogItem(db, user, body) {
   const input = normalizeCatalogItemBody(body, { partial: false });
   assertCatalogCategory(db, user.org_id, input.categoryId);
+  assertCatalogUnitOfMeasure(db, user.org_id, input.unitOfMeasure);
   assertCatalogSkuAvailable(db, user.org_id, input.sku);
   assertCatalogItemInvariants(input);
   const now = new Date().toISOString();
@@ -48309,6 +48327,7 @@ function updateCatalogItem(db, user, itemId, body) {
   }
   const input = normalizeCatalogItemBody(body, { partial: true, existing });
   if (input.categoryId) assertCatalogCategory(db, user.org_id, input.categoryId);
+  assertCatalogUnitOfMeasure(db, user.org_id, input.unitOfMeasure);
   if (input.sku !== existing.sku) assertCatalogSkuAvailable(db, user.org_id, input.sku, itemId);
   assertCatalogItemInvariants(input);
   const now = new Date().toISOString();
@@ -48436,6 +48455,15 @@ function assertCatalogCategory(db, orgId, categoryId) {
   const row = db.prepare("SELECT id FROM catalog_categories WHERE org_id = ? AND id = ? AND status = ?").get(orgId, categoryId, "active");
   if (!row) {
     const err = new Error("Catalog category not found");
+    err.statusCode = 404;
+    throw err;
+  }
+}
+
+function assertCatalogUnitOfMeasure(db, orgId, unitOfMeasure) {
+  const row = db.prepare("SELECT code FROM catalog_units_of_measure WHERE org_id = ? AND code = ? AND status = ?").get(orgId, unitOfMeasure, "active");
+  if (!row) {
+    const err = new Error("Catalog unit of measure not found");
     err.statusCode = 404;
     throw err;
   }

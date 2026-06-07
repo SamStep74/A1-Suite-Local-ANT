@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { buildApp } = require("../server/app");
-const { DEFAULT_EMAIL, DEFAULT_PASSWORD } = require("../server/db");
+const { DEFAULT_EMAIL, DEFAULT_PASSWORD, __test } = require("../server/db");
 
 async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
   const response = await app.inject({
@@ -39,6 +39,8 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.equal(listed.statusCode, 200, listed.body);
     const body = listed.json();
     assert.ok(body.categories.some(category => category.id === "catcat-tourism-packages"));
+    assert.ok(body.unitsOfMeasure.some(unit => unit.code === "unit" && unit.kind === "unit"));
+    assert.ok(body.unitsOfMeasure.some(unit => unit.code === "package" && unit.kind === "service"));
     assert.ok(body.items.length >= 4, "seeded catalog items present");
 
     const tourismPackage = body.items.find(item => item.id === "catitem-tourism-booking-workflow");
@@ -51,6 +53,7 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
 
     const scanner = body.items.find(item => item.id === "catitem-pos-barcode-scanner");
     assert.equal(scanner.itemType, "stockable");
+    assert.equal(scanner.unitOfMeasure, "unit");
     assert.equal(scanner.trackStock, true);
     assert.equal(scanner.standardCost, 62000);
 
@@ -86,6 +89,8 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.ok(Array.isArray(backup.json().backup.payload.tables.catalog_items));
     assert.ok(backup.json().backup.payload.tables.catalog_items.some(item => item.id === "catitem-tourism-booking-workflow"));
     assert.ok(Array.isArray(backup.json().backup.payload.tables.catalog_categories));
+    assert.ok(Array.isArray(backup.json().backup.payload.tables.catalog_units_of_measure));
+    assert.ok(backup.json().backup.payload.tables.catalog_units_of_measure.some(unit => unit.code === "unit"));
   } finally {
     await app.close();
   }
@@ -132,6 +137,15 @@ test("catalog: create and update guard product master metadata", async () => {
     }, 404);
     assert.deepEqual(counts(), beforeRejects);
 
+    await expectRejected("POST", "/api/catalog/items", {
+      sku: "A1-MISSING-UOM",
+      categoryId: "catcat-service-packages",
+      name: "Missing unit catalog item",
+      unitOfMeasure: "box",
+      listPrice: 1000
+    }, 404);
+    assert.deepEqual(counts(), beforeRejects);
+
     const created = await app.inject({
       method: "POST",
       url: "/api/catalog/items",
@@ -155,6 +169,7 @@ test("catalog: create and update guard product master metadata", async () => {
     assert.match(item.id, /^catitem-/);
     assert.equal(item.sku, "HW-LABEL-PRINTER-01");
     assert.equal(item.categoryName, "POS and device hardware");
+    assert.equal(item.unitOfMeasure, "unit");
     assert.equal(item.trackStock, true);
     assert.equal(item.trackLots, true);
     assert.equal(counts().items, beforeRejects.items + 1);
@@ -225,6 +240,62 @@ test("catalog: create and update guard product master metadata", async () => {
     const auditRows = app.db.prepare("SELECT type, details FROM audit_events WHERE org_id = ? AND type LIKE 'catalog.item.%' ORDER BY id").all(orgId);
     assert.ok(auditRows.some(row => row.type === "catalog.item.created" && row.details.includes(item.id)));
     assert.ok(auditRows.some(row => row.type === "catalog.item.updated" && row.details.includes(item.id)));
+  } finally {
+    await app.close();
+  }
+});
+
+test("catalog: legacy item UoM codes are backfilled before update validation", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const orgId = "org-armosphera-demo";
+    const now = new Date().toISOString();
+    app.db.prepare(`
+      INSERT INTO catalog_items (
+        id, org_id, category_id, sku, name, description, item_type, status,
+        unit_of_measure, list_price, standard_cost, currency, vat_mode,
+        track_stock, track_lots, fiscal_receipt_required, created_by_user_id,
+        created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "catitem-legacy-box-uom",
+      orgId,
+      "catcat-service-packages",
+      "LEGACY-BOX-UOM",
+      "Legacy boxed service",
+      "",
+      "service",
+      "active",
+      "box",
+      1000,
+      0,
+      "AMD",
+      "standard",
+      0,
+      0,
+      1,
+      null,
+      now,
+      now
+    );
+
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM catalog_units_of_measure WHERE org_id = ? AND code = ?").get(orgId, "box").count, 0);
+    __test.backfillCatalogUnitsOfMeasureFromItems(app.db, orgId);
+    const unit = app.db.prepare("SELECT code, name, kind, status FROM catalog_units_of_measure WHERE org_id = ? AND code = ?").get(orgId, "box");
+    assert.deepEqual({ ...unit }, { code: "box", name: "box", kind: "custom", status: "active" });
+
+    const patched = await app.inject({
+      method: "PATCH",
+      url: "/api/catalog/items/catitem-legacy-box-uom",
+      headers: { cookie: owner },
+      payload: { name: "Legacy boxed service updated" }
+    });
+    assert.equal(patched.statusCode, 200, patched.body);
+    assert.equal(patched.json().item.unitOfMeasure, "box");
+    assert.equal(patched.json().item.name, "Legacy boxed service updated");
   } finally {
     await app.close();
   }
