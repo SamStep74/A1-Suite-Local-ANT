@@ -28,6 +28,7 @@ test("RU money scale: subunit 2, integer kopecks, exact round-trip", () => {
   // EPSILON-safe at binary-float traps
   assert.equal(m.toMinor(0.1 + 0.2), 30); // 0.30000000000000004 → 30 kopecks
   assert.equal(m.toMinor(123.455), 12346); // half-up via roundRub
+  assert.equal(m.toMinor(10.075), 1008); // binary underflow must not drop the half-kopeck
   for (const v of [0, 0.01, 50.5, 123.45, 999999.99]) assert.equal(m.fromMinor(m.toMinor(v)), v);
 });
 

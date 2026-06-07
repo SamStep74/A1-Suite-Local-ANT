@@ -32,6 +32,40 @@ test("payroll run computes net and posts a balanced ledger entry", async () => {
   } finally { await app.close(); }
 });
 
+test("RU payroll run posts НДФЛ to 68 and employer insurance to 69", async () => {
+  const prev = process.env.A1_LOCALE;
+  process.env.A1_LOCALE = "ru";
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const orgId = app.db.prepare("SELECT id FROM organizations LIMIT 1").get().id;
+    const openPeriod = app.db.prepare("SELECT period_key FROM finance_periods WHERE org_id = ? AND status='open' LIMIT 1").get(orgId).period_key;
+    const run = await app.inject({
+      method: "POST",
+      url: "/api/payroll/run",
+      headers: { cookie },
+      payload: { employeeName: "Иван", gross: 100000, runDate: `${openPeriod}-28` },
+    });
+    assert.strictEqual(run.statusCode, 200, run.body);
+    assert.strictEqual(run.json().run.incomeTax, 13000);
+    assert.strictEqual(run.json().run.totalDeductions, 13000);
+    assert.strictEqual(run.json().run.net, 87000);
+    assert.strictEqual(run.json().run.employerInsurance, 30000);
+    const tb = await app.inject({ method: "GET", url: "/api/finance/trial-balance", headers: { cookie } });
+    const byCode = Object.fromEntries(tb.json().rows.map(r => [r.code, r]));
+    assert.strictEqual(byCode["26"].balance, 130000);
+    assert.strictEqual(byCode["70"].balance, -87000);
+    assert.strictEqual(byCode["68"].balance, -13000);
+    assert.strictEqual(byCode["69"].balance, -30000);
+    assert.strictEqual(tb.json().balanced, true);
+  } finally {
+    await app.close();
+    if (prev === undefined) delete process.env.A1_LOCALE;
+    else process.env.A1_LOCALE = prev;
+  }
+});
+
 test("payroll calculate rejects malformed preview metadata without persistence", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

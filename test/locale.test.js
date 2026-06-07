@@ -97,6 +97,15 @@ test("RU profile maps to the Russian (RF) engines", () => {
   const p = L.payroll.computeMonthly(100000);
   assert.equal(p.ndfl, 13000);
   assert.equal(p.net, 87000);
+  const progressive = L.payroll.computeMonthly({ gross: 100000, ytdBaseBefore: 2400000 });
+  assert.equal(progressive.ndfl, 15000);
   assert.equal(L.vat.supportsReturnForm, false);
+  assert.match(L.einvoice.build({
+    number: "RU-1",
+    date: "2026-01-31",
+    supplier: { name: "ООО Продавец", inn: "7707083893" },
+    buyer: { name: "ООО Покупатель", inn: "7707083893" },
+    lines: [{ description: "Услуга", netAmount: 1000, vatRate: 22 }],
+  }), /<Seller>\n    <Name>ООО Продавец<\/Name>/);
   assert.deepEqual(L.raw.einvoice.VAT_RATES_2026, [0, 10, 22]);
 });

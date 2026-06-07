@@ -45,6 +45,19 @@ test("RU payroll posts employer страховые взносы to 69 when suppl
   });
 });
 
+test("RU payroll accepts the locale engine employerInsurance field", () => {
+  withLocale("ru", () => {
+    const { db, orgId } = freshDb();
+    ledger.postPayrollRun(db, orgId, {
+      id: "pr-insurance", gross: 100000, net: 87000, totalDeductions: 13000,
+      employerInsurance: 30000, date: "2026-05-31",
+    });
+    const b = balances(db, orgId);
+    assert.equal(b["26"].balance, 130000);
+    assert.equal(b["69"].balance, -30000);
+  });
+});
+
 test("RU payroll without contributions posts no 69 leg", () => {
   withLocale("ru", () => {
     const { db, orgId } = freshDb();

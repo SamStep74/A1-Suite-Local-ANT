@@ -16,13 +16,30 @@ function toAmount(value) {
 const roundKopeck = (x) => Math.round((x + Number.EPSILON) * 100) / 100;
 const roundRuble = (x) => Math.round(x);
 
-function summarizeLines(lines, vat, recoverableOnly) {
+function invalidVatRate(rate) {
+  const err = new Error(`Unsupported RU VAT rate: ${rate}`);
+  err.statusCode = 400;
+  err.code = "INVALID_RU_VAT_RATE";
+  return err;
+}
+
+function lineVatRate(line, vat, period) {
+  const rate = Number(line && line.vatRate) || 0;
+  const regime = (line && line.regime) || (period && period.regime);
+  const isValidRate = typeof vat.isValidRate === "function" ? vat.isValidRate : vat.isValidVatRate;
+  if (typeof isValidRate === "function" && !isValidRate(rate, regime ? { regime } : {})) {
+    throw invalidVatRate(rate);
+  }
+  return rate;
+}
+
+function summarizeLines(lines, vat, recoverableOnly, period) {
   const byRate = new Map();
   let base = 0;
   let tax = 0;
   for (const line of Array.isArray(lines) ? lines : []) {
     if (recoverableOnly && line && line.recoverable === false) continue;
-    const rate = Number(line && line.vatRate) || 0;
+    const rate = lineVatRate(line, vat, period);
     const net = toAmount(line && line.netAmount);
     const lineVat = vat.vatFromNet(net, rate);
     base += net;
@@ -36,8 +53,8 @@ function summarizeLines(lines, vat, recoverableOnly) {
 }
 
 function computeRuVatReturn(period = {}, vat) {
-  const out = summarizeLines(period.sales, vat, false);
-  const inp = summarizeLines(period.purchases, vat, true);
+  const out = summarizeLines(period.sales, vat, false, period);
+  const inp = summarizeLines(period.purchases, vat, true, period);
   const outputVat = roundRuble(out.tax);
   const inputVat = roundRuble(inp.tax);
   const net = outputVat - inputVat;

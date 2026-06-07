@@ -87,6 +87,10 @@ test("GET /config + engines serve the RF profile when A1_LOCALE=ru", async () =>
     const payroll = await app.call("POST", "/api/finance/payroll/compute", { body: { gross: 100000 } });
     assert.equal(payroll.ndfl, 13000);
     assert.equal(payroll.net, 87000);
+    const progressivePayroll = await app.call("POST", "/api/finance/payroll/compute", {
+      body: { gross: 100000, ytdBaseBefore: 2400000 },
+    });
+    assert.equal(progressivePayroll.ndfl, 15000);
 
     // e-invoice builds RF XML
     const xml = await app.call("POST", "/api/finance/einvoice/build", { body: { number: "INV-1", lines: [] } });

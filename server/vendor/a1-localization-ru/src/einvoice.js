@@ -19,6 +19,7 @@
 
 const { roundRub } = require("./money");
 const { validateInn, isValidKpp } = require("./inn");
+const { CURRENT_YEAR, ratesFor } = require("./vat");
 
 // Допустимые ставки НДС для ВЫСТАВЛЯЕМОГО счёта-фактуры в 2026 г.:
 //   0% (экспорт/освобождение), 10% (льготная: продукты/детские/медицина),
@@ -43,6 +44,19 @@ function xmlEscape(value) {
     .replace(/>/g, "&gt;")
     .replace(/"/g, "&quot;")
     .replace(/'/g, "&apos;");
+}
+
+function isValidIsoDate(value) {
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(value)) return false;
+  const d = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(d.getTime()) && d.toISOString().slice(0, 10) === value;
+}
+
+function invoiceVatRates(invoice = {}) {
+  const year = isValidIsoDate(str(invoice.date)) ? Number(str(invoice.date).slice(0, 4)) : CURRENT_YEAR;
+  const rates = ratesFor(year);
+  return [...new Set([rates.zero, rates.reduced, rates.standard].filter(Number.isFinite))]
+    .sort((a, b) => a - b);
 }
 
 // Нормализация строки в копеечные суммы (2 знака). НДС считается от net*ставка, а итог
@@ -143,6 +157,14 @@ function validateEInvoice(invoice = {}) {
     add("date", "MISSING_DATE", "Дата счёта-фактуры обязательна.");
   } else if (!/^\d{4}-\d{2}-\d{2}$/.test(date)) {
     add("date", "INVALID_DATE", "Дата должна быть в формате ISO (ГГГГ-ММ-ДД).");
+  } else if (!isValidIsoDate(date)) {
+    add("date", "INVALID_DATE", "Дата должна быть существующей календарной датой.");
+  }
+
+  const currency = str(inv.currency) || DEFAULT_CURRENCY;
+  const currencyCode = currency === DEFAULT_CURRENCY ? RUB_CURRENCY_CODE : str(inv.currencyCode);
+  if (currency !== DEFAULT_CURRENCY && !/^\d{3}$/.test(currencyCode)) {
+    add("currencyCode", "MISSING_CURRENCY_CODE", "Для валюты не RUB требуется числовой код валюты.");
   }
 
   // Продавец: наименование + действительный ИНН; КПП проверяется только если задан.
@@ -159,6 +181,9 @@ function validateEInvoice(invoice = {}) {
 
   // Покупатель: действительный ИНН обязателен; КПП необязателен (ИП его не имеет).
   const buyer = inv.buyer || {};
+  if (!str(buyer.name)) {
+    add("buyer.name", "MISSING_BUYER_NAME", "Наименование покупателя обязательно.");
+  }
   if (!validateInn(buyer.inn).ok) {
     add("buyer.inn", "INVALID_BUYER_INN", "ИНН покупателя отсутствует или некорректен.");
   }
@@ -170,6 +195,7 @@ function validateEInvoice(invoice = {}) {
   if (lines.length === 0) {
     add("lines", "NO_LINES", "Требуется хотя бы одна строка счёта-фактуры.");
   } else {
+    const allowedRates = invoiceVatRates(inv);
     lines.forEach((line, i) => {
       const pos = i + 1; // путь с 1, напр. lines[2].description
       const l = line || {};
@@ -190,13 +216,14 @@ function validateEInvoice(invoice = {}) {
         add(`lines[${pos}].netAmount`, "INVALID_LINE_NET", "Сумма без НДС должна быть неотрицательным числом.");
       }
       const rate = str(l.vatRate) !== "" ? Number(l.vatRate) : 0;
-      if (!VAT_RATES_2026.includes(rate)) {
+      if (!allowedRates.includes(rate)) {
         add(
           `lines[${pos}].vatRate`,
           "INVALID_LINE_VAT_RATE",
-          `Ставка НДС должна быть одной из: ${VAT_RATES_2026.join("%, ")}% (20% недопустима с 2026 г.).`,
+          `Ставка НДС должна быть одной из: ${allowedRates.join("%, ")}%.`,
         );
       }
+      const expectedVat = roundRub((net * rate) / 100);
       // Если НДС задан явно — он должен совпадать со ставкой (в пределах 1 рубля,
       // округлённого до копеек). Иначе строка могла бы заявить 22% и НДС 0 и пройти.
       if (l.vatAmount != null && str(l.vatAmount) !== "") {
@@ -204,12 +231,29 @@ function validateEInvoice(invoice = {}) {
         if (!Number.isFinite(declaredVat)) {
           add(`lines[${pos}].vatAmount`, "INVALID_LINE_VAT_AMOUNT", "Сумма НДС должна быть числом.");
         } else {
-          const expectedVat = roundRub((net * rate) / 100);
           if (Math.abs(roundRub(declaredVat) - expectedVat) > 1) {
             add(
               `lines[${pos}].vatAmount`,
               "LINE_VAT_MISMATCH",
               `Сумма НДС ${declaredVat} не соответствует ${rate}% от ${net} (ожидается ~${expectedVat}).`,
+            );
+          }
+        }
+      }
+      if (l.lineTotal != null && str(l.lineTotal) !== "") {
+        const declaredTotal = Number(l.lineTotal);
+        if (!Number.isFinite(declaredTotal)) {
+          add(`lines[${pos}].lineTotal`, "INVALID_LINE_TOTAL", "Итог строки должен быть числом.");
+        } else {
+          const vatAmount = l.vatAmount != null && str(l.vatAmount) !== "" && Number.isFinite(Number(l.vatAmount))
+            ? roundRub(Number(l.vatAmount))
+            : expectedVat;
+          const expectedTotal = roundRub(net + vatAmount);
+          if (Math.abs(roundRub(declaredTotal) - expectedTotal) > 1) {
+            add(
+              `lines[${pos}].lineTotal`,
+              "LINE_TOTAL_MISMATCH",
+              `Итог строки ${declaredTotal} не соответствует сумме ${net} + НДС ${vatAmount} (ожидается ~${expectedTotal}).`,
             );
           }
         }

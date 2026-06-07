@@ -53719,6 +53719,7 @@ function persistPayrollRun(db, user, input) {
     gross: calc.gross,
     net: calc.net,
     totalDeductions: calc.totalDeductions,
+    employerInsurance: calc.employerInsurance,
     date: input.runDate,
     period_key: periodKey
   });
@@ -53742,6 +53743,23 @@ function persistPayrollRun(db, user, input) {
 
 function calculateValidatedPayroll(db, orgId, gross, configOverride, asOf) {
   validatePayrollRunConfigForGross(configOverride, gross);
+  if (locale.activeLocale() === "ru") {
+    const calc = locale.active().payroll.computeMonthly({ gross });
+    const normalized = {
+      gross: calc.gross,
+      incomeTax: calc.ndfl || 0,
+      pension: 0,
+      stampDuty: 0,
+      totalDeductions: calc.ndfl || 0,
+      net: calc.net,
+      employerInsurance: calc.employerInsurance || 0,
+      employerCost: calc.employerCost || calc.gross,
+    };
+    if (normalized.net < 0 || normalized.totalDeductions > normalized.gross) {
+      throwInvalidFinancePayrollRun();
+    }
+    return normalized;
+  }
   // Explicit rate overrides are supported, but empty config still uses the effective-dated resolver.
   const config = configOverride || resolvePayrollConfig(db, orgId, asOf);
   const calc = payroll.calculatePayroll(gross, { config });

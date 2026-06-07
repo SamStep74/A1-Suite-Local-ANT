@@ -109,7 +109,7 @@ function computeMonthlyPayroll(opts = {}) {
   const resident = opts.resident !== false;
   const sme = opts.sme === true;
 
-  const monthBase = Math.max(0, gross - deduction);
+  const monthBase = resident ? Math.max(0, gross - deduction) : gross;
   const ndfl = ndflMonthly({ ytdBaseBefore, monthBase, resident });
   const net = roundRub(gross - ndfl);
 
