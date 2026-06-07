@@ -23,8 +23,8 @@ test("service-cases isolation: a foreign org's case is invisible and 404 on ever
     // Seed org -> customer -> service_case in the foreign tenant (FK enforcement on).
     const now = new Date().toISOString();
     const otherOrgId = "org-other-desk";
-    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(otherOrgId, "Other Desk LLC", "Other Desk LLC", "44444444", now);
+    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, currency, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(otherOrgId, "Other Desk LLC", "Other Desk LLC", "44444444", "AMD", now);
     app.db.prepare(`INSERT INTO customers (id, org_id, name, health_score, lifetime_value, open_receivables, last_touch)
       VALUES ('cust-foreign-desk', ?, 'Foreign Customer', 50, 0, 0, ?)`).run(otherOrgId, now);
     const foreignId = "case-foreign-1";

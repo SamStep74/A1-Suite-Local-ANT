@@ -32,8 +32,8 @@ test("finance RBAC: a read-only Auditor cannot post to the ledger (403 on all 4 
 
     // Bill payment — seed a bill directly so we have an id to target (bypasses the gated create).
     const now = new Date().toISOString();
-    app.db.prepare(`INSERT INTO bills (id, org_id, supplier, subtotal, vat, total, status, bill_date, due_date, period_key, created_by_user_id, created_at)
-      VALUES ('bill-rbac-1', ?, 'Acme', 1000, 200, 1200, 'open', ?, ?, ?, 'user-owner', ?)`)
+    app.db.prepare(`INSERT INTO bills (id, org_id, supplier, subtotal, vat, total, currency, status, bill_date, due_date, period_key, created_by_user_id, created_at)
+      VALUES ('bill-rbac-1', ?, 'Acme', 1000, 200, 1200, 'AMD', 'open', ?, ?, ?, 'user-owner', ?)`)
       .run(orgId, `${openPeriod}-05`, `${openPeriod}-20`, openPeriod, now);
     const pay = await app.inject({ method: "POST", url: "/api/finance/bills/bill-rbac-1/pay", headers: { cookie: auditor },
       payload: { amount: 1200, paidAt: `${openPeriod}-21` } });

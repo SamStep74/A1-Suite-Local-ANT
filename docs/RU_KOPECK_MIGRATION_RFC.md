@@ -1,8 +1,8 @@
 # RFC: RUB kopeck (minor-unit) precision migration
 
 **Status:** In progress — S1 money-scale facade, S2 scale-aware shared accounting reports, S3
-ledger posting/report minor-unit contract, S4 app VAT/money splitters, and S5 app input validators
-are implemented; S6-S8 remain.
+ledger posting/report minor-unit contract, S4 app VAT/money splitters, S5 app input validators,
+and S6 active currency defaults are implemented; S7-S8 remain.
 **Scope:** A1-Suite-Local money model. Add RUB kopeck precision end-to-end while keeping AMD
 and all Armenian (AM) behavior **byte-for-byte identical**.
 **Author:** generated from a codebase-wide money-precision analysis (5-facet sweep of
@@ -208,7 +208,7 @@ RUB (`subunit 2`, scale 100) is the **only** locale whose behavior changes.
 | **S3** | DONE — Migrate `ledger.js` posting + report sites; define `postEntry` minor-unit contract; fix balanced tolerance → `=== 0`; inject active money scale into finance statements. | **high** |
 | **S4** | DONE — Migrate `app.js` VAT splitters + gross-up / VAT-on-net / weighted-avg-cost sites; unify stored-minor split helpers; fix stray `/1.2` rate bypass. | **high** |
 | **S5** | DONE — Fix `app.js` input validators (regex+convert pairs) to honor subunit. | medium |
-| **S6** | Kill hardcoded `'AMD'` (6 INSERTs + 15 column DEFAULTs) → derive from `locale.money.code`. | medium |
+| **S6** | DONE — Kill hardcoded `'AMD'` (6 INSERTs + 15 column DEFAULTs) → derive from `locale.money.code`. | medium |
 | **S7** | RU tax-base whole-ruble rounding (`roundToWholeMajor`) for НДФЛ / взносы; storage stays kopecks. | medium |
 | **S8** | Defensive no-op data migration (idempotent, subunit-keyed) + RUB enablement; checksum verification. | low |
 
@@ -229,6 +229,20 @@ engines, while AM integer-only validators still reject fractional money where th
 before. Verification passed: focused S5 validator suites (7 pass), opening-balance regression (5
 pass), `git diff --check`, full `npm test` (793 pass, 0 fail, 0 cancelled), `npm run build:ui`
 with the existing Vite large-chunk warning, and fresh smoke (`apps=12`, `kpis=4`).
+
+**S6 checkpoint proof (2026-06-07):** `server/db.js` now derives seed locale/currency from the
+active locale and removes the 15 reviewed SQL currency defaults instead of relying on
+`DEFAULT 'AMD'`. Runtime insert/fallback paths in `server/app.js` now use the active currency or
+the source row currency for project billing, CRM leads/deals/quotes, catalog items, purchase
+vendor prices/orders, finance draft invoices/payments/expenses/bills/bill payments/bank imports,
+collection promises, analytics units, and pilot packet currency fields. Regression coverage proves
+fresh RU seeds store `ru-RU`/`RUB`, fresh AM seeds still store `hy-AM`/`AMD`, every reviewed
+currency column has no SQL default, seeded RU money-bearing rows are RUB, and omitted-currency
+runtime inserts inherit RUB. Verification passed: syntax checks for `server/app.js`, `server/db.js`,
+the new S6 test, and patched direct-insert tests; exact hardcoded-AMD scans in `server/app.js` and
+`server/db.js`; focused S6/kopeck/catalog/purchase/finance/project/docs regression (73 pass);
+`git diff --check`; full `npm test` (796 pass, 0 fail, 0 cancelled); `npm run build:ui` with the
+existing Vite large-chunk warning; and fresh smoke (`apps=12`, `kpis=4`).
 
 ---
 

@@ -378,8 +378,8 @@ test("projects: write-gate (Auditor 403) and cross-org isolation (404)", async (
     // Cross-org: seed a foreign project, confirm it's invisible + 404 on detail/mutate
     const now = new Date().toISOString();
     const otherOrgId = "org-other-proj";
-    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(otherOrgId, "Other Proj LLC", "Other Proj LLC", "66666666", now);
+    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, currency, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(otherOrgId, "Other Proj LLC", "Other Proj LLC", "66666666", "AMD", now);
     const foreignId = "proj-foreign-1";
     app.db.prepare(`INSERT INTO projects (id, org_id, name, description, status, customer_id, deal_id, start_date, due_date, created_at, updated_at)
       VALUES (?, ?, ?, '', 'active', NULL, NULL, '', '', ?, ?)`).run(foreignId, otherOrgId, "Foreign project", now, now);

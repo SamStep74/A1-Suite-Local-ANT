@@ -3099,7 +3099,7 @@ function registerApi(app, db, options = {}) {
     // the rate on the chosen issue date, so the preview accepts the same asOf for parity.
     const vatRate = resolveVatRate(db, user.org_id, asOf);
     const { subtotal, vat, total } = splitVatInclusive(grossMajor, vatRate);
-    return { preview: { projectId: project.id, customerId: project.customerId, unbilledMinutes, unbilledEntries: agg.entries, hours, hourlyRate, subtotal, vat, total, vatRate, currency: "AMD" } };
+    return { preview: { projectId: project.id, customerId: project.customerId, unbilledMinutes, unbilledEntries: agg.entries, hours, hourlyRate, subtotal, vat, total, vatRate, currency: activeCurrencyCode() } };
   });
 
   // Billing seam: convert a project's UNBILLED logged time into a posted invoice (+ ledger),
@@ -3143,8 +3143,8 @@ function registerApi(app, db, options = {}) {
     db.exec("BEGIN");
     try {
       db.prepare(`INSERT INTO finance_draft_invoices (id, org_id, customer_id, deal_id, number, status, subtotal, vat, total, currency, issue_date, due_date, period_key, source_key, created_by_user_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?, ?)`)
-        .run(draftId, user.org_id, project.customerId, project.dealId || null, number, subtotal, vat, total, issueDate, dueDate, periodKey, sourceKey, user.id, now, now);
+        VALUES (?, ?, ?, ?, ?, 'draft', ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(draftId, user.org_id, project.customerId, project.dealId || null, number, subtotal, vat, total, activeCurrencyCode(), issueDate, dueDate, periodKey, sourceKey, user.id, now, now);
       const draftInvoice = getFinanceDraftInvoice(db, user.org_id, draftId);
       // Reuse the canonical draft→posted+ledger path (Dt 221 / Kt 611 + Kt 524).
       result = postDraftInvoice(db, user, draftInvoice, {});
@@ -4577,6 +4577,19 @@ function activeMoney() {
   return locale.active().money;
 }
 
+function activeCurrencyCode() {
+  return String(activeMoney().code || locale.active().meta.currency.code).trim().toUpperCase();
+}
+
+function activeDisplayLocale() {
+  return locale.activeLocale() === "ru" ? "ru-RU" : "hy-AM";
+}
+
+function currencyOrActive(value) {
+  const currency = String(value || "").trim().toUpperCase();
+  return currency || activeCurrencyCode();
+}
+
 function toMinorAmount(value) {
   const minor = activeMoney().toMinor(value);
   return Number.isSafeInteger(minor) ? minor : 0;
@@ -4584,6 +4597,10 @@ function toMinorAmount(value) {
 
 function fromMinorAmount(value) {
   return activeMoney().fromMinor(Math.round(Number(value) || 0));
+}
+
+function formatStoredMoney(value) {
+  return `${fromMinorAmount(value).toLocaleString(activeDisplayLocale())} ${activeCurrencyCode()}`;
 }
 
 function activeMoneySubunit() {
@@ -8530,7 +8547,7 @@ function buildClinicWellnessPilotTemplate(db, orgId) {
     vertical: "Clinic and wellness",
     market: "Armenia",
     language: "hy-AM",
-    currency: "AMD",
+    currency: activeCurrencyCode(),
     targetCustomers: ["medical clinic", "dental clinic", "beauty salon", "wellness center"],
     requiredApps: ["crm", "desk", "finance", "analytics", "flow", "docs"],
     requiredConnectors: clinicWellnessRequiredConnectors(),
@@ -8538,7 +8555,7 @@ function buildClinicWellnessPilotTemplate(db, orgId) {
     operatorWorkflows: clinicWellnessOperatorWorkflows(),
     hayhashvapahHandoff: clinicWellnessHayhashvapahHandoff(),
     localizationControls: [
-      "AMD price table",
+      `${activeCurrencyCode()} price table`,
       "ՀՎՀՀ/TIN identity capture",
       "20% VAT review before public invoice wording",
       "Armenian personal-data consent and retention handling",
@@ -8586,7 +8603,7 @@ function installClinicWellnessPilotTemplate(db, user, body) {
   const now = new Date().toISOString();
   const installId = randomId("pilot-template-install");
   const pricing = {
-    currency: "AMD",
+    currency: activeCurrencyCode(),
     setupFee: selectedPackages.reduce((sum, row) => sum + row.setupFee, 0),
     monthlyOpsFee: selectedPackages.reduce((sum, row) => sum + row.monthlyOpsFee, 0),
     optionalPerformanceFee: true
@@ -8861,7 +8878,7 @@ function buildClinicWellnessOwnerBriefAnswers(db, orgId, reportDate) {
         status: row.status,
         amount: row.total,
         vat: row.vat,
-        currency: "AMD",
+        currency: activeCurrencyCode(),
         dueDate: row.due_date
       }))
     },
@@ -9274,7 +9291,7 @@ function summarizePilotOperatorLanes(lanes) {
     highPriorityActions: actions.filter(action => action.priority === "high").length,
     reviewRequiredActions: actions.filter(action => action.reviewRequired).length,
     laneCount: lanes.length,
-    currency: "AMD"
+    currency: activeCurrencyCode()
   };
 }
 
@@ -9522,7 +9539,7 @@ function summarizePilotAccountantReviewItems(items) {
       .reduce((sum, item) => sum + Number(item.amount || 0), 0),
     vatItemCount: items.filter(item => ["vat-src", "receivable-vat"].includes(item.category)).length,
     periodItemCount: items.filter(item => item.category === "period-lock").length,
-    currency: "AMD"
+    currency: activeCurrencyCode()
   };
 }
 
@@ -9698,7 +9715,7 @@ function resolvePilotLaunchReadinessChain(db, orgId, review) {
 function buildPilotLaunchCommercialSummary(install) {
   const pricing = install?.payload?.pricing || install?.pricing || {};
   return {
-    currency: pricing.currency || "AMD",
+    currency: currencyOrActive(pricing.currency),
     setupFee: pricing.setupFee || 0,
     monthlyOpsFee: pricing.monthlyOpsFee || 0,
     optionalPerformanceFee: Boolean(pricing.optionalPerformanceFee),
@@ -9768,7 +9785,7 @@ function buildClinicWellnessLaunchGates(chain, review, commercial) {
       status: (reviewSummary.moneyAtRisk || 0) > 0 ? "blocked" : "ready",
       blockers: (reviewSummary.moneyAtRisk || 0) > 0 ? ["overdue receivable unresolved"] : [],
       moneyAtRisk: reviewSummary.moneyAtRisk || 0,
-      currency: "AMD"
+      currency: activeCurrencyCode()
     }
   ];
 }
@@ -9780,7 +9797,7 @@ function summarizePilotLaunchGates(gates, review) {
     blockerCount: gates.reduce((sum, gate) => sum + (gate.blockers || []).length, 0),
     blockedGateCount: gates.filter(gate => gate.status === "blocked").length,
     moneyAtRisk: review.payload.summary?.moneyAtRisk || 0,
-    currency: "AMD"
+    currency: activeCurrencyCode()
   };
 }
 
@@ -9993,7 +10010,7 @@ function buildPilotLaunchRemediationActions(readiness) {
       sourceGate: "money-at-risk",
       dueDate: targetLaunchDate,
       moneyAtRisk: moneyGate.moneyAtRisk,
-      currency: moneyGate.currency || "AMD",
+      currency: currencyOrActive(moneyGate.currency),
       nextStep: "Record payment promise, reminder evidence, or owner-approved exception before paid pilot offer."
     });
   }
@@ -10027,7 +10044,7 @@ function summarizePilotLaunchRemediationActions(actions, readiness) {
     blockerCount: readiness.payload.summary?.blockerCount || 0,
     moneyAtRisk: readiness.payload.summary?.moneyAtRisk || 0,
     ownerRoles: Array.from(new Set(actions.map(action => action.ownerRole))).sort(),
-    currency: "AMD"
+    currency: activeCurrencyCode()
   };
 }
 
@@ -10372,7 +10389,7 @@ function createClinicWellnessLaunchClearancePacket(db, user, body) {
       completionPercent,
       highPriorityOpenCount: unresolvedActions.filter(action => action.priority === "high").length,
       moneyAtRisk: plan.moneyAtRisk || plan.payload.summary?.moneyAtRisk || 0,
-      currency: "AMD"
+      currency: activeCurrencyCode()
     },
     resolvedActions,
     unresolvedActions,
@@ -10700,7 +10717,7 @@ function buildPilotPaidOfferCommercial(readiness) {
   const firstMonthVat = Math.round(firstMonthSubtotal * vatRate);
   const pilotCount = Number(commercial.rolloutShape?.pilotCount || readiness.payload.rolloutShape?.pilotCount || 5);
   return {
-    currency: commercial.currency || "AMD",
+    currency: currencyOrActive(commercial.currency),
     setupFee,
     monthlyOpsFee,
     optionalPerformanceFee: Boolean(commercial.optionalPerformanceFee),
@@ -10761,7 +10778,7 @@ function formatPilotPaidOfferPacket(row, includePayload = false) {
     setupFee: row.setup_fee || commercial.setupFee || 0,
     monthlyOpsFee: row.monthly_ops_fee || commercial.monthlyOpsFee || 0,
     firstMonthTotal: row.first_month_total || commercial.firstMonthTotal || 0,
-    currency: commercial.currency || "AMD",
+    currency: currencyOrActive(commercial.currency),
     checksum: row.checksum,
     note: row.note,
     createdByUserId: row.created_by_user_id,
@@ -17630,7 +17647,7 @@ function createClinicWellnessFollowingRenewalHayhashvapahDraftInvoicePacket(db, 
       total: quote?.total || handoff.total,
       subtotal: quote?.subtotal || handoff.subtotal,
       vat: quote?.vat || handoff.vat,
-      currency: quote?.currency || "AMD"
+      currency: currencyOrActive(quote?.currency)
     },
     acceptance: {
       id: handoff.acceptanceId,
@@ -20287,7 +20304,7 @@ function createClinicWellnessSubsequentRenewalHayhashvapahDraftInvoicePacket(db,
       total: quote?.total || handoff.total,
       subtotal: quote?.subtotal || handoff.subtotal,
       vat: quote?.vat || handoff.vat,
-      currency: quote?.currency || "AMD"
+      currency: currencyOrActive(quote?.currency)
     },
     acceptance: {
       id: handoff.acceptanceId,
@@ -23406,7 +23423,7 @@ function createClinicWellnessContinuationRenewalHayhashvapahDraftInvoicePacket(d
       total: quote?.total || handoff.total,
       subtotal: quote?.subtotal || handoff.subtotal,
       vat: quote?.vat || handoff.vat,
-      currency: quote?.currency || "AMD"
+      currency: currencyOrActive(quote?.currency)
     },
     acceptance: {
       id: handoff.acceptanceId,
@@ -26819,7 +26836,7 @@ function createClinicWellnessOngoingRenewalHayhashvapahDraftInvoicePacket(db, us
       total: quote?.total || handoff.total,
       subtotal: quote?.subtotal || handoff.subtotal,
       vat: quote?.vat || handoff.vat,
-      currency: quote?.currency || "AMD"
+      currency: currencyOrActive(quote?.currency)
     },
     acceptance: {
       id: handoff.acceptanceId,
@@ -30265,7 +30282,7 @@ function createClinicWellnessNextOngoingRenewalHayhashvapahDraftInvoicePacket(db
       total: quote?.total || handoff.total,
       subtotal: quote?.subtotal || handoff.subtotal,
       vat: quote?.vat || handoff.vat,
-      currency: quote?.currency || "AMD"
+      currency: currencyOrActive(quote?.currency)
     },
     acceptance: {
       id: handoff.acceptanceId,
@@ -33704,7 +33721,7 @@ function createClinicWellnessFollowingOngoingRenewalHayhashvapahDraftInvoicePack
       total: quote?.total || handoff.total,
       subtotal: quote?.subtotal || handoff.subtotal,
       vat: quote?.vat || handoff.vat,
-      currency: quote?.currency || "AMD"
+      currency: currencyOrActive(quote?.currency)
     },
     acceptance: {
       id: handoff.acceptanceId,
@@ -36837,7 +36854,7 @@ function createClinicWellnessSubsequentOngoingRenewalHayhashvapahDraftInvoicePac
       total: quote?.total || handoff.total,
       subtotal: quote?.subtotal || handoff.subtotal,
       vat: quote?.vat || handoff.vat,
-      currency: quote?.currency || "AMD"
+      currency: currencyOrActive(quote?.currency)
     },
     acceptance: {
       id: handoff.acceptanceId,
@@ -40140,7 +40157,7 @@ function createClinicWellnessNextRecurringOngoingRenewalHayhashvapahDraftInvoice
       total: quote?.total || handoff.total,
       subtotal: quote?.subtotal || handoff.subtotal,
       vat: quote?.vat || handoff.vat,
-      currency: quote?.currency || "AMD"
+      currency: currencyOrActive(quote?.currency)
     },
     acceptance: {
       id: handoff.acceptanceId,
@@ -42347,7 +42364,7 @@ function createCrmLead(db, user, body, options = {}) {
     leadInput.channel,
     leadInput.interest,
     leadInput.estimatedValue,
-    "AMD",
+    activeCurrencyCode(),
     leadInput.consentStatus,
     score,
     rating,
@@ -42860,7 +42877,7 @@ function getReceivablesAging(db, orgId, customerId = "", reportDate = DEFAULT_RE
   });
 
   return {
-    currency: organization?.currency || "AMD",
+    currency: currencyOrActive(organization?.currency),
     reportDate,
     summary: {
       totalOpen: summary.totalOpen,
@@ -42900,9 +42917,9 @@ function getSemanticMetrics(db, orgId, user = null, reportDate = DEFAULT_REPORT_
       id: "pipeline-value",
       label: "Tube value",
       value: forecast.totals.value,
-      unit: "AMD",
+      unit: activeCurrencyCode(),
       formula: "Sum open CRM deal value",
-      definition: "Total AMD value of non-won CRM deals that remain in the operating Tube.",
+      definition: `Total ${activeCurrencyCode()} value of non-won CRM deals that remain in the operating Tube.`,
       sourceApps: ["Armosphera CRM"],
       refreshCadence: "live",
       ownerRole: "Salesperson",
@@ -42912,7 +42929,7 @@ function getSemanticMetrics(db, orgId, user = null, reportDate = DEFAULT_REPORT_
       id: "forecast-weighted",
       label: "Weighted forecast",
       value: forecast.totals.weightedValue,
-      unit: "AMD",
+      unit: activeCurrencyCode(),
       formula: "Sum open deal value multiplied by forecast probability",
       definition: "Probability-weighted CRM forecast for active Armenian sales work.",
       sourceApps: ["Armosphera CRM"],
@@ -42936,7 +42953,7 @@ function getSemanticMetrics(db, orgId, user = null, reportDate = DEFAULT_REPORT_
       id: "receivables-aging",
       label: "Receivables aging",
       value: receivables.summary.totalOpen,
-      unit: "AMD",
+      unit: activeCurrencyCode(),
       formula: "Open HayHashvapah invoice total grouped by due-date aging bucket",
       definition: "All unpaid HayHashvapah invoices split into current and overdue Armenian collection buckets.",
       sourceApps: ["HayHashvapah Finance", "Armosphera CRM"],
@@ -42948,9 +42965,9 @@ function getSemanticMetrics(db, orgId, user = null, reportDate = DEFAULT_REPORT_
       id: "overdue-exposure",
       label: "Overdue exposure",
       value: receivables.summary.overdue,
-      unit: "AMD",
+      unit: activeCurrencyCode(),
       formula: "Open invoice total where due date is before the report date",
-      definition: "AMD exposure from overdue HayHashvapah invoices that need CRM collection follow-up.",
+      definition: `${activeCurrencyCode()} exposure from overdue HayHashvapah invoices that need CRM collection follow-up.`,
       sourceApps: ["HayHashvapah Finance", "Armosphera CRM"],
       refreshCadence: "daily",
       ownerRole: "Accountant",
@@ -44257,7 +44274,7 @@ function convertCrmLead(db, user, leadId, body) {
   db.prepare(`
     INSERT INTO deals (id, org_id, customer_id, title, stage, value, currency, probability, next_step)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(dealId, user.org_id, customerId, dealTitle, "Qualified", lead.estimatedValue, "AMD", probability, nextStep);
+  `).run(dealId, user.org_id, customerId, dealTitle, "Qualified", lead.estimatedValue, currencyOrActive(lead.currency), probability, nextStep);
 
   db.prepare(`
     INSERT INTO crm_activities (
@@ -44840,8 +44857,8 @@ function createAiCustomerBrief(db, user, body) {
   const groundingSources = buildAiCustomerBriefGrounding(customer, context);
   const confidence = Math.min(96, 72 + groundingSources.length * 4);
   const summary = [
-    `${customer.name} is a ${customer.segment} customer with ${customer.health_score}% health and ${(customer.open_receivables || 0).toLocaleString("hy-AM")} AMD open receivables.`,
-    context.primaryDeal ? `Primary CRM motion: ${context.primaryDeal.title} at ${context.primaryDeal.stage} for ${context.primaryDeal.value.toLocaleString("hy-AM")} ${context.primaryDeal.currency}.` : "No active CRM deal is currently prioritized.",
+    `${customer.name} is a ${customer.segment} customer with ${customer.health_score}% health and ${formatStoredMoney(customer.open_receivables || 0)} open receivables.`,
+    context.primaryDeal ? `Primary CRM motion: ${context.primaryDeal.title} at ${context.primaryDeal.stage} for ${formatStoredMoney(context.primaryDeal.value)}.` : "No active CRM deal is currently prioritized.",
     context.openInvoices.length > 0 ? `HayHashvapah context: ${context.openInvoices.length} open invoice(s), including ${context.openInvoices[0].number} due ${context.openInvoices[0].due_date}.` : "HayHashvapah context: no open invoice is currently blocking the account.",
     context.atRiskCase ? `Service risk: ${context.atRiskCase.caseNumber} is ${context.atRiskCase.slaStatus} on ${context.atRiskCase.channel}.` : "Service risk: no active SLA risk detected.",
     "This brief is advisory only and does not send messages, create tasks, or change financial/legal records."
@@ -45046,7 +45063,7 @@ function createAiDealRiskBrief(db, user, body) {
   const forecastLabel = context.forecast?.forecastCategory || deal.forecastCategory || "pipeline";
   const summary = [
     `${deal.title} for ${customer.name} is ${riskLevel} risk (${riskScore}/100) before the ${forecastLabel} forecast review.`,
-    context.openInvoices.length > 0 ? `HayHashvapah exposure is ${context.receivables.summary.totalOpen.toLocaleString("hy-AM")} AMD across ${context.openInvoices.length} open invoice(s).` : "HayHashvapah shows no open invoice blocker for this deal.",
+    context.openInvoices.length > 0 ? `HayHashvapah exposure is ${formatStoredMoney(context.receivables.summary.totalOpen)} across ${context.openInvoices.length} open invoice(s).` : "HayHashvapah shows no open invoice blocker for this deal.",
     context.overdueInvoices[0] ? `Primary overdue item: ${context.overdueInvoices[0].number} is ${context.overdueInvoices[0].daysPastDue} day(s) past due.` : "No overdue invoice is currently attached to the account.",
     context.atRiskCase ? `Service blocker: ${context.atRiskCase.caseNumber} is ${context.atRiskCase.slaStatus} on ${context.atRiskCase.channel}.` : "No at-risk service case is attached to the account.",
     "This risk brief is advisory only and does not update forecasts, create tasks, send messages, or change HayHashvapah records."
@@ -45155,7 +45172,7 @@ function buildAiDealRiskContext(db, orgId, deal, customer) {
 function buildAiDealRiskFactors(deal, customer, context) {
   const factors = [];
   if (context.receivables.summary.totalOpen > 0) {
-    factors.push(`Open HayHashvapah receivables: ${context.receivables.summary.totalOpen.toLocaleString("hy-AM")} AMD.`);
+    factors.push(`Open HayHashvapah receivables: ${formatStoredMoney(context.receivables.summary.totalOpen)}.`);
   }
   if (context.overdueInvoices[0]) {
     factors.push(`Overdue invoice ${context.overdueInvoices[0].number} is ${context.overdueInvoices[0].daysPastDue} day(s) past due.`);
@@ -45325,7 +45342,7 @@ function createAiInvoiceOverdueExplanation(db, user, body) {
   const groundingSources = buildAiInvoiceGrounding(invoice, context);
   const confidence = Math.min(96, 72 + groundingSources.length * 5);
   const summary = [
-    `${invoice.number} for ${customer.name} is ${context.daysPastDue} day(s) overdue with ${invoice.total.toLocaleString("hy-AM")} AMD open and ${invoice.vat.toLocaleString("hy-AM")} AMD VAT included.`,
+    `${invoice.number} for ${customer.name} is ${context.daysPastDue} day(s) overdue with ${formatStoredMoney(invoice.total)} open and ${formatStoredMoney(invoice.vat)} VAT included.`,
     context.crmTask ? `CRM collection context already exists: ${context.crmTask.title}.` : "No linked CRM collection task is currently open for this invoice.",
     context.profile ? `Customer profile quality is ${context.profile.data_quality_score}% with ${context.profile.consent_status} consent status.` : "Customer profile evidence is not available.",
     `${suggestedFollowUp}`,
@@ -46367,8 +46384,8 @@ function getKpis(db, orgId) {
   const openTickets = db.prepare("SELECT COUNT(*) AS count FROM tickets WHERE org_id = ? AND status != 'closed'").get(orgId).count;
   return [
     { label: "Հաճախորդներ", value: customers, tone: "brand" },
-    { label: "Բաց գործարքներ", value: openDeals.count, detail: `${openDeals.value.toLocaleString("hy-AM")} AMD`, tone: "info" },
-    { label: "Դեբիտորական", value: `${receivables.toLocaleString("hy-AM")} AMD`, tone: receivables > 0 ? "warn" : "ok" },
+    { label: "Բաց գործարքներ", value: openDeals.count, detail: formatStoredMoney(openDeals.value), tone: "info" },
+    { label: "Դեբիտորական", value: formatStoredMoney(receivables), tone: receivables > 0 ? "warn" : "ok" },
     { label: "Բաց սպասարկում", value: openTickets, tone: openTickets ? "risk" : "ok" }
   ];
 }
@@ -48348,7 +48365,7 @@ function normalizeCatalogItemBody(body, options = {}) {
     unitOfMeasure: normalizeCatalogText(body, "unitOfMeasure", { fallback: existing.unitOfMeasure || "unit", minLength: 1, maxLength: 40 }),
     listPrice: normalizeCatalogMoney(body, "listPrice", { required: required("listPrice"), fallback: existing.listPrice ?? 0 }),
     standardCost: normalizeCatalogMoney(body, "standardCost", { fallback: existing.standardCost ?? 0 }),
-    currency: normalizeCatalogCurrency(body, "currency", existing.currency || "AMD"),
+    currency: normalizeCatalogCurrency(body, "currency", existing.currency || activeCurrencyCode()),
     vatMode: normalizeCatalogChoice(body, "vatMode", ["standard", "exempt", "zero"], existing.vatMode || "standard", false),
     trackStock: normalizeCatalogBoolean(body, "trackStock", existing.trackStock || false),
     trackLots: normalizeCatalogBoolean(body, "trackLots", existing.trackLots || false),
@@ -48398,12 +48415,13 @@ function normalizeCatalogMoney(body, field, options = {}) {
   return toStoredMoneyInput(value, throwInvalidCatalogMetadata, { min, max, zeroSubunitFraction: "none" });
 }
 
-function normalizeCatalogCurrency(body, field, fallback = "AMD") {
+function normalizeCatalogCurrency(body, field, fallback = activeCurrencyCode()) {
   const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
   if (value === undefined || value === "") return fallback;
   if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidCatalogMetadata();
   const currency = value.trim().toUpperCase();
-  if (currency !== "AMD") throwInvalidCatalogMetadata();
+  const allowed = new Set([activeCurrencyCode(), String(fallback || "").trim().toUpperCase()].filter(Boolean));
+  if (!allowed.has(currency)) throwInvalidCatalogMetadata();
   return currency;
 }
 
@@ -49035,7 +49053,7 @@ function createPurchaseVendor(db, user, body) {
         id, org_id, vendor_id, catalog_item_id, currency, unit_cost, min_quantity,
         lead_time_days, valid_from, valid_to, status, note, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const price of input.prices) {
       assertCatalogItemExists(db, user.org_id, price.catalogItemId);
@@ -49044,6 +49062,7 @@ function createPurchaseVendor(db, user, body) {
         user.org_id,
         vendorId,
         price.catalogItemId,
+        activeCurrencyCode(),
         price.unitCost,
         price.minQuantity,
         price.leadTimeDays,
@@ -49441,7 +49460,7 @@ function createPurchaseOrder(db, user, body) {
         subtotal, vat, total, currency, order_date, expected_date, note,
         created_by_user_id, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `).run(
       orderId,
       user.org_id,
@@ -49453,6 +49472,7 @@ function createPurchaseOrder(db, user, body) {
       subtotal,
       vat,
       total,
+      activeCurrencyCode(),
       input.orderDate,
       input.expectedDate,
       input.note,
@@ -50461,7 +50481,7 @@ function createCrmQuote(db, user, body) {
     subtotal,
     vat,
     total,
-    "AMD",
+    currencyOrActive(deal.currency),
     validUntil,
     publicToken,
     null,
@@ -53095,7 +53115,7 @@ function createFinanceExpense(db, user, body) {
       id, org_id, description, vendor, subtotal, vat, total, currency,
       incurred_on, period_key, created_by_user_id, created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'AMD', ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     user.org_id,
@@ -53104,6 +53124,7 @@ function createFinanceExpense(db, user, body) {
     input.subtotal,
     input.vat,
     total,
+    activeCurrencyCode(),
     input.incurredOn,
     periodKey,
     user.id,
@@ -53235,7 +53256,7 @@ function createFinanceBillFromInput(db, user, input) {
       id, org_id, supplier, description, subtotal, vat, total, currency,
       bill_date, due_date, status, period_key, created_by_user_id, created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, 'AMD', ?, ?, 'open', ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?, ?)
   `).run(
     id,
     user.org_id,
@@ -53244,6 +53265,7 @@ function createFinanceBillFromInput(db, user, input) {
     input.subtotal,
     input.vat,
     total,
+    activeCurrencyCode(),
     input.billDate,
     input.dueDate,
     periodKey,
@@ -53378,12 +53400,13 @@ function payFinanceBill(db, user, bill, body) {
       id, org_id, bill_id, amount, currency, paid_at, method, reference,
       period_key, created_by_user_id, created_at
     )
-    VALUES (?, ?, ?, ?, 'AMD', ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     id,
     user.org_id,
     bill.id,
     input.amount,
+    currencyOrActive(bill.currency),
     input.paidAt,
     input.method,
     input.reference,
@@ -54017,7 +54040,7 @@ function createDraftInvoiceFromApproval(db, user, approval, now) {
     subtotal,
     vat,
     total,
-    deal.currency || "AMD",
+    currencyOrActive(deal.currency),
     issueDate,
     dueDate,
     periodKey,
@@ -54143,7 +54166,7 @@ async function recordInvoicePayment(db, user, invoice, body) {
     invoice.customerId,
     invoice.id,
     amount,
-    "AMD",
+    currencyOrActive(invoice.currency),
     paidAt,
     method,
     reference,
@@ -54484,7 +54507,7 @@ function normalizeBankTransactionInput(body) {
     accountNumber: normalizeBankTransactionText(body, "accountNumber", { fallback: "", maxLength: 80 }),
     transactionDate,
     amount,
-    currency: normalizeBankTransactionText(body, "currency", { fallback: "AMD", maxLength: 8 }),
+    currency: normalizeBankTransactionText(body, "currency", { fallback: activeCurrencyCode(), maxLength: 8 }),
     direction,
     description: normalizeBankTransactionText(body, "description", { fallback: "", maxLength: 500 }),
     reference
@@ -54873,7 +54896,7 @@ function buildFinanceVatReturn(db, orgId, periodKey = "") {
   return {
     kind: "armenian-vat-return",
     periodKey: periodKey || "all",
-    currency: "AMD",
+    currency: activeCurrencyCode(),
     standardVatRate: vatReturn.STANDARD_VAT_RATE,
     source: "posted-ledger",
     taxableSales: calculation.taxableSales,
@@ -57534,7 +57557,7 @@ function buildOverdueInvoiceTaskDryRun(db, user, rule, body) {
         invoiceId: invoice.id,
         invoiceNumber: invoice.number,
         amount: invoice.total,
-        currency: "AMD",
+        currency: currencyOrActive(invoice.currency),
         daysOverdue,
         priority: daysOverdue > 5 ? "high" : "medium",
         dueDate: addDays(DEFAULT_REPORT_DATE, 1),
@@ -58102,7 +58125,7 @@ function createCollectionPromiseForTask(db, user, taskId, body) {
     task.id,
     "scheduled",
     promisedAmount,
-    invoice.currency || "AMD",
+    currencyOrActive(invoice.currency),
     promisedOn,
     reminderChannel,
     reminderAt,
@@ -58123,7 +58146,7 @@ function createCollectionPromiseForTask(db, user, taskId, body) {
     subjectId: promiseId,
     customerId: task.customerId,
     status: "scheduled",
-    payload: { invoiceId: invoice.id, invoiceNumber: invoice.number, promisedAmount, currency: invoice.currency || "AMD", promisedOn, reminderChannel }
+    payload: { invoiceId: invoice.id, invoiceNumber: invoice.number, promisedAmount, currency: currencyOrActive(invoice.currency), promisedOn, reminderChannel }
   });
   audit(db, user.org_id, user.id, "crm.collection_promise.recorded", { promiseId, taskId: task.id, invoiceId: invoice.id, promisedAmount, promisedOn, reminderChannel });
   return {
@@ -58375,7 +58398,8 @@ function formatCollectionPromise(row) {
 }
 
 function buildCollectionMessageHy(invoice, promisedAmount, promisedOn) {
-  return `Հիշեցում․ խնդրում ենք մինչև ${promisedOn} վճարել ${fromMinorAmount(promisedAmount).toLocaleString("en-US")} AMD ${invoice.number} հաշվի համար։`;
+  const amount = fromMinorAmount(promisedAmount).toLocaleString("en-US");
+  return `Հիշեցում․ խնդրում ենք մինչև ${promisedOn} վճարել ${amount} ${activeCurrencyCode()} ${invoice.number} հաշվի համար։`;
 }
 
 function normalizeIsoDate(value, label) {
@@ -59066,7 +59090,7 @@ function getRecentSuiteEvents(db, orgId, limit = 25, customerId = "", options = 
 function localizationChecklist() {
   return [
     { key: "hy-default", label: "Armenian-first UI", status: "active" },
-    { key: "amd", label: "AMD default currency", status: "active" },
+    { key: "amd", label: `${activeCurrencyCode()} default currency`, status: "active" },
     { key: "tax-id", label: "ՀՎՀՀ/TIN customer identity", status: "active" },
     { key: "vat-20", label: "VAT 20% legal anchor", status: "review" },
     { key: "personal-data", label: "Personal data consent and export/delete", status: "review" },

@@ -23,8 +23,8 @@ test("forms isolation: a foreign org's form is invisible (list) and 404 on read/
     // Seed a second org + a form that belongs to it (FK enforcement is on).
     const now = new Date().toISOString();
     const otherOrgId = "org-other-forms";
-    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(otherOrgId, "Other Forms LLC", "Other Forms LLC", "55555555", now);
+    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, currency, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(otherOrgId, "Other Forms LLC", "Other Forms LLC", "55555555", "AMD", now);
     const foreignId = "form-foreign-1";
     app.db.prepare(`INSERT INTO forms (id, org_id, title, description, fields, status, submission_count, created_at, updated_at)
       VALUES (?, ?, 'Foreign intake', '', '[]', 'draft', 0, ?, ?)`).run(foreignId, otherOrgId, now, now);

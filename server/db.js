@@ -2,10 +2,24 @@ const { DatabaseSync } = require("node:sqlite");
 const crypto = require("node:crypto");
 const fs = require("node:fs");
 const path = require("node:path");
+const locale = require("./locale");
 const payroll = require("./payroll");
 
 const DEFAULT_EMAIL = "owner@armosphera.local";
 const DEFAULT_PASSWORD = "change-me-now";
+
+function activeSeedCurrency() {
+  return locale.active().money.code;
+}
+
+function activeSeedLocale() {
+  return locale.activeLocale() === "ru" ? "ru-RU" : "hy-AM";
+}
+
+function currencyForOrg(db, orgId) {
+  const row = db.prepare("SELECT currency FROM organizations WHERE id = ?").get(orgId);
+  return String(row?.currency || activeSeedCurrency()).trim().toUpperCase();
+}
 
 function openDatabase(dbPath) {
   if (dbPath && dbPath !== ":memory:") {
@@ -44,7 +58,7 @@ function initSchema(db) {
       legal_name TEXT NOT NULL,
       tax_id TEXT NOT NULL,
       locale TEXT NOT NULL DEFAULT 'hy-AM',
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       market TEXT NOT NULL DEFAULT 'Armenia',
       data_region TEXT NOT NULL DEFAULT 'Armenia hosted',
       created_at TEXT NOT NULL
@@ -243,7 +257,7 @@ function initSchema(db) {
       title TEXT NOT NULL,
       stage TEXT NOT NULL,
       value INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       probability INTEGER NOT NULL,
       next_step TEXT NOT NULL
     );
@@ -275,7 +289,7 @@ function initSchema(db) {
       unit_of_measure TEXT NOT NULL DEFAULT 'unit',
       list_price INTEGER NOT NULL,
       standard_cost INTEGER NOT NULL DEFAULT 0,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       vat_mode TEXT NOT NULL DEFAULT 'standard',
       track_stock INTEGER NOT NULL DEFAULT 0,
       track_lots INTEGER NOT NULL DEFAULT 0,
@@ -375,7 +389,7 @@ function initSchema(db) {
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       vendor_id TEXT NOT NULL REFERENCES purchase_vendors(id) ON DELETE CASCADE,
       catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       unit_cost INTEGER NOT NULL,
       min_quantity INTEGER NOT NULL DEFAULT 1,
       lead_time_days INTEGER NOT NULL DEFAULT 0,
@@ -402,7 +416,7 @@ function initSchema(db) {
       subtotal INTEGER NOT NULL DEFAULT 0,
       vat INTEGER NOT NULL DEFAULT 0,
       total INTEGER NOT NULL DEFAULT 0,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       order_date TEXT NOT NULL,
       expected_date TEXT NOT NULL,
       confirmed_at TEXT,
@@ -497,7 +511,7 @@ function initSchema(db) {
       channel TEXT NOT NULL,
       interest TEXT NOT NULL,
       estimated_value INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       consent_status TEXT NOT NULL,
       score INTEGER NOT NULL,
       rating TEXT NOT NULL,
@@ -548,7 +562,7 @@ function initSchema(db) {
       audience TEXT NOT NULL,
       status TEXT NOT NULL,
       budget INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       started_at TEXT NOT NULL,
       ended_at TEXT,
       owner_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -613,7 +627,7 @@ function initSchema(db) {
       subtotal INTEGER NOT NULL,
       vat INTEGER NOT NULL,
       total INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       valid_until TEXT NOT NULL,
       public_token TEXT NOT NULL,
       sent_at TEXT,
@@ -713,7 +727,7 @@ function initSchema(db) {
       task_id TEXT NOT NULL REFERENCES crm_tasks(id) ON DELETE CASCADE,
       status TEXT NOT NULL,
       promised_amount INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       promised_on TEXT NOT NULL,
       reminder_channel TEXT NOT NULL,
       reminder_at TEXT NOT NULL,
@@ -793,7 +807,7 @@ function initSchema(db) {
       subtotal INTEGER NOT NULL,
       vat INTEGER NOT NULL,
       total INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       issue_date TEXT NOT NULL,
       due_date TEXT NOT NULL,
       period_key TEXT NOT NULL,
@@ -834,7 +848,7 @@ function initSchema(db) {
       customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
       invoice_id TEXT NOT NULL REFERENCES invoices(id) ON DELETE CASCADE,
       amount INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       paid_at TEXT NOT NULL,
       method TEXT NOT NULL,
       reference TEXT NOT NULL,
@@ -886,7 +900,7 @@ function initSchema(db) {
       subtotal INTEGER NOT NULL,
       vat INTEGER NOT NULL DEFAULT 0,
       total INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       incurred_on TEXT NOT NULL,
       period_key TEXT NOT NULL DEFAULT '',
       created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
@@ -1085,7 +1099,7 @@ function initSchema(db) {
       subtotal INTEGER NOT NULL,
       vat INTEGER NOT NULL DEFAULT 0,
       total INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       bill_date TEXT NOT NULL,
       due_date TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'open',
@@ -1099,7 +1113,7 @@ function initSchema(db) {
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       bill_id TEXT NOT NULL REFERENCES bills(id) ON DELETE CASCADE,
       amount INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       paid_at TEXT NOT NULL,
       method TEXT NOT NULL DEFAULT 'bank-transfer',
       reference TEXT NOT NULL DEFAULT '',
@@ -1120,7 +1134,7 @@ function initSchema(db) {
       account_number TEXT NOT NULL DEFAULT '',
       transaction_date TEXT NOT NULL,
       amount INTEGER NOT NULL,
-      currency TEXT NOT NULL DEFAULT 'AMD',
+      currency TEXT NOT NULL,
       direction TEXT NOT NULL,
       description TEXT NOT NULL,
       reference TEXT NOT NULL,
@@ -6522,10 +6536,12 @@ function seedIfEmpty(db) {
 
   const now = new Date().toISOString();
   const orgId = "org-armosphera-demo";
+  const seedLocale = activeSeedLocale();
+  const seedCurrency = activeSeedCurrency();
   db.prepare(`
     INSERT INTO organizations (id, name, legal_name, tax_id, locale, currency, market, data_region, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(orgId, "Armosphera Demo Clinic", "Արմոսֆերա Դեմո ՍՊԸ", "01234567", "hy-AM", "AMD", "Armenia", "Armenia hosted / private tenant ready", now);
+  `).run(orgId, "Armosphera Demo Clinic", "Արմոսֆերա Դեմո ՍՊԸ", "01234567", seedLocale, seedCurrency, "Armenia", "Armenia hosted / private tenant ready", now);
 
   db.prepare(`
     INSERT INTO users (id, org_id, email, name, role, password_hash, created_at)
@@ -6599,9 +6615,9 @@ function seedIfEmpty(db) {
     INSERT INTO deals (id, org_id, customer_id, title, stage, value, currency, probability, next_step)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
-  insertDeal.run("deal-nare-retainer", orgId, "cust-nare", "Annual patient retention automation", "Proposal", 3200000, "AMD", 70, "Send Armenian quote and confirm VAT treatment");
-  insertDeal.run("deal-ani-inbox", orgId, "cust-ani", "Instagram + WhatsApp inbox setup", "Negotiation", 950000, "AMD", 55, "Review package table with owner");
-  insertDeal.run("deal-van-season", orgId, "cust-van", "Summer booking workflow", "Discovery", 720000, "AMD", 35, "Map booking form to CRM fields");
+  insertDeal.run("deal-nare-retainer", orgId, "cust-nare", "Annual patient retention automation", "Proposal", 3200000, seedCurrency, 70, "Send Armenian quote and confirm VAT treatment");
+  insertDeal.run("deal-ani-inbox", orgId, "cust-ani", "Instagram + WhatsApp inbox setup", "Negotiation", 950000, seedCurrency, 55, "Review package table with owner");
+  insertDeal.run("deal-van-season", orgId, "cust-van", "Summer booking workflow", "Discovery", 720000, seedCurrency, 35, "Map booking form to CRM fields");
 
   const insertProject = db.prepare(`
     INSERT INTO projects (id, org_id, name, description, status, customer_id, deal_id, start_date, due_date, created_by_user_id, created_at, updated_at)
@@ -7174,10 +7190,11 @@ function seedCustomerProfiles(db, orgId) {
 
 function seedSuiteEvents(db, orgId) {
   const base = Date.now() - 1000 * 60 * 60 * 24;
+  const currency = currencyForOrg(db, orgId);
   const events = [
     ["customer.profile.linked", "customer_profile", "profile-nare", "cust-nare", "recorded", { sources: ["crm", "finance", "desk", "campaigns"], match: "tin" }],
     ["crm.deal.stage_changed", "deal", "deal-nare-retainer", "cust-nare", "recorded", { from: "Discovery", to: "Proposal", probability: 70 }],
-    ["finance.invoice.overdue", "invoice", "inv-1007", "cust-nare", "needs-action", { number: "HHV-1007", total: 960000, currency: "AMD", daysOverdue: 6 }],
+    ["finance.invoice.overdue", "invoice", "inv-1007", "cust-nare", "needs-action", { number: "HHV-1007", total: 960000, currency, daysOverdue: 6 }],
     ["service.ticket.created", "ticket", "ticket-nare-vat", "cust-nare", "needs-action", { channel: "WhatsApp", priority: "high" }],
     ["workflow.dry_run.ready", "automation_rule", "rule-overdue-task", "cust-nare", "ready", { trigger: "invoice.overdue", action: "crm.task.create", approvalRequired: true }],
     ["campaign.consent.review_required", "customer_profile", "profile-ani", "cust-ani", "needs-review", { consentStatus: "consent-review-required" }]
@@ -7301,6 +7318,7 @@ function seedServiceCases(db, orgId) {
 
 function seedWorkflowApprovals(db, orgId) {
   const now = new Date().toISOString();
+  const currency = currencyForOrg(db, orgId);
   const approvals = [
     [
       "approval-overdue-nare",
@@ -7311,7 +7329,7 @@ function seedWorkflowApprovals(db, orgId) {
       "financial",
       "pending",
       "External follow-up touches receivable collection and must be approved by an owner.",
-      { invoiceId: "inv-1007", total: 960000, currency: "AMD", proposedChannel: "WhatsApp" }
+      { invoiceId: "inv-1007", total: 960000, currency, proposedChannel: "WhatsApp" }
     ],
     [
       "approval-vat-reply-nare",
@@ -7466,6 +7484,7 @@ function seedDealInvoiceApproval(db, orgId) {
 
 function seedQuotes(db, orgId) {
   const now = new Date().toISOString();
+  const currency = currencyForOrg(db, orgId);
   const insertQuote = db.prepare(`
     INSERT INTO quotes (
       id, org_id, customer_id, deal_id, number, title, status, subtotal, vat,
@@ -7494,7 +7513,7 @@ function seedQuotes(db, orgId) {
     aniSubtotal,
     aniTotal - aniSubtotal,
     aniTotal,
-    "AMD",
+    currency,
     "2026-06-15",
     "public-quote-ani-inbox-token",
     "2026-05-26T09:00:00.000Z",
@@ -7519,7 +7538,7 @@ function seedQuotes(db, orgId) {
     nareSubtotal,
     nareTotal - nareSubtotal,
     nareTotal,
-    "AMD",
+    currency,
     "2026-06-10",
     "public-quote-nare-retainer-token",
     "2026-05-25T11:00:00.000Z",
@@ -7534,6 +7553,7 @@ function seedQuotes(db, orgId) {
 
 function seedCrmLeads(db, orgId) {
   const now = new Date().toISOString();
+  const currency = currencyForOrg(db, orgId);
   db.prepare(`
     INSERT INTO crm_leads (
       id, org_id, company_name, contact_name, email, phone, tax_id, segment,
@@ -7556,7 +7576,7 @@ function seedCrmLeads(db, orgId) {
     "WhatsApp",
     "Booking, WhatsApp reminders, package quotes, and HayHashvapah receivable follow-up",
     1800000,
-    "AMD",
+    currency,
     "marketing-consent-recorded",
     88,
     "hot",
@@ -7571,6 +7591,7 @@ function seedCrmLeads(db, orgId) {
 
 function seedCatalogItems(db, orgId) {
   const now = new Date().toISOString();
+  const currency = currencyForOrg(db, orgId);
   const categorySeedId = baseId => catalogSeedId(orgId, baseId);
   const itemSeedId = baseId => catalogSeedId(orgId, baseId);
   const insertCategory = db.prepare(`
@@ -7618,7 +7639,7 @@ function seedCatalogItems(db, orgId) {
       "package",
       3200000,
       0,
-      "AMD",
+      currency,
       "standard",
       0,
       0,
@@ -7635,7 +7656,7 @@ function seedCatalogItems(db, orgId) {
       "package",
       950000,
       0,
-      "AMD",
+      currency,
       "standard",
       0,
       0,
@@ -7652,7 +7673,7 @@ function seedCatalogItems(db, orgId) {
       "package",
       720000,
       0,
-      "AMD",
+      currency,
       "standard",
       0,
       0,
@@ -7669,7 +7690,7 @@ function seedCatalogItems(db, orgId) {
       "unit",
       85000,
       62000,
-      "AMD",
+      currency,
       "standard",
       1,
       0,
@@ -7750,6 +7771,7 @@ function seedInventoryCore(db, orgId) {
 function seedPurchaseVendors(db, orgId) {
   if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
+  const currency = currencyForOrg(db, orgId);
   const vendorId = purchaseSeedId(orgId, "vendor-yerevan-hardware-supply");
   db.prepare(`
     INSERT OR IGNORE INTO purchase_vendors (
@@ -7781,12 +7803,13 @@ function seedPurchaseVendors(db, orgId) {
       id, org_id, vendor_id, catalog_item_id, currency, unit_cost, min_quantity,
       lead_time_days, valid_from, valid_to, status, note, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, 'AMD', ?, ?, ?, ?, '', ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, '', ?, ?, ?, ?)
   `).run(
     purchaseSeedId(orgId, "vendor-price-yerevan-hardware-barcode-scanner"),
     orgId,
     vendorId,
     scanner.id,
+    currency,
     60000,
     1,
     2,
@@ -7812,6 +7835,7 @@ function purchaseSeedId(orgId, baseId) {
 
 function seedMarketingCampaigns(db, orgId) {
   const now = new Date().toISOString();
+  const currency = currencyForOrg(db, orgId);
   db.prepare(`
     INSERT INTO marketing_campaigns (
       id, org_id, name, channel, audience, status, budget, currency,
@@ -7827,7 +7851,7 @@ function seedMarketingCampaigns(db, orgId) {
     "Clinic, wellness, and tourism operators in Armenia",
     "active",
     250000,
-    "AMD",
+    currency,
     "2026-05-01",
     null,
     "user-sales",

@@ -357,8 +357,8 @@ test("people-hr: cross-org isolation — a foreign employee is invisible (404, n
     // Seed a second org (FK enforcement is ON) and an employee that belongs to it.
     const now = new Date().toISOString();
     const otherOrgId = "org-other-tenant";
-    app.db.prepare(`INSERT INTO organizations (id, name, legal_name, tax_id, created_at) VALUES (?, ?, ?, ?, ?)`)
-      .run(otherOrgId, "Other Tenant LLC", "Other Tenant LLC", "99999999", now);
+    app.db.prepare(`INSERT INTO organizations (id, name, legal_name, tax_id, currency, created_at) VALUES (?, ?, ?, ?, ?, ?)`)
+      .run(otherOrgId, "Other Tenant LLC", "Other Tenant LLC", "99999999", "AMD", now);
     const foreignId = "emp-foreign-1";
     app.db.prepare(`INSERT INTO people_employees (id, org_id, full_name, tax_id, position, department, gross_salary, employment_status, hire_date, email, created_at, updated_at)
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)

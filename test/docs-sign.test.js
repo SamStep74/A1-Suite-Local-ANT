@@ -550,8 +550,8 @@ test("docs-sign: cross-org isolation — a foreign document is invisible (404)",
     const owner = await login(app);
     const now = new Date().toISOString();
     const otherOrgId = "org-other-docs";
-    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run(otherOrgId, "Other Docs LLC", "Other Docs LLC", "77777777", now);
+    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, currency, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(otherOrgId, "Other Docs LLC", "Other Docs LLC", "77777777", "AMD", now);
     const foreignId = "doc-foreign-1";
     app.db.prepare(`INSERT INTO documents (id, org_id, title, body, doc_type, status, customer_id, sealed_checksum, sealed_at, created_at, updated_at)
       VALUES (?, ?, ?, '', 'agreement', 'draft', NULL, '', '', ?, ?)`).run(foreignId, otherOrgId, "Foreign doc", now, now);

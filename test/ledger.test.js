@@ -148,8 +148,8 @@ test("paying a bill settles the payable from cash, staying balanced", () => {
 test("payablesReport ages an outstanding bill", () => {
   const { db, orgId } = freshDb();
   const now = new Date().toISOString();
-  db.prepare(`INSERT INTO bills (id, org_id, supplier, subtotal, vat, total, bill_date, due_date, status, created_at)
-    VALUES ('bill-ap', ?, 'Acme', 500, 100, 600, '2026-04-01', '2026-04-15', 'open', ?)`).run(orgId, now);
+  db.prepare(`INSERT INTO bills (id, org_id, supplier, subtotal, vat, total, currency, bill_date, due_date, status, created_at)
+    VALUES ('bill-ap', ?, 'Acme', 500, 100, 600, 'AMD', '2026-04-01', '2026-04-15', 'open', ?)`).run(orgId, now);
   const r = ledger.payablesReport(db, orgId, "2026-05-29");
   assert.strictEqual(r.totalOutstanding, 600);
   assert.strictEqual(r.openBills.length, 1);

@@ -101,8 +101,8 @@ test("docs-export: unknown id and cross-org access both 404 (no leak)", async ()
 
     // Seed a foreign-org sealed-looking document; the owner must not be able to export it.
     const now = new Date().toISOString();
-    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, created_at) VALUES (?, ?, ?, ?, ?)")
-      .run("org-foreign-doc", "Foreign Docs LLC", "Foreign Docs LLC", "77777777", now);
+    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, currency, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run("org-foreign-doc", "Foreign Docs LLC", "Foreign Docs LLC", "77777777", "AMD", now);
     app.db.prepare(`INSERT INTO documents (id, org_id, title, body, doc_type, status, customer_id, sealed_checksum, sealed_at, created_by_user_id, created_at, updated_at)
       VALUES ('doc-foreign-1', 'org-foreign-doc', 'Foreign agreement', 'secret body', 'agreement', 'signed', NULL, 'deadbeef', ?, NULL, ?, ?)`).run(now, now, now);
 
