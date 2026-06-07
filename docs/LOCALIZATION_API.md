@@ -3,10 +3,51 @@
 The Armenian fiscal-localization moat, exposed over HTTP. These routes are mounted by
 `registerLocalizationRoutes(app)` in `buildApp` (see `server/localizationRoutes.js`) and
 back the pure engines in `server/`. **All routes require an authenticated session**
-(`app.auth`) — send the session cookie. All amounts are whole **dram (AMD)**.
+(`app.auth`) — send the session cookie. Amounts/labels follow the **active locale**
+(see [Locale switch](#locale-switch-a1_locale) below); the default profile is whole **dram (AMD)**.
 
 This doc is the contract for building the UI (chart browser, VAT/payroll calculators,
 e-invoice button, inline ՀՎՀՀ/phone validators) against these routes.
+
+## Locale switch (`A1_LOCALE`)
+
+These routes are **locale-aware**. A deployment selects its fiscal profile with the
+`A1_LOCALE` environment variable, resolved by `server/locale.js`:
+
+| `A1_LOCALE` | Profile | Package | Currency | Tax id | Phone |
+|---|---|---|---|---|---|
+| _unset_ / `am` (default) | Republic of Armenia (RA) | `a1-localization-am` | AMD `֏` | ՀՎՀՀ | +374 |
+| `ru` | Russian Federation (RF) | `a1-localization-ru` | RUB `₽` | ИНН | +7 |
+
+`server/locale.js` normalizes the two differently-shaped packages to ONE stable facade
+(`taxId`, `money`, `phone`, `regions`, `chartOfAccounts`, `payroll`, `vat`, `einvoice`,
+plus `meta` and a `raw` escape hatch). `require("./locale").active()` returns the profile
+for the current `A1_LOCALE`; selecting `am` reproduces the pre-switch behavior exactly.
+
+**`GET /api/localization/config`** reports the active profile so the UI can render the
+right labels/format:
+```jsonc
+{ "locale": "ru", "locales": ["am","ru"], "country": "RU", "language": "ru",
+  "currency": { "code": "RUB", "symbol": "₽", "subunit": 2 },
+  "taxId": { "label": "ИНН" }, "phone": { "countryCode": "7", "nsnLength": 10 },
+  "capabilities": { "vatReturnForm": false, "payroll": true, "chartOfAccounts": 73, "regions": 83 } }
+```
+
+Locale-specific behavior of the existing routes:
+- `chart-of-accounts` — RA: 623-account chart (9 classes); RF: 73-account План счетов 94н (8 sections + off-balance).
+- `hvhh` — validates the active locale's business tax id (RA ՀՎՀՀ / RF ИНН).
+- `regions` — RA marzes (×11) / RF federal subjects (×83, ISO 3166-2:RU).
+- `phone` — RA +374 (8-digit NSN) / RF +7 (10-digit NSN).
+- `payroll/compute` — RA `computePayroll(gross)` / RF `computeMonthlyPayroll`; response shapes differ per regime.
+- `einvoice/build` — RA SRC e-invoice / RF УПД (формат 5.03).
+- `vat-return/compute` — **RA only.** The RF package ships VAT settlement math, not a
+  return-form engine, so under `A1_LOCALE=ru` this route returns **501**
+  (`VAT_RETURN_FORM_UNSUPPORTED_LOCALE`).
+
+> **Scope / follow-ups.** Deep accounting seeding (`server/ledger.js` chart bootstrap)
+> and the `app.js` VAT-return report still bind the RA engines directly; making those
+> locale-aware (RF chart seeding + an РФ VAT-return form) is the next increment. The
+> facade + API surface above are locale-aware today.
 
 ## Reference / lookups (GET)
 

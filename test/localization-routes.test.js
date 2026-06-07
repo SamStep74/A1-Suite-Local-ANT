@@ -183,7 +183,7 @@ test("localizationRoutes: real API returns 400 for malformed fiscal metadata wit
         payload: item.payload,
       });
       assert.equal(res.statusCode, 400, `${item.url}: ${res.body}`);
-      assert.match(res.body, /Localization request requires safe metadata|Payroll gross must be a safe non-negative AMD amount/);
+      assert.match(res.body, /Localization request requires safe metadata|Payroll gross must be a safe non-negative amount/);
       assert.doesNotMatch(res.body, /secret-localization-gross-object-token|not iterable|map is not a function|Cannot read/);
     }
   } finally {
