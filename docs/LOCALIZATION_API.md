@@ -51,11 +51,16 @@ Locale-specific behavior of the existing routes:
 > via `server/locale.js`). The input-driven RF НДС settlement is live. The ledger-derived
 > VAT report (`GET /api/finance/vat-return`, `ledger.vatReport`) degrades honestly under RU
 > (RUB, no AM branding) and persistence (`POST /api/finance/vat-returns`) returns 501 for RU.
-> ⏳ **Next slice:** the business-event → account-code **posting map** (RU AR=62, revenue=90,
-> output VAT=68, cash=51, AP=60, input VAT=19, expense=26, payroll 70/68/69, opening-balance
-> equity=84) so RU invoices/payments/expenses/payroll/opening-balances post to real RU
-> accounts; then RUB kopeck precision (whole-ruble v1 today) and statement cash-account
-> detection. AM is byte-identical throughout.
+> ✅ **Posting map** (`server/postingCodes.js`) — the business-event → account-code map is
+> locale-keyed, so RU invoices/payments/expenses/bills/payroll post to real RU accounts
+> (AR=62, revenue=90, output VAT=68, cash=51, AP=60, input VAT=19, expense=26, payroll
+> wages=70 / НДФЛ=68). A fresh RU org now produces a coherent ledger + trial balance.
+> ⏳ **Remaining:** locale-aware **opening-balance** rules (RU equity=84) — opening balances
+> are still AM-only; RUB **kopeck precision** (whole-ruble v1 today); statement cash-account
+> detection (RU 50/51); and ledger-derived RU VAT reporting needs 68 **subaccounts** (68.01/
+> 68.02) to separate НДС from НДФЛ — until then `ledger.vatReport` stays indicative for RU and
+> the clean RF НДС settlement is `POST /api/finance/vat-return/compute`. AM is byte-identical
+> throughout.
 
 ## Reference / lookups (GET)
 
