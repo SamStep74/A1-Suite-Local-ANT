@@ -3768,3 +3768,13 @@ Status: shipped in the local prototype on 2026-05-28.
 - Tenant backups now include `catalog_units_of_measure`, so restored tenants keep product-unit governance evidence with the product master.
 - The Inventory product master now displays the item's unit code beside SKU, name, and category/type, making unit evidence visible to operators.
 - Verification for the checkpoint: syntax checks pass for `server/db.js`, `server/app.js`, and `test/catalog.test.js`; focused catalog/purchase regression pass (`node --test --test-concurrency=4 --test-timeout=60000 test/catalog.test.js test/purchase.test.js`, 15 pass, 0 fail); full `npm test` pass (804 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-catalog-uom-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=12, kpis=4`).
+
+### Slice 382 - Catalog Variant Spine
+- Catalog now persists tenant-scoped `catalog_item_variants` rows linked to parent catalog items, with SKU, name, parsed attributes, unit, price, cost, currency, status, and timestamps.
+- Fresh and repaired databases seed scanner and clinic-package variants only when their parent seed item exists, preserving custom tenants that do not carry those demo parent products.
+- Variant rows inherit the parent item's unit, list price, standard cost, and currency, so this slice adds SKU-level variant evidence without changing quote, inventory, or purchase parent-item contracts.
+- Catalog item list/detail APIs now attach `variants` and `variantCount` to each item, with malformed stored attribute JSON downgraded to an empty object instead of leaking the wrong shape.
+- Tenant backups now include `catalog_item_variants`, keeping variant SKU/attribute evidence portable with the product master.
+- The Inventory product master now shows total variant count in the overview and per-item variant counts on catalog rows.
+- Regression coverage proves seeded variant attachment, parsed attribute JSON, inherited variant pricing, detail endpoint variant visibility, and backup inclusion while existing catalog/purchase flows remain green.
+- Verification for the checkpoint: syntax checks pass for `server/db.js`, `server/app.js`, and `test/catalog.test.js`; focused catalog/purchase regression pass (`node --test --test-concurrency=4 --test-timeout=60000 test/catalog.test.js test/purchase.test.js`, 15 pass, 0 fail); full `npm test` pass (804 pass, 0 fail, 0 cancelled); `npm run build:ui` pass with the existing Vite large-chunk warning; `ARMOSPHERA_ONE_DB=/tmp/a1-suite-catalog-variant-smoke.sqlite ARMOSPHERA_ONE_ALLOW_EGRESS=0 npm run smoke` pass (`smoke ok: Armosphera Demo Clinic, apps=12, kpis=4`).

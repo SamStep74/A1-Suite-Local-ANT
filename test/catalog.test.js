@@ -54,8 +54,24 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     const scanner = body.items.find(item => item.id === "catitem-pos-barcode-scanner");
     assert.equal(scanner.itemType, "stockable");
     assert.equal(scanner.unitOfMeasure, "unit");
+    assert.equal(scanner.variantCount, 2);
+    assert.ok(scanner.variants.some(variant => (
+      variant.sku === "HW-BARCODE-SCANNER-USB"
+      && variant.attributes.connectivity === "USB"
+      && variant.listPrice === scanner.listPrice
+    )));
     assert.equal(scanner.trackStock, true);
     assert.equal(scanner.standardCost, 62000);
+
+    const scannerDetail = await app.inject({ method: "GET", url: "/api/catalog/items/catitem-pos-barcode-scanner", headers: { cookie: owner } });
+    assert.equal(scannerDetail.statusCode, 200, scannerDetail.body);
+    assert.equal(scannerDetail.json().item.variantCount, 2);
+    assert.ok(scannerDetail.json().item.variants.some(variant => variant.sku === "HW-BARCODE-SCANNER-BT" && variant.attributes.connectivity === "Bluetooth"));
+    app.db.prepare("UPDATE catalog_item_variants SET attributes_json = ? WHERE org_id = ? AND id = ?").run("{", "org-armosphera-demo", "catvar-pos-scanner-bt");
+    const malformedVariantDetail = await app.inject({ method: "GET", url: "/api/catalog/items/catitem-pos-barcode-scanner", headers: { cookie: owner } });
+    assert.equal(malformedVariantDetail.statusCode, 200, malformedVariantDetail.body);
+    const malformedVariant = malformedVariantDetail.json().item.variants.find(variant => variant.sku === "HW-BARCODE-SCANNER-BT");
+    assert.deepEqual(malformedVariant.attributes, {});
 
     const support = await login(app, "support@armosphera.local");
     const supportDenied = await app.inject({ method: "GET", url: "/api/catalog/items", headers: { cookie: support } });
@@ -91,6 +107,8 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.ok(Array.isArray(backup.json().backup.payload.tables.catalog_categories));
     assert.ok(Array.isArray(backup.json().backup.payload.tables.catalog_units_of_measure));
     assert.ok(backup.json().backup.payload.tables.catalog_units_of_measure.some(unit => unit.code === "unit"));
+    assert.ok(Array.isArray(backup.json().backup.payload.tables.catalog_item_variants));
+    assert.ok(backup.json().backup.payload.tables.catalog_item_variants.some(variant => variant.sku === "HW-BARCODE-SCANNER-USB"));
   } finally {
     await app.close();
   }

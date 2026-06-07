@@ -41973,6 +41973,7 @@ const ORG_BACKUP_TABLES = [
   "catalog_categories",
   "catalog_units_of_measure",
   "catalog_items",
+  "catalog_item_variants",
   "stock_locations",
   "stock_quants",
   "stock_moves",
@@ -48191,7 +48192,7 @@ function getCatalogItems(db, orgId, filters = {}) {
     where.push("(catalog_items.sku LIKE ? OR catalog_items.name LIKE ?)");
     params.push(`%${filters.search}%`, `%${filters.search}%`);
   }
-  return db.prepare(`
+  const items = db.prepare(`
     SELECT catalog_items.*, catalog_categories.name AS category_name, users.name AS created_by_name
     FROM catalog_items
     LEFT JOIN catalog_categories ON catalog_categories.id = catalog_items.category_id
@@ -48200,6 +48201,7 @@ function getCatalogItems(db, orgId, filters = {}) {
     WHERE ${where.join(" AND ")}
     ORDER BY catalog_items.status = 'archived', catalog_items.name
   `).all(...params).map(formatCatalogItem);
+  return attachCatalogVariants(db, orgId, items);
 }
 
 function getCatalogItem(db, orgId, itemId) {
@@ -48211,7 +48213,8 @@ function getCatalogItem(db, orgId, itemId) {
     LEFT JOIN users ON users.id = catalog_items.created_by_user_id
     WHERE catalog_items.org_id = ? AND catalog_items.id = ?
   `).get(orgId, normalizeCatalogItemPathId(itemId));
-  return row ? formatCatalogItem(row) : null;
+  if (!row) return null;
+  return attachCatalogVariants(db, orgId, [formatCatalogItem(row)])[0];
 }
 
 function formatCatalogItem(row) {
@@ -48237,6 +48240,56 @@ function formatCatalogItem(row) {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function attachCatalogVariants(db, orgId, items) {
+  if (!items.length) return items;
+  const itemIds = new Set(items.map(item => item.id));
+  const byItem = new Map();
+  for (const variant of getCatalogItemVariants(db, orgId)) {
+    if (!itemIds.has(variant.catalogItemId)) continue;
+    const variants = byItem.get(variant.catalogItemId) || [];
+    variants.push(variant);
+    byItem.set(variant.catalogItemId, variants);
+  }
+  return items.map(item => {
+    const variants = byItem.get(item.id) || [];
+    return { ...item, variants, variantCount: variants.length };
+  });
+}
+
+function getCatalogItemVariants(db, orgId) {
+  return db.prepare(`
+    SELECT id, catalog_item_id AS catalogItemId, sku, name,
+      attributes_json AS attributesJson, unit_of_measure AS unitOfMeasure,
+      list_price AS listPrice, standard_cost AS standardCost,
+      currency, status, created_at AS createdAt, updated_at AS updatedAt
+    FROM catalog_item_variants
+    WHERE org_id = ?
+    ORDER BY status = 'archived', sku
+  `).all(orgId).map(formatCatalogItemVariant);
+}
+
+function formatCatalogItemVariant(row) {
+  return {
+    id: row.id,
+    catalogItemId: row.catalogItemId,
+    sku: row.sku,
+    name: row.name,
+    attributes: safeCatalogAttributes(row.attributesJson),
+    unitOfMeasure: row.unitOfMeasure,
+    listPrice: row.listPrice,
+    standardCost: row.standardCost,
+    currency: row.currency,
+    status: row.status,
+    createdAt: row.createdAt,
+    updatedAt: row.updatedAt
+  };
+}
+
+function safeCatalogAttributes(value) {
+  const parsed = safeJson(value);
+  return isPlainObject(parsed) ? parsed : {};
 }
 
 function normalizeCatalogItemQuery(query) {

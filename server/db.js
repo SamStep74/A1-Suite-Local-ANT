@@ -541,6 +541,26 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_catalog_items_category
       ON catalog_items(org_id, category_id, status);
 
+    CREATE TABLE IF NOT EXISTS catalog_item_variants (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+      sku TEXT NOT NULL,
+      name TEXT NOT NULL,
+      attributes_json TEXT NOT NULL DEFAULT '{}',
+      unit_of_measure TEXT NOT NULL DEFAULT 'unit',
+      list_price INTEGER NOT NULL DEFAULT 0,
+      standard_cost INTEGER NOT NULL DEFAULT 0,
+      currency TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, sku)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_catalog_item_variants_item
+      ON catalog_item_variants(org_id, catalog_item_id, status, sku);
+
     CREATE TABLE IF NOT EXISTS stock_locations (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -7227,6 +7247,7 @@ function ensureCatalogLayer(db) {
     const itemCount = db.prepare("SELECT COUNT(*) AS count FROM catalog_items WHERE org_id = ?").get(org.id).count;
     if (categoryCount === 0 || itemCount === 0) seedCatalogItems(db, org.id);
     backfillCatalogUnitsOfMeasureFromItems(db, org.id);
+    seedCatalogItemVariants(db, org.id);
   }
 }
 
@@ -7981,6 +8002,62 @@ function backfillCatalogUnitsOfMeasureFromItems(db, orgId) {
     if (!code) continue;
     const digest = crypto.createHash("sha256").update(`${orgId}:${code}`).digest("hex").slice(0, 16);
     insertUnit.run(catalogSeedId(orgId, `catuom-custom-${digest}`), orgId, code, code, "custom", 0, "active", now, now);
+  }
+}
+
+function seedCatalogItemVariants(db, orgId) {
+  const now = new Date().toISOString();
+  const variantSeedId = baseId => catalogSeedId(orgId, baseId);
+  const itemSeedId = baseId => catalogSeedId(orgId, baseId);
+  const insertVariant = db.prepare(`
+    INSERT OR IGNORE INTO catalog_item_variants (
+      id, org_id, catalog_item_id, sku, name, attributes_json,
+      unit_of_measure, list_price, standard_cost, currency, status,
+      created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  const variantSets = [
+    {
+      itemId: itemSeedId("catitem-pos-barcode-scanner"),
+      variants: [
+        ["catvar-pos-scanner-usb", "HW-BARCODE-SCANNER-USB", "USB barcode scanner", { connectivity: "USB", warrantyMonths: 12 }],
+        ["catvar-pos-scanner-bt", "HW-BARCODE-SCANNER-BT", "Bluetooth barcode scanner", { connectivity: "Bluetooth", warrantyMonths: 12 }]
+      ]
+    },
+    {
+      itemId: itemSeedId("catitem-clinic-retention-package"),
+      variants: [
+        ["catvar-clinic-retention-basic", "A1-CLINIC-RETENTION-BASIC", "Clinic retention basic package", { tier: "basic", channels: "SMS" }],
+        ["catvar-clinic-retention-plus", "A1-CLINIC-RETENTION-PLUS", "Clinic retention plus package", { tier: "plus", channels: "SMS+WhatsApp" }]
+      ]
+    }
+  ];
+  const itemLookup = db.prepare(`
+    SELECT id, unit_of_measure, list_price, standard_cost, currency
+    FROM catalog_items
+    WHERE org_id = ? AND id = ?
+  `);
+  for (const set of variantSets) {
+    const item = itemLookup.get(orgId, set.itemId);
+    if (!item) continue;
+    for (const variant of set.variants) {
+      insertVariant.run(
+        variantSeedId(variant[0]),
+        orgId,
+        item.id,
+        variant[1],
+        variant[2],
+        JSON.stringify(variant[3]),
+        item.unit_of_measure,
+        item.list_price,
+        item.standard_cost,
+        item.currency,
+        "active",
+        now,
+        now
+      );
+    }
   }
 }
 

@@ -15,6 +15,11 @@ function moveEndpoint(move) {
   return `${source} -> ${destination}`;
 }
 
+function variantLabel(item) {
+  const count = Number(item?.variantCount ?? item?.variants?.length ?? 0);
+  return count === 1 ? "1 variant" : `${count} variants`;
+}
+
 export function InventoryWorkspacePanel({ data, canMove, actionState, onCreateMove }) {
   const [catalogItemId, setCatalogItemId] = useState("");
   const [moveType, setMoveType] = useState("transfer");
@@ -33,6 +38,7 @@ export function InventoryWorkspacePanel({ data, canMove, actionState, onCreateMo
   const locations = stockData.locations || [];
   const moves = movesData.moves || [];
   const categories = catalog.categories || [];
+  const variantCount = items.reduce((total, item) => total + Number(item.variantCount ?? item.variants?.length ?? 0), 0);
 
   const stockableItems = useMemo(() => items.filter(item => item.status === "active" && item.trackStock), [items]);
   const internalLocations = useMemo(() => locations.filter(location => location.status === "active" && location.locationType === "internal"), [locations]);
@@ -96,6 +102,7 @@ export function InventoryWorkspacePanel({ data, canMove, actionState, onCreateMo
         </div>
         <div className="meta-row">
           <span>{categories.length} categories</span>
+          <span>{variantCount} variants</span>
           <span>{locations.length} governed locations</span>
         </div>
       </article>
@@ -130,7 +137,7 @@ export function InventoryWorkspacePanel({ data, canMove, actionState, onCreateMo
         <div className="rows">
           {items.slice(0, 8).map(item => (
             <div className="row inventory-catalog" key={item.id}>
-              <span>{item.sku} · {item.name} · {item.categoryName || item.itemType} · {item.unitOfMeasure || "unit"}</span>
+              <span>{item.sku} · {item.name} · {item.categoryName || item.itemType} · {item.unitOfMeasure || "unit"} · {variantLabel(item)}</span>
               <strong>{amd(item.listPrice)}</strong>
             </div>
           ))}
