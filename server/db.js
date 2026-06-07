@@ -8266,6 +8266,49 @@ function seedCatalogPriceLists(db, orgId) {
       );
     }
   }
+
+  const itemById = new Map(items.map(item => [item.id, item]));
+  const variantById = new Map(variants.map(variant => [variant.id, variant]));
+  const scannerItemId = catalogSeedId(orgId, "catitem-pos-barcode-scanner");
+  const quantityBreakRows = [
+    {
+      baseId: "catpli-standard-sales-qty5-catitem-pos-barcode-scanner",
+      priceListId: catalogSeedId(orgId, "catpl-standard-sales"),
+      catalogItemId: scannerItemId,
+      catalogItemVariantId: null
+    },
+    {
+      baseId: "catpli-standard-sales-qty5-catvar-pos-scanner-usb",
+      priceListId: catalogSeedId(orgId, "catpl-standard-sales"),
+      catalogItemId: scannerItemId,
+      catalogItemVariantId: catalogSeedId(orgId, "catvar-pos-scanner-usb")
+    },
+    {
+      baseId: "catpli-standard-sales-qty5-catvar-pos-scanner-bt",
+      priceListId: catalogSeedId(orgId, "catpl-standard-sales"),
+      catalogItemId: scannerItemId,
+      catalogItemVariantId: catalogSeedId(orgId, "catvar-pos-scanner-bt")
+    }
+  ];
+  for (const row of quantityBreakRows) {
+    const item = itemById.get(row.catalogItemId);
+    const variant = row.catalogItemVariantId ? variantById.get(row.catalogItemVariantId) : null;
+    if (!item || (row.catalogItemVariantId && !variant)) continue;
+    insertItem.run(
+      catalogSeedId(orgId, row.baseId),
+      orgId,
+      row.priceListId,
+      row.catalogItemId,
+      row.catalogItemVariantId,
+      5,
+      variant?.listPrice || item.list_price,
+      5,
+      variant?.currency || item.currency,
+      "active",
+      now,
+      now
+    );
+  }
 }
 
 function catalogSeedId(orgId, baseId) {

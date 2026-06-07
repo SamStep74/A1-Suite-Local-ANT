@@ -69,11 +69,26 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.equal(standardScannerPrice.minimumMarginPercent, 20);
     assert.equal(standardScannerPrice.targetMarginPercent, 30);
     assert.equal(standardScannerPrice.marginStatus, "ok");
+    const standardScannerBreak = standardPriceList.items.find(item => item.catalogItemId === "catitem-pos-barcode-scanner" && item.catalogItemVariantId === null && item.minQuantity === 5);
+    assert.ok(standardScannerBreak, "standard scanner quantity-break price row is seeded");
+    assert.equal(standardScannerBreak.discountPercent, 5);
+    assert.equal(standardScannerBreak.discountAmount, 4250);
+    assert.equal(standardScannerBreak.netPrice, 80750);
+    assert.equal(standardScannerBreak.marginRuleCode, "STOCKABLE-MIN-20");
+    assert.equal(standardScannerBreak.marginAmount, 18750);
+    assert.equal(standardScannerBreak.marginPercent, 23.22);
+    assert.equal(standardScannerBreak.marginStatus, "ok");
     assert.ok(standardPriceList.items.some(item => (
       item.catalogItemId === "catitem-pos-barcode-scanner"
       && item.catalogItemVariantId === "catvar-pos-scanner-usb"
       && item.variantSku === "HW-BARCODE-SCANNER-USB"
       && item.listPrice === 85000
+    )));
+    assert.ok(standardPriceList.items.some(item => (
+      item.catalogItemVariantId === "catvar-pos-scanner-usb"
+      && item.minQuantity === 5
+      && item.discountPercent === 5
+      && item.netPrice === 80750
     )));
     const loyaltyPriceList = body.priceLists.find(list => list.code === "LOYALTY-10");
     assert.ok(loyaltyPriceList, "loyalty discount sales price list is seeded");
@@ -140,6 +155,14 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.equal(loyaltyPricing.json().pricing.quantity, 2);
     assert.equal(loyaltyPricing.json().pricing.netPrice, 76500);
     assert.equal(loyaltyPricing.json().pricing.marginStatus, "below_minimum");
+    const quantityBreakPricing = await app.inject({ method: "GET", url: "/api/catalog/pricing/resolve?catalogItemId=catitem-pos-barcode-scanner&quantity=5", headers: { cookie: owner } });
+    assert.equal(quantityBreakPricing.statusCode, 200, quantityBreakPricing.body);
+    assert.equal(quantityBreakPricing.json().pricing.priceListCode, "STANDARD-SALES");
+    assert.equal(quantityBreakPricing.json().pricing.minQuantity, 5);
+    assert.equal(quantityBreakPricing.json().pricing.discountPercent, 5);
+    assert.equal(quantityBreakPricing.json().pricing.discountAmount, 4250);
+    assert.equal(quantityBreakPricing.json().pricing.netPrice, 80750);
+    assert.equal(quantityBreakPricing.json().pricing.marginStatus, "ok");
     const variantPricing = await app.inject({ method: "GET", url: "/api/catalog/pricing/resolve?catalogItemId=catitem-pos-barcode-scanner&catalogItemVariantId=catvar-pos-scanner-usb&customerSegment=loyalty", headers: { cookie: owner } });
     assert.equal(variantPricing.statusCode, 200, variantPricing.body);
     assert.equal(variantPricing.json().pricing.catalogItemVariantId, "catvar-pos-scanner-usb");
@@ -256,6 +279,11 @@ test("catalog: seeded product spine is auth-gated and role scoped", async () => 
     assert.ok(backup.json().backup.payload.tables.catalog_price_list_items.some(item => (
       item.catalog_item_id === "catitem-pos-barcode-scanner"
       && item.discount_percent === 10
+    )));
+    assert.ok(backup.json().backup.payload.tables.catalog_price_list_items.some(item => (
+      item.catalog_item_id === "catitem-pos-barcode-scanner"
+      && item.min_quantity === 5
+      && item.discount_percent === 5
     )));
     assert.ok(Array.isArray(backup.json().backup.payload.tables.catalog_margin_rules));
     assert.ok(backup.json().backup.payload.tables.catalog_margin_rules.some(rule => rule.code === "STOCKABLE-MIN-20"));
@@ -512,6 +540,31 @@ test("catalog: quote lines resolve active product metadata", async () => {
     assert.equal(line.marginStatus, "ok");
     assert.equal(line.vatMode, "standard");
     assert.equal(line.fiscalReceiptRequired, true);
+
+    const bulkScannerQuote = await app.inject({
+      method: "POST",
+      url: "/api/crm/quotes",
+      headers: { cookie: owner },
+      payload: {
+        customerId: "cust-ani",
+        dealId: "deal-ani-inbox",
+        title: "Bulk scanner quote",
+        validUntil: "2026-07-31",
+        lines: [
+          { catalogItemId: "catitem-pos-barcode-scanner", quantity: 5 }
+        ]
+      }
+    });
+    assert.equal(bulkScannerQuote.statusCode, 200, bulkScannerQuote.body);
+    const bulkScannerLine = bulkScannerQuote.json().quote.lines[0];
+    assert.equal(bulkScannerLine.unitPrice, 80750);
+    assert.equal(bulkScannerLine.total, 403750);
+    assert.equal(bulkScannerLine.pricingSource, "catalog_price_list");
+    assert.equal(bulkScannerLine.catalogPriceListId, "catpl-standard-sales");
+    assert.equal(bulkScannerLine.catalogPriceListCode, "STANDARD-SALES");
+    assert.equal(bulkScannerLine.pricingCustomerSegment, "standard");
+    assert.equal(bulkScannerLine.discountAmount, 4250);
+    assert.equal(bulkScannerLine.marginStatus, "ok");
 
     app.db.prepare("UPDATE customers SET segment = ? WHERE org_id = ? AND id = ?")
       .run("loyalty", orgId, "cust-ani");
