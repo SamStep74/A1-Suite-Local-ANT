@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useState } from "react";
 import { createRoot } from "react-dom/client";
 import "./styles.css";
 import "./polish.css";
@@ -15,6 +15,7 @@ import { ProductionReadinessPanel } from "./compliance.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
 import { FormCreateForm, FormsRegistryPanel } from "./forms.jsx";
 import { InventoryWorkspacePanel } from "./inventory.jsx";
+import { WarehousePanel } from "./warehouse.jsx";
 import { PurchaseWorkspacePanel } from "./purchase.jsx";
 import { loadOr } from "./load-section.js";
 import { loadAuditForRole } from "./audit-access.js";
@@ -1279,6 +1280,68 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
       setActionState("");
     }
   }
+
+  const [warehouseLots, setWarehouseLots] = useState([]);
+  const [warehouseSerials, setWarehouseSerials] = useState([]);
+  const [warehouseReadings, setWarehouseReadings] = useState([]);
+  const [warehouseAbc, setWarehouseAbc] = useState([]);
+  const [warehouseTurnover, setWarehouseTurnover] = useState([]);
+  const [warehouseForecast, setWarehouseForecast] = useState(null);
+
+  const refreshWarehouse = useCallback(async () => {
+    if (!api) return;
+    try {
+      const [lots, abc, turnover, readings] = await Promise.all([
+        api("/api/warehouse/lots?expiringWithin=400"),
+        api("/api/warehouse/analytics/abc?periodKey=2026-Q2"),
+        api("/api/warehouse/analytics/turnover?periodKey=2026-Q2"),
+        api("/api/warehouse/cold-storage/readings?locationId=stockloc-main-warehouse")
+      ]);
+      setWarehouseLots(lots?.lots || []);
+      setWarehouseAbc(abc?.abc || []);
+      setWarehouseTurnover(turnover?.turnover || []);
+      setWarehouseReadings(readings?.readings || []);
+    } catch (error) {
+      console.warn("warehouse refresh failed", error);
+    }
+  }, [api]);
+
+  const createWarehouseLot = async payload => {
+    setActionState("warehouse:running");
+    setActionError("");
+    try {
+      const result = await api("/api/warehouse/lots", { method: "POST", body: payload });
+      await refreshWarehouse();
+      return result;
+    } finally { setActionState(""); }
+  };
+  const registerWarehouseSerial = async payload => {
+    setActionState("warehouse:running");
+    setActionError("");
+    try {
+      const result = await api("/api/warehouse/serials", { method: "POST", body: payload });
+      setWarehouseSerials(prev => [...prev, result.serial]);
+      return result;
+    } finally { setActionState(""); }
+  };
+  const recordWarehouseReading = async payload => {
+    setActionState("warehouse:running");
+    setActionError("");
+    try {
+      const result = await api("/api/warehouse/cold-storage/readings", { method: "POST", body: payload });
+      setWarehouseReadings(prev => [result.reading, ...prev].slice(0, 100));
+      return result;
+    } finally { setActionState(""); }
+  };
+  const runWarehouseForecast = async payload => {
+    setActionState("warehouse:running");
+    setActionError("");
+    try {
+      const result = await api("/api/warehouse/forecast/restock", { method: "POST", body: payload });
+      setWarehouseForecast(result.forecast);
+      return result;
+    } finally { setActionState(""); }
+  };
 
   async function generateCustomerBrief(customerId) {
     setActionState(`ai-brief:${customerId}`);
@@ -4217,6 +4280,19 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
                 canMove={["Owner", "Admin", "Operator", "Accountant"].includes(suite.user.role)}
                 actionState={actionState}
                 onCreateMove={createStockMove}
+              />
+              <WarehousePanel
+                lots={warehouseLots}
+                serials={warehouseSerials}
+                readings={warehouseReadings}
+                abc={warehouseAbc}
+                turnover={warehouseTurnover}
+                forecast={warehouseForecast}
+                actionState={actionState}
+                onCreateLot={createWarehouseLot}
+                onRegisterSerial={registerWarehouseSerial}
+                onRecordReading={recordWarehouseReading}
+                onRunForecast={runWarehouseForecast}
               />
             </div>
           )}
