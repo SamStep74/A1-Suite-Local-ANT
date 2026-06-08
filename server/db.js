@@ -1428,6 +1428,147 @@ function initSchema(db) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS employment_contracts (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      template_code TEXT NOT NULL,
+      signed_at TEXT,
+      start_date TEXT NOT NULL,
+      end_date TEXT,
+      gross_salary INTEGER NOT NULL,
+      position TEXT NOT NULL,
+      file_id TEXT,
+      status TEXT NOT NULL,
+      body_md TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_employment_contracts_org_employee ON employment_contracts(org_id, employee_id);
+
+    CREATE TABLE IF NOT EXISTS leave_requests (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      days REAL NOT NULL,
+      status TEXT NOT NULL,
+      approver_id TEXT,
+      reason TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_leave_requests_org_employee ON leave_requests(org_id, employee_id);
+
+    CREATE TABLE IF NOT EXISTS leave_balances (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      year INTEGER NOT NULL,
+      kind TEXT NOT NULL,
+      entitled_days REAL NOT NULL,
+      used_days REAL NOT NULL DEFAULT 0,
+      carried_over REAL NOT NULL DEFAULT 0,
+      UNIQUE(org_id, employee_id, year, kind)
+    );
+
+    CREATE TABLE IF NOT EXISTS business_trips (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      destination TEXT NOT NULL,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      per_diem_amd INTEGER NOT NULL,
+      transportation_amd INTEGER NOT NULL,
+      status TEXT NOT NULL,
+      approver_id TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_business_trips_org_employee ON business_trips(org_id, employee_id);
+
+    CREATE TABLE IF NOT EXISTS timesheets (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      work_date TEXT NOT NULL,
+      hours REAL NOT NULL,
+      project_id TEXT,
+      task_id TEXT,
+      notes TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_timesheets_org_employee_date ON timesheets(org_id, employee_id, work_date);
+
+    CREATE TABLE IF NOT EXISTS kpi_targets (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      period_key TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      target REAL NOT NULL,
+      weight REAL NOT NULL,
+      UNIQUE(org_id, employee_id, period_key, metric)
+    );
+
+    CREATE TABLE IF NOT EXISTS kpi_actuals (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      period_key TEXT NOT NULL,
+      metric TEXT NOT NULL,
+      actual REAL NOT NULL,
+      evidence_url TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_kpi_actuals_org_employee_period ON kpi_actuals(org_id, employee_id, period_key);
+
+    CREATE TABLE IF NOT EXISTS equipment_assignments (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      asset_id TEXT NOT NULL,
+      assigned_at TEXT NOT NULL,
+      returned_at TEXT,
+      signature_doc_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_equipment_assignments_org_employee ON equipment_assignments(org_id, employee_id);
+
+    CREATE TABLE IF NOT EXISTS recruitment_pipelines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      stage_order_json TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS recruitment_candidates (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      pipeline_id TEXT NOT NULL,
+      full_name TEXT NOT NULL,
+      email TEXT,
+      stage TEXT NOT NULL,
+      applied_at TEXT NOT NULL,
+      notes TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_recruitment_candidates_org_pipeline ON recruitment_candidates(org_id, pipeline_id);
+
+    CREATE TABLE IF NOT EXISTS hr_orders (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      employee_id TEXT NOT NULL,
+      order_type TEXT NOT NULL,
+      effective_date TEXT NOT NULL,
+      body_md TEXT NOT NULL,
+      issued_by TEXT NOT NULL,
+      signed_at TEXT,
+      file_id TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_hr_orders_org_employee ON hr_orders(org_id, employee_id);
+
     CREATE TABLE IF NOT EXISTS people_employees (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
