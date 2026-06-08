@@ -6797,6 +6797,17 @@ function initSchema(db) {
       created_at TEXT NOT NULL
     );
 
+    CREATE TABLE IF NOT EXISTS idempotency_keys (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      key TEXT NOT NULL,
+      response_json TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE (org_id, key)
+    );
+    CREATE INDEX IF NOT EXISTS idx_idempotency_keys_org
+      ON idempotency_keys(org_id, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS audit_export_packets (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
