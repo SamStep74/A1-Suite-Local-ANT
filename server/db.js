@@ -6858,6 +6858,60 @@ function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_access_review_packets_org
       ON access_review_packets(org_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS cabinet_documents (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      direction TEXT NOT NULL CHECK (direction IN ('incoming','outgoing','internal')),
+      status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active','archived')),
+      doc_type TEXT,
+      linked_type TEXT,
+      linked_id TEXT,
+      ocr_status TEXT NOT NULL DEFAULT 'none' CHECK (ocr_status IN ('none','queued','done','failed','manual-review')),
+      ocr_text TEXT,
+      current_version INTEGER NOT NULL DEFAULT 1,
+      ai_summary TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_cabinet_org ON cabinet_documents(org_id);
+    CREATE INDEX IF NOT EXISTS idx_cabinet_link ON cabinet_documents(org_id, linked_type, linked_id);
+
+    CREATE TABLE IF NOT EXISTS cabinet_document_versions (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      cabinet_id TEXT NOT NULL,
+      version INTEGER NOT NULL,
+      parent_version INTEGER,
+      mime_type TEXT,
+      byte_size INTEGER,
+      storage_path TEXT NOT NULL,
+      sha256 TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (cabinet_id) REFERENCES cabinet_documents(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_cabinet_versions ON cabinet_document_versions(org_id, cabinet_id, version);
+
+    CREATE TABLE IF NOT EXISTS cabinet_ai_annotations (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      cabinet_id TEXT NOT NULL,
+      kind TEXT NOT NULL CHECK (kind IN ('classify','extract','risk','compare','reply','summary')),
+      payload_json TEXT NOT NULL,
+      confidence INTEGER,
+      created_at TEXT NOT NULL,
+      FOREIGN KEY (cabinet_id) REFERENCES cabinet_documents(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_cabinet_ai ON cabinet_ai_annotations(org_id, cabinet_id, kind);
+
+    CREATE VIRTUAL TABLE IF NOT EXISTS cabinet_fts USING fts5(
+      org_id UNINDEXED,
+      cabinet_id UNINDEXED,
+      title,
+      body,
+      tokenize = 'unicode61 remove_diacritics 2'
+    );
   `);
 }
 

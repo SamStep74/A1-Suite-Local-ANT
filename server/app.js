@@ -129,6 +129,9 @@ const copilot = require("./copilot");
 const vatReturn = require("./vatReturn");
 const locale = require("./locale");
 const healthcheck = require("./healthcheck");
+const documentCabinet = require("./documentCabinet");
+const documentAi = require("./documentAi");
+const documentCabinetRoutes = require("./documentCabinetRoutes");
 const postingCodes = require("./postingCodes");
 const settingsStore = require("./settingsStore");
 const aiProvider = require("./aiProvider");
@@ -2713,6 +2716,13 @@ function registerApi(app, db, options = {}) {
       .run(id, user.org_id, title, docBody, template.docType, customerId || null, user.id, now, now);
     audit(db, user.org_id, user.id, "docs.document.created", { documentId: id, title, fromTemplate: template.key });
     return { ok: true, document: getDocument(db, user.org_id, id) };
+  });
+
+  // Document Cabinet (Документооборот) — incoming/outgoing/internal flows, versioning,
+  // archive, local OCR, AI classify/extract/risk/compare/reply, FTS search, e-sign stub.
+  // Auth + app access + idempotency + audit are owned by the route module.
+  documentCabinetRoutes.register(app, db, {
+    app, requireAppAccess, audit, randomId, documentCabinet, documentAi
   });
 
   // Projects — client projects → tasks → milestones → time entries (delivery tracking).
