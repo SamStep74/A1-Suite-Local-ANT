@@ -8,6 +8,7 @@ import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
 import { PeopleEmployeeForm, PeopleRegistryPanel } from "./people.jsx";
 import { DocsCreateForm, DocsRegistryPanel } from "./docs.jsx";
 import { CopilotPanel } from "./copilot.jsx";
+import { HealthcheckPanel } from "./healthcheck.jsx";
 import { AiOnboardingPanel } from "./ai-onboarding.jsx";
 import { ProductionReadinessPanel } from "./compliance.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
@@ -1258,6 +1259,16 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     } catch (err) {
       reportActionError(err);
       throw err;
+    } finally {
+      setActionState("");
+    }
+  }
+
+  async function pingHealthcheck(payload) {
+    setActionState("healthcheck:ping");
+    setActionError("");
+    try {
+      return await api("/api/healthcheck/ping", { method: "POST", body: payload });
     } finally {
       setActionState("");
     }
@@ -4014,6 +4025,10 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               people={people}
               appIds={assignedAppIds}
               onAsk={askCopilot}
+              actionState={actionState}
+            />
+            <HealthcheckPanel
+              onPing={pingHealthcheck}
               actionState={actionState}
             />
           </div>
