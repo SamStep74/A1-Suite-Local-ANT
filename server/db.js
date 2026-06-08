@@ -873,6 +873,125 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_purchase_returns_reference
       ON purchase_returns(org_id, purchase_order_id, reference);
 
+    CREATE TABLE IF NOT EXISTS purchase_requisitions (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      requester_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      status TEXT NOT NULL,
+      needed_by TEXT NOT NULL,
+      justification TEXT NOT NULL DEFAULT '',
+      rfq_id TEXT,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_purchase_requisitions_status
+      ON purchase_requisitions(org_id, status, needed_by);
+
+    CREATE TABLE IF NOT EXISTS purchase_requisition_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      requisition_id TEXT NOT NULL REFERENCES purchase_requisitions(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      quantity INTEGER NOT NULL,
+      uom TEXT NOT NULL DEFAULT 'հատ',
+      est_unit_price INTEGER NOT NULL DEFAULT 0,
+      suggested_vendor_id TEXT REFERENCES purchase_vendors(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_purchase_requisition_lines_req
+      ON purchase_requisition_lines(org_id, requisition_id);
+
+    CREATE TABLE IF NOT EXISTS rfq_requests (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      requisition_id TEXT REFERENCES purchase_requisitions(id) ON DELETE SET NULL,
+      sent_at TEXT NOT NULL,
+      due_at TEXT NOT NULL,
+      status TEXT NOT NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_rfq_requests_status
+      ON rfq_requests(org_id, status, due_at);
+
+    CREATE TABLE IF NOT EXISTS rfq_request_vendors (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      rfq_id TEXT NOT NULL REFERENCES rfq_requests(id) ON DELETE CASCADE,
+      vendor_id TEXT NOT NULL REFERENCES purchase_vendors(id) ON DELETE CASCADE,
+      sent_at TEXT NOT NULL,
+      responded_at TEXT,
+      UNIQUE(org_id, rfq_id, vendor_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_rfq_request_vendors_rfq
+      ON rfq_request_vendors(org_id, rfq_id);
+
+    CREATE TABLE IF NOT EXISTS rfq_quotes (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      rfq_id TEXT NOT NULL REFERENCES rfq_requests(id) ON DELETE CASCADE,
+      vendor_id TEXT NOT NULL REFERENCES purchase_vendors(id) ON DELETE CASCADE,
+      requisition_line_id TEXT NOT NULL REFERENCES purchase_requisition_lines(id) ON DELETE CASCADE,
+      unit_price INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      valid_until TEXT NOT NULL,
+      payment_terms TEXT NOT NULL DEFAULT '',
+      notes TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_rfq_quotes_rfq
+      ON rfq_quotes(org_id, rfq_id, vendor_id);
+
+    CREATE TABLE IF NOT EXISTS blanket_orders (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      vendor_id TEXT NOT NULL REFERENCES purchase_vendors(id) ON DELETE CASCADE,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE CASCADE,
+      start_date TEXT NOT NULL,
+      end_date TEXT NOT NULL,
+      committed_qty INTEGER NOT NULL,
+      unit_price INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      uom TEXT NOT NULL DEFAULT 'հատ',
+      note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_blanket_orders_item
+      ON blanket_orders(org_id, catalog_item_id, vendor_id, end_date);
+
+    CREATE TABLE IF NOT EXISTS landed_cost_allocations (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      po_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      kind TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      fx_rate REAL NOT NULL DEFAULT 1,
+      allocation_method TEXT NOT NULL,
+      base_total INTEGER NOT NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_landed_cost_allocations_po
+      ON landed_cost_allocations(org_id, po_id);
+
+    CREATE TABLE IF NOT EXISTS purchase_credit_notes (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      po_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      bill_id TEXT REFERENCES bills(id) ON DELETE SET NULL,
+      return_id TEXT REFERENCES purchase_returns(id) ON DELETE SET NULL,
+      amount INTEGER NOT NULL,
+      currency TEXT NOT NULL,
+      status TEXT NOT NULL,
+      posted_at TEXT,
+      note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_purchase_credit_notes_po
+      ON purchase_credit_notes(org_id, po_id, status);
+
     CREATE TABLE IF NOT EXISTS crm_leads (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
