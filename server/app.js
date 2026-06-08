@@ -746,8 +746,9 @@ function registerApi(app, db, options = {}) {
       averageDailyDemand: Number(recent) / 30,
       horizonDays
     });
-    audit(db, user.org_id, user.id, "warehouse.forecast.restock_run", { productId, suggestedQuantity: forecast.suggestedQuantity });
-    return { ok: true, forecast };
+    const enriched = await warehouse.maybeAiRestockAssist({ localForecast: forecast, env: options.env || process.env, fetchImpl: options.fetch || globalThis.fetch });
+    audit(db, user.org_id, user.id, "warehouse.forecast.restock_run", { productId, suggestedQuantity: enriched.suggestedQuantity, aiAssist: enriched.aiAssist ? "openrouter" : "local" });
+    return { ok: true, forecast: enriched };
   });
 
   app.get("/api/warehouse/traceability/:lotId", async request => {

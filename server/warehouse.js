@@ -126,6 +126,36 @@ function recordColdStorageReading({ locationId, recordedAt, tempC, humidity, sen
   return { locationId: loc, recordedAt: at, tempC: temp, humidity: hum, sensorId: sensor };
 }
 
+function shouldAllowEgress(env = process.env) {
+  return String(env.ARMOSPHERA_ONE_ALLOW_EGRESS || "").trim() === "1";
+}
+
+async function maybeAiRestockAssist({ localForecast, env = process.env, fetchImpl = globalThis.fetch }) {
+  if (!shouldAllowEgress(env)) return { ...localForecast, aiAssist: null };
+  const apiKey = String(env.OPENROUTER_API_KEY || "").trim();
+  if (!apiKey) return { ...localForecast, aiAssist: null };
+  try {
+    const response = await fetchImpl("https://openrouter.ai/api/v1/chat/completions", {
+      method: "POST",
+      headers: { "content-type": "application/json", authorization: `Bearer ${apiKey}` },
+      body: JSON.stringify({
+        model: "openrouter/auto",
+        temperature: 0.1,
+        messages: [
+          { role: "system", content: "You are a restock forecasting assistant for an Armenian produce warehouse. Reply in 2 short bullets." },
+          { role: "user", content: `Local forecast: ${JSON.stringify(localForecast)}. Provide 2 short bullet suggestions.` }
+        ]
+      })
+    });
+    if (!response.ok) return { ...localForecast, aiAssist: null };
+    const json = await response.json();
+    const text = json?.choices?.[0]?.message?.content || "";
+    return { ...localForecast, aiAssist: { source: "openrouter", text: String(text).slice(0, 800) } };
+  } catch {
+    return { ...localForecast, aiAssist: null };
+  }
+}
+
 module.exports = {
   validateLotCode,
   validateSerial,
@@ -137,5 +167,7 @@ module.exports = {
   turnoverDays,
   traceLot,
   forecastRestock,
-  recordColdStorageReading
+  recordColdStorageReading,
+  shouldAllowEgress,
+  maybeAiRestockAssist
 };
