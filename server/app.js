@@ -132,6 +132,7 @@ const healthcheck = require("./healthcheck");
 const documentCabinet = require("./documentCabinet");
 const documentAi = require("./documentAi");
 const documentCabinetRoutes = require("./documentCabinetRoutes");
+const stateIntegrations = require("./stateIntegrations");
 const postingCodes = require("./postingCodes");
 const settingsStore = require("./settingsStore");
 const aiProvider = require("./aiProvider");
@@ -2722,7 +2723,7 @@ function registerApi(app, db, options = {}) {
   // archive, local OCR, AI classify/extract/risk/compare/reply, FTS search, e-sign stub.
   // Auth + app access + idempotency + audit are owned by the route module.
   documentCabinetRoutes.register(app, db, {
-    app, requireAppAccess, audit, randomId, documentCabinet, documentAi
+    app, requireAppAccess, audit, randomId, documentCabinet, documentAi, stateIntegrations
   });
 
   // Projects — client projects → tasks → milestones → time entries (delivery tracking).

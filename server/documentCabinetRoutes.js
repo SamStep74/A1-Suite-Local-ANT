@@ -330,8 +330,8 @@ function runWithSpine({ deps, handler }) {
 }
 
 function register(app, db, injected) {
-  const { app: _app, auth, requireAppAccess, audit, randomId, documentCabinet, documentAi } = injected;
-  const deps = { app, db, requireAppAccess, audit, randomId, documentCabinet, documentAi };
+  const { app: _app, auth, requireAppAccess, audit, randomId, documentCabinet, documentAi, stateIntegrations } = injected;
+  const deps = { app, db, requireAppAccess, audit, randomId, documentCabinet, documentAi, stateIntegrations };
 
   // LIST — GET /api/cabinet/documents
   app.get("/api/cabinet/documents", runWithSpine({
@@ -635,7 +635,16 @@ function register(app, db, injected) {
       }
       const cached = readCachedIdempotent(db, user.org_id, input.idempotencyKey);
       if (cached) return cached;
-      const envelope = documentCabinet.prepareESign({ cabinetId: input.cabinetId, signer: input.signer });
+      // Delegate to the Armenian state e-signature adapter. In test mode
+      // (the default) this returns a deterministic stub envelope; live
+      // mode is wired in sub-plan 7.
+      const adapter = deps.stateIntegrations && deps.stateIntegrations.eSignAdapter
+        ? deps.stateIntegrations.eSignAdapter
+        : null;
+      if (!adapter || typeof adapter.prepare !== "function") {
+        const e = new Error("E-sign adapter unavailable"); e.statusCode = 503; throw e;
+      }
+      const envelope = adapter.prepare({ cabinetId: input.cabinetId, signer: input.signer, document });
       audit(db, user.org_id, user.id, "cabinet.esign.prepared", {
         cabinetId: input.cabinetId, envelopeId: envelope.envelopeId, provider: envelope.provider
       });
