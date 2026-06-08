@@ -661,6 +661,118 @@ function registerApi(app, db, options = {}) {
     return { readings: rows.map(r => ({ id: r.id, locationId: r.location_id, recordedAt: r.recorded_at, tempC: r.temp_c, humidity: r.humidity, sensorId: r.sensor_id })) };
   });
 
+  app.get("/api/warehouse/analytics/abc", async request => {
+    const user = await app.auth(request);
+    requireInventoryReader(user);
+    const periodKey = String(request.query?.periodKey || "").trim();
+    if (!periodKey || periodKey.length > 20) {
+      const err = new Error("periodKey is required (max 20 chars)");
+      err.statusCode = 400;
+      throw err;
+    }
+    const rows = db.prepare(`
+      SELECT sm.catalog_item_id AS productId, SUM(sm.quantity * COALESCE(sm.unit_cost, 0)) AS revenue
+      FROM stock_moves sm
+      INNER JOIN stock_locations dl ON dl.id = sm.destination_location_id
+      WHERE sm.org_id = ? AND dl.location_type = 'customer' AND substr(sm.created_at, 1, 7) = substr(?, 1, 7)
+      GROUP BY sm.catalog_item_id
+    `).all(user.org_id, `${periodKey.slice(0, 4)}-${periodKey.slice(5, 7)}`);
+    const abc = warehouse.classifyAbc(rows);
+    audit(db, user.org_id, user.id, "warehouse.analytics.abc_read", { periodKey, productCount: abc.length });
+    return { ok: true, periodKey, abc };
+  });
+
+  app.get("/api/warehouse/analytics/turnover", async request => {
+    const user = await app.auth(request);
+    requireInventoryReader(user);
+    const periodKey = String(request.query?.periodKey || "").trim();
+    if (!periodKey || periodKey.length > 20) {
+      const err = new Error("periodKey is required (max 20 chars)");
+      err.statusCode = 400;
+      throw err;
+    }
+    const rows = db.prepare(`
+      SELECT
+        sm.catalog_item_id AS productId,
+        SUM(sm.quantity * COALESCE(sm.unit_cost, 0)) AS cogs,
+        AVG(sq.quantity * COALESCE(sq.average_cost, 0)) AS averageInventory
+      FROM stock_moves sm
+      INNER JOIN stock_locations dl ON dl.id = sm.destination_location_id
+      LEFT JOIN stock_quants sq
+        ON sq.org_id = sm.org_id AND sq.catalog_item_id = sm.catalog_item_id
+      WHERE sm.org_id = ? AND dl.location_type = 'customer' AND substr(sm.created_at, 1, 7) = substr(?, 1, 7)
+      GROUP BY sm.catalog_item_id
+    `).all(user.org_id, `${periodKey.slice(0, 4)}-${periodKey.slice(5, 7)}`);
+    const turnover = rows.map(row => ({
+      productId: row.productId,
+      ...warehouse.turnoverDays({ averageInventory: row.averageInventory, cogs: row.cogs, periodDays: 90 })
+    }));
+    audit(db, user.org_id, user.id, "warehouse.analytics.turnover_read", { periodKey, productCount: turnover.length });
+    return { ok: true, periodKey, turnover };
+  });
+
+  app.post("/api/warehouse/forecast/restock", async request => {
+    const user = await app.auth(request);
+    requireInventoryWriter(user);
+    const body = request.body || {};
+    if (body.intent !== "warehouse-restock") {
+      const err = new Error("intent must be 'warehouse-restock'");
+      err.statusCode = 400;
+      throw err;
+    }
+    const productId = warehouse.validateProductId(body.productId);
+    const horizonDays = Math.max(1, Math.min(180, Math.round(Number(body.horizonDays) || 14)));
+    const onHand = db.prepare(`
+      SELECT COALESCE(SUM(quantity - reserved_quantity), 0) AS onHand
+      FROM stock_quants
+      WHERE org_id = ? AND catalog_item_id = ? AND location_id IN (SELECT id FROM stock_locations WHERE org_id = ? AND location_type = 'internal')
+    `).get(user.org_id, productId, user.org_id).onHand;
+    const inTransit = db.prepare(`
+      SELECT COALESCE(SUM(sm.quantity), 0) AS inTransit
+      FROM stock_moves sm
+      INNER JOIN stock_locations sl ON sl.id = sm.source_location_id
+      INNER JOIN stock_locations dl ON dl.id = sm.destination_location_id
+      WHERE sm.org_id = ? AND sm.catalog_item_id = ? AND sl.location_type = 'supplier' AND dl.location_type = 'internal' AND sm.status = 'posted'
+    `).get(user.org_id, productId).inTransit;
+    const recent = db.prepare(`
+      SELECT COALESCE(AVG(sm.quantity), 0) AS avgQty
+      FROM stock_moves sm
+      INNER JOIN stock_locations dl ON dl.id = sm.destination_location_id
+      WHERE sm.org_id = ? AND sm.catalog_item_id = ? AND dl.location_type = 'customer' AND sm.created_at >= date('now', '-30 day')
+    `).get(user.org_id, productId).avgQty;
+    const forecast = warehouse.forecastRestock({
+      productId,
+      recentIssues: { onHand, inTransit },
+      averageDailyDemand: Number(recent) / 30,
+      horizonDays
+    });
+    audit(db, user.org_id, user.id, "warehouse.forecast.restock_run", { productId, suggestedQuantity: forecast.suggestedQuantity });
+    return { ok: true, forecast };
+  });
+
+  app.get("/api/warehouse/traceability/:lotId", async request => {
+    const user = await app.auth(request);
+    requireInventoryReader(user);
+    const lotId = Number(request.params.lotId);
+    if (!Number.isInteger(lotId) || lotId <= 0) {
+      const err = new Error("lotId must be a positive integer");
+      err.statusCode = 400;
+      throw err;
+    }
+    const lot = db.prepare("SELECT * FROM stock_lots WHERE id = ? AND org_id = ?").get(lotId, user.org_id);
+    if (!lot) {
+      const err = new Error("lot not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    const lotMoves = db.prepare("SELECT * FROM stock_lot_moves WHERE lot_id = ? AND org_id = ?").all(lotId, user.org_id);
+    const stockMoves = db.prepare("SELECT * FROM stock_moves WHERE org_id = ? AND id IN (SELECT move_id FROM stock_lot_moves WHERE lot_id = ?)").all(user.org_id, lotId);
+    const vendors = lot.source_vendor_id ? db.prepare("SELECT id, name FROM purchase_vendors WHERE org_id = ? AND id = ?").all(user.org_id, lot.source_vendor_id) : [];
+    const trace = warehouse.traceLot({ lot, lotMoves, stockMoves, vendors, customers: [] });
+    audit(db, user.org_id, user.id, "warehouse.traceability.read", { lotId });
+    return { ok: true, trace };
+  });
+
   app.get("/api/purchase/orders", async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
