@@ -164,3 +164,137 @@ Chart of accounts: RA MoF order [arlis.am/acts/75961](https://www.arlis.am/hy/ac
 VAT form: SRC decree N 298-Ն [arlis.am/acts/136996](https://www.arlis.am/hy/acts/136996).
 E-invoice fields: [SRC e-Invoicing User Guide](https://e-invoice.taxservice.am/help/eInvoicingUserGuide.pdf).
 Payroll: RA universal health-insurance law ՀՕ-459-Ն [arlis.am/acts/218650](https://www.arlis.am/hy/acts/218650) and military stamp-duty law as amended by ՀՕ-477-Ն [arlis.am/acts/218669](https://www.arlis.am/hy/acts/218669/print/act), cross-checked against SRC public guidance.
+
+## Document Cabinet
+
+The Document Cabinet is a sovereign, local-first inbox + archive for incoming, outgoing, and
+internal documents. It is mounted by `register(app, db, deps)` in
+`server/documentCabinetRoutes.js` and backed by the pure engines in
+`server/documentCabinet.js` (storage / versioning / FTS) and `server/documentAi.js`
+(`classify` / `extract` / `scanRisks` / `compareRevisions` / `draftReply`,
+local-deterministic in test mode, cloud-dispatched when `A1_CLOUD_AI=1`).
+
+All cabinet routes are gated by the same spine as the rest of the suite:
+
+```
+auth → requireAppAccess(db, user, "docs") → validate body/params
+  → idempotency_keys (INSERT OR IGNORE on (org_id, key)) → pure engine
+  → audit(...) emit → respond.
+```
+
+Idempotency replays return the cached envelope **without** re-emitting an audit row.
+Mutations are scoped to `user.org_id` — a foreign-org `cab-<id>` returns `404`.
+`requireAppAccess(db, user, "docs")` is satisfied by every seeded login role except
+`Operator` (`operator@armosphera.local` → 403).
+
+The local e-signature adapter (`stateIntegrations.eSignAdapter`) is a deterministic
+stub in this slice; the real ID Card / Mobile ID / e-Gov adapters land in sub-plan 7.
+
+### Armenian label dictionary (cabinet UI)
+
+| Key (hy-AM) | English hint | Notes |
+|---|---|---|
+| «Փաստաթղթերի պահարան» | Document cabinet | Suite app title |
+| «Մուտքային» | Incoming | direction=`incoming` |
+| «Ելքային» | Outgoing | direction=`outgoing` |
+| «Ներքին» | Internal | direction=`internal` |
+| «Արխիվացված» | Archived | status=`archived` |
+| «Ակտիվ» | Active | status=`active` |
+| «Տարբերակ» | Version | `cabinet_document_versions` row |
+| «Ձեռագիր վերանայում» | Manual review | `ocr_status=manual-review` (Tesseract fallback) |
+| «Որոնում» | Search | FTS5 query box |
+| «Կնքման պատրաստում» | Prepare for signing | e-sign stub envelope |
+| «Ռիսկերի սկան» | Risk scan | AI risk-scanner |
+| «Համեմատում» | Compare | AI revision compare |
+| «Պատասխանի նախագիծ» | Reply draft | AI reply drafter |
+| «Դասակարգում» | Classify | AI classifier |
+| «Արդյունահանում» | Extract | AI field extractor |
+
+### Routes (13)
+
+| Method | Route | Auth | Body / query | Response shape |
+|---|---|---|---|---|
+| `GET` | `/api/cabinet/documents` | auth + `docs` | `?direction=&status=&linkedType=&linkedId=` | `{ documents: [CabinetDocument] }` |
+| `POST` | `/api/cabinet/documents` | auth + `docs` | `{ title, direction, linkedType?, linkedId?, docType?, body?, idempotencyKey }` | `{ ok:true, document: CabinetDocument }` |
+| `GET` | `/api/cabinet/documents/:id` | auth + `docs` | path id (`cab-…`) | `{ document, versions:[…], signers:[], aiAnnotations:[…] }` |
+| `PATCH` | `/api/cabinet/documents/:id` | auth + `docs` | `{ title?, status?, linkedType?, linkedId?, docType?, body? }` | `{ ok:true, document }` |
+| `POST` | `/api/cabinet/documents/:id/versions` | auth + `docs` | `{ parentVersion?, mimeType?, byteSize?, storagePath, sha256, idempotencyKey }` | `{ ok:true, version, document }` |
+| `POST` | `/api/cabinet/documents/:id/ocr` | auth + `docs` | `{ idempotencyKey? }` (defaults to `ocr-<id>`) | `{ ok:true, document, ocrStatus: "manual-review" }` |
+| `POST` | `/api/cabinet/documents/:id/ai/classify` | auth + `docs` | `{ idempotencyKey? }` | `{ ok:true, …classifyRun, annotationKind: "classify" }` |
+| `POST` | `/api/cabinet/documents/:id/ai/extract` | auth + `docs` | `{ idempotencyKey? }` | `{ ok:true, …extractRun, annotationKind: "extract" }` |
+| `POST` | `/api/cabinet/documents/:id/ai/risk-scan` | auth + `docs` | `{ idempotencyKey? }` | `{ ok:true, …riskRun, annotationKind: "risk" }` |
+| `POST` | `/api/cabinet/documents/:id/ai/compare` | auth + `docs` | `{ leftText?, rightText?, idempotencyKey? }` | `{ ok:true, …compareRun, annotationKind: "compare" }` |
+| `POST` | `/api/cabinet/documents/:id/ai/reply-draft` | auth + `docs` | `{ tone?: "formal"\|"neutral"\|"friendly", language?: "hy-AM"\|…, idempotencyKey? }` | `{ ok:true, …replyRun, annotationKind: "reply" }` |
+| `GET` | `/api/cabinet/search` | auth + `docs` | `?q=<text>` | `{ hits:[{orgId,cabinetId,title}], query }` (FTS5, org-scoped) |
+| `POST` | `/api/cabinet/esign/prepare` | auth + `docs` | `{ cabinetId, signer?: { name, email? }, idempotencyKey }` | `{ ok:true, …adapterEnvelope }` (stub today; sub-plan 7 wires live RA adapters) |
+
+### CabinetDocument shape (camelCase)
+```jsonc
+{
+  "id": "cab-…",
+  "orgId": "org-…",
+  "title": "Վարձակալության պայմանագիր № 12/2026",
+  "direction": "incoming",            // incoming | outgoing | internal
+  "status": "active",                 // active | archived
+  "docType": "lease-agreement",       // free-form, ≤100 chars
+  "linkedType": "customer",           // customer | vendor | employee | deal | project | null
+  "linkedId": "cust-…",               // null when unlinked
+  "ocrStatus": "manual-review",       // none | manual-review | done
+  "ocrText": "…",                     // null until OCR completes
+  "currentVersion": 3,
+  "aiSummary": "",                    // populated by classify/summary runs
+  "createdAt": "2026-06-08T12:34:56.000Z",
+  "updatedAt": "2026-06-08T12:34:56.000Z"
+}
+```
+
+### Version shape
+```jsonc
+{
+  "id": "cabv-…",
+  "version": 3,
+  "parentVersion": 2,                 // null for v1
+  "mimeType": "application/pdf",
+  "byteSize": 184320,
+  "storagePath": "memory://cab-…-v3", // opaque handle; real storage comes with sub-plan 6
+  "sha256": "<64-char hex>",
+  "createdAt": "2026-06-08T12:34:56.000Z"
+}
+```
+
+### AI annotation shape
+```jsonc
+{
+  "id": "cabai-…",
+  "kind": "classify" | "extract" | "risk" | "compare" | "reply" | "summary",
+  "payload": { …engine-specific result… },
+  "confidence": 0.0,                  // null for compare / reply (no scalar)
+  "createdAt": "2026-06-08T12:34:56.000Z"
+}
+```
+
+### Audit events emitted
+
+| Action | `type` | Key metadata |
+|---|---|---|
+| Create document | `cabinet.document.created` | `documentId`, `title`, `direction`, `linkedType`, `linkedId` |
+| Add version | `cabinet.document.version.added` | `documentId`, `version`, `parentVersion`, `sha256` |
+| Queue OCR | `cabinet.document.ocr.queued` | `documentId`, `ocrStatus` |
+| AI classify | `cabinet.document.ai.classify` | `documentId` |
+| AI extract | `cabinet.document.ai.extract` | `documentId` |
+| AI risk-scan | `cabinet.document.ai.risk-scan` | `documentId` |
+| AI compare | `cabinet.document.ai.compare` | `documentId` |
+| AI reply-draft | `cabinet.document.ai.reply-draft` | `documentId` |
+| E-sign prepare | `cabinet.esign.prepared` | `cabinetId`, `envelopeId`, `provider` |
+
+### Status code matrix
+
+| Situation | Status | Source |
+|---|---|---|
+| No session / invalid session | 401 | `app.auth` |
+| Authenticated but `Operator` (or other no-`docs` role) | 403 | `requireAppAccess(db, user, "docs")` |
+| Body / param / path validation failed | 400 | per-handler normalizers |
+| Foreign-org or non-existent `cab-<id>` | 404 | `readDocument(db, user.org_id, id)` |
+| E-sign adapter missing (test runs without state integrations) | 503 | `stateIntegrations.eSignAdapter` check |
+| Success (new) | 200 | envelope |
+| Success (idempotent replay) | 200 | cached envelope, **no** new audit row |
