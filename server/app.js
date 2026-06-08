@@ -124,6 +124,7 @@ const config = require("./config");
 const rag = require("./rag");
 const accounting = require("./accounting");
 const warehouse = require("./warehouse");
+const procurement = require("./procurement");
 const ledger = require("./ledger");
 const payroll = require("./payroll");
 const copilot = require("./copilot");
@@ -768,7 +769,8 @@ function registerApi(app, db, options = {}) {
     }
     const lotMoves = db.prepare("SELECT * FROM stock_lot_moves WHERE lot_id = ? AND org_id = ?").all(lotId, user.org_id);
     const stockMoves = db.prepare("SELECT * FROM stock_moves WHERE org_id = ? AND id IN (SELECT move_id FROM stock_lot_moves WHERE lot_id = ?)").all(user.org_id, lotId);
-    const vendors = lot.source_vendor_id ? db.prepare("SELECT id, name FROM purchase_vendors WHERE org_id = ? AND id = ?").all(user.org_id, lot.source_vendor_id) : [];
+    const vendorRows = lot.source_vendor_id ? db.prepare("SELECT id, name FROM purchase_vendors WHERE org_id = ? AND id = ?").all(user.org_id, lot.source_vendor_id) : [];
+    const vendors = vendorRows.length > 0 ? vendorRows : (lot.source_vendor_id ? [{ id: lot.source_vendor_id, name: lot.source_vendor_id }] : []);
     const trace = warehouse.traceLot({ lot, lotMoves, stockMoves, vendors, customers: [] });
     audit(db, user.org_id, user.id, "warehouse.traceability.read", { lotId });
     return { ok: true, trace };
@@ -830,6 +832,145 @@ function registerApi(app, db, options = {}) {
     requireFinanceOperator(user);
     const orderId = normalizePurchasePathId(request.params.id);
     return billPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
+  });
+
+  // Procurement extension: 11 routes that build on the shipped Purchase spine.
+  // Pattern: auth -> purchase app access -> idempotency check -> pure engine -> audit -> respond.
+  app.post("/api/procurement/requisitions", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const requisition = procurement.createRequisition(db, user, body);
+    const envelope = { ok: true, requisition };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "procurement.requisition.created", { requisitionId: requisition.id, lines: requisition.lines.length, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/procurement/requisitions/:id/convert-to-rfq", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const rfq = procurement.convertRequisitionToRfq(db, user, request.params.id, body);
+    const envelope = { ok: true, rfq };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "procurement.rfq.created", { rfqId: rfq.id, requisitionId: request.params.id, shortlisted: rfq.shortlistedVendors.length, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/procurement/rfqs/:id/quotes", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const quote = procurement.recordQuote(db, user, request.params.id, body);
+    const envelope = { ok: true, quote };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "procurement.rfq.quote.recorded", { rfqId: request.params.id, vendorId: body.vendorId, unitPrice: body.unitPrice, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/procurement/rfqs/:id/award", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const purchaseOrder = procurement.awardRfq(db, user, request.params.id, body);
+    const envelope = { ok: true, purchaseOrder };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "procurement.rfq.awarded", { rfqId: request.params.id, vendorId: body.vendorId, purchaseOrderId: purchaseOrder.id, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/procurement/blanket-orders", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const blanketOrder = procurement.createBlanketOrder(db, user, body);
+    const envelope = { ok: true, blanketOrder };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "procurement.blanket_order.created", { blanketOrderId: blanketOrder.id, vendorId: body.vendorId, catalogItemId: body.catalogItemId, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.get("/api/procurement/blanket-orders/coverage", async request => {
+    const user = await app.auth(request);
+    requirePurchaseReader(user);
+    const productId = String(request.query.productId || "").trim();
+    if (!productId) { const err = new Error("productId is required"); err.statusCode = 400; throw err; }
+    return { ok: true, coverage: procurement.checkBlanketCoverage(db, user.org_id, productId) };
+  });
+
+  app.post("/api/procurement/landed-costs", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const allocation = procurement.allocateLandedCost(db, user, body);
+    const envelope = { ok: true, allocation };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "procurement.landed_cost.allocated", { poId: body.poId, kind: body.kind, amount: body.amount, totalAllocated: allocation.totalAllocated, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/procurement/credit-notes", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const creditNote = procurement.issueCreditNote(db, user, body);
+    const envelope = { ok: true, creditNote };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "procurement.credit_note.issued", { creditNoteId: creditNote.id, poId: body.poId, amount: body.amount, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/procurement/ai/select-vendor", async request => {
+    const user = await app.auth(request);
+    requirePurchaseReader(user);
+    const body = request.body || {};
+    const candidates = procurement.selectVendor(db, user.org_id, body.catalogItemId, Number(body.quantity) || 1);
+    const egressAllowed = process.env.ARMOSPHERA_ONE_ALLOW_EGRESS === "1";
+    return { ok: true, candidates, source: egressAllowed ? "openrouter-eligible" : "local-fallback" };
+  });
+
+  app.post("/api/procurement/ai/price-anomaly", async request => {
+    const user = await app.auth(request);
+    requirePurchaseReader(user);
+    const body = request.body || {};
+    const result = procurement.detectPriceAnomaly(db, user.org_id, body.catalogItemId, Number(body.proposedUnitPrice) || 0);
+    const egressAllowed = process.env.ARMOSPHERA_ONE_ALLOW_EGRESS === "1";
+    return { ok: true, ...result, source: egressAllowed ? "openrouter-eligible" : "local-fallback" };
+  });
+
+  app.get("/api/procurement/analytics/replenishment", async request => {
+    const user = await app.auth(request);
+    requirePurchaseReader(user);
+    return { ok: true, suggestions: procurement.computeReplenishment(db, user.org_id) };
   });
 
   app.get("/api/pilots/templates/clinic-wellness", async request => {
