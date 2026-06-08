@@ -7,6 +7,7 @@ import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm, CrmActivityPanel } from ".
 import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
 import { PeopleEmployeeForm, PeopleRegistryPanel } from "./people.jsx";
 import { DocsCreateForm, DocsRegistryPanel } from "./docs.jsx";
+import { CabinetPanel } from "./cabinet.jsx";
 import { CopilotPanel } from "./copilot.jsx";
 import { HealthcheckPanel } from "./healthcheck.jsx";
 import { AiOnboardingPanel } from "./ai-onboarding.jsx";
@@ -138,6 +139,7 @@ function App() {
   const [finance, setFinance] = useState(null);
   const [people, setPeople] = useState(null);
   const [docs, setDocs] = useState(null);
+  const [cabinet, setCabinet] = useState(null);
   const [projects, setProjects] = useState(null);
   const [inventory, setInventory] = useState(null);
   const [purchase, setPurchase] = useState(null);
@@ -358,8 +360,11 @@ function App() {
         const docsData = await loadOr(null, () => api("/api/docs/documents"));
         const templatesData = await loadOr(null, () => api("/api/docs/templates"));
         setDocs(docsData ? { ...docsData, templates: (templatesData && templatesData.templates) || [] } : docsData);
+        const cabinetData = await loadOr(null, () => api("/api/cabinet/documents"));
+        setCabinet(cabinetData ? { ...cabinetData, versionsById: {} } : cabinetData);
       } else {
         setDocs(null);
+        setCabinet(null);
       }
       if (assignedApps.has("projects")) {
         const projectsData = await loadOr(null, () => api("/api/projects"));
@@ -913,6 +918,7 @@ function App() {
       finance={finance}
       people={people}
       docs={docs}
+      cabinet={cabinet}
       projects={projects}
       inventory={inventory}
       purchase={purchase}
@@ -998,7 +1004,7 @@ function Login({ onDone }) {
   );
 }
 
-function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, projects, inventory, purchase, forms, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, productionReadiness, selectedApp, onSelectApp, onSuiteEvents, onAuditEvents, onReload }) {
+function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, cabinet, projects, inventory, purchase, forms, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, productionReadiness, selectedApp, onSelectApp, onSuiteEvents, onAuditEvents, onReload }) {
   const {
     pilotTemplateData,
     pilotOwnerBriefs,
@@ -3876,6 +3882,56 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     try { await api(`/api/docs/documents/${documentId}/void`, { method: "POST", body: {} }); setActionState(`doc:act:done:${documentId}`); onReload(); }
     catch (e) { setActionState(`doc:act:error:${documentId}`); reportActionError(e); }
   }
+  async function createCabinetDocument(body) {
+    setActionState("cabinet:create"); setActionError("");
+    try { await api("/api/cabinet/documents", { method: "POST", body }); setActionState("cabinet:create:done"); onReload(); }
+    catch (e) { setActionState("cabinet:create:error"); reportActionError(e); throw e; }
+  }
+  async function patchCabinetDocument(documentId, body) {
+    setActionState(`cabinet:patch:${documentId}`); setActionError("");
+    try { await api(`/api/cabinet/documents/${documentId}`, { method: "PATCH", body }); setActionState(`cabinet:patch:done:${documentId}`); onReload(); }
+    catch (e) { setActionState(`cabinet:patch:error:${documentId}`); reportActionError(e); throw e; }
+  }
+  async function addCabinetVersion(documentId, body) {
+    setActionState(`cabinet:ver:${documentId}`); setActionError("");
+    try { await api(`/api/cabinet/documents/${documentId}/versions`, { method: "POST", body }); setActionState(`cabinet:ver:done:${documentId}`); onReload(); }
+    catch (e) { setActionState(`cabinet:ver:error:${documentId}`); reportActionError(e); throw e; }
+  }
+  async function queueCabinetOcr(documentId, body) {
+    setActionState(`cabinet:ocr:${documentId}`); setActionError("");
+    try { await api(`/api/cabinet/documents/${documentId}/ocr`, { method: "POST", body }); setActionState(`cabinet:ocr:done:${documentId}`); onReload(); }
+    catch (e) { setActionState(`cabinet:ocr:error:${documentId}`); reportActionError(e); throw e; }
+  }
+  async function runCabinetAi(documentId, kind, body) {
+    setActionState(`cabinet:ai:${kind}`); setActionError("");
+    try {
+      const response = await api(`/api/cabinet/documents/${documentId}/ai/${kind}`, { method: "POST", body });
+      setActionState(`cabinet:ai:done:${kind}`); onReload();
+      return response;
+    } catch (e) {
+      setActionState(`cabinet:ai:error:${kind}`); reportActionError(e); throw e;
+    }
+  }
+  async function prepareCabinetEsign(body) {
+    setActionState("cabinet:esign"); setActionError("");
+    try {
+      const response = await api("/api/cabinet/esign/prepare", { method: "POST", body });
+      setActionState("cabinet:esign:done"); onReload();
+      return response;
+    } catch (e) {
+      setActionState("cabinet:esign:error"); reportActionError(e); throw e;
+    }
+  }
+  async function cabinetSearch(query) {
+    setActionState("cabinet:search"); setActionError("");
+    try {
+      const response = await api(`/api/cabinet/search?q=${encodeURIComponent(query)}`);
+      setActionState("cabinet:search:done");
+      return response;
+    } catch (e) {
+      setActionState("cabinet:search:error"); reportActionError(e); throw e;
+    }
+  }
   async function createProject(body) {
     setActionState("project:create"); setActionError("");
     try { await api("/api/projects", { method: "POST", body }); setActionState("project:create:done"); onReload(); }
@@ -4117,6 +4173,20 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               </div>
               {["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role) && (
                 <DocsCreateForm customers={(serviceConsole && serviceConsole.customers) || []} templates={docs.templates || []} onCreate={createDocument} onGenerate={generateFromTemplate} actionState={actionState} />
+              )}
+              {cabinet && (
+                <CabinetPanel
+                  data={cabinet}
+                  canWrite={["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role)}
+                  onCreate={createCabinetDocument}
+                  onPatch={patchCabinetDocument}
+                  onAddVersion={addCabinetVersion}
+                  onOcr={queueCabinetOcr}
+                  onAi={runCabinetAi}
+                  onPrepareEsign={prepareCabinetEsign}
+                  onSearch={cabinetSearch}
+                  actionState={actionState}
+                />
               )}
             </>
           )}
