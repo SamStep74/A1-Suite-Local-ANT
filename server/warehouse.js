@@ -44,8 +44,8 @@ function validateExpiry({ mfgDate, expiryDate }) {
 
 function fefoOrder(lots) {
   return [...lots]
-    .filter(lot => lot && lot.expiryDate)
-    .sort((a, b) => a.expiryDate.localeCompare(b.expiryDate));
+    .filter(lot => lot && (lot.expiryDate || lot.expiry_date))
+    .sort((a, b) => (a.expiryDate || a.expiry_date).localeCompare(b.expiryDate || b.expiry_date));
 }
 
 function classifyAbc(rows) {
@@ -130,6 +130,7 @@ module.exports = {
   validateLotCode,
   validateSerial,
   validateProductId,
+  validateOptionalDate,
   validateExpiry,
   fefoOrder,
   classifyAbc,

@@ -123,6 +123,7 @@ const ROLE_DASHBOARD_CONFIGS = {
 const config = require("./config");
 const rag = require("./rag");
 const accounting = require("./accounting");
+const warehouse = require("./warehouse");
 const ledger = require("./ledger");
 const payroll = require("./payroll");
 const copilot = require("./copilot");
@@ -520,6 +521,144 @@ function registerApi(app, db, options = {}) {
     requireInventoryWriter(user);
     const move = createStockMove(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, move, stock: getStockQuants(db, user.org_id, { catalogItemId: move.catalogItemId }) };
+  });
+
+  app.post("/api/warehouse/lots", async request => {
+    const user = await app.auth(request);
+    requireInventoryWriter(user);
+    const body = request.body || {};
+    const productId = warehouse.validateProductId(body.productId);
+    const lotCode = warehouse.validateLotCode(body.lotCode);
+    const { mfgDate, expiryDate } = warehouse.validateExpiry({
+      mfgDate: body.mfgDate,
+      expiryDate: body.expiryDate
+    });
+    const harvestDate = warehouse.validateOptionalDate("harvestDate", body.harvestDate);
+    const sourceVendorId = body.sourceVendorId == null ? null : String(body.sourceVendorId).trim().slice(0, 80) || null;
+    const now = new Date().toISOString();
+    const dup = db.prepare("SELECT id FROM stock_lots WHERE org_id = ? AND product_id = ? AND lot_code = ?").get(user.org_id, productId, lotCode);
+    if (dup) {
+      const err = new Error("lot already exists for this product");
+      err.statusCode = 409;
+      throw err;
+    }
+    const info = db.prepare(`
+      INSERT INTO stock_lots (org_id, product_id, lot_code, mfg_date, expiry_date, harvest_date, source_vendor_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(user.org_id, productId, lotCode, mfgDate, expiryDate, harvestDate, sourceVendorId, now);
+    const row = db.prepare("SELECT * FROM stock_lots WHERE id = ?").get(info.lastInsertRowid);
+    const lot = {
+      id: row.id,
+      productId: row.product_id,
+      lotCode: row.lot_code,
+      mfgDate: row.mfg_date,
+      expiryDate: row.expiry_date,
+      harvestDate: row.harvest_date,
+      sourceVendorId: row.source_vendor_id,
+      createdAt: row.created_at
+    };
+    audit(db, user.org_id, user.id, "warehouse.lot.created", { lotId: lot.id, productId, lotCode });
+    return { ok: true, lot };
+  });
+
+  app.get("/api/warehouse/lots", async request => {
+    const user = await app.auth(request);
+    requireInventoryReader(user);
+    const productId = request.query?.productId ? warehouse.validateProductId(request.query.productId) : null;
+    const expiringWithin = request.query?.expiringWithin ? Math.max(0, Math.round(Number(request.query.expiringWithin) || 0)) : null;
+    const params = [user.org_id];
+    let where = "WHERE org_id = ?";
+    if (productId) { where += " AND product_id = ?"; params.push(productId); }
+    if (expiringWithin !== null) {
+      const cutoff = new Date(Date.now() + expiringWithin * 86400000).toISOString().slice(0, 10);
+      where += " AND expiry_date IS NOT NULL AND expiry_date <= ?";
+      params.push(cutoff);
+    }
+    const rows = db.prepare(`SELECT * FROM stock_lots ${where} ORDER BY expiry_date ASC NULLS LAST, id ASC`).all(...params);
+    return { lots: warehouse.fefoOrder(rows).map(row => ({
+      id: row.id,
+      productId: row.product_id,
+      lotCode: row.lot_code,
+      mfgDate: row.mfg_date,
+      expiryDate: row.expiry_date,
+      harvestDate: row.harvest_date,
+      sourceVendorId: row.source_vendor_id,
+      createdAt: row.created_at
+    })) };
+  });
+
+  app.post("/api/warehouse/serials", async request => {
+    const user = await app.auth(request);
+    requireInventoryWriter(user);
+    const body = request.body || {};
+    const productId = warehouse.validateProductId(body.productId);
+    const serial = warehouse.validateSerial(body.serial);
+    const locationId = body.currentLocationId == null ? null : String(body.currentLocationId).trim().slice(0, 80) || null;
+    const now = new Date().toISOString();
+    const dup = db.prepare("SELECT id FROM stock_serials WHERE org_id = ? AND product_id = ? AND serial = ?").get(user.org_id, productId, serial);
+    if (dup) {
+      const err = new Error("serial already registered for this product");
+      err.statusCode = 409;
+      throw err;
+    }
+    const info = db.prepare(`
+      INSERT INTO stock_serials (org_id, product_id, serial, status, current_location_id, created_at)
+      VALUES (?, ?, ?, 'in_stock', ?, ?)
+    `).run(user.org_id, productId, serial, locationId, now);
+    const row = db.prepare("SELECT * FROM stock_serials WHERE id = ?").get(info.lastInsertRowid);
+    audit(db, user.org_id, user.id, "warehouse.serial.registered", { serialId: row.id, productId, serial, locationId });
+    return { ok: true, serial: { id: row.id, productId: row.product_id, serial: row.serial, status: row.status, currentLocationId: row.current_location_id, createdAt: row.created_at } };
+  });
+
+  app.get("/api/warehouse/serials/:id/trace", async request => {
+    const user = await app.auth(request);
+    requireInventoryReader(user);
+    const id = Number(request.params.id);
+    if (!Number.isInteger(id) || id <= 0) {
+      const err = new Error("serial id must be a positive integer");
+      err.statusCode = 400;
+      throw err;
+    }
+    const serial = db.prepare("SELECT * FROM stock_serials WHERE id = ? AND org_id = ?").get(id, user.org_id);
+    if (!serial) {
+      const err = new Error("serial not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    const moves = db.prepare(`
+      SELECT m.* FROM stock_moves m
+      JOIN stock_lot_moves lm ON lm.move_id = m.id
+      JOIN stock_lots l ON l.id = lm.lot_id
+      WHERE l.org_id = ? AND l.product_id = ? AND lm.lot_id IN (SELECT id FROM stock_lots WHERE product_id = ? AND org_id = ?)
+      ORDER BY m.created_at ASC
+    `).all(user.org_id, serial.product_id, serial.product_id, user.org_id);
+    audit(db, user.org_id, user.id, "warehouse.serial.trace_read", { serialId: id });
+    return { ok: true, serial: { id: serial.id, productId: serial.product_id, serial: serial.serial, status: serial.status, currentLocationId: serial.current_location_id }, moves };
+  });
+
+  app.post("/api/warehouse/cold-storage/readings", async request => {
+    const user = await app.auth(request);
+    requireInventoryWriter(user);
+    const cleaned = warehouse.recordColdStorageReading(request.body || {});
+    const now = new Date().toISOString();
+    const info = db.prepare(`
+      INSERT INTO cold_storage_readings (org_id, location_id, recorded_at, temp_c, humidity, sensor_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?)
+    `).run(user.org_id, cleaned.locationId, cleaned.recordedAt, cleaned.tempC, cleaned.humidity, cleaned.sensorId, now);
+    const row = db.prepare("SELECT * FROM cold_storage_readings WHERE id = ?").get(info.lastInsertRowid);
+    audit(db, user.org_id, user.id, "warehouse.cold_storage.reading_recorded", { readingId: row.id, locationId: cleaned.locationId, tempC: cleaned.tempC });
+    return { ok: true, reading: { id: row.id, locationId: row.location_id, recordedAt: row.recorded_at, tempC: row.temp_c, humidity: row.humidity, sensorId: row.sensor_id } };
+  });
+
+  app.get("/api/warehouse/cold-storage/readings", async request => {
+    const user = await app.auth(request);
+    requireInventoryReader(user);
+    const locationId = request.query?.locationId ? String(request.query.locationId).trim() : null;
+    const params = [user.org_id];
+    let where = "WHERE org_id = ?";
+    if (locationId) { where += " AND location_id = ?"; params.push(locationId); }
+    const rows = db.prepare(`SELECT * FROM cold_storage_readings ${where} ORDER BY recorded_at DESC LIMIT 100`).all(...params);
+    return { readings: rows.map(r => ({ id: r.id, locationId: r.location_id, recordedAt: r.recorded_at, tempC: r.temp_c, humidity: r.humidity, sensorId: r.sensor_id })) };
   });
 
   app.get("/api/purchase/orders", async request => {
