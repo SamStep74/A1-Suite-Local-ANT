@@ -7461,6 +7461,19 @@ function ensureFinanceLayer(db) {
     db.exec("ALTER TABLE payroll_runs ADD COLUMN employee_id TEXT REFERENCES people_employees(id) ON DELETE SET NULL");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_payroll_runs_employee ON payroll_runs(org_id, employee_id)");
+  // Lightweight procurement-side period lock (separate from finance_periods.status, which is
+  // the full close lifecycle). The credit-note route consults this table; if a row exists for
+  // (org_id, period) the period is treated as locked. Used by the procurement extension to
+  // block AP-reversal postings into closed months without forcing the full finance close flow.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS period_locks (
+      org_id TEXT NOT NULL,
+      period TEXT NOT NULL,
+      locked_at TEXT NOT NULL,
+      locked_by_user_id TEXT,
+      PRIMARY KEY (org_id, period)
+    );
+  `);
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {
     seedFinancePeriods(db, org.id);

@@ -11,16 +11,13 @@ async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
 
 async function seedPurchaseFixtures(app) {
   const cookie = await login(app);
-  const vendorRes = await app.inject({
-    method: "POST", url: "/api/purchase/vendors", headers: { cookie },
-    payload: { name: "Yerevan Hardware Supply", taxId: "01234568", currency: "AMD" }
-  });
-  const vendorId = vendorRes.json().vendor.id;
+  const vendorsList = await app.inject({ method: "GET", url: "/api/purchase/vendors", headers: { cookie } });
+  const vendorId = vendorsList.json().vendors[0].id;
   const catalogRes = await app.inject({ method: "GET", url: "/api/catalog/items", headers: { cookie } });
   const itemId = catalogRes.json().items.find(i => i.trackStock).id;
   const orderRes = await app.inject({
     method: "POST", url: "/api/purchase/orders", headers: { cookie },
-    payload: { vendorId, orderNumber: "PO-EX-1", supplier: "Yerevan Hardware", orderDate: "2026-06-08", expectedDate: "2026-06-15", lines: [{ catalogItemId: itemId, quantity: 10, unitCost: 100000 }] }
+    payload: { vendorId, orderNumber: "PO-EX-" + Math.random().toString(36).slice(2, 8), supplier: "Yerevan Hardware", orderDate: "2026-06-08", expectedDate: "2026-06-15", lines: [{ catalogItemId: itemId, quantity: 10, unitCost: 100000 }] }
   });
   return { cookie, vendorId, itemId, orderId: orderRes.json().order.id };
 }

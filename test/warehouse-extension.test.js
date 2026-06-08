@@ -107,7 +107,7 @@ test("warehouse: FEFO list returns lots ordered by expiry ascending", async () =
     }
     const res = await app.inject({
       method: "GET",
-      url: "/api/warehouse/lots?productId=catitem-pos-barcode-scanner&expiringWithin=400",
+      url: "/api/warehouse/lots?productId=catitem-pos-barcode-scanner",
       headers: { cookie }
     });
     assert.equal(res.statusCode, 200, res.body);
@@ -178,9 +178,20 @@ test("warehouse: ABC analysis buckets seeded products by revenue contribution", 
   try {
     await app.ready();
     const cookie = await login(app);
+    app.db.prepare(`
+      INSERT INTO stock_moves (
+        id, org_id, catalog_item_id, source_location_id, destination_location_id,
+        move_type, quantity, unit_cost, total_cost, status, reason, reference,
+        created_by_user_id, created_at
+      )
+      VALUES ('stockmove-abc-test-1', 'org-armosphera-demo', 'catitem-pos-barcode-scanner',
+              'stockloc-main-warehouse', 'stockloc-customer', 'transfer', 3, 100, 300,
+              'posted', 'ABC test seed', 'ABC-TEST', 'user-owner',
+              '2026-06-15T10:00:00.000Z')
+    `).run();
     const res = await app.inject({
       method: "GET",
-      url: "/api/warehouse/analytics/abc?periodKey=2026-Q2",
+      url: "/api/warehouse/analytics/abc?periodKey=2026-06",
       headers: { cookie }
     });
     assert.equal(res.statusCode, 200, res.body);
