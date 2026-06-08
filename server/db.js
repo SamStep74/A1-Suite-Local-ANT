@@ -651,6 +651,71 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_stock_quants_location
       ON stock_quants(org_id, location_id);
 
+    CREATE TABLE IF NOT EXISTS stock_lots (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      product_id TEXT NOT NULL,
+      lot_code TEXT NOT NULL,
+      mfg_date TEXT,
+      expiry_date TEXT,
+      harvest_date TEXT,
+      source_vendor_id TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, product_id, lot_code)
+    );
+    CREATE INDEX IF NOT EXISTS idx_stock_lots_expiry
+      ON stock_lots(org_id, product_id, expiry_date);
+
+    CREATE TABLE IF NOT EXISTS stock_serials (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      product_id TEXT NOT NULL,
+      serial TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'in_stock',
+      current_location_id TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, product_id, serial)
+    );
+    CREATE INDEX IF NOT EXISTS idx_stock_serials_status
+      ON stock_serials(org_id, product_id, status);
+
+    CREATE TABLE IF NOT EXISTS stock_lot_moves (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      lot_id INTEGER NOT NULL,
+      move_id TEXT NOT NULL,
+      quantity REAL NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_stock_lot_moves_lot
+      ON stock_lot_moves(org_id, lot_id);
+
+    CREATE TABLE IF NOT EXISTS cold_storage_readings (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      location_id TEXT NOT NULL,
+      recorded_at TEXT NOT NULL,
+      temp_c REAL NOT NULL,
+      humidity REAL,
+      sensor_id TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_cold_storage_location_time
+      ON cold_storage_readings(org_id, location_id, recorded_at DESC);
+
+    CREATE TABLE IF NOT EXISTS stock_valuation_layers (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      product_id TEXT NOT NULL,
+      lot_id INTEGER,
+      layer_date TEXT NOT NULL,
+      unit_cost REAL NOT NULL,
+      quantity_remaining REAL NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_stock_valuation_layers
+      ON stock_valuation_layers(org_id, product_id, layer_date);
+
     CREATE TABLE IF NOT EXISTS stock_moves (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
