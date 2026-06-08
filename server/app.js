@@ -128,6 +128,7 @@ const payroll = require("./payroll");
 const copilot = require("./copilot");
 const vatReturn = require("./vatReturn");
 const locale = require("./locale");
+const healthcheck = require("./healthcheck");
 const postingCodes = require("./postingCodes");
 const settingsStore = require("./settingsStore");
 const aiProvider = require("./aiProvider");
@@ -236,6 +237,37 @@ function registerApi(app, db, options = {}) {
     modules: ["suite", "crm", "finance", "desk", "campaigns", "projects", "inventory", "people", "docs", "analytics", "flow"],
     platformTenant: publicPlatformTenantSummary(request.a1Tenant, env)
   }));
+
+  // Pattern A skeleton example: healthcheck ping.
+  // Auth → app access → idempotency check → pure engine → audit → respond.
+  app.post("/api/healthcheck/ping", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "copilot");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) {
+      const err = new Error("idempotencyKey is required");
+      err.statusCode = 400;
+      throw err;
+    }
+    const existing = db.prepare(
+      "SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?"
+    ).get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const result = healthcheck.buildPing({ message: body.message, now: new Date().toISOString() });
+    const envelope = { ok: true, healthcheck: result };
+    db.prepare(
+      "INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)"
+    ).run(
+      randomId("idem"),
+      user.org_id,
+      idem,
+      JSON.stringify(envelope),
+      new Date().toISOString()
+    );
+    audit(db, user.org_id, user.id, "healthcheck.ping", { message: result.message, idempotencyKey: idem });
+    return envelope;
+  });
 
   app.get("/api/platform/tenant", async request => {
     const user = await app.auth(request);
