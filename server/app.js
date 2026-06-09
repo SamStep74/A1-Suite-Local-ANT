@@ -6206,12 +6206,19 @@ ${controls}
     if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
     const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
     if (existing) return JSON.parse(existing.response_json);
-    const forecast = greenhouse.forecastYield({ cropKind: body.cropKind, areaM2: Number(body.areaM2), gdd: Number(body.gdd) });
-    const envelope = { ok: true, forecast };
+    const greenhouseAi = require("./greenhouseAi");
+    const packet = greenhouseAi.buildGreenhousePacket({
+      orgId: user.org_id,
+      db,
+      intent: "greenhouse-yield-forecast",
+      periodKey: body.periodKey || new Date().toISOString().slice(0, 7),
+      question: body.question || ""
+    });
+    const envelope = { ok: true, packet };
     db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
       randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString()
     );
-    audit(db, user.org_id, user.id, "greenhouse.ai.yieldForecast", { cropKind: body.cropKind, areaM2: body.areaM2, gdd: body.gdd });
+    audit(db, user.org_id, user.id, "greenhouse.ai.yieldForecast", { packetId: packet.id, intent: packet.intent });
     return envelope;
   });
 }
