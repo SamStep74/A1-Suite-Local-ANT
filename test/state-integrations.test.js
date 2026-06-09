@@ -185,3 +185,61 @@ test("state-int audit endpoint requires auditor role", async () => {
     assert.strictEqual(res.statusCode, 403);
   } finally { await app.close(); }
 });
+
+test("state-int redactPII: salted full-digest hash + pattern key + nested subtree", () => {
+  const { scrubPII, __internals: { isPIIKey } } = require("../server/stateIntegrations");
+
+  // 1. Same value hashed twice produces different output (per-call salt).
+  const a = scrubPII({ idNumber: "AN-1234567" });
+  const b = scrubPII({ idNumber: "AN-1234567" });
+  assert.ok(a.idNumber.startsWith("[hash:sha256:") && a.idNumber.endsWith("]"));
+  assert.notStrictEqual(a.idNumber, b.idNumber, "salt must randomize the digest");
+  assert.strictEqual(a.idNumber__present, true);
+
+  // 2. Full 256-bit digest (16-byte salt + 32-byte hash = 96 hex chars between the brackets).
+  const inner = a.idNumber.slice("[hash:sha256:".length, -1);
+  assert.strictEqual(inner.split(":").length, 2, "must be salt:digest");
+  assert.strictEqual(inner.split(":")[0].length, 32, "salt is 16 bytes = 32 hex chars");
+  assert.strictEqual(inner.split(":")[1].length, 64, "digest is 32 bytes = 64 hex chars");
+
+  // 3. Pattern-based detection catches undeclared PII-shaped keys.
+  assert.ok(isPIIKey("tax_id"), "snake_case tax_id");
+  assert.ok(isPIIKey("phone_number"), "snake_case phone_number");
+  assert.ok(isPIIKey("personalId"), "camelCase personalId");
+  assert.ok(!isPIIKey("requestId"), "must NOT redact requestId");
+  assert.ok(!isPIIKey("providerRef"), "must NOT redact providerRef");
+  assert.ok(!isPIIKey("operation"), "must NOT redact operation");
+
+  // 4. Nested object/array UNDER a PII key is redacted as a single unit
+  //    (no cleartext inner values escape).
+  const nestedPIIKey = scrubPII({ fullName: { first: "John", last: "Smith" } });
+  assert.ok(nestedPIIKey.fullName.__redactedSubtree, "subtree under a PII key must be marked redacted");
+  assert.ok(nestedPIIKey.fullName.hash, "subtree under a PII key must carry a hash");
+  assert.strictEqual(nestedPIIKey.fullName.first, undefined, "inner cleartext must not leak");
+  assert.strictEqual(nestedPIIKey.fullName.last, undefined, "inner cleartext must not leak");
+  assert.strictEqual(nestedPIIKey.fullName__present, true);
+
+  // 5. PII-shaped inner keys under a NON-PII parent are individually
+  //    redacted (the parent key is preserved so the audit row still
+  //    shows the payload shape).
+  const innerPII = scrubPII({ signerClaims: { idNumber: "AN-1234567", fullName: "Test" } });
+  assert.ok(innerPII.signerClaims.idNumber.startsWith("[hash:sha256:"));
+  assert.strictEqual(innerPII.signerClaims.idNumber__present, true);
+  assert.ok(innerPII.signerClaims.fullName.startsWith("[hash:sha256:"));
+  assert.strictEqual(innerPII.signerClaims.fullName__present, true);
+
+  // 6. Non-PII nested keys are walked through unchanged.
+  const pass = scrubPII({ meta: { requestId: "r-1", status: "sent" } });
+  assert.strictEqual(pass.meta.requestId, "r-1");
+  assert.strictEqual(pass.meta.status, "sent");
+});
+
+test("state-int redactPII: handles Buffer and bigint leaf values without leaking", () => {
+  const { scrubPII } = require("../server/stateIntegrations");
+  const bufResult = scrubPII({ idNumber: Buffer.from("AN-1234567", "utf8") });
+  assert.ok(bufResult.idNumber.startsWith("[hash:sha256:"));
+  assert.strictEqual(bufResult.idNumber__present, true);
+  const bigResult = scrubPII({ idNumber: 1234567n });
+  assert.ok(bigResult.idNumber.startsWith("[hash:sha256:"));
+  assert.strictEqual(bigResult.idNumber__present, true);
+});

@@ -122,7 +122,7 @@ audit-once invariant).
 | Fake identity claims in test mode | e-Register returns `record: null` + `requestedTaxId`; ID Card returns `claims: null` + `requestedSubjectId`. No fabricated legal-entity or identity data ever leaves the test stub. |
 | Mobile-ID challenge reuse | `mobileId.send` binds the `challengeId` to a SHA-256 of the validated phone (first 16 hex chars + 6 random bytes). A confirm step issued for one phone cannot be replayed against another. |
 | SRC float arithmetic | `src.prepare` computes `vatAmount` in **integer minor units** (cents/dram) — `Math.round(netAmount * vatRate)`. A separate `vatAmountMajor` field carries the display value with 2-decimal rounding. |
-| Cleartext PII in audit | `redactPII` walks the payload before the INSERT and replaces any PII key with a one-way hash. |
+| Cleartext PII in audit | `redactPII` walks the payload before the INSERT and replaces any PII key with a **per-call-salted, full 256-bit SHA-256 HMAC digest** (`[hash:sha256:<16-byte salt>:<32-byte digest>]`). A nested object or array directly under a PII key is redacted as a single canonicalized subtree so inner values can never escape. Buffers and BigInts are accepted alongside strings and numbers. |
 | IDOR on status | The status route matches `request_id` AND `org_id`; cross-org lookups return `404` instead of `403` to avoid leaking existence. |
 | Production without opt-in | `ensureProductionOptIn` throws a `403` with a clear message if `STATE_INTEGRATION_MODE=production` and the per-adapter `*_ENABLED` flag is not `1`. |
 | Production code path | Every adapter's `send()` checks `STATE_INTEGRATION_MODE === "production"` and throws `501` with a clear message until the production code path is implemented. |

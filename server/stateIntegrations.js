@@ -54,28 +54,78 @@ function makeRequestId(orgId, adapter, operation) {
   return `si-${String(orgId).slice(0, 6)}-${adapter}-${operation}-${crypto.randomBytes(6).toString("hex")}`;
 }
 
-// PII fields are hashed (one-way) before being written to state_integration_calls
+// PII fields are hashed (one-way, salted) before being written to state_integration_calls
 // so the audit row records the attempt + which payload slots were filled, but
 // never persists the cleartext idNumber/phone/taxId/etc. The hub's
 // state_signatures table keeps its own signer_id_hash; the rest of the audit
 // row is opaque to anyone who reads the table directly.
+//
+// The redaction is forensic-only: it lets a same-day investigator see "the
+// same idNumber was sent again" without re-identification. For low-entropy
+// fields like dateOfBirth it is NOT re-identification-resistant and the
+// investigator should rely on the org_id + adapter + operation + timestamp
+// to identify the call.
 const PII_FIELDS = ["idNumber", "subjectId", "phone", "taxId", "fullName", "dateOfBirth", "documentNumber"];
+// Pattern check covers common aliases (snake_case, Russian, etc.) so a
+// caller cannot leak a PII-shaped value under an undeclared key. We split
+// the key by [_-] and check each segment independently so "phone_number"
+// is caught (phone is PII) but "phonebook" is not (no segment matches).
+// The compound-prefix check catches "tax_id" / "inn_number" without false-
+// flagging "user_id" / "org_id" (the prefix is checked, not "id" alone).
+const PII_SEGMENT_PATTERN = /^(ssn|tin|inn|taxid|tax_id|idnumber|id_number|passport|dob|birth|personalid|personal_id|phone|mobile|name)$/i;
+const PII_COMPOUND_PREFIX = /^(ssn|tin|inn|tax|idnumber|id_|passport|dob|birth|personal|phone|mobile)/i;
+const PII_KEY_DENYLIST = new Set(["requestid", "status", "providerref", "operation", "adapter", "idempotencykey", "userid", "user_id", "orgid", "org_id", "appid", "app_id"]);
+
+function isPIIKey(k) {
+  if (PII_KEY_DENYLIST.has(k.toLowerCase())) return false;
+  if (PII_FIELDS.includes(k)) return true;
+  const segments = k.split(/[_-]/);
+  if (segments.some(seg => PII_SEGMENT_PATTERN.test(seg))) return true;
+  if (PII_COMPOUND_PREFIX.test(k)) return true;
+  return false;
+}
+
+function hashPII(raw) {
+  // Per-call 16-byte salt defeats rainbow tables; full 64-hex digest (256 bits)
+  // is what survives on disk so the same value is not trivially correlatable
+  // across rows.
+  const salt = crypto.randomBytes(16);
+  const digest = crypto.createHmac("sha256", salt).update(String(raw)).digest("hex");
+  return `[hash:sha256:${salt.toString("hex")}:${digest}]`;
+}
+
 function redactPII(value, path) {
   if (value == null) return value;
   if (Array.isArray(value)) return value.map((v, i) => redactPII(v, `${path}[${i}]`));
   if (typeof value === "object") {
     const out = {};
     for (const k of Object.keys(value)) {
-      if (PII_FIELDS.includes(k) && (typeof value[k] === "string" || typeof value[k] === "number")) {
-        out[k] = `[hash:sha256:${crypto.createHash("sha256").update(String(value[k])).digest("hex").slice(0, 16)}]`;
-        out[`${k}__present`] = true;
+      const v = value[k];
+      if (v == null) { out[k] = v; continue; }
+      if (isPIIKey(k)) {
+        if (typeof v === "string" || typeof v === "number" || typeof v === "bigint" || Buffer.isBuffer(v)) {
+          out[k] = hashPII(Buffer.isBuffer(v) ? v.toString("utf8") : v);
+          out[`${k}__present`] = true;
+        } else {
+          // Nested object/array under a PII key: redact the whole subtree
+          // as a single unit so inner keys cannot leak cleartext values.
+          out[k] = { __redactedSubtree: true, hash: hashPII(JSON.stringify(v)) };
+          out[`${k}__present`] = true;
+        }
       } else {
-        out[k] = redactPII(value[k], `${path}.${k}`);
+        out[k] = redactPII(v, `${path}.${k}`);
       }
     }
     return out;
   }
   return value;
+}
+
+// Authoritative entry-point scrub: runs over the request body BEFORE the
+// adapter sees it, so a typo or undeclared PII-shaped key from the caller
+// cannot leak through dispatch. Idempotent — safe to call multiple times.
+function scrubPII(input) {
+  return redactPII(input || {}, "input");
 }
 
 async function dispatch({ db, orgId, userId, adapter, operation, input }) {
@@ -283,6 +333,7 @@ module.exports = {
   currentMode,
   isAdapterEnabled,
   SUPPORTED,
+  scrubPII,
   // Legacy cabinet API (sub-plan 1, kept for backward compat)
   eSignAdapter: eSignAdapter(),
   idCardAdapter: idCardAdapter(),
@@ -291,5 +342,5 @@ module.exports = {
   eRegisterAdapter: eRegisterAdapter(),
   customsAdapter: customsAdapter(),
   eGovAdapter: eGovAdapter(),
-  __internals: { adapterMode, stubEnvelope, ensureProductionOptIn, makeRequestId }
+  __internals: { adapterMode, stubEnvelope, ensureProductionOptIn, makeRequestId, redactPII, isPIIKey }
 };
