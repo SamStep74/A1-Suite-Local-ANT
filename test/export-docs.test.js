@@ -208,3 +208,73 @@ test("POST /api/export-docs happy path writes audit + idempotent replay (200)", 
     await app.close();
   }
 });
+
+test("AI auto-fill returns Armenian-cited, deterministic draft when egress is off", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    delete process.env.ARMOSPHERA_ONE_ALLOW_EGRESS;
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/export-docs/ai/auto-fill",
+      headers: { cookie },
+      payload: {
+        destinationCountry: "EU",
+        salesOrder: { destinationCountry: "EU", incoterm: "CIF", currency: "EUR", lines: [{ productId: "p1", description: "Grapes", quantity: 500, unitPrice: 2.5, uom: "kg" }] },
+        productMaster: [{ id: "p1", name: "Grapes (white)", hsCode: "0806", uom: "kg" }]
+      }
+    });
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const body = res.json();
+    assert.ok(body.sourceCitations.find(c => c.id === "am-customs-code"));
+    assert.ok(body.sourceCitations.find(c => c.id === "eaeu-tech-regs"));
+    assert.strictEqual(body.draft.destinationCountry, "EU");
+    assert.strictEqual(body.draft.lines[0].hsCode, "0806");
+  } finally {
+    await app.close();
+  }
+});
+
+test("AI validate flags missing HS code on a line", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const create = await app.inject({
+      method: "POST", url: "/api/export-docs", headers: { cookie },
+      payload: {
+        kind: "invoice", destinationCountry: "EU", incoterm: "CIF", currency: "EUR",
+        lines: [{ description: "Mystery fruit", quantity: 10, uom: "kg", unitPrice: 1.0 }],
+        idempotencyKey: "k-validate-1"
+      }
+    });
+    const id = create.json().exportDoc.id;
+    const v = await app.inject({
+      method: "POST", url: "/api/export-docs/ai/validate", headers: { cookie },
+      payload: { exportDocId: id }
+    });
+    assert.strictEqual(v.statusCode, 200, v.body);
+    const issues = v.json().issues;
+    assert.ok(issues.find(i => i.message.includes("HS code")));
+  } finally {
+    await app.close();
+  }
+});
+
+test("AI country-check returns required certificates for AE", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const res = await app.inject({
+      method: "GET", url: "/api/export-docs/ai/country-check?country=AE&productId=demo-meat", headers: { cookie }
+    });
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const body = res.json();
+    assert.ok(body.pack.requiredCertificates.includes("vet"));
+    assert.ok(body.citations.find(c => c.id === "rules-AE"));
+  } finally {
+    await app.close();
+  }
+});
