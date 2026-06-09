@@ -116,11 +116,11 @@ test("cfo module math: liquidity forecast is deterministic and flags cash gap", 
   const out = cfo.forecastLiquidity({
     openingAmd: 800_000,
     expectedWeeklyInflow: [400_000, 100_000, 0, 0],
-    expectedWeeklyOutflow: [300_000, 350_000, 200_000, 200_000]
+    expectedWeeklyOutflow: [300_000, 500_000, 400_000, 200_000]  // ins=500k, outs=1400k, opening=800k → end=-100k, min=-100k, gap=true
   });
   assert.strictEqual(out.weeks.length, 4);
   assert.ok(out.cashGapDetected === true);
-  assert.strictEqual(out.minBalanceAmd, 50_000);
+  assert.strictEqual(out.minBalanceAmd, -100_000);
   assert.strictEqual(out.aiSource, "local-deterministic");
 });
 

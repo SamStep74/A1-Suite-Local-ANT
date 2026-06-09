@@ -18,6 +18,7 @@ import { InventoryWorkspacePanel } from "./inventory.jsx";
 import { WarehousePanel } from "./warehouse.jsx";
 import { PurchaseWorkspacePanel } from "./purchase.jsx";
 import { ProcurementExtensionPanel } from "./procurement.jsx";
+import { CfoPanel } from "./cfo.jsx";
 import { loadOr } from "./load-section.js";
 import { loadAuditForRole } from "./audit-access.js";
 import {
@@ -4540,6 +4541,15 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               <CreateTicketForm customers={serviceConsole.customers} onCreate={createTicket} actionState={actionState} />
               <DeskTicketList data={serviceConsole} onUpdate={updateTicket} actionState={actionState} />
             </>
+          )}
+          {assignedAppIds.includes("cfo") && (
+            <div id="suite-app-cfo" className="suite-app-anchor">
+              <CfoPanel
+                onApi={api}
+                actionState={actionState}
+                canEdit={["Owner", "Admin", "Accountant"].includes(suite.user.role)}
+              />
+            </div>
           )}
           <div id="suite-app-flow" className="suite-app-anchor">
             <ApprovalQueue
