@@ -3336,9 +3336,32 @@ function registerApi(app, db, options = {}) {
     }
     const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
     if (existing) return JSON.parse(existing.response_json);
-    // The hub's dispatch() owns PII scrubbing internally — adapters see
-    // cleartext to validate the format, and the hub runs redactPII before
-    // writing any audit row. This is the single point of audit-row ownership.
+    // Per-table redaction policy for the state-int hub:
+    //   * state_integration_calls        — request_json + response_json are
+    //                                      redacted by hub.redactPII() before
+    //                                      INSERT (full 256-bit salted HMAC).
+    //   * state_signatures               — signer_id_hash is the unsalted
+    //                                      SHA-256 of the idNumber claim
+    //                                      (deterministic so an investigator
+    //                                      can join two signatures by the
+    //                                      same signer). signature_b64 +
+    //                                      certificate_thumbprint are stored
+    //                                      cleartext — they are cryptographic
+    //                                      evidence, not PII.
+    //   * state_id_verifications         — subject_id is stored cleartext
+    //                                      because the operator's whole point
+    //                                      of the call is "look up this
+    //                                      specific idNumber". claims_json is
+    //                                      the empty object in test mode
+    //                                      (the fail-closed stub fabricates
+    //                                      no identity claims).
+    //   * idempotency_keys              — the full response envelope is
+    //                                      cached verbatim so a replay
+    //                                      returns byte-identical bytes
+    //                                      (this is the whole point of
+    //                                      idempotency). Treat the table
+    //                                      contents as cleartext PII and
+    //                                      restrict row-level access.
     const result = await stateInt.dispatch({
       db, orgId: user.org_id, userId: user.id, adapter, operation, input: body
     });
