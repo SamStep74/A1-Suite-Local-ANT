@@ -3507,12 +3507,14 @@ function registerApi(app, db, options = {}) {
   app.get("/api/fleet/vehicles/:id/cold-chain-compliance", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "fleet");
+    const veh = db.prepare("SELECT id, org_id FROM fleet_vehicles WHERE id = ?").get(request.params.id);
+    if (!veh || veh.org_id !== user.org_id) { const e = new Error("vehicle not found"); e.statusCode = 404; throw e; }
     const tripId = String(request.query.tripId || "");
     const category = String(request.query.category || "default");
     const rows = db.prepare("SELECT recorded_at AS recordedAt, temp_c AS tempC FROM fleet_cold_chain_logs WHERE vehicle_id = ? AND (? = '' OR trip_id = ?) ORDER BY recorded_at ASC")
-      .all(request.params.id, tripId, tripId);
+      .all(veh.id, tripId, tripId);
     const report = fleet.coldChainCompliance(rows, { category, maxMinutesOutOfRange: (coldChainRules[category] || coldChainRules.default).maxMinutesOutOfRange });
-    return { ok: true, vehicleId: request.params.id, tripId: tripId || null, category, report };
+    return { ok: true, vehicleId: veh.id, tripId: tripId || null, category, report };
   });
 
   app.get("/api/fleet/analytics/fuel-efficiency", async request => {
