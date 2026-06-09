@@ -1,0 +1,9 @@
+{
+  "country": "EAEU",
+  "version": "1.0",
+  "language": "ru",
+  "requiredCertificates": ["coo", "invoice", "packing", "tir"],
+  "commonHsPrefixes": ["1701", "2204", "0407"],
+  "documentOrder": ["invoice", "packing", "tir", "coo"],
+  "notes": "ЕАЭС — единый таможенный режим, требуется TIR или CMR."
+}

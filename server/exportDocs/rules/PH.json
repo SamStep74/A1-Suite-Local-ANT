@@ -1,0 +1,9 @@
+{
+  "country": "PH",
+  "version": "1.0",
+  "language": "en",
+  "requiredCertificates": ["invoice", "packing", "coo", "phyto"],
+  "commonHsPrefixes": ["0803", "0806", "2009"],
+  "documentOrder": ["invoice", "packing", "coo", "phyto"],
+  "notes": "Philippines — BPI import clearance required for plant products; phyto cert mandatory."
+}

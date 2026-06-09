@@ -1,0 +1,9 @@
+{
+  "country": "EU",
+  "version": "1.0",
+  "language": "en",
+  "requiredCertificates": ["invoice", "packing", "coo", "phyto"],
+  "commonHsPrefixes": ["0806", "0702", "2009"],
+  "documentOrder": ["invoice", "packing", "coo", "phyto"],
+  "notes": "EU — phyto required for fresh produce; check TRACES for animal products."
+}

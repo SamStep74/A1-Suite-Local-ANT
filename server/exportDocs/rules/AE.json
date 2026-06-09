@@ -1,0 +1,9 @@
+{
+  "country": "AE",
+  "version": "1.0",
+  "language": "en",
+  "requiredCertificates": ["invoice", "packing", "coo", "vet"],
+  "commonHsPrefixes": ["0201", "0207", "0407"],
+  "documentOrder": ["invoice", "coo", "vet", "packing"],
+  "notes": "UAE — veterinary certificate required for meat and dairy; attested by MoCCAE."
+}

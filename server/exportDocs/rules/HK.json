@@ -1,0 +1,9 @@
+{
+  "country": "HK",
+  "version": "1.0",
+  "language": "en",
+  "requiredCertificates": ["invoice", "packing", "coo"],
+  "commonHsPrefixes": ["0806", "2204", "1701"],
+  "documentOrder": ["invoice", "packing", "coo"],
+  "notes": "Hong Kong — free port, no customs duties; certificate of origin suffices for most categories."
+}

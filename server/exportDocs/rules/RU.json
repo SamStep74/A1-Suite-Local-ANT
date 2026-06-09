@@ -1,0 +1,9 @@
+{
+  "country": "RU",
+  "version": "1.0",
+  "language": "ru",
+  "requiredCertificates": ["coo", "invoice", "packing"],
+  "commonHsPrefixes": ["0702", "0803", "2009"],
+  "documentOrder": ["invoice", "packing", "cmr", "coo"],
+  "notes": "Россия — требуется сертификат происхождения и фито для растительной продукции."
+}
