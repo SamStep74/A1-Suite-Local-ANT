@@ -265,6 +265,7 @@ function openDatabase(dbPath) {
   ensurePurchaseLayer(db);
   ensureMarketingLayer(db);
   ensureAnalyticsLayer(db);
+  ensureAssetLayer(db);
   ensureMoneyPrecisionMigration(db);
   return db;
 }
@@ -7919,6 +7920,83 @@ function ensureMarketingLayer(db) {
   for (const org of orgs) {
     const campaignCount = db.prepare("SELECT COUNT(*) AS count FROM marketing_campaigns WHERE org_id = ?").get(org.id).count;
     if (campaignCount === 0) seedMarketingCampaigns(db, org.id);
+  }
+}
+
+function ensureAssetLayer(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS asset_categories (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      default_useful_life_months INTEGER NOT NULL,
+      default_depreciation_method TEXT NOT NULL,
+      default_residual_pct REAL NOT NULL,
+      asset_account_id TEXT NOT NULL,
+      accum_depr_account_id TEXT NOT NULL,
+      depr_expense_account_id TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS assets (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      category_id TEXT NOT NULL REFERENCES asset_categories(id) ON DELETE RESTRICT,
+      name TEXT NOT NULL,
+      serial TEXT,
+      purchase_date TEXT NOT NULL,
+      purchase_cost_amd INTEGER NOT NULL,
+      vendor_id TEXT,
+      current_location_id TEXT,
+      status TEXT NOT NULL DEFAULT 'active',
+      salvage_value_amd INTEGER NOT NULL DEFAULT 0,
+      parent_asset_id TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS asset_depreciation_schedules (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+      period_key TEXT NOT NULL,
+      depreciation_amd INTEGER NOT NULL,
+      accumulated_amd INTEGER NOT NULL,
+      net_book_value_amd INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'scheduled',
+      posted_at TEXT,
+      UNIQUE (asset_id, period_key)
+    );
+    CREATE TABLE IF NOT EXISTS asset_maintenance_logs (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+      performed_at TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      cost_amd INTEGER NOT NULL DEFAULT 0,
+      vendor_id TEXT,
+      notes TEXT,
+      file_id TEXT,
+      next_due_at TEXT
+    );
+    CREATE TABLE IF NOT EXISTS asset_assignments (
+      id TEXT PRIMARY KEY,
+      asset_id TEXT NOT NULL REFERENCES assets(id) ON DELETE CASCADE,
+      assignee_type TEXT NOT NULL,
+      assignee_id TEXT NOT NULL,
+      assigned_at TEXT NOT NULL,
+      returned_at TEXT,
+      signature_doc_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_assets_org ON assets(org_id);
+    CREATE INDEX IF NOT EXISTS idx_asset_depr_asset ON asset_depreciation_schedules(asset_id);
+    CREATE INDEX IF NOT EXISTS idx_asset_maint_asset ON asset_maintenance_logs(asset_id);
+    CREATE INDEX IF NOT EXISTS idx_asset_assign_asset ON asset_assignments(asset_id);
+  `);
+  // Seed app_assignments for the "assets" app id so Owner/Admin/Accountant/Operator
+  // can access the new module without expanding the visible 13-app list.
+  const orgs = db.prepare("SELECT id FROM organizations").all();
+  const seed = db.prepare("INSERT OR IGNORE INTO app_assignments (org_id, role, app_id, enabled) VALUES (?, ?, ?, 1)");
+  for (const org of orgs) {
+    seed.run(org.id, "Owner", "assets");
+    seed.run(org.id, "Admin", "assets");
+    seed.run(org.id, "Accountant", "assets");
+    seed.run(org.id, "Operator", "assets");
   }
 }
 
