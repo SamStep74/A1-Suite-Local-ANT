@@ -46,24 +46,28 @@ async function prepare({ requestId, input }) {
 }
 
 async function send({ requestId }) {
+  if (process.env.STATE_INTEGRATION_MODE === "production") {
+    throw new Error("customs send() is a test stub; production EKENG submission not yet implemented");
+  }
   return {
     requestId,
     status: "sent",
     providerRef: `EKENG-${crypto.randomBytes(6).toString("hex").toUpperCase()}`,
-    acceptedAt: new Date().toISOString()
+    acceptedAt: new Date().toISOString(),
+    advisoryOnly: true
   };
 }
 
-async function fetchStatus({ providerRef }) {
-  return { providerRef, status: "in_review", lastCheckedAt: new Date().toISOString() };
+async function fetchStatus({ providerRef, orgId }) {
+  return { providerRef, orgId: orgId || null, status: "unknown", lastCheckedAt: new Date().toISOString(), advisoryOnly: true };
 }
 
-async function cancel({ requestId }) {
-  return { requestId, status: "cancelled" };
+async function cancel({ requestId, orgId }) {
+  return { requestId, orgId: orgId || null, status: "cancelled", advisoryOnly: true };
 }
 
 async function verifySignature() {
-  return { verified: true, certificate: null, evidence: null };
+  return { verified: false, mode: "test", advisoryOnly: true, certificate: null, evidence: null };
 }
 
 module.exports = { prepare, send, fetchStatus, cancel, verifySignature };

@@ -23,30 +23,32 @@ async function prepare({ requestId, input }) {
   return { requestId, payload: { subjectId: input.subjectId }, status: "prepared" };
 }
 
-async function send({ requestId }) {
+async function send({ requestId, input }) {
+  if (process.env.STATE_INTEGRATION_MODE === "production") {
+    throw new Error("idCard send() is a test stub; production verification not yet implemented");
+  }
+  // Stub: do NOT echo back any identity claims. The hub stores the request
+  // hash; the real claims only come from a Ministry of Justice cert handshake.
   return {
     requestId,
     status: "sent",
     providerRef: `IDCARD-${crypto.randomBytes(6).toString("hex").toUpperCase()}`,
-    claims: {
-      fullName: "Test User",
-      dateOfBirth: "1990-01-01",
-      nationality: "AM",
-      documentNumber: "AN1234567"
-    }
+    claims: null,
+    advisoryOnly: true,
+    requestedSubjectId: input && input.subjectId ? String(input.subjectId) : null
   };
 }
 
-async function fetchStatus({ providerRef }) {
-  return { providerRef, status: "completed", lastCheckedAt: new Date().toISOString() };
+async function fetchStatus({ providerRef, orgId }) {
+  return { providerRef, orgId: orgId || null, status: "unknown", lastCheckedAt: new Date().toISOString(), advisoryOnly: true };
 }
 
-async function cancel({ requestId }) {
-  return { requestId, status: "cancelled" };
+async function cancel({ requestId, orgId }) {
+  return { requestId, orgId: orgId || null, status: "cancelled", advisoryOnly: true };
 }
 
 async function verifySignature() {
-  return { verified: true, certificate: null, evidence: null };
+  return { verified: false, mode: "test", advisoryOnly: true, certificate: null, evidence: null };
 }
 
 module.exports = { prepare, send, fetchStatus, cancel, verifySignature };

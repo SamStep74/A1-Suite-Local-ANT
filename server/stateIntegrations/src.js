@@ -37,7 +37,8 @@ async function prepare({ requestId, input }) {
       period: input.period,
       netAmount: Number(input.netAmount),
       vatRate: Number(input.vatRate || 0),
-      vatAmount: Number((input.netAmount * (input.vatRate || 0) / 100).toFixed(2)),
+      vatAmount: Math.round(Number(input.netAmount) * Number(input.vatRate || 0)), // integer minor units (cents/dram)
+      vatAmountMajor: Math.round(Number(input.netAmount) * Number(input.vatRate || 0)) / 100, // display, 2-decimal rounded
       preparedAt: new Date().toISOString()
     },
     status: "prepared"
@@ -45,24 +46,28 @@ async function prepare({ requestId, input }) {
 }
 
 async function send({ requestId }) {
+  if (process.env.STATE_INTEGRATION_MODE === "production") {
+    throw new Error("src send() is a test stub; production SRC submission not yet implemented");
+  }
   return {
     requestId,
     status: "sent",
     providerRef: `SRC-${crypto.randomBytes(6).toString("hex").toUpperCase()}`,
-    acceptedAt: new Date().toISOString()
+    acceptedAt: new Date().toISOString(),
+    advisoryOnly: true
   };
 }
 
-async function fetchStatus({ providerRef }) {
-  return { providerRef, status: "accepted", lastCheckedAt: new Date().toISOString() };
+async function fetchStatus({ providerRef, orgId }) {
+  return { providerRef, orgId: orgId || null, status: "unknown", lastCheckedAt: new Date().toISOString(), advisoryOnly: true };
 }
 
-async function cancel({ requestId }) {
-  return { requestId, status: "cancelled" };
+async function cancel({ requestId, orgId }) {
+  return { requestId, orgId: orgId || null, status: "cancelled", advisoryOnly: true };
 }
 
 async function verifySignature() {
-  return { verified: true, certificate: null, evidence: null };
+  return { verified: false, mode: "test", advisoryOnly: true, certificate: null, evidence: null };
 }
 
 module.exports = { prepare, send, fetchStatus, cancel, verifySignature };

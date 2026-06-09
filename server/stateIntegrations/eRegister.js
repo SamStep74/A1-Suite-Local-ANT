@@ -31,30 +31,33 @@ async function prepare({ requestId, input }) {
 }
 
 async function send({ requestId, payload }) {
+  if (process.env.STATE_INTEGRATION_MODE === "production") {
+    throw new Error("eRegister send() is a test stub; production SRLE lookup not yet implemented");
+  }
+  // SECURITY: do NOT echo back a fake legal-entity record. Production must hit
+  // the real e-register.am endpoint. The stub only records that a lookup was
+  // attempted for the validated taxId; downstream code must treat record=null
+  // as "no real lookup performed".
   return {
     requestId,
     status: "sent",
     providerRef: `SRLE-${crypto.randomBytes(6).toString("hex").toUpperCase()}`,
-    record: {
-      taxId: payload.taxId,
-      legalName: "Փորձնական ՍՊԸ (Test LLC)",
-      status: "ACTIVE",
-      registeredOn: "2018-04-12",
-      address: "Երևան, Աբովյան 1"
-    }
+    record: null,
+    advisoryOnly: true,
+    requestedTaxId: payload.taxId
   };
 }
 
-async function fetchStatus({ providerRef }) {
-  return { providerRef, status: "completed", lastCheckedAt: new Date().toISOString() };
+async function fetchStatus({ providerRef, orgId }) {
+  return { providerRef, orgId: orgId || null, status: "unknown", lastCheckedAt: new Date().toISOString(), advisoryOnly: true };
 }
 
-async function cancel({ requestId }) {
-  return { requestId, status: "cancelled" };
+async function cancel({ requestId, orgId }) {
+  return { requestId, orgId: orgId || null, status: "cancelled", advisoryOnly: true };
 }
 
 async function verifySignature() {
-  return { verified: true, certificate: null, evidence: null };
+  return { verified: false, mode: "test", advisoryOnly: true, certificate: null, evidence: null };
 }
 
 module.exports = { prepare, send, fetchStatus, cancel, verifySignature };
