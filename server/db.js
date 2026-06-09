@@ -7153,6 +7153,112 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_audit_export_packets_org
       ON audit_export_packets(org_id, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS budgets (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      period_key TEXT NOT NULL,
+      currency TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_budgets_org_period
+      ON budgets(org_id, period_key, status);
+
+    CREATE TABLE IF NOT EXISTS budget_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      budget_id TEXT NOT NULL REFERENCES budgets(id) ON DELETE CASCADE,
+      account_id TEXT NOT NULL,
+      planned_amount INTEGER NOT NULL DEFAULT 0,
+      actual_cache_amount INTEGER NOT NULL DEFAULT 0,
+      last_synced_at TEXT
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_budget_lines_budget
+      ON budget_lines(org_id, budget_id);
+
+    CREATE TABLE IF NOT EXISTS treasury_accounts (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      currency TEXT NOT NULL,
+      bank_name TEXT NOT NULL,
+      account_number_masked TEXT NOT NULL,
+      balance_cache INTEGER NOT NULL DEFAULT 0,
+      last_synced_at TEXT,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_treasury_accounts_org
+      ON treasury_accounts(org_id, currency);
+
+    CREATE TABLE IF NOT EXISTS fx_positions (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      currency TEXT NOT NULL,
+      amount INTEGER NOT NULL,
+      rate_to_amd REAL NOT NULL,
+      source TEXT NOT NULL,
+      as_of TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_fx_positions_org
+      ON fx_positions(org_id, as_of DESC);
+
+    CREATE TABLE IF NOT EXISTS loans (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      lender TEXT NOT NULL,
+      principal_amd INTEGER NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      rate_pct REAL NOT NULL,
+      term_months INTEGER NOT NULL,
+      start_date TEXT NOT NULL,
+      schedule_kind TEXT NOT NULL DEFAULT 'annuity',
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_loans_org_status
+      ON loans(org_id, status);
+
+    CREATE TABLE IF NOT EXISTS loan_schedules (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      loan_id TEXT NOT NULL REFERENCES loans(id) ON DELETE CASCADE,
+      period_key TEXT NOT NULL,
+      principal_due INTEGER NOT NULL,
+      interest_due INTEGER NOT NULL,
+      balance_after INTEGER NOT NULL,
+      status TEXT NOT NULL DEFAULT 'planned'
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_loan_schedules_loan
+      ON loan_schedules(org_id, loan_id, period_key);
+
+    CREATE TABLE IF NOT EXISTS cash_flow_forecasts (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      scenario TEXT NOT NULL DEFAULT 'base',
+      period_key TEXT NOT NULL,
+      opening_amd INTEGER NOT NULL,
+      expected_inflow_amd INTEGER NOT NULL,
+      expected_outflow_amd INTEGER NOT NULL,
+      closing_amd INTEGER NOT NULL,
+      generated_at TEXT NOT NULL,
+      ai_source TEXT NOT NULL DEFAULT 'local-deterministic',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_cash_flow_forecasts_org
+      ON cash_flow_forecasts(org_id, scenario, period_key);
+
     CREATE TABLE IF NOT EXISTS tenant_backup_packets (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -7278,7 +7384,8 @@ function seedIfEmpty(db) {
     ["people", "People", "HR", "Employee directory, onboarding, app access, leave-lite, and payroll handoff.", "/app/people", "new", 9],
     ["docs", "Docs & Sign", "Documents", "Templates, contracts, signatures, signed archive, and customer documents.", "/app/docs", "new", 10],
     ["analytics", "Analytics", "BI", "Cross-app dashboards, revenue, receivables, service, and automation KPIs.", "/app/analytics", "partial", 11],
-    ["flow", "Flow & Creator", "Automation", "Event bus, rules, custom fields, custom modules, and applets.", "/app/flow", "partial", 12]
+    ["flow", "Flow & Creator", "Automation", "Event bus, rules, custom fields, custom modules, and applets.", "/app/flow", "partial", 12],
+    ["cfo", "CFO Console", "Finance", "Cash flow, budget, treasury, FX exposure, loans, and AI forecasts for the CFO role.", "/app/cfo", "new", 13]
   ];
   const insertApp = db.prepare("INSERT INTO apps (id, name, category, description, route, maturity, priority) VALUES (?, ?, ?, ?, ?, ?, ?)");
   for (const app of apps) insertApp.run(...app);
@@ -7287,11 +7394,14 @@ function seedIfEmpty(db) {
   for (const role of ["Owner", "Admin"]) {
     for (const app of apps) insertAssignment.run(orgId, role, app[0], 1);
   }
-  for (const appId of ["crm", "finance", "desk", "campaigns", "projects", "inventory", "purchase", "analytics"]) {
+  for (const appId of ["crm", "finance", "desk", "campaigns", "projects", "inventory", "purchase", "analytics", "cfo"]) {
     insertAssignment.run(orgId, "Operator", appId, 1);
   }
-  for (const appId of ["crm", "desk", "docs"]) {
+  for (const appId of ["crm", "desk", "docs", "cfo"]) {
     insertAssignment.run(orgId, "Support", appId, 1);
+  }
+  for (const appId of ["finance", "cfo"]) {
+    insertAssignment.run(orgId, "Accountant", appId, 1);
   }
 
   const insertEmployee = db.prepare(`

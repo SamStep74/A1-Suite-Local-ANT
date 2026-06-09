@@ -81,7 +81,7 @@ test("owner login loads organization, app launcher, localization, and audit", as
     const body = response.json();
     assert.equal(body.organization.currency, "AMD");
     assert.equal(body.organization.locale, "hy-AM");
-    assert.equal(body.apps.length, 12);
+    assert.equal(body.apps.length, 13);
     assert.ok(body.apps.some(app => app.id === "finance"));
     assert.ok(body.apps.some(app => app.id === "copilot"));
     assert.ok(body.apps.some(app => app.id === "inventory"));
@@ -245,14 +245,14 @@ test("role-based app entitlements hide finance from support users", async () => 
     const response = await app.inject({ method: "GET", url: "/api/suite", headers: { cookie } });
     assert.equal(response.statusCode, 200, response.body);
     const apps = response.json().apps.map(app => app.id);
-    assert.deepEqual(apps, ["crm", "desk", "docs"]);
+    assert.deepEqual(apps, ["crm", "desk", "docs", "cfo"]);
   });
 });
 
 test("expanded Armenia SaaS roles receive least-privilege app entitlements", async () => {
   await withApp(async app => {
     const roles = [
-      ["accountant@armosphera.local", "Accountant", ["finance", "copilot", "inventory", "purchase", "docs", "analytics"]],
+      ["accountant@armosphera.local", "Accountant", ["finance", "copilot", "inventory", "purchase", "docs", "analytics", "cfo"]],
       ["lawyer@armosphera.local", "Lawyer", ["copilot", "docs", "analytics"]],
       ["sales@armosphera.local", "Salesperson", ["crm", "copilot", "campaigns", "docs", "analytics"]],
       ["service.manager@armosphera.local", "Service Manager", ["crm", "copilot", "desk", "docs", "analytics", "flow"]],
