@@ -5985,6 +5985,8 @@ ${controls}
     const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
     if (existing) return JSON.parse(existing.response_json);
     const built = greenhouse.buildZone(body);
+    const house = db.prepare("SELECT id FROM greenhouses WHERE id = ? AND org_id = ?").get(built.greenhouseId, user.org_id);
+    if (!house) { const e = new Error("greenhouse not found"); e.statusCode = 404; throw e; }
     const id = randomId("zone");
     db.prepare(`INSERT INTO greenhouse_zones (id, greenhouse_id, name, area_m2, irrigation_kind, created_at)
                 VALUES (?, ?, ?, ?, ?, ?)`).run(
@@ -6007,6 +6009,12 @@ ${controls}
     const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
     if (existing) return JSON.parse(existing.response_json);
     const built = greenhouse.buildCrop(body);
+    const zone = db.prepare(`
+      SELECT z.id FROM greenhouse_zones z
+      JOIN greenhouses g ON g.id = z.greenhouse_id
+      WHERE z.id = ? AND g.org_id = ?
+    `).get(built.zoneId, user.org_id);
+    if (!zone) { const e = new Error("zone not found"); e.statusCode = 404; throw e; }
     const id = randomId("crop");
     db.prepare(`INSERT INTO greenhouse_crops (id, zone_id, crop_kind, planted_at, expected_harvest_at, expected_yield_kg, seed_source, status)
                 VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
@@ -6029,7 +6037,12 @@ ${controls}
     if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
     const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
     if (existing) return JSON.parse(existing.response_json);
-    const crop = db.prepare("SELECT * FROM greenhouse_crops WHERE id = ?").get(cropId);
+    const crop = db.prepare(`
+      SELECT c.* FROM greenhouse_crops c
+      JOIN greenhouse_zones z ON z.id = c.zone_id
+      JOIN greenhouses g ON g.id = z.greenhouse_id
+      WHERE c.id = ? AND g.org_id = ?
+    `).get(cropId, user.org_id);
     if (!crop) { const e = new Error("crop not found"); e.statusCode = 404; throw e; }
     const updated = greenhouse.patchCropStatus({ currentStatus: crop.status, nextStatus: body.status });
     db.prepare("UPDATE greenhouse_crops SET status = ? WHERE id = ?").run(updated.status, cropId);
@@ -6118,7 +6131,12 @@ ${controls}
     if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
     const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
     if (existing) return JSON.parse(existing.response_json);
-    const crop = db.prepare("SELECT * FROM greenhouse_crops WHERE id = ?").get(body.cropId);
+    const crop = db.prepare(`
+      SELECT c.* FROM greenhouse_crops c
+      JOIN greenhouse_zones z ON z.id = c.zone_id
+      JOIN greenhouses g ON g.id = z.greenhouse_id
+      WHERE c.id = ? AND g.org_id = ?
+    `).get(body.cropId, user.org_id);
     if (!crop) { const e = new Error("crop not found"); e.statusCode = 404; throw e; }
     const logs = db.prepare("SELECT * FROM greenhouse_bioprotection_logs WHERE zone_id = ?").all(crop.zone_id);
     greenhouse.enforceWithdrawalPeriod({ bioprotectionLogs: logs, zoneId: crop.zone_id, harvestDate: body.harvestedAt });
