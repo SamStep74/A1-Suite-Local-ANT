@@ -20,6 +20,7 @@ import { WarehousePanel } from "./warehouse.jsx";
 import { PurchaseWorkspacePanel } from "./purchase.jsx";
 import { ProcurementExtensionPanel } from "./procurement.jsx";
 import { CfoPanel } from "./cfo.jsx";
+import { AssetsPanel } from "./assets.jsx";
 import { loadOr } from "./load-section.js";
 import { loadAuditForRole } from "./audit-access.js";
 import {
@@ -4553,6 +4554,11 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
                 actionState={actionState}
                 canEdit={["Owner", "Admin", "Accountant"].includes(suite.user.role)}
               />
+            </div>
+          )}
+          {["Owner", "Admin", "Accountant", "Operator"].includes(suite.user.role) && (
+            <div id="suite-app-assets" className="suite-app-anchor">
+              <AssetsPanel api={api} actionState={actionState} />
             </div>
           )}
           <div id="suite-app-flow" className="suite-app-anchor">
