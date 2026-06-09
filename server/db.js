@@ -7718,11 +7718,14 @@ function ensureFinanceLayer(db) {
   // block AP-reversal postings into closed months without forcing the full finance close flow.
   db.exec(`
     CREATE TABLE IF NOT EXISTS period_locks (
+      id TEXT,
       org_id TEXT NOT NULL,
-      period TEXT NOT NULL,
+      period TEXT,
+      period_key TEXT,
+      status TEXT NOT NULL DEFAULT 'closed',
+      reason TEXT,
       locked_at TEXT NOT NULL,
-      locked_by_user_id TEXT,
-      PRIMARY KEY (org_id, period)
+      locked_by_user_id TEXT
     );
   `);
   const orgs = db.prepare("SELECT id FROM organizations").all();

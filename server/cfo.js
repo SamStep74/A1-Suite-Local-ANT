@@ -108,7 +108,13 @@ function amortizeLoan({ principalAmd, ratePct, termMonths, startDate, kind }) {
   for (let i = 0; i < n; i++) {
     const interestDue = Math.round(balance * rate);
     let principalDue = payment - interestDue;
-    if (i === n - 1) principalDue = balance;
+    if (i === n - 1) {
+      // Last row: pay off the remaining balance; keep total payment constant.
+      principalDue = balance;
+      balance = 0;
+      rows.push({ periodKey: addMonths(startDate, i), principalDue, interestDue: Math.max(0, payment - principalDue), balanceAfter: 0 });
+      continue;
+    }
     balance = Math.max(0, balance - principalDue);
     rows.push({ periodKey: addMonths(startDate, i), principalDue, interestDue, balanceAfter: balance });
   }
@@ -141,15 +147,16 @@ function forecastLiquidity({ openingAmd, expectedWeeklyInflow, expectedWeeklyOut
 
 function analyzeFxRisk({ positions }) {
   const list = Array.isArray(positions) ? positions : [];
-  const totalAbsAmd = list.reduce((s, p) => s + Math.abs(Math.round((p.net || 0) * (p.rateToAmd || 0))), 0);
+  const totalAbsAmd = list.reduce((s, p) => s + Math.abs(Math.round(Number(p.netAmd != null ? p.netAmd : ((p.net || 0) * (p.rateToAmd || 0))))), 0);
   let riskLevel = "low";
   if (totalAbsAmd > 20_000_000) riskLevel = "high";
   else if (totalAbsAmd > 5_000_000) riskLevel = "medium";
-  const top = [...list].sort((a, b) => Math.abs(b.netAmd || 0) - Math.abs(a.netAmd || 0))[0];
+  const top = [...list].sort((a, b) => Math.abs(Number(b.netAmd != null ? b.netAmd : ((b.net || 0) * (b.rateToAmd || 0)))) - Math.abs(Number(a.netAmd != null ? a.netAmd : ((a.net || 0) * (a.rateToAmd || 0)))))[0];
+  const topAmd = top ? Math.round(Number(top.netAmd != null ? top.netAmd : ((top.net || 0) * (top.rateToAmd || 0)))) : 0;
   return {
     riskLevel,
     totalAbsExposureAmd: totalAbsAmd,
-    suggestion: top ? `${top.currency} բաց պոզիցիան գերազանցում է շեշտված շեմը (${top.netAmd} AMD)։ Հաշվի՛ր հեջավորում։` : "Բաց պոզիցիաները շեմից ցածր են։",
+    suggestion: top ? `${top.currency} բաց պոզիցիան գերազանցում է շեշտված շեմը (${topAmd} AMD)։ Հաշվի՛ր հեջավորում։` : "Բաց պոզիցիաները շեմից ցածր են։",
     aiSource: "local-deterministic"
   };
 }
@@ -165,7 +172,7 @@ function analyzeDebtLoad({ loans, monthlyFreeCashflowAmd }) {
   }, 0);
   const ratio = fcf > 0 ? monthlyService / fcf : Number.POSITIVE_INFINITY;
   let stressRating = "comfortable";
-  if (!Number.isFinite(ratio) || ratio > 2) stressRating = "danger";
+  if (!Number.isFinite(ratio) || ratio > 3) stressRating = "danger";
   else if (ratio > DEBT_STRESSED_THRESHOLD) stressRating = "stretched";
   return { totalPrincipalAmd: totalPrincipal, monthlyServiceAmd: monthlyService, monthlyFreeCashflowAmd: fcf, serviceRatio: Number.isFinite(ratio) ? Number(ratio.toFixed(2)) : null, stressRating, aiSource: "local-deterministic" };
 }

@@ -131,6 +131,8 @@ const hr = require("./hr");
 const hrAi = require("./hrAi");
 const HR_TEMPLATES_DIR = path.join(__dirname, "hr", "templates");
 const copilot = require("./copilot");
+const cfo = require("./cfo");
+const cfoAi = require("./cfoAi");
 const vatReturn = require("./vatReturn");
 const locale = require("./locale");
 const healthcheck = require("./healthcheck");
@@ -4848,6 +4850,276 @@ ${controls}
     });
   });
 
+  // --- CFO module: 14 routes ---------------------------------------------
+  const insertIdem = db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)");
+  function cfoCachedOrRun(user, idemKey, compute) {
+    if (!idemKey) {
+      const err = new Error("idempotencyKey is required");
+      err.statusCode = 400;
+      throw err;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idemKey);
+    if (existing) return JSON.parse(existing.response_json);
+    const envelope = compute();
+    insertIdem.run(randomId("idem"), user.org_id, idemKey, JSON.stringify(envelope), new Date().toISOString());
+    return envelope;
+  }
+  function recordCfoAudit(user, type, entityType, entityId, details) {
+    db.prepare("INSERT INTO audit_events (org_id, user_id, type, details, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(user.org_id, user.id, type, JSON.stringify({ entityType, entityId, ...details }), new Date().toISOString());
+  }
+  function assertPeriodOpen(orgId, periodKey) {
+    const lock = db.prepare("SELECT status FROM period_locks WHERE org_id = ? AND period_key = ? AND status = 'closed'").get(orgId, periodKey);
+    if (lock) {
+      const err = new Error("Period is closed");
+      err.statusCode = 409;
+      throw err;
+    }
+  }
+
+  app.get("/api/cfo/cash-flow", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    const periodKey = String((request.query || {}).periodKey || "").trim();
+    if (!/^\d{4}-\d{2}$/.test(periodKey)) {
+      const err = new Error("periodKey must be YYYY-MM"); err.statusCode = 400; throw err;
+    }
+    const weeks = db.prepare(`
+      SELECT strftime('%Y-W%W', posted_at) AS weekKey,
+             SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS inflow,
+             SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END) AS outflow
+      FROM bank_transactions
+      WHERE org_id = ? AND substr(posted_at, 1, 7) = ?
+      GROUP BY weekKey
+      ORDER BY weekKey
+    `).all(user.org_id, periodKey);
+    const opening = db.prepare(`
+      SELECT COALESCE(SUM(amount), 0) AS opening
+      FROM bank_transactions
+      WHERE org_id = ? AND substr(posted_at, 1, 7) < ?
+    `).get(user.org_id, periodKey).opening;
+    return { ok: true, cashFlow: cfo.computeCashFlow({ openingAmd: opening, weeks }) };
+  });
+
+  app.post("/api/cfo/budgets", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    requireCfoOperator(user);
+    const body = request.body || {};
+    const name = String(body.name || "").trim();
+    const periodKey = String(body.periodKey || "").trim();
+    const currency = String(body.currency || "AMD").trim();
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!name || !periodKey || !/^\d{4}-Q[1-4]$|^\d{4}-\d{2}$/.test(periodKey) || !idem) {
+      const err = new Error("name, periodKey (YYYY-Qn or YYYY-MM), currency, idempotencyKey required");
+      err.statusCode = 400; throw err;
+    }
+    assertPeriodOpen(user.org_id, periodKey);
+    return cfoCachedOrRun(user, idem, () => {
+      const id = randomId("budget");
+      const now = new Date().toISOString();
+      db.prepare("INSERT INTO budgets (id, org_id, name, period_key, currency, status, created_at, created_by_user_id) VALUES (?, ?, ?, ?, ?, 'active', ?, ?)")
+        .run(id, user.org_id, name, periodKey, currency, now, user.id);
+      recordCfoAudit(user, "cfo.budget.create", "budget", id, { name, periodKey, currency, idempotencyKey: idem });
+      return { ok: true, budget: { id, name, periodKey, currency, status: "active", createdAt: now } };
+    });
+  });
+
+  app.patch("/api/cfo/budgets/:id/lines", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    requireCfoOperator(user);
+    const budgetId = String(request.params.id || "").trim();
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!budgetId || !idem || !Array.isArray(body.lines)) {
+      const err = new Error("budget id, idempotencyKey, lines[] required");
+      err.statusCode = 400; throw err;
+    }
+    const budget = db.prepare("SELECT id, period_key FROM budgets WHERE id = ? AND org_id = ?").get(budgetId, user.org_id);
+    if (!budget) { const err = new Error("Budget not found"); err.statusCode = 404; throw err; }
+    assertPeriodOpen(user.org_id, budget.period_key);
+    return cfoCachedOrRun(user, idem, () => {
+      const insertLine = db.prepare("INSERT INTO budget_lines (id, org_id, budget_id, account_id, planned_amount) VALUES (?, ?, ?, ?, ?)");
+      const insertLineTx = db.transaction(lines => {
+        for (const ln of lines) {
+          insertLine.run(randomId("bline"), user.org_id, budgetId, String(ln.accountId), Math.trunc(Number(ln.planned) || 0));
+        }
+      });
+      insertLineTx(body.lines);
+      recordCfoAudit(user, "cfo.budget.lines.upsert", "budget", budgetId, { lineCount: body.lines.length, idempotencyKey: idem });
+      return { ok: true, budgetId, lineCount: body.lines.length };
+    });
+  });
+
+  app.get("/api/cfo/budgets/:id/variance", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    const budgetId = String(request.params.id || "").trim();
+    const lines = db.prepare("SELECT account_id, planned_amount, actual_cache_amount FROM budget_lines WHERE org_id = ? AND budget_id = ?").all(user.org_id, budgetId);
+    return { ok: true, variance: cfo.computeBudgetVariance({ lines: lines.map(l => ({ accountId: l.account_id, planned: l.planned_amount, actual: l.actual_cache_amount })) }) };
+  });
+
+  app.get("/api/cfo/treasury/positions", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    const accounts = db.prepare("SELECT currency, balance_cache FROM treasury_accounts WHERE org_id = ?").all(user.org_id);
+    return { ok: true, treasury: cfo.computeTreasuryPosition({ accounts }) };
+  });
+
+  app.post("/api/cfo/treasury/accounts", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    requireCfoOperator(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!body.name || !body.currency || !body.bankName || !body.accountNumberMasked || !idem) {
+      const err = new Error("name, currency, bankName, accountNumberMasked, idempotencyKey required");
+      err.statusCode = 400; throw err;
+    }
+    return cfoCachedOrRun(user, idem, () => {
+      const id = randomId("treasury");
+      const now = new Date().toISOString();
+      db.prepare("INSERT INTO treasury_accounts (id, org_id, name, currency, bank_name, account_number_masked, balance_cache, created_at) VALUES (?, ?, ?, ?, ?, ?, 0, ?)")
+        .run(id, user.org_id, String(body.name), String(body.currency), String(body.bankName), String(body.accountNumberMasked), now);
+      recordCfoAudit(user, "cfo.treasury.create", "treasury", id, { name: body.name, currency: body.currency, idempotencyKey: idem });
+      return { ok: true, account: { id, name: body.name, currency: body.currency, bankName: body.bankName } };
+    });
+  });
+
+  app.get("/api/cfo/payment-calendar", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    const from = String((request.query || {}).from || "").trim();
+    const to = String((request.query || {}).to || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to)) {
+      const err = new Error("from/to must be YYYY-MM-DD"); err.statusCode = 400; throw err;
+    }
+    const arOpen = db.prepare(`
+      SELECT due_date AS dueDate, total AS amountAmd, id AS source
+      FROM invoices WHERE org_id = ? AND status = 'open' AND due_date BETWEEN ? AND ?
+    `).all(user.org_id, from, to);
+    const apOpen = db.prepare(`
+      SELECT due_date AS dueDate, total AS amountAmd, id AS source
+      FROM bills WHERE org_id = ? AND status = 'open' AND due_date BETWEEN ? AND ?
+    `).all(user.org_id, from, to);
+    const loans = db.prepare(`
+      SELECT period_key AS periodKey, principal_due AS principalDue, interest_due AS interestDue, loan_id AS loanId
+      FROM loan_schedules WHERE org_id = ? AND period_key BETWEEN ? AND ?
+    `).all(user.org_id, from.slice(0, 7), to.slice(0, 7))
+      .map(row => ({ ...row, dueDate: `${row.periodKey}-15` }));
+    return { ok: true, calendar: cfo.buildPaymentCalendar({ arOpen, apOpen, loans }) };
+  });
+
+  app.post("/api/cfo/fx/positions", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    requireCfoOperator(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!body.currency || !Number.isFinite(Number(body.amount)) || !Number.isFinite(Number(body.rateToAmd)) || !body.asOf || !idem) {
+      const err = new Error("currency, amount, rateToAmd, asOf, idempotencyKey required");
+      err.statusCode = 400; throw err;
+    }
+    return cfoCachedOrRun(user, idem, () => {
+      const id = randomId("fxpos");
+      const now = new Date().toISOString();
+      db.prepare("INSERT INTO fx_positions (id, org_id, currency, amount, rate_to_amd, source, as_of, created_at, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(id, user.org_id, String(body.currency), Math.trunc(Number(body.amount)), Number(body.rateToAmd), String(body.source || "manual"), String(body.asOf), now, user.id);
+      recordCfoAudit(user, "cfo.fx.position.create", "fx_position", id, { currency: body.currency, amount: body.amount, idempotencyKey: idem });
+      return { ok: true, position: { id, currency: body.currency, amount: Math.trunc(Number(body.amount)), rateToAmd: Number(body.rateToAmd), asOf: body.asOf } };
+    });
+  });
+
+  app.get("/api/cfo/fx/exposure", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    const positions = db.prepare(`
+      SELECT currency, amount, rate_to_amd AS rateToAmd,
+             ROUND(amount * rate_to_amd, 0) AS netAmd
+      FROM fx_positions WHERE org_id = ?
+    `).all(user.org_id);
+    return { ok: true, exposure: cfo.computeFxExposure({ positions }) };
+  });
+
+  app.post("/api/cfo/loans", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    requireCfoOperator(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    const required = ["lender", "principalAmd", "currency", "ratePct", "termMonths", "startDate", "scheduleKind"];
+    for (const f of required) {
+      if (body[f] === undefined || body[f] === null || body[f] === "") {
+        const err = new Error(`${f} is required`); err.statusCode = 400; throw err;
+      }
+    }
+    if (!idem) { const err = new Error("idempotencyKey required"); err.statusCode = 400; throw err; }
+    const periodKey = String(body.startDate).slice(0, 7);
+    assertPeriodOpen(user.org_id, periodKey);
+    return cfoCachedOrRun(user, idem, () => {
+      const id = randomId("loan");
+      const now = new Date().toISOString();
+      db.prepare("INSERT INTO loans (id, org_id, lender, principal_amd, currency, rate_pct, term_months, start_date, schedule_kind, status, created_at, created_by_user_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?)")
+        .run(id, user.org_id, String(body.lender), Math.trunc(Number(body.principalAmd)), String(body.currency), Number(body.ratePct), Math.trunc(Number(body.termMonths)), String(body.startDate), String(body.scheduleKind), now, user.id);
+      const schedule = cfo.amortizeLoan({ principalAmd: body.principalAmd, ratePct: body.ratePct, termMonths: body.termMonths, startDate: body.startDate, kind: body.scheduleKind });
+      const insertSched = db.prepare("INSERT INTO loan_schedules (id, org_id, loan_id, period_key, principal_due, interest_due, balance_after, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'planned')");
+      const insertSchedTx = db.transaction(rows => { for (const r of rows) insertSched.run(randomId("lsched"), user.org_id, id, r.periodKey, r.principalDue, r.interestDue, r.balanceAfter); });
+      insertSchedTx(schedule);
+      recordCfoAudit(user, "cfo.loan.create", "loan", id, { lender: body.lender, principalAmd: body.principalAmd, idempotencyKey: idem });
+      return { ok: true, loan: { id, lender: body.lender, principalAmd: Math.trunc(Number(body.principalAmd)), scheduleRows: schedule.length } };
+    });
+  });
+
+  app.get("/api/cfo/loans/:id/schedule", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    const loanId = String(request.params.id || "").trim();
+    const loan = db.prepare("SELECT principal_amd AS principalAmd, rate_pct AS ratePct, term_months AS termMonths, start_date AS startDate, schedule_kind AS kind FROM loans WHERE id = ? AND org_id = ?").get(loanId, user.org_id);
+    if (!loan) { const err = new Error("Loan not found"); err.statusCode = 404; throw err; }
+    const schedule = cfo.amortizeLoan(loan);
+    return { ok: true, loanId, schedule };
+  });
+
+  app.post("/api/cfo/ai/forecast", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey required"); err.statusCode = 400; throw err; }
+    return cfoCachedOrRun(user, idem, () => {
+      const packet = cfoAi.buildForecastPacket({ orgId: user.org_id, db, intent: "cfo-forecast", periodKey: body.periodKey || "", question: body.question || "" });
+      recordCfoAudit(user, "cfo.ai.forecast", "ai_packet", packet.id, { intent: "cfo-forecast", idempotencyKey: idem });
+      return { ok: true, copilot: packet };
+    });
+  });
+
+  app.post("/api/cfo/ai/fx-risk", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey required"); err.statusCode = 400; throw err; }
+    return cfoCachedOrRun(user, idem, () => {
+      const packet = cfoAi.buildForecastPacket({ orgId: user.org_id, db, intent: "cfo-fx", periodKey: body.periodKey || "", question: body.question || "" });
+      recordCfoAudit(user, "cfo.ai.fx", "ai_packet", packet.id, { intent: "cfo-fx", idempotencyKey: idem });
+      return { ok: true, copilot: packet };
+    });
+  });
+
+  app.post("/api/cfo/ai/debt-load", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "cfo");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey required"); err.statusCode = 400; throw err; }
+    return cfoCachedOrRun(user, idem, () => {
+      const packet = cfoAi.buildForecastPacket({ orgId: user.org_id, db, intent: "cfo-debt", periodKey: body.periodKey || "", question: body.question || "" });
+      recordCfoAudit(user, "cfo.ai.debt", "ai_packet", packet.id, { intent: "cfo-debt", idempotencyKey: idem });
+      return { ok: true, copilot: packet };
+    });
+  });
+
   app.post("/api/payroll/calculate", async request => {
     const user = await app.auth(request);
     return calculateFinancePayrollPreview(db, user, request.body === undefined ? {} : request.body);
@@ -8817,6 +9089,14 @@ function requireCollectionEditor(user) {
 function requireFinanceOperator(user) {
   if (!["Owner", "Admin", "Accountant"].includes(user.role)) {
     const err = new Error("Finance operator role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requireCfoOperator(user) {
+  if (!["Owner", "Admin", "Accountant"].includes(user.role)) {
+    const err = new Error("CFO operator role required");
     err.statusCode = 403;
     throw err;
   }
