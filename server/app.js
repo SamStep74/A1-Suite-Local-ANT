@@ -127,6 +127,9 @@ const warehouse = require("./warehouse");
 const procurement = require("./procurement");
 const ledger = require("./ledger");
 const payroll = require("./payroll");
+const hr = require("./hr");
+const hrAi = require("./hrAi");
+const HR_TEMPLATES_DIR = path.join(__dirname, "hr", "templates");
 const copilot = require("./copilot");
 const vatReturn = require("./vatReturn");
 const locale = require("./locale");
@@ -4901,6 +4904,446 @@ ${controls}
     // History resolves by FK (employee_id), not by name — so a renamed employee keeps their runs.
     const runs = db.prepare("SELECT id, employee_id AS employeeId, employee_name AS employeeName, gross, income_tax AS incomeTax, pension, stamp_duty AS stampDuty, total_deductions AS totalDeductions, net, run_date AS runDate, period_key AS periodKey FROM payroll_runs WHERE org_id = ? AND employee_id = ? ORDER BY run_date DESC, created_at DESC").all(user.org_id, employee.id);
     return { runs };
+  });
+
+  // -------- HR Depth: contracts, leave, trips, timesheets, KPIs, equipment, recruitment, orders, AI --------
+
+  app.get("/api/hr/contracts/templates", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    return { templates: hrAi.listTemplates(HR_TEMPLATES_DIR) };
+  });
+
+  app.post("/api/hr/contracts", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    requirePeopleWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.employeeId || !body.templateCode || !body.startDate || !body.grossSalary || !body.position) {
+      const e = new Error("employeeId, templateCode, startDate, grossSalary, position are required");
+      e.statusCode = 400; throw e;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const employee = db.prepare("SELECT id, full_name AS fullName FROM people_employees WHERE org_id = ? AND id = ?").get(user.org_id, body.employeeId);
+    if (!employee) { const e = new Error("Employee not found"); e.statusCode = 404; throw e; }
+    const org = db.prepare("SELECT name FROM organizations WHERE id = ?").get(user.org_id);
+    // Accept short codes (e.g. "permanent") and map them to the canonical file prefix.
+    const contractCode = body.templateCode.startsWith("contract-") ? body.templateCode : `contract-${body.templateCode}`;
+    const template = hrAi.loadTemplate(HR_TEMPLATES_DIR, contractCode);
+    const bodyMd = hr.renderContract({
+      template,
+      input: {
+        employeeName: employee.fullName,
+        position: body.position,
+        startDate: body.startDate,
+        endDate: body.endDate,
+        grossSalary: body.grossSalary,
+        orgName: org?.name || "[Կազմակերպություն]",
+        signedAt: body.signedAt || new Date().toISOString().slice(0, 10),
+        orderNumber: idem
+      }
+    });
+    const id = randomId("emp-ct");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO employment_contracts (id, org_id, employee_id, template_code, signed_at, start_date, end_date, gross_salary, position, file_id, status, body_md, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, user.org_id, body.employeeId, body.templateCode, body.signedAt || now, body.startDate, body.endDate || null, body.grossSalary, body.position, null, "draft", bodyMd, now, now
+    );
+    audit(db, user.org_id, user.id, "hr.contract.create", { employeeId: body.employeeId, templateCode: body.templateCode, idempotencyKey: idem, entityId: id, entityType: "employment_contract" });
+    const envelope = { ok: true, contract: { id, bodyMd, grossSalary: body.grossSalary, status: "draft" } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), now
+    );
+    return envelope;
+  });
+
+  app.post("/api/hr/leave-requests", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    requirePeopleWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.employeeId || !body.kind || !body.startDate || !body.endDate) {
+      const e = new Error("employeeId, kind, startDate, endDate are required");
+      e.statusCode = 400; throw e;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const lr = hr.buildLeaveRequest(body);
+    const id = randomId("lr");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO leave_requests (id, org_id, employee_id, kind, start_date, end_date, days, status, approver_id, reason, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, user.org_id, lr.employeeId, lr.kind, lr.startDate, lr.endDate, lr.days, lr.status, null, lr.reason, now
+    );
+    audit(db, user.org_id, user.id, "hr.leave.request", { kind: lr.kind, days: lr.days, idempotencyKey: idem, entityId: id, entityType: "leave_request" });
+    const envelope = { ok: true, leaveRequest: { id, ...lr } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), now
+    );
+    return envelope;
+  });
+
+  app.post("/api/hr/leave-requests/:id/approve", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    requirePeopleWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const lr = db.prepare("SELECT * FROM leave_requests WHERE org_id = ? AND id = ?").get(user.org_id, request.params.id);
+    if (!lr) { const e = new Error("Leave request not found"); e.statusCode = 404; throw e; }
+    if (!["approved", "rejected"].includes(body.decision)) { const e = new Error("decision must be 'approved' or 'rejected'"); e.statusCode = 400; throw e; }
+    const now = new Date().toISOString();
+    db.prepare("UPDATE leave_requests SET status = ?, approver_id = ? WHERE id = ?").run(body.decision, user.id, lr.id);
+    if (body.decision === "approved") {
+      const year = new Date(lr.start_date).getFullYear();
+      const bal = db.prepare("SELECT id, entitled_days, used_days, carried_over FROM leave_balances WHERE org_id = ? AND employee_id = ? AND year = ? AND kind = ?").get(user.org_id, lr.employee_id, year, lr.kind);
+      if (bal) {
+        db.prepare("UPDATE leave_balances SET used_days = used_days + ? WHERE id = ?").run(lr.days, bal.id);
+      } else {
+        db.prepare(`INSERT INTO leave_balances (id, org_id, employee_id, year, kind, entitled_days, used_days, carried_over) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+          randomId("lbal"), user.org_id, lr.employee_id, year, lr.kind, 20, lr.days, 0
+        );
+      }
+    }
+    audit(db, user.org_id, user.id, "hr.leave.approve", { decision: body.decision, idempotencyKey: idem, entityId: lr.id, entityType: "leave_request" });
+    const envelope = { ok: true, leaveRequest: { id: lr.id, status: body.decision, approverId: user.id } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), now
+    );
+    return envelope;
+  });
+
+  app.get("/api/hr/leave-balances", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    const employeeId = String(request.query?.employeeId || "");
+    const year = Number(request.query?.year || new Date().getFullYear());
+    if (!employeeId) { const e = new Error("employeeId is required"); e.statusCode = 400; throw e; }
+    const rows = db.prepare("SELECT year, kind, entitled_days AS entitledDays, used_days AS usedDays, carried_over AS carriedOver FROM leave_balances WHERE org_id = ? AND employee_id = ? AND year = ?").all(user.org_id, employeeId, year);
+    if (rows.length === 0) {
+      return { balances: [{ year, kind: "annual", entitledDays: 20, usedDays: 0, carriedOver: 0 }] };
+    }
+    return { balances: rows };
+  });
+
+  app.post("/api/hr/business-trips", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    requirePeopleWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.employeeId || !body.destination || !body.startDate || !body.endDate) {
+      const e = new Error("employeeId, destination, startDate, endDate are required");
+      e.statusCode = 400; throw e;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const allowance = hr.computeTripAllowance({
+      perDiemAmd: body.perDiemAmd || 0,
+      days: (new Date(body.endDate) - new Date(body.startDate)) / 86400000 + 1,
+      transportationAmd: body.transportationAmd || 0
+    });
+    const id = randomId("trip");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO business_trips (id, org_id, employee_id, destination, start_date, end_date, per_diem_amd, transportation_amd, status, approver_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, user.org_id, body.employeeId, body.destination, body.startDate, body.endDate, allowance.perDiem, allowance.transportation, "pending", null, now
+    );
+    audit(db, user.org_id, user.id, "hr.trip.create", { destination: body.destination, total: allowance.total, idempotencyKey: idem, entityId: id, entityType: "business_trip" });
+    const envelope = { ok: true, trip: { id, allowance, status: "pending" } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), now
+    );
+    return envelope;
+  });
+
+  app.post("/api/hr/timesheets/bulk", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    requirePeopleWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.employeeId || !Array.isArray(body.entries) || body.entries.length === 0) {
+      const e = new Error("employeeId and entries[] are required");
+      e.statusCode = 400; throw e;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const now = new Date().toISOString();
+    const inserted = [];
+    for (const entry of body.entries) {
+      if (!entry.workDate || typeof entry.hours !== "number") continue;
+      const id = randomId("ts");
+      db.prepare(`INSERT INTO timesheets (id, org_id, employee_id, work_date, hours, project_id, task_id, notes, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        id, user.org_id, body.employeeId, entry.workDate, entry.hours, entry.projectId || null, entry.taskId || null, entry.notes || null, now
+      );
+      inserted.push(id);
+    }
+    audit(db, user.org_id, user.id, "hr.timesheet.bulk", { count: inserted.length, idempotencyKey: idem, entityId: body.employeeId, entityType: "timesheet" });
+    const envelope = { ok: true, report: hr.aggregateTimesheet({ entries: body.entries }), inserted: inserted.length };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), now
+    );
+    return envelope;
+  });
+
+  app.get("/api/hr/timesheets/report", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    const periodKey = String(request.query?.periodKey || "");
+    if (!periodKey) { const e = new Error("periodKey is required"); e.statusCode = 400; throw e; }
+    const rows = db.prepare("SELECT work_date AS workDate, hours, project_id AS projectId, task_id AS taskId FROM timesheets WHERE org_id = ? AND substr(work_date, 1, 7) = ?").all(user.org_id, periodKey);
+    return { report: hr.aggregateTimesheet({ entries: rows }), periodKey };
+  });
+
+  app.post("/api/hr/kpis/targets", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    requirePeopleWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.employeeId || !body.periodKey || !Array.isArray(body.targets)) {
+      const e = new Error("employeeId, periodKey, targets[] are required");
+      e.statusCode = 400; throw e;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const now = new Date().toISOString();
+    for (const t of body.targets) {
+      const id = randomId("kpit");
+      db.prepare(`INSERT INTO kpi_targets (id, org_id, employee_id, period_key, metric, target, weight) VALUES (?, ?, ?, ?, ?, ?, ?) ON CONFLICT(org_id, employee_id, period_key, metric) DO UPDATE SET target = excluded.target, weight = excluded.weight`).run(
+        id, user.org_id, body.employeeId, body.periodKey, t.metric, t.target, t.weight
+      );
+    }
+    audit(db, user.org_id, user.id, "hr.kpi.targets", { count: body.targets.length, periodKey: body.periodKey, idempotencyKey: idem, entityId: body.employeeId, entityType: "kpi_target" });
+    const envelope = { ok: true, targets: body.targets.length };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), now
+    );
+    return envelope;
+  });
+
+  app.post("/api/hr/kpis/actuals", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    requirePeopleWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.employeeId || !body.periodKey || !Array.isArray(body.actuals)) {
+      const e = new Error("employeeId, periodKey, actuals[] are required");
+      e.statusCode = 400; throw e;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const now = new Date().toISOString();
+    for (const a of body.actuals) {
+      const id = randomId("kpia");
+      db.prepare(`INSERT INTO kpi_actuals (id, org_id, employee_id, period_key, metric, actual, evidence_url, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+        id, user.org_id, body.employeeId, body.periodKey, a.metric, a.actual, a.evidenceUrl || null, now
+      );
+    }
+    audit(db, user.org_id, user.id, "hr.kpi.actuals", { count: body.actuals.length, periodKey: body.periodKey, idempotencyKey: idem, entityId: body.employeeId, entityType: "kpi_actual" });
+    const envelope = { ok: true, actuals: body.actuals.length };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), now
+    );
+    return envelope;
+  });
+
+  app.get("/api/hr/kpis/score", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    const employeeId = String(request.query?.employeeId || "");
+    const periodKey = String(request.query?.periodKey || "");
+    if (!employeeId || !periodKey) { const e = new Error("employeeId and periodKey are required"); e.statusCode = 400; throw e; }
+    const targets = db.prepare("SELECT metric, target, weight FROM kpi_targets WHERE org_id = ? AND employee_id = ? AND period_key = ?").all(user.org_id, employeeId, periodKey);
+    const actuals = db.prepare("SELECT metric, actual FROM kpi_actuals WHERE org_id = ? AND employee_id = ? AND period_key = ?").all(user.org_id, employeeId, periodKey);
+    return { score: hr.scoreKpi({ targets, actuals }), periodKey };
+  });
+
+  app.post("/api/hr/equipment/assign", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    requireAppAccess(db, user, "assets");
+    requirePeopleWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.employeeId || !body.assetId) {
+      const e = new Error("employeeId and assetId are required");
+      e.statusCode = 400; throw e;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const assignment = hr.buildEquipmentAssignment(body);
+    const id = randomId("eqa");
+    db.prepare(`INSERT INTO equipment_assignments (id, org_id, employee_id, asset_id, assigned_at, returned_at, signature_doc_id) VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+      id, user.org_id, body.employeeId, body.assetId, assignment.assignedAt, null, body.signatureDocId || null
+    );
+    audit(db, user.org_id, user.id, "hr.equipment.assign", { assetId: body.assetId, employeeId: body.employeeId, idempotencyKey: idem, entityId: id, entityType: "equipment_assignment" });
+    const envelope = { ok: true, assignment: { id, ...assignment } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), assignment.assignedAt
+    );
+    return envelope;
+  });
+
+  app.post("/api/hr/recruitment/pipelines", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    requirePeopleWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.name || !Array.isArray(body.stages) || body.stages.length === 0) {
+      const e = new Error("name and stages[] are required");
+      e.statusCode = 400; throw e;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const id = randomId("pipe");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO recruitment_pipelines (id, org_id, name, stage_order_json, created_at) VALUES (?, ?, ?, ?, ?)`).run(
+      id, user.org_id, body.name, JSON.stringify(body.stages), now
+    );
+    audit(db, user.org_id, user.id, "hr.recruit.pipeline", { name: body.name, stages: body.stages.length, idempotencyKey: idem, entityId: id, entityType: "recruitment_pipeline" });
+    const envelope = { ok: true, pipeline: { id, name: body.name, stages: body.stages } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), now
+    );
+    return envelope;
+  });
+
+  app.post("/api/hr/recruitment/candidates", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    requirePeopleWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.pipelineId || !body.fullName || !body.stage) {
+      const e = new Error("pipelineId, fullName, stage are required");
+      e.statusCode = 400; throw e;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const pipeline = db.prepare("SELECT stage_order_json AS stages FROM recruitment_pipelines WHERE org_id = ? AND id = ?").get(user.org_id, body.pipelineId);
+    if (!pipeline) { const e = new Error("Pipeline not found"); e.statusCode = 404; throw e; }
+    const stages = JSON.parse(pipeline.stages);
+    if (!stages.includes(body.stage)) { const e = new Error("Stage must be one of: " + stages.join(", ")); e.statusCode = 400; throw e; }
+    const id = randomId("cand");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO recruitment_candidates (id, org_id, pipeline_id, full_name, email, stage, applied_at, notes) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, user.org_id, body.pipelineId, body.fullName, body.email || null, body.stage, now, body.notes || null
+    );
+    audit(db, user.org_id, user.id, "hr.recruit.candidate", { pipelineId: body.pipelineId, stage: body.stage, idempotencyKey: idem, entityId: id, entityType: "recruitment_candidate" });
+    const envelope = { ok: true, candidate: { id, fullName: body.fullName, stage: body.stage, appliedAt: now } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), now
+    );
+    return envelope;
+  });
+
+  app.post("/api/hr/orders", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    requirePeopleWriter(user);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.employeeId || !body.orderType || !body.effectiveDate) {
+      const e = new Error("employeeId, orderType, effectiveDate are required");
+      e.statusCode = 400; throw e;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const employee = db.prepare("SELECT full_name AS fullName FROM people_employees WHERE org_id = ? AND id = ?").get(user.org_id, body.employeeId);
+    if (!employee) { const e = new Error("Employee not found"); e.statusCode = 404; throw e; }
+    const issuer = db.prepare("SELECT full_name AS fullName FROM people_employees WHERE org_id = ? AND id = ?").get(user.org_id, user.id) || { fullName: user.name };
+    const orderNumber = `HR-${Date.now()}`;
+    const draft = await hrAi.buildOrderDraft({
+      db, orgId: user.org_id,
+      employee: { fullName: employee.fullName, approverId: user.id },
+      orderType: body.orderType, effectiveDate: body.effectiveDate, orderNumber,
+      templatesDir: HR_TEMPLATES_DIR
+    });
+    const id = randomId("hrord");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO hr_orders (id, org_id, employee_id, order_type, effective_date, body_md, issued_by, signed_at, file_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, user.org_id, body.employeeId, body.orderType, body.effectiveDate, draft.bodyMd, issuer.fullName, null, null, now
+    );
+    audit(db, user.org_id, user.id, "hr.order.issue", { orderType: body.orderType, employeeId: body.employeeId, idempotencyKey: idem, entityId: id, entityType: "hr_order" });
+    const envelope = { ok: true, order: { id, orderType: body.orderType, bodyMd: draft.bodyMd, orderNumber, advisoryOnly: draft.advisoryOnly } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), now
+    );
+    return envelope;
+  });
+
+  app.post("/api/hr/ai/job-description", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.position) { const e = new Error("position is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const packet = await hrAi.buildJobDescription({
+      db, orgId: user.org_id, position: body.position, language: body.language, templatesDir: HR_TEMPLATES_DIR
+    });
+    audit(db, user.org_id, user.id, "hr.ai.job-description", { position: body.position, advisoryOnly: packet.advisoryOnly, idempotencyKey: idem, entityType: "ai_packet" });
+    const envelope = { ok: true, jobDescription: packet };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString()
+    );
+    return envelope;
+  });
+
+  app.post("/api/hr/ai/order", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.employeeId || !body.orderType || !body.effectiveDate) {
+      const e = new Error("employeeId, orderType, effectiveDate are required");
+      e.statusCode = 400; throw e;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const employee = db.prepare("SELECT id, full_name AS fullName FROM people_employees WHERE org_id = ? AND id = ?").get(user.org_id, body.employeeId);
+    if (!employee) { const e = new Error("Employee not found"); e.statusCode = 404; throw e; }
+    const orderNumber = `HR-AI-${Date.now()}`;
+    const packet = await hrAi.buildOrderDraft({
+      db, orgId: user.org_id, employee, orderType: body.orderType, effectiveDate: body.effectiveDate, orderNumber,
+      templatesDir: HR_TEMPLATES_DIR
+    });
+    audit(db, user.org_id, user.id, "hr.ai.order", { orderType: body.orderType, advisoryOnly: packet.advisoryOnly, idempotencyKey: idem, entityType: "ai_packet" });
+    const envelope = { ok: true, orderDraft: packet };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString()
+    );
+    return envelope;
+  });
+
+  app.get("/api/hr/analytics/turnover", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "people");
+    const periodKey = String(request.query?.periodKey || new Date().toISOString().slice(0, 7));
+    const startHeadcount = db.prepare("SELECT COUNT(*) AS count FROM people_employees WHERE org_id = ? AND substr(hire_date, 1, 7) < ? AND employment_status <> 'terminated'").get(user.org_id, periodKey).count;
+    const endHeadcount = db.prepare("SELECT COUNT(*) AS count FROM people_employees WHERE org_id = ? AND substr(hire_date, 1, 7) <= ? AND employment_status = 'active'").get(user.org_id, periodKey).count;
+    const leavers = db.prepare("SELECT COUNT(*) AS count FROM people_employees WHERE org_id = ? AND employment_status = 'terminated' AND substr(updated_at, 1, 7) = ?").get(user.org_id, periodKey).count;
+    return { turnover: hr.computeTurnover({ startHeadcount, endHeadcount, leavers }), periodKey };
   });
 
   app.get("/api/legal/law-search", async request => {

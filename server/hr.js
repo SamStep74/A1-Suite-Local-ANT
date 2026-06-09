@@ -8,7 +8,8 @@ function contractVariables(input) {
     END_DATE: input.endDate ? String(input.endDate) : "անորոշ ժամկետով",
     GROSS_SALARY: Number(input.grossSalary || 0).toLocaleString("hy-AM"),
     ORG_NAME: String(input.orgName || "[Կազմակերպություն]"),
-    SIGNED_AT: input.signedAt ? String(input.signedAt) : new Date().toISOString().slice(0, 10)
+    SIGNED_AT: input.signedAt ? String(input.signedAt) : new Date().toISOString().slice(0, 10),
+    ORDER_NUMBER: String(input.orderNumber || "—")
   };
 }
 
@@ -144,8 +145,18 @@ function buildLeaveRequest({ employeeId, kind, startDate, endDate, reason }) {
     err.statusCode = 400;
     throw err;
   }
-  const ms = end.getTime() - start.getTime();
-  const days = Math.round((ms / 86400000 + 1) * 100) / 100;
+  // RA Labor Code treats leave in working days. Walk inclusive range and
+  // count days that are not Sunday (0). Saturday is preserved for half-day or
+  // shift workers; full-day leave skips only rest day.
+  let workingDays = 0;
+  for (let cursor = new Date(start.getTime()); cursor <= end; cursor.setDate(cursor.getDate() + 1)) {
+    const day = cursor.getDay();
+    if (day !== 0) workingDays += 1;
+  }
+  // If the range falls entirely on a Sunday, fall back to the inclusive
+  // calendar-day count so the request is still representable.
+  const calendarDays = Math.round(((end.getTime() - start.getTime()) / 86400000 + 1) * 100) / 100;
+  const days = workingDays > 0 ? workingDays : calendarDays;
   return { employeeId, kind, startDate, endDate, days, reason: reason || "", status: "pending", approverId: null };
 }
 

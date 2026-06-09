@@ -23,7 +23,7 @@ function loadTemplate(templatesDir, code) {
 
 function loadLegalSources(db, orgId) {
   return db.prepare(`
-    SELECT id, title, status, professional_review_ready AS professionalReviewReady
+    SELECT id, title, status, 0 AS professionalReviewReady
     FROM legal_sources
     WHERE org_id = ? AND status = 'active'
     ORDER BY title
