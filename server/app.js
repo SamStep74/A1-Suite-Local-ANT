@@ -3336,6 +3336,9 @@ function registerApi(app, db, options = {}) {
     }
     const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
     if (existing) return JSON.parse(existing.response_json);
+    // The hub's dispatch() owns PII scrubbing internally — adapters see
+    // cleartext to validate the format, and the hub runs redactPII before
+    // writing any audit row. This is the single point of audit-row ownership.
     const result = await stateInt.dispatch({
       db, orgId: user.org_id, userId: user.id, adapter, operation, input: body
     });
