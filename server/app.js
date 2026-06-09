@@ -140,6 +140,8 @@ const documentCabinet = require("./documentCabinet");
 const documentAi = require("./documentAi");
 const documentCabinetRoutes = require("./documentCabinetRoutes");
 const stateIntegrations = require("./stateIntegrations");
+const exportDocs = require("./exportDocs");
+const exportDocsAi = require("./exportDocsAi");
 const postingCodes = require("./postingCodes");
 const settingsStore = require("./settingsStore");
 const aiProvider = require("./aiProvider");
@@ -3115,6 +3117,204 @@ function registerApi(app, db, options = {}) {
       .run(id, user.org_id, title, docBody, template.docType, customerId || null, user.id, now, now);
     audit(db, user.org_id, user.id, "docs.document.created", { documentId: id, title, fromTemplate: template.key });
     return { ok: true, document: getDocument(db, user.org_id, id) };
+  });
+
+  // ---------- Export documentation (sub-plan 6) ----------
+
+  app.get("/api/export-docs/templates", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "docs");
+    return {
+      ok: true,
+      templates: Array.from(exportDocs.SUPPORTED_KINDS).map(kind => ({
+        kind,
+        label: {
+          invoice: "Արտահանման հաշիվ / Export invoice",
+          packing: "Փաթեթավորման կետագիր / Packing list",
+          cmr: "Տրանսպորտային փաստաթուղթ / CMR",
+          tir: "TIR կարնե",
+          coo: "Ծագման վկայական / Certificate of origin",
+          phyto: "Ֆիտոսանիտարական վկայական / Phytosanitary",
+          vet: "Անասնաբուժական վկայական / Veterinary",
+          declaration: "Արտահանման հայտարարություն / Export declaration"
+        }[kind]
+      }))
+    };
+  });
+
+  app.post("/api/export-docs", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "docs");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.kind || !body.destinationCountry) { const e = new Error("kind and destinationCountry are required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const id = randomId("expdoc");
+    const now = new Date().toISOString();
+    const preview = exportDocs.renderInvoice({
+      docNo: id,
+      date: now.slice(0, 10),
+      buyer: body.buyer || { name: "(buyer)", country: body.destinationCountry, city: "" },
+      shipper: body.shipper || { name: "(shipper)", country: "AM", city: "Ереван" },
+      currency: body.currency || "USD",
+      lines: body.lines || [],
+      incoterm: body.incoterm || "EXW"
+    });
+    db.prepare("INSERT INTO export_documents (id, org_id, kind, destination_country, incoterm, currency, status, ship_from, ship_to, created_at) VALUES (?, ?, ?, ?, ?, ?, 'draft', ?, ?, ?)")
+      .run(id, user.org_id, body.kind, body.destinationCountry, body.incoterm || "EXW", body.currency || "USD", body.shipFrom || "", body.shipTo || "", now);
+    for (const l of (body.lines || [])) {
+      db.prepare("INSERT INTO export_document_lines (id, export_doc_id, product_id, hs_code, description, quantity, uom, unit_price, net_weight_kg, gross_weight_kg, packages, marks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+        .run(randomId("expln"), id, l.productId || null, l.hsCode || "", l.description || "", Number(l.quantity || 0), l.uom || "kg", Number(l.unitPrice || 0), Number(l.netWeightKg || 0), Number(l.grossWeightKg || 0), Number(l.packages || 0), l.marks || "");
+    }
+    const envelope = { ok: true, exportDoc: { id, kind: body.kind, destinationCountry: body.destinationCountry, previewHtml: preview.html, totals: preview.totals, checksum: preview.checksum } };
+    db.prepare("INSERT INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), now);
+    audit(db, user.org_id, user.id, "exportDocs.created", { exportDocId: id, kind: body.kind, destinationCountry: body.destinationCountry, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.patch("/api/export-docs/:id/lines", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "docs");
+    const doc = db.prepare("SELECT * FROM export_documents WHERE id = ? AND org_id = ?").get(request.params.id, user.org_id);
+    if (!doc) { const e = new Error("export document not found"); e.statusCode = 404; throw e; }
+    if (doc.status !== "draft") { const e = new Error("cannot edit a finalized document"); e.statusCode = 409; throw e; }
+    const body = request.body || {};
+    if (!Array.isArray(body.lines) || body.lines.length === 0) { const e = new Error("lines is required and must be non-empty"); e.statusCode = 400; throw e; }
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const tx = db.transaction(() => {
+      db.prepare("DELETE FROM export_document_lines WHERE export_doc_id = ?").run(doc.id);
+      for (const l of body.lines) {
+        db.prepare("INSERT INTO export_document_lines (id, export_doc_id, product_id, hs_code, description, quantity, uom, unit_price, net_weight_kg, gross_weight_kg, packages, marks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+          .run(randomId("expln"), doc.id, l.productId || null, l.hsCode || "", l.description || "", Number(l.quantity || 0), l.uom || "kg", Number(l.unitPrice || 0), Number(l.netWeightKg || 0), Number(l.grossWeightKg || 0), Number(l.packages || 0), l.marks || "");
+      }
+    });
+    tx();
+    const envelope = { ok: true, exportDocId: doc.id, lineCount: body.lines.length };
+    db.prepare("INSERT INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "exportDocs.linesUpdated", { exportDocId: doc.id, lineCount: body.lines.length, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.get("/api/export-docs/:id/preview", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "docs");
+    const doc = db.prepare("SELECT * FROM export_documents WHERE id = ? AND org_id = ?").get(request.params.id, user.org_id);
+    if (!doc) { const e = new Error("export document not found"); e.statusCode = 404; throw e; }
+    const lines = db.prepare("SELECT * FROM export_document_lines WHERE export_doc_id = ?").all(doc.id);
+    const escapePreview = value => String(value == null ? "" : value).replace(/[&<>"']/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", "\"": "&quot;", "'": "&#39;" })[c]);
+    const html = `<h1>Preview ${escapePreview(doc.kind)} ${escapePreview(doc.id)}</h1><p>${lines.length} lines</p>`;
+    return { ok: true, previewHtml: html, lineCount: lines.length };
+  });
+
+  app.post("/api/export-docs/:id/finalize", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "docs");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const doc = db.prepare("SELECT * FROM export_documents WHERE id = ? AND org_id = ?").get(request.params.id, user.org_id);
+    if (!doc) { const e = new Error("export document not found"); e.statusCode = 404; throw e; }
+    if (doc.status !== "draft") { const e = new Error("already finalized"); e.statusCode = 409; throw e; }
+    const now = new Date().toISOString();
+    db.prepare("UPDATE export_documents SET status = 'finalized', finalized_at = ? WHERE id = ?").run(now, doc.id);
+    const envelope = { ok: true, exportDocId: doc.id, status: "finalized", finalizedAt: now };
+    db.prepare("INSERT INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), now);
+    audit(db, user.org_id, user.id, "exportDocs.finalized", { exportDocId: doc.id, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/export-docs/:id/sign", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "docs");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const doc = db.prepare("SELECT * FROM export_documents WHERE id = ? AND org_id = ?").get(request.params.id, user.org_id);
+    if (!doc) { const e = new Error("export document not found"); e.statusCode = 404; throw e; }
+    const checksum = crypto.createHash("sha256").update(`${doc.id}|${user.id}|${Date.now()}`).digest("hex");
+    const method = process.env.STATE_INTEGRATIONS_E_SIGN === "stub" ? "e-sign" : "stub-hash";
+    db.prepare("INSERT INTO export_signatures (id, export_doc_id, signer_id, signed_at, checksum, method) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(randomId("expsig"), doc.id, user.id, new Date().toISOString(), checksum, method);
+    db.prepare("UPDATE export_documents SET status = 'signed' WHERE id = ?").run(doc.id);
+    const envelope = { ok: true, exportDocId: doc.id, status: "signed", checksum, method };
+    db.prepare("INSERT INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "exportDocs.signed", { exportDocId: doc.id, checksum, method, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.get("/api/export-docs/hs-code/check", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "docs");
+    const code = String((request.query || {}).code || "");
+    const country = String((request.query || {}).country || "");
+    if (!code) { const e = new Error("code is required"); e.statusCode = 400; throw e; }
+    return { ok: true, rule: exportDocs.validateHsCode({ code, country }, db) };
+  });
+
+  app.get("/api/export-docs/country-rules", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "docs");
+    const country = String((request.query || {}).country || "");
+    if (!country) { const e = new Error("country is required"); e.statusCode = 400; throw e; }
+    return { ok: true, pack: exportDocs.loadCountryRules(country) };
+  });
+
+  app.post("/api/export-docs/declarations", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "docs");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    for (const k of ["exportDocId", "declarationNo", "customsOffice"]) {
+      if (!body[k]) { const e = new Error(`${k} is required`); e.statusCode = 400; throw e; }
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const doc = db.prepare("SELECT * FROM export_documents WHERE id = ? AND org_id = ?").get(body.exportDocId, user.org_id);
+    if (!doc) { const e = new Error("export document not found"); e.statusCode = 404; throw e; }
+    const id = randomId("expdecl");
+    const now = new Date().toISOString();
+    db.prepare("INSERT INTO export_declarations (id, org_id, export_doc_id, declaration_no, customs_office, status, submitted_at) VALUES (?, ?, ?, ?, ?, 'submitted', ?)")
+      .run(id, user.org_id, doc.id, body.declarationNo, body.customsOffice, now);
+    const envelope = { ok: true, declarationId: id, status: "submitted", submittedAt: now };
+    db.prepare("INSERT INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), now);
+    audit(db, user.org_id, user.id, "exportDocs.declarationSubmitted", { exportDocId: doc.id, declarationId: id, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/export-docs/ai/auto-fill", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "docs");
+    const body = request.body || {};
+    if (!body.salesOrder || !Array.isArray(body.salesOrder.lines)) { const e = new Error("salesOrder.lines is required"); e.statusCode = 400; throw e; }
+    const pack = body.destinationCountry ? exportDocs.loadCountryRules(body.destinationCountry) : null;
+    return { ok: true, draft: exportDocs.buildAutoFill({ salesOrder: body.salesOrder, productMaster: body.productMaster || [], countryRulePack: pack }), sourceCitations: exportDocsAi.citeLegalSources("auto-fill", body.destinationCountry) };
+  });
+
+  app.post("/api/export-docs/ai/validate", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "docs");
+    const body = request.body || {};
+    if (!body.exportDocId) { const e = new Error("exportDocId is required"); e.statusCode = 400; throw e; }
+    return { ok: true, ...exportDocsAi.validateExportDoc({ exportDocId: body.exportDocId, db, exportDocs }) };
+  });
+
+  app.get("/api/export-docs/ai/country-check", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "docs");
+    const country = String((request.query || {}).country || "");
+    const productId = String((request.query || {}).productId || "");
+    if (!country) { const e = new Error("country is required"); e.statusCode = 400; throw e; }
+    return { ok: true, ...exportDocsAi.countryRulesCheck({ country, productId, db, exportDocs }) };
   });
 
   // Document Cabinet (Документооборот) — incoming/outgoing/internal flows, versioning,

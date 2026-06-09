@@ -120,3 +120,91 @@ test("renderFinalized is immutable — direct call without finalize flag throws"
     docNo: "X", html: "<p>x</p>"
   }, { finalized: false }), /finalize/);
 });
+
+test("POST /api/export-docs is auth-gated (401)", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/export-docs",
+      payload: { kind: "invoice", destinationCountry: "RU", idempotencyKey: "k-401" }
+    });
+    assert.strictEqual(res.statusCode, 401);
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /api/export-docs requires app access (403)", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app, "operator@armosphera.local", DEFAULT_PASSWORD);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/export-docs",
+      headers: { cookie },
+      payload: { kind: "invoice", destinationCountry: "RU", idempotencyKey: "k-403" }
+    });
+    assert.strictEqual(res.statusCode, 403);
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /api/export-docs rejects malformed input (400)", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/export-docs",
+      headers: { cookie },
+      payload: {} // missing kind + destinationCountry
+    });
+    assert.strictEqual(res.statusCode, 400);
+  } finally {
+    await app.close();
+  }
+});
+
+test("POST /api/export-docs happy path writes audit + idempotent replay (200)", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const before = app.db.prepare("SELECT COUNT(*) AS c FROM audit_events").get().c;
+    const payload = {
+      method: "POST",
+      url: "/api/export-docs",
+      headers: { cookie },
+      payload: {
+        kind: "invoice",
+        destinationCountry: "RU",
+        incoterm: "CIF",
+        currency: "USD",
+        buyer: { name: "OOO Torgoviy Dom", country: "RU", city: "Москва" },
+        shipper: { name: "Spayka LLC", country: "AM", city: "Ереван" },
+        lines: [{ description: "Tomatoes", hsCode: "0702", quantity: 1000, uom: "kg", unitPrice: 1.2, netWeightKg: 1000, packages: 20 }],
+        idempotencyKey: "k-happy-1"
+      }
+    };
+    const first = await app.inject(payload);
+    assert.strictEqual(first.statusCode, 200, first.body);
+    const body = first.json();
+    assert.strictEqual(body.ok, true);
+    assert.ok(body.exportDoc.id);
+    assert.ok(body.exportDoc.previewHtml.includes("OOO Torgoviy Dom"));
+    const after = app.db.prepare("SELECT COUNT(*) AS c FROM audit_events").get().c;
+    assert.strictEqual(after, before + 1, "audit row must be written");
+    const second = await app.inject(payload);
+    assert.strictEqual(second.statusCode, 200);
+    assert.deepStrictEqual(second.json(), body);
+    const afterReplay = app.db.prepare("SELECT COUNT(*) AS c FROM audit_events").get().c;
+    assert.strictEqual(afterReplay, after, "idempotent replay must not double-write audit");
+  } finally {
+    await app.close();
+  }
+});
