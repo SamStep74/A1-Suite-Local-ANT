@@ -8062,7 +8062,7 @@ function ensureAnalyticsLayer(db) {
     -- audit sources for the State Integrations hub and the auditor console.
     CREATE TABLE IF NOT EXISTS state_integration_calls (
       id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES orgs(id),
+      org_id TEXT NOT NULL REFERENCES organizations(id),
       adapter TEXT NOT NULL,
       operation TEXT NOT NULL,
       request_id TEXT NOT NULL,
@@ -8076,7 +8076,7 @@ function ensureAnalyticsLayer(db) {
 
     CREATE TABLE IF NOT EXISTS state_integration_credentials (
       id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES orgs(id),
+      org_id TEXT NOT NULL REFERENCES organizations(id),
       adapter TEXT NOT NULL,
       alias TEXT NOT NULL,
       cert_alias TEXT,
@@ -8087,7 +8087,7 @@ function ensureAnalyticsLayer(db) {
 
     CREATE TABLE IF NOT EXISTS state_signatures (
       id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES orgs(id),
+      org_id TEXT NOT NULL REFERENCES organizations(id),
       document_id TEXT NOT NULL,
       adapter TEXT NOT NULL,
       signer_id_hash TEXT NOT NULL,
@@ -8100,7 +8100,7 @@ function ensureAnalyticsLayer(db) {
 
     CREATE TABLE IF NOT EXISTS state_id_verifications (
       id TEXT PRIMARY KEY,
-      org_id TEXT NOT NULL REFERENCES orgs(id),
+      org_id TEXT NOT NULL REFERENCES organizations(id),
       subject_id TEXT NOT NULL,
       adapter TEXT NOT NULL,
       verified_at TEXT NOT NULL,
