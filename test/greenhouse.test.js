@@ -181,9 +181,20 @@ test("energy per kg and GDD math", async () => {
   try {
     await app.ready();
     const cookie = await login(app);
+    const house = await createHouse(app, cookie, "gh-energy-1");
+    const houseId = house.json().greenhouse.id;
+    const zone = await app.inject({
+      method: "POST", url: "/api/greenhouse/zones", headers: { cookie },
+      payload: { greenhouseId: houseId, name: "Zone E", areaM2: 200, irrigationKind: "drip", idempotencyKey: "gh-energy-zone-1" }
+    });
+    const zoneId = zone.json().zone.id;
+    await app.inject({
+      method: "POST", url: "/api/greenhouse/crops", headers: { cookie },
+      payload: { zoneId, cropKind: "lettuce", plantedAt: "2026-04-01", expectedHarvestAt: "2026-06-15", expectedYieldKg: 600, idempotencyKey: "gh-energy-crop-1" }
+    });
     const energy = await app.inject({
       method: "GET",
-      url: "/api/greenhouse/h1/analytics/energy?periodKey=2026-06",
+      url: `/api/greenhouse/${houseId}/analytics/energy?periodKey=2026-06`,
       headers: { cookie }
     });
     assert.strictEqual(energy.statusCode, 200);
@@ -192,7 +203,7 @@ test("energy per kg and GDD math", async () => {
     assert.strictEqual(typeof body.energy.gasM3PerKg, "number");
     const gdd = await app.inject({
       method: "GET",
-      url: "/api/greenhouse/h1/analytics/gdd?from=2026-04-01&to=2026-06-08&baseTempC=10",
+      url: `/api/greenhouse/${houseId}/analytics/gdd?from=2026-04-01&to=2026-06-08&baseTempC=10`,
       headers: { cookie }
     });
     assert.strictEqual(gdd.statusCode, 200);

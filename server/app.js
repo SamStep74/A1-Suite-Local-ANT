@@ -6146,29 +6146,56 @@ ${controls}
   app.get("/api/greenhouse/:id/analytics/yield", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "greenhouse");
+    const id = String(request.params.id || "");
+    const house = db.prepare("SELECT * FROM greenhouses WHERE id = ? AND org_id = ?").get(id, user.org_id);
+    if (!house) { const e = new Error("greenhouse not found"); e.statusCode = 404; throw e; }
     const periodKey = String(request.query.periodKey || "");
-    const crops = db.prepare("SELECT * FROM greenhouse_crops").all();
-    const harvests = db.prepare("SELECT * FROM greenhouse_harvests").all();
-    return { ok: true, yield: { periodKey, rows: greenhouse.computeYieldVsForecast({ crops, harvests }) } };
+    const crops = db.prepare(`
+      SELECT c.* FROM greenhouse_crops c
+      JOIN greenhouse_zones z ON z.id = c.zone_id
+      WHERE z.greenhouse_id = ? AND z.id IN (SELECT id FROM greenhouse_zones WHERE greenhouse_id = ?)
+    `).all(id, id);
+    const harvests = db.prepare(`
+      SELECT h.* FROM greenhouse_harvests h
+      JOIN greenhouse_crops c ON c.id = h.crop_id
+      JOIN greenhouse_zones z ON z.id = c.zone_id
+      WHERE z.greenhouse_id = ?
+    `).all(id);
+    return { ok: true, yield: { periodKey, greenhouseId: id, rows: greenhouse.computeYieldVsForecast({ crops, harvests }) } };
   });
 
   app.get("/api/greenhouse/:id/analytics/energy", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "greenhouse");
+    const id = String(request.params.id || "");
+    const house = db.prepare("SELECT * FROM greenhouses WHERE id = ? AND org_id = ?").get(id, user.org_id);
+    if (!house) { const e = new Error("greenhouse not found"); e.statusCode = 404; throw e; }
     const periodKey = String(request.query.periodKey || "");
-    const energyLogs = db.prepare("SELECT * FROM greenhouse_energy_logs WHERE period_key = ?").all(periodKey);
-    const harvests = db.prepare("SELECT * FROM greenhouse_harvests").all();
-    return { ok: true, energy: greenhouse.computeEnergyPerKg({ energyLogs, harvests }) };
+    const energyLogs = db.prepare("SELECT * FROM greenhouse_energy_logs WHERE greenhouse_id = ? AND period_key = ?").all(id, periodKey);
+    const harvests = db.prepare(`
+      SELECT h.* FROM greenhouse_harvests h
+      JOIN greenhouse_crops c ON c.id = h.crop_id
+      JOIN greenhouse_zones z ON z.id = c.zone_id
+      WHERE z.greenhouse_id = ?
+    `).all(id);
+    return { ok: true, energy: { greenhouseId: id, periodKey, ...greenhouse.computeEnergyPerKg({ energyLogs, harvests }) } };
   });
 
   app.get("/api/greenhouse/:id/analytics/gdd", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "greenhouse");
+    const id = String(request.params.id || "");
+    const house = db.prepare("SELECT * FROM greenhouses WHERE id = ? AND org_id = ?").get(id, user.org_id);
+    if (!house) { const e = new Error("greenhouse not found"); e.statusCode = 404; throw e; }
     const from = String(request.query.from || "");
     const to = String(request.query.to || "");
     const baseTempC = Number(request.query.baseTempC) || 10;
-    const logs = db.prepare("SELECT * FROM greenhouse_climate_logs WHERE recorded_at BETWEEN ? AND ?").all(from, to);
-    return { ok: true, gdd: greenhouse.computeGdd({ climateLogs: logs, baseTempC }) };
+    const logs = db.prepare(`
+      SELECT l.* FROM greenhouse_climate_logs l
+      JOIN greenhouse_zones z ON z.id = l.zone_id
+      WHERE z.greenhouse_id = ? AND l.recorded_at BETWEEN ? AND ?
+    `).all(id, from, to);
+    return { ok: true, gdd: { greenhouseId: id, ...greenhouse.computeGdd({ climateLogs: logs, baseTempC }) } };
   });
 
   app.post("/api/greenhouse/ai/yield-forecast", async request => {
