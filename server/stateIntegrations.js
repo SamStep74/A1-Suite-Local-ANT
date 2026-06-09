@@ -54,16 +54,43 @@ function makeRequestId(orgId, adapter, operation) {
   return `si-${String(orgId).slice(0, 6)}-${adapter}-${operation}-${crypto.randomBytes(6).toString("hex")}`;
 }
 
+// PII fields are hashed (one-way) before being written to state_integration_calls
+// so the audit row records the attempt + which payload slots were filled, but
+// never persists the cleartext idNumber/phone/taxId/etc. The hub's
+// state_signatures table keeps its own signer_id_hash; the rest of the audit
+// row is opaque to anyone who reads the table directly.
+const PII_FIELDS = ["idNumber", "subjectId", "phone", "taxId", "fullName", "dateOfBirth", "documentNumber"];
+function redactPII(value, path) {
+  if (value == null) return value;
+  if (Array.isArray(value)) return value.map((v, i) => redactPII(v, `${path}[${i}]`));
+  if (typeof value === "object") {
+    const out = {};
+    for (const k of Object.keys(value)) {
+      if (PII_FIELDS.includes(k) && (typeof value[k] === "string" || typeof value[k] === "number")) {
+        out[k] = `[hash:sha256:${crypto.createHash("sha256").update(String(value[k])).digest("hex").slice(0, 16)}]`;
+        out[`${k}__present`] = true;
+      } else {
+        out[k] = redactPII(value[k], `${path}.${k}`);
+      }
+    }
+    return out;
+  }
+  return value;
+}
+
 async function dispatch({ db, orgId, userId, adapter, operation, input }) {
   ensureProductionOptIn(adapter);
   const mod = loadAdapter(adapter);
   const requestId = makeRequestId(orgId, adapter, operation);
   const started = Date.now();
-  const requestJson = JSON.stringify({ operation, input });
+  const safeInput = redactPII(input || {}, "input");
+  const requestJson = JSON.stringify({ operation, input: safeInput });
   const prep = await mod.prepare({ requestId, input });
   const sent = await mod.send({ requestId, payload: prep.payload, input });
   const latency = Date.now() - started;
-  const responseJson = JSON.stringify({ prepare: prep, send: sent });
+  const safePrep = redactPII(prep, "prepare");
+  const safeSent = redactPII(sent, "send");
+  const responseJson = JSON.stringify({ prepare: safePrep, send: safeSent });
   const callId = `sic-${crypto.randomBytes(8).toString("hex")}`;
   db.prepare(`INSERT INTO state_integration_calls
     (id, org_id, adapter, operation, request_id, request_json, response_json, status, latency_ms, called_at)
