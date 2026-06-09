@@ -142,6 +142,7 @@ const documentCabinetRoutes = require("./documentCabinetRoutes");
 const stateIntegrations = require("./stateIntegrations");
 const exportDocs = require("./exportDocs");
 const exportDocsAi = require("./exportDocsAi");
+const assets = require("./assets");
 const postingCodes = require("./postingCodes");
 const settingsStore = require("./settingsStore");
 const aiProvider = require("./aiProvider");
@@ -3315,6 +3316,273 @@ function registerApi(app, db, options = {}) {
     const productId = String((request.query || {}).productId || "");
     if (!country) { const e = new Error("country is required"); e.statusCode = 400; throw e; }
     return { ok: true, ...exportDocsAi.countryRulesCheck({ country, productId, db, exportDocs }) };
+  });
+
+  // Asset Management (Разное имущество) — fixed-asset register, depreciation,
+  // maintenance, assignment, and write-off workflows. Pure engine lives in
+  // server/assets.js; this block is just auth + app access + idempotency + audit
+  // + DB shape, mirroring Pattern A.
+  app.post("/api/assets/categories", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "assets");
+    const body = request.body === undefined ? {} : request.body;
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey required"); e.statusCode = 400; throw e; }
+    const cached = lookupIdempotent(db, user.org_id, idem);
+    if (cached) return cached;
+    const validated = assets.validateCategoryInput(body);
+    const id = randomId("cat");
+    db.prepare(`
+      INSERT INTO asset_categories (id, org_id, name, default_useful_life_months, default_depreciation_method, default_residual_pct, asset_account_id, accum_depr_account_id, depr_expense_account_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id, user.org_id, validated.name,
+      Math.trunc(body.defaultUsefulLifeMonths),
+      String(body.defaultDepreciationMethod),
+      Number(body.defaultResidualPct),
+      String(body.assetAccountId), String(body.accumDeprAccountId), String(body.deprExpenseAccountId),
+      new Date().toISOString()
+    );
+    audit(db, user.org_id, user.id, "asset.category.created", { categoryId: id, name: validated.name, idempotencyKey: idem });
+    const category = db.prepare("SELECT * FROM asset_categories WHERE id = ?").get(id);
+    const response = { ok: true, category };
+    recordIdempotent(db, user.org_id, idem, response);
+    return response;
+  });
+
+  app.post("/api/assets", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "assets");
+    const body = request.body === undefined ? {} : request.body;
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey required"); e.statusCode = 400; throw e; }
+    const cached = lookupIdempotent(db, user.org_id, idem);
+    if (cached) return cached;
+    const validated = assets.validateAssetInput(body);
+    const category = db.prepare("SELECT * FROM asset_categories WHERE id = ? AND org_id = ?").get(String(body.categoryId), user.org_id);
+    if (!category) { const e = new Error("category not found"); e.statusCode = 400; throw e; }
+    const id = randomId("ast");
+    db.prepare(`
+      INSERT INTO assets (id, org_id, category_id, name, serial, purchase_date, purchase_cost_amd, vendor_id, current_location_id, status, salvage_value_amd, parent_asset_id, created_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'active', ?, ?, ?)
+    `).run(
+      id, user.org_id, category.id, validated.name,
+      body.serial ? String(body.serial) : null,
+      String(body.purchaseDate),
+      validated.purchaseCostAmd,
+      body.vendorId ? String(body.vendorId) : null,
+      body.locationId ? String(body.locationId) : null,
+      validated.salvageValueAmd,
+      body.parentAssetId ? String(body.parentAssetId) : null,
+      new Date().toISOString()
+    );
+    audit(db, user.org_id, user.id, "asset.created", { assetId: id, name: validated.name, categoryId: category.id, idempotencyKey: idem });
+    const asset = db.prepare("SELECT * FROM assets WHERE id = ?").get(id);
+    const response = { ok: true, asset };
+    recordIdempotent(db, user.org_id, idem, response);
+    return response;
+  });
+
+  app.get("/api/assets/:id/depreciation", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "assets");
+    const asset = db.prepare("SELECT * FROM assets WHERE id = ? AND org_id = ?").get(request.params.id, user.org_id);
+    if (!asset) { const e = new Error("asset not found"); e.statusCode = 404; throw e; }
+    const category = db.prepare("SELECT * FROM asset_categories WHERE id = ?").get(asset.category_id);
+    if (!category) { const e = new Error("category missing"); e.statusCode = 500; throw e; }
+    const lifeMonths = category.default_useful_life_months;
+    const schedule = assets.buildSchedule({
+      cost: asset.purchase_cost_amd,
+      salvage: asset.salvage_value_amd,
+      lifeMonths,
+      method: category.default_depreciation_method,
+      rate: category.default_depreciation_method === "reducing_balance" ? Number((2 / lifeMonths).toFixed(6)) : undefined
+    });
+    return { ok: true, assetId: asset.id, schedule };
+  });
+
+  app.post("/api/assets/:id/post-depreciation", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "assets");
+    const body = request.body === undefined ? {} : request.body;
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey required"); e.statusCode = 400; throw e; }
+    const cached = lookupIdempotent(db, user.org_id, idem);
+    if (cached) return cached;
+    const asset = db.prepare("SELECT * FROM assets WHERE id = ? AND org_id = ?").get(request.params.id, user.org_id);
+    if (!asset) { const e = new Error("asset not found"); e.statusCode = 404; throw e; }
+    const category = db.prepare("SELECT * FROM asset_categories WHERE id = ?").get(asset.category_id);
+    const periodKey = String(body.periodKey || "");
+    if (!/^\d{4}-\d{2}$/.test(periodKey)) { const e = new Error("periodKey must be YYYY-MM"); e.statusCode = 400; throw e; }
+    const lifeMonths = category.default_useful_life_months;
+    const schedule = assets.buildSchedule({
+      cost: asset.purchase_cost_amd,
+      salvage: asset.salvage_value_amd,
+      lifeMonths,
+      method: category.default_depreciation_method
+    });
+    const monthIndex = Math.max(0, Math.min(schedule.length - 1, Number(body.monthIndex || 0)));
+    const period = schedule[monthIndex];
+    const periodDate = `${periodKey}-01`;
+    const periodId = `${asset.id}-${periodKey}`;
+    const insertPeriod = db.prepare(`
+      INSERT OR IGNORE INTO asset_depreciation_schedules (id, asset_id, period_key, depreciation_amd, accumulated_amd, net_book_value_amd, status, posted_at)
+      VALUES (?, ?, ?, ?, ?, ?, 'posted', ?)
+    `);
+    insertPeriod.run(periodId, asset.id, periodKey, period.depreciationAmd, period.accumulatedAmd, period.netBookValueAmd, new Date().toISOString());
+    const row = db.prepare("SELECT * FROM asset_depreciation_schedules WHERE id = ?").get(periodId);
+    postJournalEntry(db, user, {
+      date: periodDate,
+      description: `Ակտիվի մաշվածք ${asset.name} ${periodKey}`,
+      debitAccount: category.depr_expense_account_id,
+      creditAccount: category.accum_depr_account_id,
+      amount: period.depreciationAmd
+    });
+    audit(db, user.org_id, user.id, "asset.depreciation.posted", { assetId: asset.id, periodKey, amount: period.depreciationAmd, idempotencyKey: idem });
+    const response = { ok: true, period: row };
+    recordIdempotent(db, user.org_id, idem, response);
+    return response;
+  });
+
+  app.get("/api/assets/:id/maintenance-history", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "assets");
+    const asset = db.prepare("SELECT * FROM assets WHERE id = ? AND org_id = ?").get(request.params.id, user.org_id);
+    if (!asset) { const e = new Error("asset not found"); e.statusCode = 404; throw e; }
+    const logs = db.prepare("SELECT * FROM asset_maintenance_logs WHERE asset_id = ? ORDER BY performed_at DESC").all(asset.id);
+    return { ok: true, assetId: asset.id, logs };
+  });
+
+  app.post("/api/assets/:id/maintenance", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "assets");
+    const body = request.body === undefined ? {} : request.body;
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey required"); e.statusCode = 400; throw e; }
+    const cached = lookupIdempotent(db, user.org_id, idem);
+    if (cached) return cached;
+    const asset = db.prepare("SELECT * FROM assets WHERE id = ? AND org_id = ?").get(request.params.id, user.org_id);
+    if (!asset) { const e = new Error("asset not found"); e.statusCode = 404; throw e; }
+    const performedAt = String(body.performedAt || "").trim();
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(performedAt)) { const e = new Error("performedAt must be YYYY-MM-DD"); e.statusCode = 400; throw e; }
+    const kind = String(body.kind || "").trim();
+    if (!kind) { const e = new Error("kind required"); e.statusCode = 400; throw e; }
+    const intervalDays = Number(body.intervalDays || 0);
+    if (!Number.isInteger(intervalDays) || intervalDays < 0) { const e = new Error("intervalDays must be a non-negative integer"); e.statusCode = 400; throw e; }
+    const cost = Math.trunc(Number(body.costAmd || 0));
+    if (!Number.isSafeInteger(cost) || cost < 0) { const e = new Error("costAmd must be a non-negative safe integer"); e.statusCode = 400; throw e; }
+    const nextDueAt = intervalDays > 0 ? assets.nextMaintenanceDue({ lastPerformedAt: performedAt, intervalDays }) : null;
+    const id = randomId("mnt");
+    db.prepare(`
+      INSERT INTO asset_maintenance_logs (id, asset_id, performed_at, kind, cost_amd, vendor_id, notes, file_id, next_due_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      id, asset.id, performedAt, kind, cost,
+      body.vendorId ? String(body.vendorId) : null,
+      body.notes ? String(body.notes) : null,
+      body.fileId ? String(body.fileId) : null,
+      nextDueAt
+    );
+    if (intervalDays > 0) {
+      db.prepare("UPDATE assets SET current_location_id = current_location_id WHERE id = ?").run(asset.id);
+    }
+    audit(db, user.org_id, user.id, "asset.maintenance.logged", { assetId: asset.id, logId: id, kind, costAmd: cost, idempotencyKey: idem });
+    const log = db.prepare("SELECT * FROM asset_maintenance_logs WHERE id = ?").get(id);
+    const response = { ok: true, log };
+    recordIdempotent(db, user.org_id, idem, response);
+    return response;
+  });
+
+  app.post("/api/assets/:id/assign", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "assets");
+    const body = request.body === undefined ? {} : request.body;
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey required"); e.statusCode = 400; throw e; }
+    const cached = lookupIdempotent(db, user.org_id, idem);
+    if (cached) return cached;
+    const asset = db.prepare("SELECT * FROM assets WHERE id = ? AND org_id = ?").get(request.params.id, user.org_id);
+    if (!asset) { const e = new Error("asset not found"); e.statusCode = 404; throw e; }
+    const assigneeType = String(body.assigneeType || "").trim();
+    const assigneeId = String(body.assigneeId || "").trim();
+    if (!assigneeType || !assigneeId) { const e = new Error("assigneeType and assigneeId required"); e.statusCode = 400; throw e; }
+    const id = randomId("asg");
+    db.prepare(`
+      INSERT INTO asset_assignments (id, asset_id, assignee_type, assignee_id, assigned_at, signature_doc_id)
+      VALUES (?, ?, ?, ?, ?, ?)
+    `).run(id, asset.id, assigneeType, assigneeId, new Date().toISOString(), body.signatureDocId ? String(body.signatureDocId) : null);
+    audit(db, user.org_id, user.id, "asset.assigned", { assetId: asset.id, assigneeType, assigneeId, idempotencyKey: idem });
+    const assignment = db.prepare("SELECT * FROM asset_assignments WHERE id = ?").get(id);
+    const response = { ok: true, assignment };
+    recordIdempotent(db, user.org_id, idem, response);
+    return response;
+  });
+
+  app.post("/api/assets/:id/return", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "assets");
+    const body = request.body === undefined ? {} : request.body;
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey required"); e.statusCode = 400; throw e; }
+    const cached = lookupIdempotent(db, user.org_id, idem);
+    if (cached) return cached;
+    const asset = db.prepare("SELECT * FROM assets WHERE id = ? AND org_id = ?").get(request.params.id, user.org_id);
+    if (!asset) { const e = new Error("asset not found"); e.statusCode = 404; throw e; }
+    const openAssignment = db.prepare("SELECT * FROM asset_assignments WHERE asset_id = ? AND returned_at IS NULL ORDER BY assigned_at DESC LIMIT 1").get(asset.id);
+    if (!openAssignment) { const e = new Error("no open assignment to return"); e.statusCode = 400; throw e; }
+    db.prepare("UPDATE asset_assignments SET returned_at = ? WHERE id = ?").run(new Date().toISOString(), openAssignment.id);
+    audit(db, user.org_id, user.id, "asset.returned", { assetId: asset.id, assignmentId: openAssignment.id, idempotencyKey: idem });
+    const assignment = db.prepare("SELECT * FROM asset_assignments WHERE id = ?").get(openAssignment.id);
+    const response = { ok: true, assignment };
+    recordIdempotent(db, user.org_id, idem, response);
+    return response;
+  });
+
+  app.get("/api/assets/report/value", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "assets");
+    const rows = db.prepare(`
+      SELECT a.id, a.category_id AS categoryId, a.purchase_cost_amd AS purchaseCostAmd,
+             a.salvage_value_amd AS salvageValueAmd,
+             COALESCE((SELECT SUM(depreciation_amd) FROM asset_depreciation_schedules s WHERE s.asset_id = a.id AND s.status = 'posted'), 0) AS accumulatedDepreciationAmd
+      FROM assets a
+      WHERE a.org_id = ?
+    `).all(user.org_id);
+    const enriched = rows.map(row => ({ ...row, netBookValueAmd: row.purchaseCostAmd - row.accumulatedDepreciationAmd }));
+    const rollup = assets.rollUpValueByCategory(enriched);
+    return { ok: true, rollup };
+  });
+
+  app.post("/api/assets/:id/write-off", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "assets");
+    const body = request.body === undefined ? {} : request.body;
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey required"); e.statusCode = 400; throw e; }
+    const cached = lookupIdempotent(db, user.org_id, idem);
+    if (cached) return cached;
+    const asset = db.prepare("SELECT * FROM assets WHERE id = ? AND org_id = ?").get(request.params.id, user.org_id);
+    if (!asset) { const e = new Error("asset not found"); e.statusCode = 404; throw e; }
+    if (asset.status === "written_off") { const e = new Error("asset already written off"); e.statusCode = 400; throw e; }
+    const category = db.prepare("SELECT * FROM asset_categories WHERE id = ?").get(asset.category_id);
+    const accumulated = db.prepare("SELECT COALESCE(SUM(depreciation_amd), 0) AS sum FROM asset_depreciation_schedules WHERE asset_id = ? AND status = 'posted'").get(asset.id).sum;
+    const netBook = asset.purchase_cost_amd - accumulated;
+    const writeOffDate = String(body.date || new Date().toISOString().slice(0, 10));
+    db.prepare("UPDATE assets SET status = 'written_off' WHERE id = ?").run(asset.id);
+    if (netBook !== 0) {
+      postJournalEntry(db, user, {
+        date: writeOffDate,
+        description: `Ակտիվի հաշվառման հանում ${asset.name}`,
+        debitAccount: category.accum_depr_account_id,
+        creditAccount: category.asset_account_id,
+        amount: Math.abs(netBook)
+      });
+    }
+    audit(db, user.org_id, user.id, "asset.writtenOff", { assetId: asset.id, netBookAmd: netBook, date: writeOffDate, idempotencyKey: idem });
+    const updated = db.prepare("SELECT * FROM assets WHERE id = ?").get(asset.id);
+    const response = { ok: true, asset: updated, netBookAmd: netBook };
+    recordIdempotent(db, user.org_id, idem, response);
+    return response;
   });
 
   // Document Cabinet (Документооборот) — incoming/outgoing/internal flows, versioning,
@@ -9358,6 +9626,66 @@ function requireAppAccess(db, user, appId) {
     const err = new Error("App access required");
     err.statusCode = 403;
     throw err;
+  }
+}
+
+const _cachedOrRunInsert = new WeakMap();
+function cachedOrRun(db, user, idemKey, compute) {
+  // Generic idempotency: returns the cached envelope for (orgId, key) if
+  // present, else runs compute() and persists the envelope. Mirrors
+  // cfoCachedOrRun but is available to all modules.
+  if (!idemKey) {
+    const err = new Error("idempotencyKey is required");
+    err.statusCode = 400;
+    throw err;
+  }
+  const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idemKey);
+  if (existing) return JSON.parse(existing.response_json);
+  const envelope = compute();
+  let insert = _cachedOrRunInsert.get(db);
+  if (!insert) {
+    insert = db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)");
+    _cachedOrRunInsert.set(db, insert);
+  }
+  insert.run(randomId("idem"), user.org_id, idemKey, JSON.stringify(envelope), new Date().toISOString());
+  return envelope;
+}
+
+function lookupIdempotent(db, orgId, idemKey) {
+  const row = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(orgId, idemKey);
+  return row ? JSON.parse(row.response_json) : null;
+}
+
+function recordIdempotent(db, orgId, idemKey, response) {
+  db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+    .run(randomId("idem"), orgId, idemKey, JSON.stringify(response), new Date().toISOString());
+}
+
+function postJournalEntry(db, user, { date, description, debitAccount, creditAccount, amount }) {
+  // Posts a balanced Dr/Cr journal entry via the canonical ledger. Surfaces
+  // PERIOD_LOCKED as a 409 instead of a 500 so the assets routes can return
+  // a meaningful error. amount is integer AMD minor units.
+  if (!Number.isInteger(amount) || amount <= 0) {
+    const err = new Error("amount must be a positive integer");
+    err.statusCode = 400;
+    throw err;
+  }
+  try {
+    return ledger.postEntry(db, {
+      orgId: user.org_id,
+      date,
+      description,
+      debitAccount,
+      creditAccount,
+      amount
+    });
+  } catch (error) {
+    if (error instanceof ledger.PeriodLockedError) {
+      const err = new Error("Period is locked");
+      err.statusCode = 409;
+      throw err;
+    }
+    throw error;
   }
 }
 
@@ -43672,7 +44000,7 @@ function getAccessReviewRoles(db, orgId, users, assignableRoles = getAssignableA
 }
 
 function getAccessReviewAppMatrix(db, orgId, assignableRoles = getAssignableAppRoleSet(db, orgId)) {
-  const apps = db.prepare("SELECT id, name, category FROM apps ORDER BY priority").all();
+  const apps = db.prepare("SELECT id, name, category FROM apps WHERE maturity != 'internal' ORDER BY priority").all();
   return apps.map(app => ({
     appId: app.id,
     appName: app.name,
@@ -47751,6 +48079,7 @@ function getAssignedApps(db, orgId, role) {
       AND app_assignments.org_id = ?
       AND app_assignments.role = ?
     WHERE COALESCE(app_assignments.enabled, 0) = 1
+      AND apps.maturity != 'internal'
     ORDER BY apps.priority
   `).all(orgId, role).filter(app => isAppAssignmentRoleSupported(app.id, role));
 }
@@ -47762,6 +48091,7 @@ function getAllApps(db, orgId) {
       json_group_array(json_object('role', app_assignments.role, 'enabled', app_assignments.enabled)) AS assignments
     FROM apps
     LEFT JOIN app_assignments ON app_assignments.app_id = apps.id AND app_assignments.org_id = ?
+    WHERE apps.maturity != 'internal'
     GROUP BY apps.id
     ORDER BY apps.priority
   `).all(orgId);
