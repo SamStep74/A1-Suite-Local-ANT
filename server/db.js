@@ -8055,7 +8055,109 @@ function ensureAnalyticsLayer(db) {
       checksum TEXT NOT NULL,
       method TEXT NOT NULL
     );
+
+    CREATE TABLE IF NOT EXISTS device_tokens (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      token TEXT NOT NULL UNIQUE,
+      label TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_device_tokens_token ON device_tokens(token);
+
+    CREATE TABLE IF NOT EXISTS greenhouses (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      asset_id TEXT,
+      area_m2 REAL NOT NULL,
+      glazing_kind TEXT NOT NULL,
+      heating_kind TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS greenhouse_zones (
+      id TEXT PRIMARY KEY,
+      greenhouse_id TEXT NOT NULL REFERENCES greenhouses(id),
+      name TEXT NOT NULL,
+      area_m2 REAL NOT NULL,
+      irrigation_kind TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE TABLE IF NOT EXISTS greenhouse_crops (
+      id TEXT PRIMARY KEY,
+      zone_id TEXT NOT NULL REFERENCES greenhouse_zones(id),
+      crop_kind TEXT NOT NULL,
+      planted_at TEXT NOT NULL,
+      expected_harvest_at TEXT NOT NULL,
+      expected_yield_kg REAL NOT NULL,
+      seed_source TEXT,
+      status TEXT NOT NULL DEFAULT 'planted'
+    );
+    CREATE TABLE IF NOT EXISTS greenhouse_climate_logs (
+      id TEXT PRIMARY KEY,
+      zone_id TEXT NOT NULL REFERENCES greenhouse_zones(id),
+      recorded_at TEXT NOT NULL,
+      temp_c REAL NOT NULL,
+      humidity REAL NOT NULL,
+      light_lux REAL,
+      co2_ppm REAL,
+      sensor_id TEXT NOT NULL,
+      batch_id TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_greenhouse_climate_zone_time
+      ON greenhouse_climate_logs(zone_id, recorded_at);
+    CREATE TABLE IF NOT EXISTS greenhouse_energy_logs (
+      id TEXT PRIMARY KEY,
+      greenhouse_id TEXT NOT NULL REFERENCES greenhouses(id),
+      recorded_at TEXT NOT NULL,
+      kwh REAL NOT NULL DEFAULT 0,
+      gas_m3 REAL NOT NULL DEFAULT 0,
+      source TEXT NOT NULL,
+      period_key TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_greenhouse_energy_period
+      ON greenhouse_energy_logs(greenhouse_id, period_key);
+    CREATE TABLE IF NOT EXISTS greenhouse_harvests (
+      id TEXT PRIMARY KEY,
+      crop_id TEXT NOT NULL REFERENCES greenhouse_crops(id),
+      harvested_at TEXT NOT NULL,
+      quantity_kg REAL NOT NULL,
+      quality_grade TEXT NOT NULL,
+      lot_id TEXT,
+      notes TEXT,
+      file_id TEXT
+    );
+    CREATE TABLE IF NOT EXISTS greenhouse_bioprotection_logs (
+      id TEXT PRIMARY KEY,
+      zone_id TEXT NOT NULL REFERENCES greenhouse_zones(id),
+      applied_at TEXT NOT NULL,
+      agent_kind TEXT NOT NULL,
+      dose TEXT NOT NULL,
+      target_pest TEXT,
+      withdrawal_period_days INTEGER NOT NULL DEFAULT 0,
+      recorded_by TEXT,
+      file_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_greenhouse_bioprotection_zone_time
+      ON greenhouse_bioprotection_logs(zone_id, applied_at);
   `);
+
+  // Seed a default device token for greenhouse climate/energy device-push.
+  const seedDevice = db.prepare("SELECT COUNT(*) AS c FROM device_tokens").get().c;
+  if (seedDevice === 0) {
+    db.prepare("INSERT INTO device_tokens (id, org_id, token, label, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run("dt-gh-default", "org-armosphera-demo", "gh-device-token-default", "Default greenhouse device", new Date().toISOString());
+  }
+
+  // Seed greenhouse app_assignments for Owner/Admin/Operator (without adding to apps list)
+  const seedGhAssignments = db.prepare(`
+    INSERT OR IGNORE INTO app_assignments (org_id, role, app_id, enabled)
+    VALUES (?, ?, 'greenhouse', 1)
+  `);
+  const ghOrgs = db.prepare("SELECT id FROM organizations").all();
+  for (const org of ghOrgs) {
+    for (const role of ["Owner", "Admin", "Operator"]) seedGhAssignments.run(org.id, role);
+  }
 
   // Seed hs_code_rules + country_rule_packs on first boot (idempotent).
   const seedHsr = db.prepare("SELECT COUNT(*) AS c FROM hs_code_rules").get().c;
