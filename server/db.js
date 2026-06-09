@@ -7153,6 +7153,134 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_audit_export_packets_org
       ON audit_export_packets(org_id, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS fleet_vehicles (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      plate TEXT NOT NULL,
+      asset_id TEXT,
+      model TEXT,
+      year INTEGER,
+      capacity_kg REAL,
+      refrigeration INTEGER NOT NULL DEFAULT 0,
+      max_fuel_l REAL,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, plate)
+    );
+    CREATE INDEX IF NOT EXISTS idx_fleet_vehicles_org ON fleet_vehicles(org_id);
+
+    CREATE TABLE IF NOT EXISTS fleet_drivers (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      employee_id TEXT,
+      license_no TEXT NOT NULL,
+      license_classes TEXT,
+      license_expiry TEXT,
+      hours_of_service_balance_min INTEGER NOT NULL DEFAULT 600,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, license_no)
+    );
+    CREATE INDEX IF NOT EXISTS idx_fleet_drivers_org ON fleet_drivers(org_id);
+
+    CREATE TABLE IF NOT EXISTS fleet_trips (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      vehicle_id TEXT NOT NULL,
+      driver_id TEXT NOT NULL,
+      origin TEXT NOT NULL,
+      destination TEXT NOT NULL,
+      planned_departure TEXT NOT NULL,
+      planned_arrival TEXT,
+      actual_departure TEXT,
+      actual_arrival TEXT,
+      distance_km REAL,
+      fuel_l REAL,
+      status TEXT NOT NULL DEFAULT 'planned',
+      export_doc_id TEXT,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_fleet_trips_org ON fleet_trips(org_id);
+    CREATE INDEX IF NOT EXISTS idx_fleet_trips_vehicle ON fleet_trips(vehicle_id);
+    CREATE INDEX IF NOT EXISTS idx_fleet_trips_driver ON fleet_trips(driver_id);
+
+    CREATE TABLE IF NOT EXISTS fleet_gps_pings (
+      id TEXT PRIMARY KEY,
+      vehicle_id TEXT NOT NULL,
+      recorded_at TEXT NOT NULL,
+      lat REAL NOT NULL,
+      lon REAL NOT NULL,
+      speed_kph REAL,
+      heading_deg REAL,
+      ignition_on INTEGER,
+      recorded_via TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_fleet_gps_vehicle ON fleet_gps_pings(vehicle_id, recorded_at);
+
+    CREATE TABLE IF NOT EXISTS fleet_fuel_logs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      vehicle_id TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      liters REAL NOT NULL,
+      cost_amd REAL NOT NULL,
+      odometer_km REAL NOT NULL,
+      station TEXT,
+      vendor_id TEXT,
+      notes TEXT,
+      file_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_fleet_fuel_vehicle ON fleet_fuel_logs(vehicle_id, occurred_at);
+
+    CREATE TABLE IF NOT EXISTS fleet_repairs (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      vehicle_id TEXT NOT NULL,
+      occurred_at TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      description TEXT,
+      cost_amd REAL NOT NULL,
+      vendor_id TEXT,
+      odometer_km REAL,
+      file_id TEXT,
+      next_due_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_fleet_repairs_vehicle ON fleet_repairs(vehicle_id, occurred_at);
+
+    CREATE TABLE IF NOT EXISTS fleet_tires (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      vehicle_id TEXT NOT NULL,
+      position TEXT NOT NULL,
+      brand TEXT,
+      installed_at TEXT NOT NULL,
+      removed_at TEXT,
+      odometer_at_install REAL,
+      expected_life_km REAL
+    );
+    CREATE INDEX IF NOT EXISTS idx_fleet_tires_vehicle ON fleet_tires(vehicle_id, position);
+
+    CREATE TABLE IF NOT EXISTS fleet_cold_chain_logs (
+      id TEXT PRIMARY KEY,
+      vehicle_id TEXT NOT NULL,
+      trip_id TEXT,
+      recorded_at TEXT NOT NULL,
+      temp_c REAL NOT NULL,
+      humidity REAL,
+      sensor_id TEXT,
+      alert_kind TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_fleet_cold_vehicle_trip ON fleet_cold_chain_logs(vehicle_id, trip_id, recorded_at);
+
+    CREATE TABLE IF NOT EXISTS fleet_device_tokens (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      vehicle_id TEXT NOT NULL,
+      token_hash TEXT NOT NULL UNIQUE,
+      label TEXT,
+      last_seen_at TEXT,
+      revoked_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_fleet_device_tokens_org ON fleet_device_tokens(org_id, vehicle_id);
+
     CREATE TABLE IF NOT EXISTS budgets (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -7549,7 +7677,8 @@ function ensureSuiteAppLayer(db) {
   const apps = [
     ["copilot", "Legal & Accounting Copilot", "AI", "Armenian-first cited legal, accounting, payroll, month-close, privacy, and e-sign guidance.", "/app/copilot", "controlled-advisory", 3],
     ["inventory", "Catalog & Inventory", "Operations", "Products, warehouse balances, stock locations, and governed stock moves.", "/app/inventory", "new", 7],
-    ["purchase", "Purchase", "Operations", "RFQs, purchase orders, stock receipts, and AP vendor-bill handoff.", "/app/purchase", "new", 8]
+    ["purchase", "Purchase", "Operations", "RFQs, purchase orders, stock receipts, and AP vendor-bill handoff.", "/app/purchase", "new", 8],
+    ["fleet", "Fleet Management / Ավտոպարկ", "Operations", "Vehicle register, drivers, trips, GPS, fuel, repairs, tires, and cold-chain temperature logs for 350+ trucks.", "/app/fleet", "new", 14]
   ];
   const insertApp = db.prepare(`
     INSERT OR IGNORE INTO apps (id, name, category, description, route, maturity, priority)
@@ -7585,6 +7714,10 @@ function ensureSuiteAppLayer(db) {
     }
     for (const role of ["Owner", "Admin", "Accountant", "Lawyer", "Salesperson", "Service Manager", "Auditor"]) {
       insertAssignment.run(org.id, role, "copilot");
+    }
+    // Fleet: Owner/Admin/Operator get the management app (no apps-table row, by design).
+    for (const role of ["Owner", "Admin", "Operator"]) {
+      insertAssignment.run(org.id, role, "fleet");
     }
   }
 }
