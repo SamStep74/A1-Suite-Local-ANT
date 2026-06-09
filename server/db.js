@@ -7990,6 +7990,11 @@ function ensureAssetLayer(db) {
   `);
   // Seed app_assignments for the "assets" app id so Owner/Admin/Accountant/Operator
   // can access the new module without expanding the visible 13-app list.
+  // The hidden apps row satisfies the FK from app_assignments(app_id) but is
+  // never read by the UI catalog (the catalog is the static 13-entry array
+  // declared in openDatabase's seed function).
+  db.prepare("INSERT OR IGNORE INTO apps (id, name, category, description, route, maturity, priority) VALUES (?, ?, ?, ?, ?, ?, ?)")
+    .run("assets", "Asset Management", "Finance", "Fixed-asset register, depreciation, maintenance, and write-off.", "/app/assets", "internal", 99);
   const orgs = db.prepare("SELECT id FROM organizations").all();
   const seed = db.prepare("INSERT OR IGNORE INTO app_assignments (org_id, role, app_id, enabled) VALUES (?, ?, ?, 1)");
   for (const org of orgs) {
