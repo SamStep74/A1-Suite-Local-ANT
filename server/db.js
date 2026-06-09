@@ -8065,6 +8065,17 @@ function ensureAnalyticsLayer(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_device_tokens_token ON device_tokens(token);
 
+    CREATE TABLE IF NOT EXISTS assets (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      name TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'active',
+      acquired_at TEXT NOT NULL,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_assets_org ON assets(org_id, kind);
+
     CREATE TABLE IF NOT EXISTS greenhouses (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
@@ -8147,16 +8158,6 @@ function ensureAnalyticsLayer(db) {
   if (seedDevice === 0) {
     db.prepare("INSERT INTO device_tokens (id, org_id, token, label, created_at) VALUES (?, ?, ?, ?, ?)")
       .run("dt-gh-default", "org-armosphera-demo", "gh-device-token-default", "Default greenhouse device", new Date().toISOString());
-  }
-
-  // Seed greenhouse app_assignments for Owner/Admin/Operator (without adding to apps list)
-  const seedGhAssignments = db.prepare(`
-    INSERT OR IGNORE INTO app_assignments (org_id, role, app_id, enabled)
-    VALUES (?, ?, 'greenhouse', 1)
-  `);
-  const ghOrgs = db.prepare("SELECT id FROM organizations").all();
-  for (const org of ghOrgs) {
-    for (const role of ["Owner", "Admin", "Operator"]) seedGhAssignments.run(org.id, role);
   }
 
   // Seed hs_code_rules + country_rule_packs on first boot (idempotent).
