@@ -5,7 +5,7 @@ import "./polish.css";
 import { FinanceTrialBalancePanel, FinanceStatementsPanel, FinanceVatPanel, FinanceExpenseForm, LegalSearchPanel, FinanceBillForm, FinancePayrollForm, FinancePayablesPanel, FinanceOpeningBalancesPanel, FinanceOpeningBalancesForm, FinanceExpenseListPanel, FinanceBillListPanel, FinancePayrollRunsPanel, FinanceTaxRatesPanel, FinanceChartOfAccountsPanel, FinanceLocalizationToolsPanel } from "./finance.jsx";
 import { CrmQuotesPanel, CrmDealsBoard, CrmQuoteForm, CrmActivityPanel } from "./crm.jsx";
 import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
-import { PeopleEmployeeForm, PeopleRegistryPanel } from "./people.jsx";
+import { PeopleEmployeeForm, PeopleRegistryPanel, HrContractsPanel, HrLeavePanel, HrTripsPanel, HrTimesheetPanel, HrKpiPanel, HrRecruitmentPanel } from "./people.jsx";
 import { DocsCreateForm, DocsRegistryPanel } from "./docs.jsx";
 import { CabinetPanel } from "./cabinet.jsx";
 import { CopilotPanel } from "./copilot.jsx";
@@ -4097,6 +4097,97 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     catch (e) { setActionState(`employee:update:error:${employeeId}`); reportActionError(e); }
   }
 
+  async function hrCreateContract(body) {
+    setActionState("hr:contract"); setActionError("");
+    try {
+      const envelope = await api("/api/hr/contracts", { method: "POST", body });
+      setActionState("hr:contract:done");
+      return envelope;
+    }
+    catch (e) { setActionState("hr:contract:error"); reportActionError(e); throw e; }
+  }
+  async function hrRequestLeave(body) {
+    setActionState("hr:leave"); setActionError("");
+    try {
+      const envelope = await api("/api/hr/leave-requests", { method: "POST", body });
+      setActionState("hr:leave:done");
+      return envelope;
+    }
+    catch (e) { setActionState("hr:leave:error"); reportActionError(e); throw e; }
+  }
+  async function hrApproveLeave(id, decision, idem) {
+    setActionState("hr:leave"); setActionError("");
+    try {
+      const envelope = await api(`/api/hr/leave-requests/${id}/approve`, { method: "POST", body: { decision, idempotencyKey: idem } });
+      setActionState("hr:leave:done");
+      return envelope;
+    }
+    catch (e) { setActionState("hr:leave:error"); reportActionError(e); throw e; }
+  }
+  async function hrCreateTrip(body) {
+    setActionState("hr:trip"); setActionError("");
+    try {
+      const envelope = await api("/api/hr/business-trips", { method: "POST", body });
+      setActionState("hr:trip:done");
+      return envelope;
+    }
+    catch (e) { setActionState("hr:trip:error"); reportActionError(e); throw e; }
+  }
+  async function hrSubmitTimesheet(body) {
+    setActionState("hr:timesheet"); setActionError("");
+    try {
+      const envelope = await api("/api/hr/timesheets/bulk", { method: "POST", body });
+      setActionState("hr:timesheet:done");
+      return envelope;
+    }
+    catch (e) { setActionState("hr:timesheet:error"); reportActionError(e); throw e; }
+  }
+  async function hrSetKpiTargets(body) {
+    setActionState("hr:kpi"); setActionError("");
+    try {
+      const envelope = await api("/api/hr/kpis/targets", { method: "POST", body });
+      setActionState("hr:kpi:done");
+      return envelope;
+    }
+    catch (e) { setActionState("hr:kpi:error"); reportActionError(e); throw e; }
+  }
+  async function hrSetKpiActuals(body) {
+    setActionState("hr:kpi"); setActionError("");
+    try {
+      const envelope = await api("/api/hr/kpis/actuals", { method: "POST", body });
+      setActionState("hr:kpi:done");
+      return envelope;
+    }
+    catch (e) { setActionState("hr:kpi:error"); reportActionError(e); throw e; }
+  }
+  async function hrGetKpiScore({ employeeId, periodKey }) {
+    setActionState("hr:kpi"); setActionError("");
+    try {
+      const envelope = await api(`/api/hr/kpis/score?employeeId=${encodeURIComponent(employeeId)}&periodKey=${encodeURIComponent(periodKey)}`);
+      setActionState("hr:kpi:done");
+      return envelope;
+    }
+    catch (e) { setActionState("hr:kpi:error"); reportActionError(e); throw e; }
+  }
+  async function hrCreatePipeline(body) {
+    setActionState("hr:recruit"); setActionError("");
+    try {
+      const envelope = await api("/api/hr/recruitment/pipelines", { method: "POST", body });
+      setActionState("hr:recruit:done");
+      return envelope;
+    }
+    catch (e) { setActionState("hr:recruit:error"); reportActionError(e); throw e; }
+  }
+  async function hrAddCandidate(body) {
+    setActionState("hr:recruit"); setActionError("");
+    try {
+      const envelope = await api("/api/hr/recruitment/candidates", { method: "POST", body });
+      setActionState("hr:recruit:done");
+      return envelope;
+    }
+    catch (e) { setActionState("hr:recruit:error"); reportActionError(e); throw e; }
+  }
+
   const liveApprovals = quoteApproval && ["pending", "approved"].includes(quoteApproval.status)
     ? [
         quoteApproval,
@@ -4279,6 +4370,16 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               </div>
               {["Owner", "Admin", "Accountant"].includes(suite.user.role) && (
                 <PeopleEmployeeForm onCreate={createEmployee} actionState={actionState} />
+              )}
+              {["Owner", "Admin", "Operator", "Accountant"].includes(suite.user.role) && (
+                <>
+                  <HrContractsPanel employees={people.employees} onCreate={hrCreateContract} actionState={actionState} />
+                  <HrLeavePanel employees={people.employees} onRequest={hrRequestLeave} onApprove={hrApproveLeave} actionState={actionState} />
+                  <HrTripsPanel employees={people.employees} onCreate={hrCreateTrip} actionState={actionState} />
+                  <HrTimesheetPanel employees={people.employees} onSubmit={hrSubmitTimesheet} actionState={actionState} />
+                  <HrKpiPanel employees={people.employees} onSetTargets={hrSetKpiTargets} onSetActuals={hrSetKpiActuals} onGetScore={hrGetKpiScore} actionState={actionState} />
+                  <HrRecruitmentPanel onCreatePipeline={hrCreatePipeline} onAddCandidate={hrAddCandidate} actionState={actionState} />
+                </>
               )}
             </>
           )}
