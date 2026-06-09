@@ -7974,7 +7974,116 @@ function ensureAnalyticsLayer(db) {
 
     CREATE INDEX IF NOT EXISTS idx_analytics_report_packets_type
       ON analytics_report_packets(org_id, report_type, period_key);
+
+    CREATE TABLE IF NOT EXISTS export_documents (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      kind TEXT NOT NULL,
+      destination_country TEXT NOT NULL,
+      incoterm TEXT,
+      currency TEXT,
+      status TEXT NOT NULL DEFAULT 'draft',
+      linked_so_id TEXT,
+      linked_po_id TEXT,
+      ship_from TEXT,
+      ship_to TEXT,
+      buyer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
+      shipper_id TEXT REFERENCES purchase_vendors(id) ON DELETE SET NULL,
+      file_id TEXT,
+      created_at TEXT NOT NULL,
+      finalized_at TEXT,
+      CONSTRAINT export_documents_kind_chk CHECK (kind IN ('invoice','packing','cmr','tir','coo','phyto','vet','declaration'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_export_documents_org ON export_documents(org_id, status, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS export_document_lines (
+      id TEXT PRIMARY KEY,
+      export_doc_id TEXT NOT NULL REFERENCES export_documents(id) ON DELETE CASCADE,
+      product_id TEXT,
+      hs_code TEXT,
+      description TEXT NOT NULL,
+      quantity REAL NOT NULL,
+      uom TEXT NOT NULL,
+      unit_price REAL NOT NULL,
+      net_weight_kg REAL,
+      gross_weight_kg REAL,
+      packages INTEGER,
+      marks TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_export_document_lines_doc ON export_document_lines(export_doc_id);
+    CREATE INDEX IF NOT EXISTS idx_export_document_lines_hs ON export_document_lines(hs_code);
+
+    CREATE TABLE IF NOT EXISTS hs_code_rules (
+      id TEXT PRIMARY KEY,
+      hs_code TEXT NOT NULL,
+      country TEXT NOT NULL,
+      requires_certificate TEXT,
+      requires_inspection INTEGER NOT NULL DEFAULT 0,
+      vat_class TEXT,
+      notes TEXT,
+      source_url TEXT,
+      reviewed_at TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_hs_code_rules_lookup ON hs_code_rules(hs_code, country);
+
+    CREATE TABLE IF NOT EXISTS country_rule_packs (
+      id TEXT PRIMARY KEY,
+      country TEXT NOT NULL,
+      version TEXT NOT NULL,
+      language TEXT NOT NULL,
+      json_blob_path TEXT NOT NULL,
+      loaded_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_country_rule_packs_lookup ON country_rule_packs(country, version);
+
+    CREATE TABLE IF NOT EXISTS export_declarations (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL,
+      export_doc_id TEXT NOT NULL REFERENCES export_documents(id) ON DELETE CASCADE,
+      declaration_no TEXT NOT NULL,
+      customs_office TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'draft',
+      submitted_at TEXT,
+      cleared_at TEXT
+    );
+
+    CREATE TABLE IF NOT EXISTS export_signatures (
+      id TEXT PRIMARY KEY,
+      export_doc_id TEXT NOT NULL REFERENCES export_documents(id) ON DELETE CASCADE,
+      signer_id TEXT NOT NULL,
+      signed_at TEXT NOT NULL,
+      checksum TEXT NOT NULL,
+      method TEXT NOT NULL
+    );
   `);
+
+  // Seed hs_code_rules + country_rule_packs on first boot (idempotent).
+  const seedHsr = db.prepare("SELECT COUNT(*) AS c FROM hs_code_rules").get().c;
+  if (seedHsr === 0) {
+    const ins = db.prepare("INSERT INTO hs_code_rules (id, hs_code, country, requires_certificate, requires_inspection, vat_class, notes, source_url, reviewed_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    const now = new Date().toISOString();
+    const rules = [
+      ["hsr-1", "0702", "RU", "phyto", 1, "vat-20", "Tomatoes — phyto certificate required", "https://customs.gov.am/", now],
+      ["hsr-2", "0806", "EU", "phyto", 1, "vat-0-export", "Grapes — EU phyto", "https://ec.europa.eu/food/plant/", now],
+      ["hsr-3", "0201", "AE", "vet", 1, "vat-0-export", "Beef — vet cert for UAE", "https://u.ae/en/information-and-services/", now],
+      ["hsr-4", "1701", "EAEU", "coo", 0, "vat-0-export", "Sugar — certificate of origin", "https://eec.eaeunion.org/", now]
+    ];
+    for (const r of rules) ins.run(r[0], r[1], r[2], r[3], r[4], r[5], r[6], r[7], r[8]);
+  }
+  const seedPack = db.prepare("SELECT COUNT(*) AS c FROM country_rule_packs").get().c;
+  if (seedPack === 0) {
+    const insP = db.prepare("INSERT INTO country_rule_packs (id, country, version, language, json_blob_path, loaded_at) VALUES (?, ?, ?, ?, ?, ?)");
+    const now = new Date().toISOString();
+    const packs = [
+      ["pack-RU", "RU", "1.0", "ru", "server/exportDocs/rules/RU.json", now],
+      ["pack-EAEU", "EAEU", "1.0", "ru", "server/exportDocs/rules/EAEU.json", now],
+      ["pack-EU", "EU", "1.0", "en", "server/exportDocs/rules/EU.json", now],
+      ["pack-AE", "AE", "1.0", "en", "server/exportDocs/rules/AE.json", now],
+      ["pack-HK", "HK", "1.0", "en", "server/exportDocs/rules/HK.json", now],
+      ["pack-PH", "PH", "1.0", "en", "server/exportDocs/rules/PH.json", now]
+    ];
+    for (const p of packs) insP.run(p[0], p[1], p[2], p[3], p[4], p[5]);
+  }
 }
 
 function seedCustomerProfiles(db, orgId) {
