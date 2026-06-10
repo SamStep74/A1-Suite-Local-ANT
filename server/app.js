@@ -147,6 +147,7 @@ const assets = require("./assets");
 const fleet = require("./fleet");
 const { buildDeviceAuth, hashToken } = require("./fleet/deviceAuth");
 const coldChainRules = require("./fleet/coldChainRules.json");
+const greenhouse = require("./greenhouse");
 const postingCodes = require("./postingCodes");
 const settingsStore = require("./settingsStore");
 const aiProvider = require("./aiProvider");
@@ -6513,6 +6514,319 @@ ${controls}
     const events = db.prepare("SELECT * FROM audit_events WHERE org_id = ? ORDER BY id DESC LIMIT 50").all(user.org_id);
     return { events: events.map(event => ({ ...event, details: safeJson(event.details) })) };
   });
+
+  // --- Greenhouse module -----------------------------------------------------
+
+  async function greenhouseDeviceAuth(request, reply) {
+    const token = String(request.headers["x-device-token"] || "").trim();
+    if (!token) {
+      const err = new Error("x-device-token header required");
+      err.statusCode = 401; throw err;
+    }
+    const row = db.prepare("SELECT id, org_id FROM device_tokens WHERE token = ?").get(token);
+    if (!row) {
+      const err = new Error("invalid device token");
+      err.statusCode = 401; throw err;
+    }
+    request.device = { id: row.id, org_id: row.org_id };
+  }
+
+  function ensureGreenhouseAssetRow(user, payload) {
+    const id = randomId("asset");
+    const now = new Date().toISOString();
+    db.prepare(`INSERT INTO assets (id, org_id, name, kind, status, acquired_at, created_at)
+                VALUES (?, ?, ?, 'greenhouse', 'active', ?, ?)`).run(
+      id, user.org_id, payload.name, now, now
+    );
+    return id;
+  }
+
+  app.post("/api/greenhouse/houses", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "greenhouse");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const built = greenhouse.buildHouse({ name: body.name, areaM2: body.areaM2, glazingKind: body.glazingKind, heatingKind: body.heatingKind, now: new Date().toISOString() });
+    const id = randomId("gh");
+    const assetId = ensureGreenhouseAssetRow(user, built);
+    db.prepare(`INSERT INTO greenhouses (id, org_id, name, asset_id, area_m2, glazing_kind, heating_kind, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, user.org_id, built.name, assetId, built.areaM2, built.glazingKind, built.heatingKind, built.createdAt
+    );
+    const envelope = { ok: true, greenhouse: { id, assetId, ...built } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString()
+    );
+    audit(db, user.org_id, user.id, "greenhouse.house.create", { greenhouseId: id, name: built.name, areaM2: built.areaM2 });
+    return envelope;
+  });
+
+  app.post("/api/greenhouse/zones", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "greenhouse");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const built = greenhouse.buildZone(body);
+    const house = db.prepare("SELECT id FROM greenhouses WHERE id = ? AND org_id = ?").get(built.greenhouseId, user.org_id);
+    if (!house) { const e = new Error("greenhouse not found"); e.statusCode = 404; throw e; }
+    const id = randomId("zone");
+    db.prepare(`INSERT INTO greenhouse_zones (id, greenhouse_id, name, area_m2, irrigation_kind, created_at)
+                VALUES (?, ?, ?, ?, ?, ?)`).run(
+      id, built.greenhouseId, built.name, built.areaM2, built.irrigationKind, new Date().toISOString()
+    );
+    const envelope = { ok: true, zone: { id, ...built } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString()
+    );
+    audit(db, user.org_id, user.id, "greenhouse.zone.create", { zoneId: id, greenhouseId: built.greenhouseId });
+    return envelope;
+  });
+
+  app.post("/api/greenhouse/crops", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "greenhouse");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const built = greenhouse.buildCrop(body);
+    const zone = db.prepare(`
+      SELECT z.id FROM greenhouse_zones z
+      JOIN greenhouses g ON g.id = z.greenhouse_id
+      WHERE z.id = ? AND g.org_id = ?
+    `).get(built.zoneId, user.org_id);
+    if (!zone) { const e = new Error("zone not found"); e.statusCode = 404; throw e; }
+    const id = randomId("crop");
+    db.prepare(`INSERT INTO greenhouse_crops (id, zone_id, crop_kind, planted_at, expected_harvest_at, expected_yield_kg, seed_source, status)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, built.zoneId, built.cropKind, built.plantedAt, built.expectedHarvestAt, built.expectedYieldKg, built.seedSource, built.status
+    );
+    const envelope = { ok: true, crop: { id, ...built } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString()
+    );
+    audit(db, user.org_id, user.id, "greenhouse.crop.plant", { cropId: id, zoneId: built.zoneId, cropKind: built.cropKind });
+    return envelope;
+  });
+
+  app.patch("/api/greenhouse/crops/:id/status", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "greenhouse");
+    const cropId = request.params.id;
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const crop = db.prepare(`
+      SELECT c.* FROM greenhouse_crops c
+      JOIN greenhouse_zones z ON z.id = c.zone_id
+      JOIN greenhouses g ON g.id = z.greenhouse_id
+      WHERE c.id = ? AND g.org_id = ?
+    `).get(cropId, user.org_id);
+    if (!crop) { const e = new Error("crop not found"); e.statusCode = 404; throw e; }
+    const updated = greenhouse.patchCropStatus({ currentStatus: crop.status, nextStatus: body.status });
+    db.prepare("UPDATE greenhouse_crops SET status = ? WHERE id = ?").run(updated.status, cropId);
+    const envelope = { ok: true, crop: { id: cropId, status: updated.status } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString()
+    );
+    audit(db, user.org_id, user.id, "greenhouse.crop.status", { cropId, status: updated.status });
+    return envelope;
+  });
+
+  // Device-push endpoints (token-gated, not session)
+  app.post("/api/greenhouse/devices/climate-batch", { preHandler: greenhouseDeviceAuth }, async request => {
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const orgId = request.device.org_id;
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(orgId, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const batchId = idem;
+    const built = greenhouse.ingestClimateBatch({ zoneId: body.zoneId, readings: body.readings, batchId });
+    const stmt = db.prepare(`INSERT INTO greenhouse_climate_logs
+      (id, zone_id, recorded_at, temp_c, humidity, light_lux, co2_ppm, sensor_id, batch_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+    for (const r of built.readings) {
+      stmt.run(randomId("clog"), r.zoneId, r.recordedAt, r.tempC, r.humidity, r.lightLux, r.co2Ppm, r.sensorId, r.batchId);
+    }
+    const envelope = { ok: true, climate: { zoneId: built.zoneId, count: built.count, batchId } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), orgId, idem, JSON.stringify(envelope), new Date().toISOString()
+    );
+    audit(db, orgId, "device", "greenhouse.climate.ingest", { zoneId: body.zoneId, count: built.count });
+    return envelope;
+  });
+
+  app.post("/api/greenhouse/devices/energy-batch", { preHandler: greenhouseDeviceAuth }, async request => {
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const orgId = request.device.org_id;
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(orgId, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const built = greenhouse.ingestEnergyBatch({ greenhouseId: body.greenhouseId, readings: body.readings, periodKey: body.periodKey });
+    const stmt = db.prepare(`INSERT INTO greenhouse_energy_logs
+      (id, greenhouse_id, recorded_at, kwh, gas_m3, source, period_key)
+      VALUES (?, ?, ?, ?, ?, ?, ?)`);
+    for (const r of built.readings) {
+      stmt.run(randomId("elog"), r.greenhouseId, r.recordedAt, r.kwh, r.gasM3, r.source, r.periodKey);
+    }
+    const envelope = { ok: true, energy: { greenhouseId: built.greenhouseId, periodKey: built.periodKey, count: built.count } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), orgId, idem, JSON.stringify(envelope), new Date().toISOString()
+    );
+    audit(db, orgId, "device", "greenhouse.energy.ingest", { greenhouseId: body.greenhouseId, periodKey: built.periodKey });
+    return envelope;
+  });
+
+  app.post("/api/greenhouse/bioprotection", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "greenhouse");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const built = greenhouse.buildBioprotection(body);
+    const id = randomId("bio");
+    db.prepare(`INSERT INTO greenhouse_bioprotection_logs
+      (id, zone_id, applied_at, agent_kind, dose, target_pest, withdrawal_period_days, recorded_by, file_id)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      id, built.zoneId, built.appliedAt, built.agentKind, built.dose, built.targetPest, built.withdrawalPeriodDays, built.recordedBy, null
+    );
+    const envelope = { ok: true, bioprotection: { id, ...built } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString()
+    );
+    audit(db, user.org_id, user.id, "greenhouse.bioprotection.apply", { bioprotectionId: id, zoneId: built.zoneId, agent: built.agentKind });
+    return envelope;
+  });
+
+  app.post("/api/greenhouse/harvests", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "greenhouse");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const crop = db.prepare(`
+      SELECT c.* FROM greenhouse_crops c
+      JOIN greenhouse_zones z ON z.id = c.zone_id
+      JOIN greenhouses g ON g.id = z.greenhouse_id
+      WHERE c.id = ? AND g.org_id = ?
+    `).get(body.cropId, user.org_id);
+    if (!crop) { const e = new Error("crop not found"); e.statusCode = 404; throw e; }
+    const logs = db.prepare("SELECT * FROM greenhouse_bioprotection_logs WHERE zone_id = ?").all(crop.zone_id);
+    greenhouse.enforceWithdrawalPeriod({ bioprotectionLogs: logs, zoneId: crop.zone_id, harvestDate: body.harvestedAt });
+    const harvestId = randomId("harv");
+    const lotNumericId = Math.floor(Date.now() + Math.random() * 1000);
+    const lotCode = `GH-${harvestId.slice(-8)}`;
+    db.prepare(`INSERT INTO greenhouse_harvests (id, crop_id, harvested_at, quantity_kg, quality_grade, lot_id, notes, file_id)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)`).run(
+      harvestId, body.cropId, body.harvestedAt, Number(body.quantityKg), body.qualityGrade, lotCode, body.notes || null, null
+    );
+    // Auto-create stock_lot (sub-plan 2 contract)
+    db.prepare(`INSERT OR IGNORE INTO stock_lots (id, org_id, product_id, lot_code, harvest_date, source_vendor_id, created_at)
+                VALUES (?, ?, ?, ?, ?, ?, ?)`).run(
+      lotNumericId, user.org_id, `greenhouse:${body.cropId}`, lotCode, body.harvestedAt, null, new Date().toISOString()
+    );
+    db.prepare("UPDATE greenhouse_crops SET status = 'harvested' WHERE id = ?").run(body.cropId);
+    const envelope = { ok: true, harvest: { id: harvestId, lotId: lotCode, stockLotId: lotNumericId, ...body } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString()
+    );
+    audit(db, user.org_id, user.id, "greenhouse.harvest.record", { cropId: body.cropId, quantityKg: body.quantityKg, lotId: lotCode, stockLotId: lotNumericId });
+    return envelope;
+  });
+
+  app.get("/api/greenhouse/:id/analytics/yield", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "greenhouse");
+    const id = String(request.params.id || "");
+    const house = db.prepare("SELECT * FROM greenhouses WHERE id = ? AND org_id = ?").get(id, user.org_id);
+    if (!house) { const e = new Error("greenhouse not found"); e.statusCode = 404; throw e; }
+    const periodKey = String(request.query.periodKey || "");
+    const crops = db.prepare(`
+      SELECT c.* FROM greenhouse_crops c
+      JOIN greenhouse_zones z ON z.id = c.zone_id
+      WHERE z.greenhouse_id = ? AND z.id IN (SELECT id FROM greenhouse_zones WHERE greenhouse_id = ?)
+    `).all(id, id);
+    const harvests = db.prepare(`
+      SELECT h.* FROM greenhouse_harvests h
+      JOIN greenhouse_crops c ON c.id = h.crop_id
+      JOIN greenhouse_zones z ON z.id = c.zone_id
+      WHERE z.greenhouse_id = ?
+    `).all(id);
+    return { ok: true, yield: { periodKey, greenhouseId: id, rows: greenhouse.computeYieldVsForecast({ crops, harvests }) } };
+  });
+
+  app.get("/api/greenhouse/:id/analytics/energy", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "greenhouse");
+    const id = String(request.params.id || "");
+    const house = db.prepare("SELECT * FROM greenhouses WHERE id = ? AND org_id = ?").get(id, user.org_id);
+    if (!house) { const e = new Error("greenhouse not found"); e.statusCode = 404; throw e; }
+    const periodKey = String(request.query.periodKey || "");
+    const energyLogs = db.prepare("SELECT * FROM greenhouse_energy_logs WHERE greenhouse_id = ? AND period_key = ?").all(id, periodKey);
+    const harvests = db.prepare(`
+      SELECT h.* FROM greenhouse_harvests h
+      JOIN greenhouse_crops c ON c.id = h.crop_id
+      JOIN greenhouse_zones z ON z.id = c.zone_id
+      WHERE z.greenhouse_id = ?
+    `).all(id);
+    return { ok: true, energy: { greenhouseId: id, periodKey, ...greenhouse.computeEnergyPerKg({ energyLogs, harvests }) } };
+  });
+
+  app.get("/api/greenhouse/:id/analytics/gdd", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "greenhouse");
+    const id = String(request.params.id || "");
+    const house = db.prepare("SELECT * FROM greenhouses WHERE id = ? AND org_id = ?").get(id, user.org_id);
+    if (!house) { const e = new Error("greenhouse not found"); e.statusCode = 404; throw e; }
+    const from = String(request.query.from || "");
+    const to = String(request.query.to || "");
+    const baseTempC = Number(request.query.baseTempC) || 10;
+    const logs = db.prepare(`
+      SELECT l.* FROM greenhouse_climate_logs l
+      JOIN greenhouse_zones z ON z.id = l.zone_id
+      WHERE z.greenhouse_id = ? AND l.recorded_at BETWEEN ? AND ?
+    `).all(id, from, to);
+    return { ok: true, gdd: { greenhouseId: id, ...greenhouse.computeGdd({ climateLogs: logs, baseTempC }) } };
+  });
+
+  app.post("/api/greenhouse/ai/yield-forecast", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "greenhouse");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const greenhouseAi = require("./greenhouseAi");
+    const packet = greenhouseAi.buildGreenhousePacket({
+      orgId: user.org_id,
+      db,
+      intent: "greenhouse-yield-forecast",
+      periodKey: body.periodKey || new Date().toISOString().slice(0, 7),
+      question: body.question || ""
+    });
+    const envelope = { ok: true, packet };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(
+      randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString()
+    );
+    audit(db, user.org_id, user.id, "greenhouse.ai.yieldForecast", { packetId: packet.id, intent: packet.intent });
+    return envelope;
+  });
 }
 
 function registerStatic(app) {
@@ -10010,7 +10324,11 @@ function postJournalEntry(db, user, { date, description, debitAccount, creditAcc
 }
 
 function hasAppAccess(db, user, appId) {
-  return isAppAssignmentRoleSupported(appId, user.role) && Boolean(db.prepare(`
+  if (!isAppAssignmentRoleSupported(appId, user.role)) return false;
+  // Greenhouse is a non-listed extension app (per project rule: 13-apps list stays at 13).
+  // For these, allow access by role without an explicit app_assignments row.
+  if (appId === "greenhouse" && ["Owner", "Admin", "Operator"].includes(user.role)) return true;
+  return Boolean(db.prepare(`
     SELECT enabled
     FROM app_assignments
     WHERE org_id = ? AND role = ? AND app_id = ? AND enabled = 1
