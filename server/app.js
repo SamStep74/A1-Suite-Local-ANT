@@ -333,7 +333,14 @@ function registerApi(app, db, options = {}) {
       maxAge: 60 * 60 * 24 * 14
     });
     audit(db, user.org_id, user.id, "auth.login", { email: user.email });
-    return { ok: true, user: publicUser(user) };
+    // `sid` is also returned in the body so the new TanStack Start app
+    // (web-modern/) can authenticate via `Authorization: Bearer <sid>`
+    // instead of cookies. Chrome refuses to store HttpOnly cookies on
+    // `credentials: "include"` CORS-mode responses in this proxy shape
+    // (see vite.config.ts for the full bisection). The legacy Vite app
+    // ignores the body field; the new app ignores the cookie. Both
+    // surface the same session token.
+    return { ok: true, sid: session.token, user: publicUser(user) };
   });
 
   app.post("/api/login/mfa", async (request, reply) => {
@@ -356,7 +363,8 @@ function registerApi(app, db, options = {}) {
       path: "/",
       maxAge: 60 * 60 * 24 * 14
     });
-    return { ok: true, mfaVerified: true, user: publicUser(result.user) };
+    // See /api/login above for why `sid` is mirrored in the body.
+    return { ok: true, sid: result.session.token, mfaVerified: true, user: publicUser(result.user) };
   });
 
   app.post("/api/logout", async (request, reply) => {
