@@ -18,7 +18,9 @@ import { Route as AppCopilotRouteImport } from './routes/app/copilot'
 import { Route as AppAppIdRouteImport } from './routes/app/$appId'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as AppDeskIndexRouteImport } from './routes/app/desk/index'
+import { Route as AppCrmIndexRouteImport } from './routes/app/crm/index'
 import { Route as AppDeskCaseIdRouteImport } from './routes/app/desk/$caseId'
+import { Route as AppCrmQuoteIdRouteImport } from './routes/app/crm/$quoteId'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -65,9 +67,19 @@ const AppDeskIndexRoute = AppDeskIndexRouteImport.update({
   path: '/desk/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCrmIndexRoute = AppCrmIndexRouteImport.update({
+  id: '/crm/',
+  path: '/crm/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppDeskCaseIdRoute = AppDeskCaseIdRouteImport.update({
   id: '/desk/$caseId',
   path: '/desk/$caseId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppCrmQuoteIdRoute = AppCrmQuoteIdRouteImport.update({
+  id: '/crm/$quoteId',
+  path: '/crm/$quoteId',
   getParentRoute: () => AppRouteRoute,
 } as any)
 
@@ -80,7 +92,9 @@ export interface FileRoutesByFullPath {
   '/app/copilot': typeof AppCopilotRoute
   '/login/mfa': typeof LoginMfaRoute
   '/app/': typeof AppIndexRoute
+  '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
 }
 export interface FileRoutesByTo {
@@ -91,7 +105,9 @@ export interface FileRoutesByTo {
   '/app/copilot': typeof AppCopilotRoute
   '/login/mfa': typeof LoginMfaRoute
   '/app': typeof AppIndexRoute
+  '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/crm': typeof AppCrmIndexRoute
   '/app/desk': typeof AppDeskIndexRoute
 }
 export interface FileRoutesById {
@@ -104,7 +120,9 @@ export interface FileRoutesById {
   '/app/copilot': typeof AppCopilotRoute
   '/login/mfa': typeof LoginMfaRoute
   '/app/': typeof AppIndexRoute
+  '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
 }
 export interface FileRouteTypes {
@@ -118,7 +136,9 @@ export interface FileRouteTypes {
     | '/app/copilot'
     | '/login/mfa'
     | '/app/'
+    | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/crm/'
     | '/app/desk/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -129,7 +149,9 @@ export interface FileRouteTypes {
     | '/app/copilot'
     | '/login/mfa'
     | '/app'
+    | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/crm'
     | '/app/desk'
   id:
     | '__root__'
@@ -141,7 +163,9 @@ export interface FileRouteTypes {
     | '/app/copilot'
     | '/login/mfa'
     | '/app/'
+    | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/crm/'
     | '/app/desk/'
   fileRoutesById: FileRoutesById
 }
@@ -217,11 +241,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDeskIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/crm/': {
+      id: '/app/crm/'
+      path: '/crm'
+      fullPath: '/app/crm/'
+      preLoaderRoute: typeof AppCrmIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/desk/$caseId': {
       id: '/app/desk/$caseId'
       path: '/desk/$caseId'
       fullPath: '/app/desk/$caseId'
       preLoaderRoute: typeof AppDeskCaseIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/crm/$quoteId': {
+      id: '/app/crm/$quoteId'
+      path: '/crm/$quoteId'
+      fullPath: '/app/crm/$quoteId'
+      preLoaderRoute: typeof AppCrmQuoteIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
   }
@@ -231,7 +269,9 @@ interface AppRouteRouteChildren {
   AppAppIdRoute: typeof AppAppIdRoute
   AppCopilotRoute: typeof AppCopilotRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppCrmQuoteIdRoute: typeof AppCrmQuoteIdRoute
   AppDeskCaseIdRoute: typeof AppDeskCaseIdRoute
+  AppCrmIndexRoute: typeof AppCrmIndexRoute
   AppDeskIndexRoute: typeof AppDeskIndexRoute
 }
 
@@ -239,7 +279,9 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppAppIdRoute: AppAppIdRoute,
   AppCopilotRoute: AppCopilotRoute,
   AppIndexRoute: AppIndexRoute,
+  AppCrmQuoteIdRoute: AppCrmQuoteIdRoute,
   AppDeskCaseIdRoute: AppDeskCaseIdRoute,
+  AppCrmIndexRoute: AppCrmIndexRoute,
   AppDeskIndexRoute: AppDeskIndexRoute,
 }
 
