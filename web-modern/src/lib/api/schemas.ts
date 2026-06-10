@@ -1080,3 +1080,173 @@ export const DocsTemplatesResponseSchema = z.object({
 });
 export type DocsTemplatesResponse = z.infer<typeof DocsTemplatesResponseSchema>;
 
+/* ────────── CFO ────────── */
+
+export const CfoCashFlowWeekSchema = z
+  .object({
+    weekKey: z.string(),
+    inflow: z.number().int().nonnegative(),
+    outflow: z.number().int().nonnegative(),
+    net: z.number().int(),
+    closing: z.number().int(),
+  })
+  .passthrough();
+export type CfoCashFlowWeek = z.infer<typeof CfoCashFlowWeekSchema>;
+
+export const CfoCashFlowSchema = z
+  .object({
+    openingAmd: z.number().int(),
+    closingAmd: z.number().int(),
+    weekly: z.array(CfoCashFlowWeekSchema),
+  })
+  .passthrough();
+export type CfoCashFlow = z.infer<typeof CfoCashFlowSchema>;
+
+export const CfoCashFlowResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    cashFlow: CfoCashFlowSchema,
+  })
+  .passthrough();
+export type CfoCashFlowResponse = z.infer<typeof CfoCashFlowResponseSchema>;
+
+export const CfoBudgetStatus = z.enum(["active", "draft", "closed", "archived"]);
+export type CfoBudgetStatus = z.infer<typeof CfoBudgetStatus>;
+
+export const CfoBudgetSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    periodKey: z.string(),
+    currency: z.string(),
+    status: CfoBudgetStatus.or(z.string()),
+    createdAt: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type CfoBudget = z.infer<typeof CfoBudgetSchema>;
+
+export const CfoBudgetResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    budget: CfoBudgetSchema,
+  })
+  .passthrough();
+export type CfoBudgetResponse = z.infer<typeof CfoBudgetResponseSchema>;
+
+export const CfoBudgetVarianceLineSchema = z
+  .object({
+    accountId: z.string(),
+    planned: z.number().int(),
+    actual: z.number().int(),
+    variance: z.number().int(),
+    utilizationPct: z.number(),
+  })
+  .passthrough();
+export type CfoBudgetVarianceLine = z.infer<typeof CfoBudgetVarianceLineSchema>;
+
+export const CfoBudgetVarianceSchema = z
+  .object({
+    lines: z.array(CfoBudgetVarianceLineSchema),
+    totalPlanned: z.number().int(),
+    totalActual: z.number().int(),
+    totalVariance: z.number().int(),
+  })
+  .passthrough();
+export type CfoBudgetVariance = z.infer<typeof CfoBudgetVarianceSchema>;
+
+export const CfoBudgetVarianceResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    variance: CfoBudgetVarianceSchema,
+  })
+  .passthrough();
+export type CfoBudgetVarianceResponse = z.infer<typeof CfoBudgetVarianceResponseSchema>;
+
+export const CfoTreasuryPositionSchema = z
+  .object({
+    currency: z.string(),
+    balance: z.number().int(),
+    accountCount: z.number().int(),
+  })
+  .passthrough();
+export type CfoTreasuryPosition = z.infer<typeof CfoTreasuryPositionSchema>;
+
+export const CfoTreasuryResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    treasury: z.array(CfoTreasuryPositionSchema),
+  })
+  .passthrough();
+export type CfoTreasuryResponse = z.infer<typeof CfoTreasuryResponseSchema>;
+
+export const CfoPaymentCalendarEntrySchema = z
+  .object({
+    date: z.string(),
+    amount: z.number().int(),
+    kind: z.enum(["ar", "ap", "loan"]).or(z.string()),
+    source: z.string().optional().nullable(),
+  })
+  .passthrough();
+export type CfoPaymentCalendarEntry = z.infer<typeof CfoPaymentCalendarEntrySchema>;
+
+export const CfoPaymentCalendarSchema = z
+  .object({
+    entries: z.array(CfoPaymentCalendarEntrySchema),
+    totalAmd: z.number().int(),
+  })
+  .passthrough();
+export type CfoPaymentCalendar = z.infer<typeof CfoPaymentCalendarSchema>;
+
+export const CfoPaymentCalendarResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    calendar: CfoPaymentCalendarSchema,
+  })
+  .passthrough();
+export type CfoPaymentCalendarResponse = z.infer<typeof CfoPaymentCalendarResponseSchema>;
+
+export const CfoFxExposureRowSchema = z
+  .object({
+    currency: z.string(),
+    net: z.number().int(),
+    netAmd: z.number().int(),
+  })
+  .passthrough();
+export type CfoFxExposureRow = z.infer<typeof CfoFxExposureRowSchema>;
+
+export const CfoFxExposureSchema = z
+  .object({
+    byCurrency: z.array(CfoFxExposureRowSchema),
+    hedgeSuggestion: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type CfoFxExposure = z.infer<typeof CfoFxExposureSchema>;
+
+export const CfoFxExposureResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    exposure: CfoFxExposureSchema,
+  })
+  .passthrough();
+export type CfoFxExposureResponse = z.infer<typeof CfoFxExposureResponseSchema>;
+
+export const CfoLoanScheduleRowSchema = z
+  .object({
+    periodKey: z.string(),
+    principalDue: z.number().int(),
+    interestDue: z.number().int(),
+    balanceAfter: z.number().int(),
+  })
+  .passthrough();
+export type CfoLoanScheduleRow = z.infer<typeof CfoLoanScheduleRowSchema>;
+
+export const CfoLoanScheduleResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    loanId: z.string(),
+    schedule: z.array(CfoLoanScheduleRowSchema),
+  })
+  .passthrough();
+export type CfoLoanScheduleResponse = z.infer<typeof CfoLoanScheduleResponseSchema>;
+
+
