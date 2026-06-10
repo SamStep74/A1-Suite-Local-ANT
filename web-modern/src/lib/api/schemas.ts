@@ -820,3 +820,146 @@ export const PeoplePayrollRunsResponseSchema = z.object({
 });
 export type PeoplePayrollRunsResponse = z.infer<typeof PeoplePayrollRunsResponseSchema>;
 
+/* ──────────────────────────────────────────────────────────────────────
+ * Purchase schemas — mirror server/app.js lines 51670-52144.
+ * The Purchase workspace in Phase 3 is the vendor registry + purchase
+ * orders + analytics overview. The deeper procurement sub-module
+ * (requisitions, RFQs, quotes, awards, receipts) lands in Phase 4.
+ * ──────────────────────────────────────────────────────────────────── */
+
+export const PurchaseVendorStatus = z.enum(["active", "inactive", "blocked"]);
+export type PurchaseVendorStatus = z.infer<typeof PurchaseVendorStatus>;
+
+export const PurchaseVendorPriceSchema = z.object({
+  id: z.string(),
+  vendorId: z.string(),
+  catalogItemId: z.string(),
+  catalogSku: z.string().nullable().optional(),
+  catalogName: z.string().nullable().optional(),
+  unitOfMeasure: z.string().nullable().optional(),
+  currency: z.string().nullable().optional(),
+  unitCost: z.number().nullable().optional(),
+  minQuantity: z.number().nullable().optional(),
+  leadTimeDays: z.number().nullable().optional(),
+  validFrom: z.string().nullable().optional(),
+  validTo: z.string().nullable().optional(),
+  status: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+}).passthrough();
+export type PurchaseVendorPrice = z.infer<typeof PurchaseVendorPriceSchema>;
+
+export const PurchaseVendorSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  taxId: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  status: PurchaseVendorStatus.or(z.string()),
+  paymentTermsDays: z.number().nullable().optional(),
+  leadTimeDays: z.number().nullable().optional(),
+  note: z.string().nullable().optional(),
+  createdByUserId: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+  prices: z.array(PurchaseVendorPriceSchema).optional(),
+}).passthrough();
+export type PurchaseVendor = z.infer<typeof PurchaseVendorSchema>;
+
+export const PurchaseVendorsResponseSchema = z.object({
+  vendors: z.array(PurchaseVendorSchema),
+});
+export type PurchaseVendorsResponse = z.infer<typeof PurchaseVendorsResponseSchema>;
+
+/** A purchase order line. Source: #formatPurchaseOrderLine. */
+export const PurchaseOrderLineSchema = z.object({
+  id: z.string(),
+  purchaseOrderId: z.string(),
+  catalogItemId: z.string().nullable().optional(),
+  vendorPriceId: z.string().nullable().optional(),
+  catalogSku: z.string().nullable().optional(),
+  catalogName: z.string().nullable().optional(),
+  unitOfMeasure: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  quantity: z.number(),
+  receivedQuantity: z.number().nullable().optional(),
+  returnedQuantity: z.number().nullable().optional(),
+  remainingQuantity: z.number().nullable().optional(),
+  unitCost: z.number().nullable().optional(),
+  subtotal: z.number().nullable().optional(),
+  vat: z.number().nullable().optional(),
+  total: z.number().nullable().optional(),
+}).passthrough();
+export type PurchaseOrderLine = z.infer<typeof PurchaseOrderLineSchema>;
+
+export const PurchaseOrderStatus = z.enum([
+  "draft",
+  "confirmed",
+  "partial",
+  "received",
+  "billed",
+  "cancelled",
+]);
+export type PurchaseOrderStatus = z.infer<typeof PurchaseOrderStatus>;
+
+export const PurchaseOrderSchema = z.object({
+  id: z.string(),
+  vendorId: z.string().nullable().optional(),
+  vendorName: z.string().nullable().optional(),
+  orderNumber: z.string().nullable().optional(),
+  supplier: z.string().nullable().optional(),
+  status: PurchaseOrderStatus.or(z.string()),
+  subtotal: z.number().nullable().optional(),
+  vat: z.number().nullable().optional(),
+  total: z.number(),
+  currency: z.string().nullable().optional(),
+  orderDate: z.string().nullable().optional(),
+  expectedDate: z.string().nullable().optional(),
+  confirmedAt: z.string().nullable().optional(),
+  receivedAt: z.string().nullable().optional(),
+  billId: z.string().nullable().optional(),
+  billStatus: z.string().nullable().optional(),
+  orderedQuantity: z.number().nullable().optional(),
+  receivedQuantity: z.number().nullable().optional(),
+  remainingQuantity: z.number().nullable().optional(),
+  note: z.string().nullable().optional(),
+  createdByName: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+  lines: z.array(PurchaseOrderLineSchema).optional(),
+}).passthrough();
+export type PurchaseOrder = z.infer<typeof PurchaseOrderSchema>;
+
+export const PurchaseOrdersResponseSchema = z.object({
+  orders: z.array(PurchaseOrderSchema),
+});
+export type PurchaseOrdersResponse = z.infer<typeof PurchaseOrdersResponseSchema>;
+
+/** Analytics summary — exposed by /api/purchase/analytics. */
+export const PurchaseAnalyticsSummarySchema = z.object({
+  orderCount: z.number(),
+  vendorCount: z.number(),
+  activeVendorCount: z.number(),
+  openValue: z.number(),
+  billedValue: z.number(),
+  receiptProgressPercent: z.number().nullable().optional(),
+  returnedQuantity: z.number().nullable().optional(),
+  remainingQuantity: z.number().nullable().optional(),
+  vendorPricedLineCount: z.number().nullable().optional(),
+  lineCount: z.number().nullable().optional(),
+  vendorPriceCoveragePercent: z.number().nullable().optional(),
+  pricedOrderLinePercent: z.number().nullable().optional(),
+  activePriceCount: z.number().nullable().optional(),
+  stockableCatalogItemCount: z.number().nullable().optional(),
+}).passthrough();
+export type PurchaseAnalyticsSummary = z.infer<typeof PurchaseAnalyticsSummarySchema>;
+
+export const PurchaseAnalyticsResponseSchema = z.object({
+  summary: PurchaseAnalyticsSummarySchema,
+  receiptBacklog: z.array(z.unknown()),
+  vendorPerformance: z.array(z.unknown()),
+  priceCoverage: z.unknown(),
+}).passthrough();
+export type PurchaseAnalyticsResponse = z.infer<typeof PurchaseAnalyticsResponseSchema>;
+
