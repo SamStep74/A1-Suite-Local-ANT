@@ -17,10 +17,14 @@ import { Route as LoginMfaRouteImport } from './routes/login.mfa'
 import { Route as AppCopilotRouteImport } from './routes/app/copilot'
 import { Route as AppAppIdRouteImport } from './routes/app/$appId'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
+import { Route as AppPeopleIndexRouteImport } from './routes/app/people/index'
 import { Route as AppInventoryIndexRouteImport } from './routes/app/inventory/index'
+import { Route as AppFinanceIndexRouteImport } from './routes/app/finance/index'
 import { Route as AppDeskIndexRouteImport } from './routes/app/desk/index'
 import { Route as AppCrmIndexRouteImport } from './routes/app/crm/index'
+import { Route as AppPeopleEmployeeIdRouteImport } from './routes/app/people/$employeeId'
 import { Route as AppInventoryItemIdRouteImport } from './routes/app/inventory/$itemId'
+import { Route as AppFinanceInvoiceIdRouteImport } from './routes/app/finance/$invoiceId'
 import { Route as AppDeskCaseIdRouteImport } from './routes/app/desk/$caseId'
 import { Route as AppCrmQuoteIdRouteImport } from './routes/app/crm/$quoteId'
 
@@ -64,9 +68,19 @@ const ApiSplatRoute = ApiSplatRouteImport.update({
   path: '/api/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppPeopleIndexRoute = AppPeopleIndexRouteImport.update({
+  id: '/people/',
+  path: '/people/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppInventoryIndexRoute = AppInventoryIndexRouteImport.update({
   id: '/inventory/',
   path: '/inventory/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppFinanceIndexRoute = AppFinanceIndexRouteImport.update({
+  id: '/finance/',
+  path: '/finance/',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppDeskIndexRoute = AppDeskIndexRouteImport.update({
@@ -79,9 +93,19 @@ const AppCrmIndexRoute = AppCrmIndexRouteImport.update({
   path: '/crm/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppPeopleEmployeeIdRoute = AppPeopleEmployeeIdRouteImport.update({
+  id: '/people/$employeeId',
+  path: '/people/$employeeId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppInventoryItemIdRoute = AppInventoryItemIdRouteImport.update({
   id: '/inventory/$itemId',
   path: '/inventory/$itemId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppFinanceInvoiceIdRoute = AppFinanceInvoiceIdRouteImport.update({
+  id: '/finance/$invoiceId',
+  path: '/finance/$invoiceId',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppDeskCaseIdRoute = AppDeskCaseIdRouteImport.update({
@@ -106,10 +130,14 @@ export interface FileRoutesByFullPath {
   '/app/': typeof AppIndexRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
+  '/app/people/$employeeId': typeof AppPeopleEmployeeIdRoute
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
+  '/app/finance/': typeof AppFinanceIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
+  '/app/people/': typeof AppPeopleIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -121,10 +149,14 @@ export interface FileRoutesByTo {
   '/app': typeof AppIndexRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
+  '/app/people/$employeeId': typeof AppPeopleEmployeeIdRoute
   '/app/crm': typeof AppCrmIndexRoute
   '/app/desk': typeof AppDeskIndexRoute
+  '/app/finance': typeof AppFinanceIndexRoute
   '/app/inventory': typeof AppInventoryIndexRoute
+  '/app/people': typeof AppPeopleIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -138,10 +170,14 @@ export interface FileRoutesById {
   '/app/': typeof AppIndexRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
+  '/app/people/$employeeId': typeof AppPeopleEmployeeIdRoute
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
+  '/app/finance/': typeof AppFinanceIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
+  '/app/people/': typeof AppPeopleIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -156,10 +192,14 @@ export interface FileRouteTypes {
     | '/app/'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/finance/$invoiceId'
     | '/app/inventory/$itemId'
+    | '/app/people/$employeeId'
     | '/app/crm/'
     | '/app/desk/'
+    | '/app/finance/'
     | '/app/inventory/'
+    | '/app/people/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -171,10 +211,14 @@ export interface FileRouteTypes {
     | '/app'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/finance/$invoiceId'
     | '/app/inventory/$itemId'
+    | '/app/people/$employeeId'
     | '/app/crm'
     | '/app/desk'
+    | '/app/finance'
     | '/app/inventory'
+    | '/app/people'
   id:
     | '__root__'
     | '/'
@@ -187,10 +231,14 @@ export interface FileRouteTypes {
     | '/app/'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/finance/$invoiceId'
     | '/app/inventory/$itemId'
+    | '/app/people/$employeeId'
     | '/app/crm/'
     | '/app/desk/'
+    | '/app/finance/'
     | '/app/inventory/'
+    | '/app/people/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -258,11 +306,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/people/': {
+      id: '/app/people/'
+      path: '/people'
+      fullPath: '/app/people/'
+      preLoaderRoute: typeof AppPeopleIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/inventory/': {
       id: '/app/inventory/'
       path: '/inventory'
       fullPath: '/app/inventory/'
       preLoaderRoute: typeof AppInventoryIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/finance/': {
+      id: '/app/finance/'
+      path: '/finance'
+      fullPath: '/app/finance/'
+      preLoaderRoute: typeof AppFinanceIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/desk/': {
@@ -279,11 +341,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCrmIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/people/$employeeId': {
+      id: '/app/people/$employeeId'
+      path: '/people/$employeeId'
+      fullPath: '/app/people/$employeeId'
+      preLoaderRoute: typeof AppPeopleEmployeeIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/inventory/$itemId': {
       id: '/app/inventory/$itemId'
       path: '/inventory/$itemId'
       fullPath: '/app/inventory/$itemId'
       preLoaderRoute: typeof AppInventoryItemIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/finance/$invoiceId': {
+      id: '/app/finance/$invoiceId'
+      path: '/finance/$invoiceId'
+      fullPath: '/app/finance/$invoiceId'
+      preLoaderRoute: typeof AppFinanceInvoiceIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/desk/$caseId': {
@@ -309,10 +385,14 @@ interface AppRouteRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppCrmQuoteIdRoute: typeof AppCrmQuoteIdRoute
   AppDeskCaseIdRoute: typeof AppDeskCaseIdRoute
+  AppFinanceInvoiceIdRoute: typeof AppFinanceInvoiceIdRoute
   AppInventoryItemIdRoute: typeof AppInventoryItemIdRoute
+  AppPeopleEmployeeIdRoute: typeof AppPeopleEmployeeIdRoute
   AppCrmIndexRoute: typeof AppCrmIndexRoute
   AppDeskIndexRoute: typeof AppDeskIndexRoute
+  AppFinanceIndexRoute: typeof AppFinanceIndexRoute
   AppInventoryIndexRoute: typeof AppInventoryIndexRoute
+  AppPeopleIndexRoute: typeof AppPeopleIndexRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
@@ -321,10 +401,14 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppCrmQuoteIdRoute: AppCrmQuoteIdRoute,
   AppDeskCaseIdRoute: AppDeskCaseIdRoute,
+  AppFinanceInvoiceIdRoute: AppFinanceInvoiceIdRoute,
   AppInventoryItemIdRoute: AppInventoryItemIdRoute,
+  AppPeopleEmployeeIdRoute: AppPeopleEmployeeIdRoute,
   AppCrmIndexRoute: AppCrmIndexRoute,
   AppDeskIndexRoute: AppDeskIndexRoute,
+  AppFinanceIndexRoute: AppFinanceIndexRoute,
   AppInventoryIndexRoute: AppInventoryIndexRoute,
+  AppPeopleIndexRoute: AppPeopleIndexRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(

@@ -642,3 +642,181 @@ export const CreateStockMoveResponseSchema = z.object({
   stock: z.array(StockBalanceSchema).optional(),
 });
 export type CreateStockMoveResponse = z.infer<typeof CreateStockMoveResponseSchema>;
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Finance schemas — mirror server/app.js#getFinancePeriods /
+ * #getFinanceDraftInvoices / #getFinancePayments /
+ * #formatFinanceDraftInvoice / #formatFinancePayment.
+ * (server/app.js:61305, 61418, 61590, 61451, 61650)
+ *
+ * The new TanStack-Start Finance workspace surfaces invoices, periods,
+ * and payments. Trial-balance, statements, VAT-returns, expenses, bills,
+ * payables, and the chart-of-accounts live in the legacy web/src/finance.jsx
+ * for now (Phase 4 follow-up).
+ * ──────────────────────────────────────────────────────────────────── */
+
+/** Finance period — a month-closeable accounting bucket. Status values:
+ *  'open' (still mutable) or 'closed' (locked). Source: #formatFinancePeriod. */
+export const FinancePeriodStatus = z.enum(["open", "closed"]);
+export type FinancePeriodStatus = z.infer<typeof FinancePeriodStatus>;
+
+export const FinancePeriodSchema = z.object({
+  id: z.string(),
+  periodKey: z.string(),
+  startsOn: z.string().nullable().optional(),
+  endsOn: z.string().nullable().optional(),
+  status: FinancePeriodStatus.or(z.string()),
+  closedAt: z.string().nullable().optional(),
+  closedByUserId: z.string().nullable().optional(),
+  closedByName: z.string().nullable().optional(),
+  reason: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+}).passthrough();
+export type FinancePeriod = z.infer<typeof FinancePeriodSchema>;
+
+export const FinancePeriodsResponseSchema = z.object({
+  periods: z.array(FinancePeriodSchema),
+});
+export type FinancePeriodsResponse = z.infer<typeof FinancePeriodsResponseSchema>;
+
+/** Draft invoice — pre-posting sales document. Source: #formatFinanceDraftInvoice. */
+export const FinanceDraftInvoiceStatus = z.enum(["draft", "posted", "cancelled"]);
+export type FinanceDraftInvoiceStatus = z.infer<typeof FinanceDraftInvoiceStatus>;
+
+export const FinanceDraftInvoiceSchema = z.object({
+  id: z.string(),
+  customerId: z.string(),
+  customerName: z.string(),
+  dealId: z.string().nullable().optional(),
+  dealTitle: z.string().nullable().optional(),
+  number: z.string().nullable().optional(),
+  status: FinanceDraftInvoiceStatus.or(z.string()),
+  subtotal: z.number().nullable().optional(),
+  vat: z.number().nullable().optional(),
+  total: z.number(),
+  currency: z.string().nullable().optional(),
+  issueDate: z.string().nullable().optional(),
+  dueDate: z.string().nullable().optional(),
+  periodKey: z.string().nullable().optional(),
+  sourceKey: z.string().nullable().optional(),
+  createdByName: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+}).passthrough();
+export type FinanceDraftInvoice = z.infer<typeof FinanceDraftInvoiceSchema>;
+
+export const FinanceDraftInvoicesResponseSchema = z.object({
+  draftInvoices: z.array(FinanceDraftInvoiceSchema),
+});
+export type FinanceDraftInvoicesResponse = z.infer<typeof FinanceDraftInvoicesResponseSchema>;
+
+/** Payment — a settlement against an invoice. Source: #formatFinancePayment. */
+export const FinancePaymentSchema = z.object({
+  id: z.string(),
+  customerId: z.string(),
+  customerName: z.string(),
+  invoiceId: z.string(),
+  invoiceNumber: z.string().nullable().optional(),
+  amount: z.number(),
+  currency: z.string().nullable().optional(),
+  paidAt: z.string().nullable().optional(),
+  method: z.string().nullable().optional(),
+  reference: z.string().nullable().optional(),
+  periodKey: z.string().nullable().optional(),
+  sourceKey: z.string().nullable().optional(),
+  createdByName: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+}).passthrough();
+export type FinancePayment = z.infer<typeof FinancePaymentSchema>;
+
+export const FinancePaymentsResponseSchema = z.object({
+  payments: z.array(FinancePaymentSchema),
+});
+export type FinancePaymentsResponse = z.infer<typeof FinancePaymentsResponseSchema>;
+
+/** Tax rate — kind, effective date, numeric rate. Source: /api/finance/tax-rates. */
+export const FinanceTaxRateSchema = z.object({
+  kind: z.string(),
+  effectiveDate: z.string().nullable().optional(),
+  rate: z.number().nullable().optional(),
+  note: z.string().nullable().optional(),
+}).passthrough();
+export type FinanceTaxRate = z.infer<typeof FinanceTaxRateSchema>;
+
+export const FinanceTaxRatesResponseSchema = z.object({
+  taxRates: z.array(FinanceTaxRateSchema),
+});
+export type FinanceTaxRatesResponse = z.infer<typeof FinanceTaxRatesResponseSchema>;
+
+/** A line in the trial balance or chart of accounts. Source: /api/finance/chart-of-accounts. */
+export const FinanceChartAccountSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  name: z.string(),
+  type: z.string().nullable().optional(),
+  category: z.string().nullable().optional(),
+  normalSide: z.string().nullable().optional(),
+}).passthrough();
+export type FinanceChartAccount = z.infer<typeof FinanceChartAccountSchema>;
+
+export const FinanceChartOfAccountsResponseSchema = z.object({
+  accounts: z.array(FinanceChartAccountSchema),
+});
+export type FinanceChartOfAccountsResponse = z.infer<typeof FinanceChartOfAccountsResponseSchema>;
+
+/* ──────────────────────────────────────────────────────────────────────
+ * People / HR schemas — mirror server/app.js lines 5939-5978.
+ * The People workspace in Phase 3 is the employee registry + payroll
+ * history. The deeper HR sub-modules (contracts, leave, trips,
+ * timesheets, KPIs, equipment, recruitment, orders, AI) land in
+ * Phase 4 — we model only the read+run payroll surface here.
+ * ──────────────────────────────────────────────────────────────────── */
+
+export const PeopleEmploymentStatus = z.enum([
+  "active",
+  "on-leave",
+  "terminated",
+]);
+export type PeopleEmploymentStatus = z.infer<typeof PeopleEmploymentStatus>;
+
+export const PeopleEmployeeSchema = z.object({
+  id: z.string(),
+  fullName: z.string(),
+  taxId: z.string().nullable().optional(),
+  position: z.string().nullable().optional(),
+  department: z.string().nullable().optional(),
+  grossSalary: z.number().nullable().optional(),
+  employmentStatus: PeopleEmploymentStatus.or(z.string()),
+  hireDate: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+}).passthrough();
+export type PeopleEmployee = z.infer<typeof PeopleEmployeeSchema>;
+
+export const PeopleEmployeesResponseSchema = z.object({
+  employees: z.array(PeopleEmployeeSchema),
+});
+export type PeopleEmployeesResponse = z.infer<typeof PeopleEmployeesResponseSchema>;
+
+/** A single payroll run against one employee. Source: #formatPeoplePayrollRun. */
+export const PeoplePayrollRunSchema = z.object({
+  id: z.string(),
+  employeeId: z.string(),
+  employeeName: z.string().nullable().optional(),
+  gross: z.number(),
+  incomeTax: z.number(),
+  pension: z.number(),
+  stampDuty: z.number(),
+  totalDeductions: z.number(),
+  net: z.number(),
+  runDate: z.string().nullable().optional(),
+  periodKey: z.string().nullable().optional(),
+}).passthrough();
+export type PeoplePayrollRun = z.infer<typeof PeoplePayrollRunSchema>;
+
+export const PeoplePayrollRunsResponseSchema = z.object({
+  runs: z.array(PeoplePayrollRunSchema),
+});
+export type PeoplePayrollRunsResponse = z.infer<typeof PeoplePayrollRunsResponseSchema>;
+
