@@ -203,7 +203,7 @@ export function AskCommandPalette({ open, onOpenChange, onSignOut }: PaletteProp
               <Command.Item
                 value="today approvals"
                 onSelect={() => {
-                  navigate({ to: "/app/copilot" });
+                  navigate({ to: "/app/copilot", search: { view: "chats" } });
                   onOpenChange(false);
                 }}
                 className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 text-[var(--text-sm)] text-[var(--color-ink)] aria-selected:bg-[var(--color-surface-soft)]"

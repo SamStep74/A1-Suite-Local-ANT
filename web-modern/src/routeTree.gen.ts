@@ -20,19 +20,23 @@ import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as AppPurchaseIndexRouteImport } from './routes/app/purchase/index'
 import { Route as AppPeopleIndexRouteImport } from './routes/app/people/index'
 import { Route as AppInventoryIndexRouteImport } from './routes/app/inventory/index'
+import { Route as AppFormsIndexRouteImport } from './routes/app/forms/index'
 import { Route as AppFlowIndexRouteImport } from './routes/app/flow/index'
 import { Route as AppDocsIndexRouteImport } from './routes/app/docs/index'
 import { Route as AppDeskIndexRouteImport } from './routes/app/desk/index'
 import { Route as AppCrmIndexRouteImport } from './routes/app/crm/index'
+import { Route as AppCopilotIndexRouteImport } from './routes/app/copilot/index'
 import { Route as AppCfoIndexRouteImport } from './routes/app/cfo/index'
 import { Route as AppCampaignsIndexRouteImport } from './routes/app/campaigns/index'
 import { Route as AppPurchaseOrderIdRouteImport } from './routes/app/purchase/$orderId'
 import { Route as AppPeopleEmployeeIdRouteImport } from './routes/app/people/$employeeId'
 import { Route as AppInventoryItemIdRouteImport } from './routes/app/inventory/$itemId'
+import { Route as AppFormsFormIdRouteImport } from './routes/app/forms/$formId'
 import { Route as AppFlowRuleIdRouteImport } from './routes/app/flow/$ruleId'
 import { Route as AppDocsDocumentIdRouteImport } from './routes/app/docs/$documentId'
 import { Route as AppDeskCaseIdRouteImport } from './routes/app/desk/$caseId'
 import { Route as AppCrmQuoteIdRouteImport } from './routes/app/crm/$quoteId'
+import { Route as AppCopilotChatIdRouteImport } from './routes/app/copilot/$chatId'
 import { Route as AppCfoLoanIdRouteImport } from './routes/app/cfo/$loanId'
 
 const LoginRoute = LoginRouteImport.update({
@@ -90,6 +94,11 @@ const AppInventoryIndexRoute = AppInventoryIndexRouteImport.update({
   path: '/inventory/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppFormsIndexRoute = AppFormsIndexRouteImport.update({
+  id: '/forms/',
+  path: '/forms/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppFlowIndexRoute = AppFlowIndexRouteImport.update({
   id: '/flow/',
   path: '/flow/',
@@ -109,6 +118,11 @@ const AppCrmIndexRoute = AppCrmIndexRouteImport.update({
   id: '/crm/',
   path: '/crm/',
   getParentRoute: () => AppRouteRoute,
+} as any)
+const AppCopilotIndexRoute = AppCopilotIndexRouteImport.update({
+  id: '/',
+  path: '/',
+  getParentRoute: () => AppCopilotRoute,
 } as any)
 const AppCfoIndexRoute = AppCfoIndexRouteImport.update({
   id: '/cfo/',
@@ -135,6 +149,11 @@ const AppInventoryItemIdRoute = AppInventoryItemIdRouteImport.update({
   path: '/inventory/$itemId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppFormsFormIdRoute = AppFormsFormIdRouteImport.update({
+  id: '/forms/$formId',
+  path: '/forms/$formId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppFlowRuleIdRoute = AppFlowRuleIdRouteImport.update({
   id: '/flow/$ruleId',
   path: '/flow/$ruleId',
@@ -155,6 +174,11 @@ const AppCrmQuoteIdRoute = AppCrmQuoteIdRouteImport.update({
   path: '/crm/$quoteId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCopilotChatIdRoute = AppCopilotChatIdRouteImport.update({
+  id: '/$chatId',
+  path: '/$chatId',
+  getParentRoute: () => AppCopilotRoute,
+} as any)
 const AppCfoLoanIdRoute = AppCfoLoanIdRouteImport.update({
   id: '/cfo/$loanId',
   path: '/cfo/$loanId',
@@ -167,23 +191,27 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRouteWithChildren
   '/api/$': typeof ApiSplatRoute
   '/app/$appId': typeof AppAppIdRoute
-  '/app/copilot': typeof AppCopilotRoute
+  '/app/copilot': typeof AppCopilotRouteWithChildren
   '/login/mfa': typeof LoginMfaRoute
   '/app/': typeof AppIndexRoute
   '/app/cfo/$loanId': typeof AppCfoLoanIdRoute
+  '/app/copilot/$chatId': typeof AppCopilotChatIdRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
   '/app/flow/$ruleId': typeof AppFlowRuleIdRoute
+  '/app/forms/$formId': typeof AppFormsFormIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
   '/app/people/$employeeId': typeof AppPeopleEmployeeIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/campaigns/': typeof AppCampaignsIndexRoute
   '/app/cfo/': typeof AppCfoIndexRoute
+  '/app/copilot/': typeof AppCopilotIndexRoute
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
   '/app/flow/': typeof AppFlowIndexRoute
+  '/app/forms/': typeof AppFormsIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
@@ -193,23 +221,26 @@ export interface FileRoutesByTo {
   '/login': typeof LoginRouteWithChildren
   '/api/$': typeof ApiSplatRoute
   '/app/$appId': typeof AppAppIdRoute
-  '/app/copilot': typeof AppCopilotRoute
   '/login/mfa': typeof LoginMfaRoute
   '/app': typeof AppIndexRoute
   '/app/cfo/$loanId': typeof AppCfoLoanIdRoute
+  '/app/copilot/$chatId': typeof AppCopilotChatIdRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
   '/app/flow/$ruleId': typeof AppFlowRuleIdRoute
+  '/app/forms/$formId': typeof AppFormsFormIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
   '/app/people/$employeeId': typeof AppPeopleEmployeeIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/campaigns': typeof AppCampaignsIndexRoute
   '/app/cfo': typeof AppCfoIndexRoute
+  '/app/copilot': typeof AppCopilotIndexRoute
   '/app/crm': typeof AppCrmIndexRoute
   '/app/desk': typeof AppDeskIndexRoute
   '/app/docs': typeof AppDocsIndexRoute
   '/app/flow': typeof AppFlowIndexRoute
+  '/app/forms': typeof AppFormsIndexRoute
   '/app/inventory': typeof AppInventoryIndexRoute
   '/app/people': typeof AppPeopleIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
@@ -221,23 +252,27 @@ export interface FileRoutesById {
   '/login': typeof LoginRouteWithChildren
   '/api/$': typeof ApiSplatRoute
   '/app/$appId': typeof AppAppIdRoute
-  '/app/copilot': typeof AppCopilotRoute
+  '/app/copilot': typeof AppCopilotRouteWithChildren
   '/login/mfa': typeof LoginMfaRoute
   '/app/': typeof AppIndexRoute
   '/app/cfo/$loanId': typeof AppCfoLoanIdRoute
+  '/app/copilot/$chatId': typeof AppCopilotChatIdRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
   '/app/flow/$ruleId': typeof AppFlowRuleIdRoute
+  '/app/forms/$formId': typeof AppFormsFormIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
   '/app/people/$employeeId': typeof AppPeopleEmployeeIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/campaigns/': typeof AppCampaignsIndexRoute
   '/app/cfo/': typeof AppCfoIndexRoute
+  '/app/copilot/': typeof AppCopilotIndexRoute
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
   '/app/flow/': typeof AppFlowIndexRoute
+  '/app/forms/': typeof AppFormsIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
@@ -254,19 +289,23 @@ export interface FileRouteTypes {
     | '/login/mfa'
     | '/app/'
     | '/app/cfo/$loanId'
+    | '/app/copilot/$chatId'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
     | '/app/docs/$documentId'
     | '/app/flow/$ruleId'
+    | '/app/forms/$formId'
     | '/app/inventory/$itemId'
     | '/app/people/$employeeId'
     | '/app/purchase/$orderId'
     | '/app/campaigns/'
     | '/app/cfo/'
+    | '/app/copilot/'
     | '/app/crm/'
     | '/app/desk/'
     | '/app/docs/'
     | '/app/flow/'
+    | '/app/forms/'
     | '/app/inventory/'
     | '/app/people/'
     | '/app/purchase/'
@@ -276,23 +315,26 @@ export interface FileRouteTypes {
     | '/login'
     | '/api/$'
     | '/app/$appId'
-    | '/app/copilot'
     | '/login/mfa'
     | '/app'
     | '/app/cfo/$loanId'
+    | '/app/copilot/$chatId'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
     | '/app/docs/$documentId'
     | '/app/flow/$ruleId'
+    | '/app/forms/$formId'
     | '/app/inventory/$itemId'
     | '/app/people/$employeeId'
     | '/app/purchase/$orderId'
     | '/app/campaigns'
     | '/app/cfo'
+    | '/app/copilot'
     | '/app/crm'
     | '/app/desk'
     | '/app/docs'
     | '/app/flow'
+    | '/app/forms'
     | '/app/inventory'
     | '/app/people'
     | '/app/purchase'
@@ -307,19 +349,23 @@ export interface FileRouteTypes {
     | '/login/mfa'
     | '/app/'
     | '/app/cfo/$loanId'
+    | '/app/copilot/$chatId'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
     | '/app/docs/$documentId'
     | '/app/flow/$ruleId'
+    | '/app/forms/$formId'
     | '/app/inventory/$itemId'
     | '/app/people/$employeeId'
     | '/app/purchase/$orderId'
     | '/app/campaigns/'
     | '/app/cfo/'
+    | '/app/copilot/'
     | '/app/crm/'
     | '/app/desk/'
     | '/app/docs/'
     | '/app/flow/'
+    | '/app/forms/'
     | '/app/inventory/'
     | '/app/people/'
     | '/app/purchase/'
@@ -411,6 +457,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInventoryIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/forms/': {
+      id: '/app/forms/'
+      path: '/forms'
+      fullPath: '/app/forms/'
+      preLoaderRoute: typeof AppFormsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/flow/': {
       id: '/app/flow/'
       path: '/flow'
@@ -438,6 +491,13 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/crm/'
       preLoaderRoute: typeof AppCrmIndexRouteImport
       parentRoute: typeof AppRouteRoute
+    }
+    '/app/copilot/': {
+      id: '/app/copilot/'
+      path: '/'
+      fullPath: '/app/copilot/'
+      preLoaderRoute: typeof AppCopilotIndexRouteImport
+      parentRoute: typeof AppCopilotRoute
     }
     '/app/cfo/': {
       id: '/app/cfo/'
@@ -474,6 +534,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInventoryItemIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/forms/$formId': {
+      id: '/app/forms/$formId'
+      path: '/forms/$formId'
+      fullPath: '/app/forms/$formId'
+      preLoaderRoute: typeof AppFormsFormIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/flow/$ruleId': {
       id: '/app/flow/$ruleId'
       path: '/flow/$ruleId'
@@ -502,6 +569,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCrmQuoteIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/copilot/$chatId': {
+      id: '/app/copilot/$chatId'
+      path: '/$chatId'
+      fullPath: '/app/copilot/$chatId'
+      preLoaderRoute: typeof AppCopilotChatIdRouteImport
+      parentRoute: typeof AppCopilotRoute
+    }
     '/app/cfo/$loanId': {
       id: '/app/cfo/$loanId'
       path: '/cfo/$loanId'
@@ -512,15 +586,30 @@ declare module '@tanstack/react-router' {
   }
 }
 
+interface AppCopilotRouteChildren {
+  AppCopilotChatIdRoute: typeof AppCopilotChatIdRoute
+  AppCopilotIndexRoute: typeof AppCopilotIndexRoute
+}
+
+const AppCopilotRouteChildren: AppCopilotRouteChildren = {
+  AppCopilotChatIdRoute: AppCopilotChatIdRoute,
+  AppCopilotIndexRoute: AppCopilotIndexRoute,
+}
+
+const AppCopilotRouteWithChildren = AppCopilotRoute._addFileChildren(
+  AppCopilotRouteChildren,
+)
+
 interface AppRouteRouteChildren {
   AppAppIdRoute: typeof AppAppIdRoute
-  AppCopilotRoute: typeof AppCopilotRoute
+  AppCopilotRoute: typeof AppCopilotRouteWithChildren
   AppIndexRoute: typeof AppIndexRoute
   AppCfoLoanIdRoute: typeof AppCfoLoanIdRoute
   AppCrmQuoteIdRoute: typeof AppCrmQuoteIdRoute
   AppDeskCaseIdRoute: typeof AppDeskCaseIdRoute
   AppDocsDocumentIdRoute: typeof AppDocsDocumentIdRoute
   AppFlowRuleIdRoute: typeof AppFlowRuleIdRoute
+  AppFormsFormIdRoute: typeof AppFormsFormIdRoute
   AppInventoryItemIdRoute: typeof AppInventoryItemIdRoute
   AppPeopleEmployeeIdRoute: typeof AppPeopleEmployeeIdRoute
   AppPurchaseOrderIdRoute: typeof AppPurchaseOrderIdRoute
@@ -530,6 +619,7 @@ interface AppRouteRouteChildren {
   AppDeskIndexRoute: typeof AppDeskIndexRoute
   AppDocsIndexRoute: typeof AppDocsIndexRoute
   AppFlowIndexRoute: typeof AppFlowIndexRoute
+  AppFormsIndexRoute: typeof AppFormsIndexRoute
   AppInventoryIndexRoute: typeof AppInventoryIndexRoute
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
@@ -537,13 +627,14 @@ interface AppRouteRouteChildren {
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppAppIdRoute: AppAppIdRoute,
-  AppCopilotRoute: AppCopilotRoute,
+  AppCopilotRoute: AppCopilotRouteWithChildren,
   AppIndexRoute: AppIndexRoute,
   AppCfoLoanIdRoute: AppCfoLoanIdRoute,
   AppCrmQuoteIdRoute: AppCrmQuoteIdRoute,
   AppDeskCaseIdRoute: AppDeskCaseIdRoute,
   AppDocsDocumentIdRoute: AppDocsDocumentIdRoute,
   AppFlowRuleIdRoute: AppFlowRuleIdRoute,
+  AppFormsFormIdRoute: AppFormsFormIdRoute,
   AppInventoryItemIdRoute: AppInventoryItemIdRoute,
   AppPeopleEmployeeIdRoute: AppPeopleEmployeeIdRoute,
   AppPurchaseOrderIdRoute: AppPurchaseOrderIdRoute,
@@ -553,6 +644,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppDeskIndexRoute: AppDeskIndexRoute,
   AppDocsIndexRoute: AppDocsIndexRoute,
   AppFlowIndexRoute: AppFlowIndexRoute,
+  AppFormsIndexRoute: AppFormsIndexRoute,
   AppInventoryIndexRoute: AppInventoryIndexRoute,
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,
@@ -581,12 +673,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
