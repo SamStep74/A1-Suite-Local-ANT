@@ -1,0 +1,104 @@
+@import "./tokens.css";
+
+/* Base layer — minimal, anti-glassmorphism, anti-neon. */
+@layer base {
+  *,
+  *::before,
+  *::after {
+    box-sizing: border-box;
+  }
+
+  html,
+  body {
+    margin: 0;
+    padding: 0;
+    background: var(--color-canvas);
+    color: var(--color-ink);
+    font-family: var(--font-sans);
+    font-size: var(--text-base);
+    line-height: 1.5;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+  }
+
+  /* Density-aware line-height. */
+  html[data-density="compact"],
+  html[data-density="compact"] body {
+    line-height: 1.4;
+  }
+  html[data-density="spacious"],
+  html[data-density="spacious"] body {
+    line-height: 1.6;
+  }
+
+  /* Skip-to-content for accessibility (WCAG 2.4.1). */
+  .skip-to-content {
+    position: absolute;
+    left: -9999px;
+    top: 0;
+    z-index: 9999;
+    padding: 8px 16px;
+    background: var(--color-ink);
+    color: #ffffff;
+    text-decoration: none;
+    border-radius: 0 0 var(--radius-md) 0;
+  }
+  .skip-to-content:focus {
+    left: 0;
+  }
+
+  /* Focus ring: only on keyboard nav (WCAG 2.4.7). Mouse clicks don't trigger. */
+  :focus {
+    outline: none;
+  }
+  :focus-visible {
+    outline: 2px solid var(--color-focus);
+    outline-offset: 2px;
+  }
+
+  ::selection {
+    background: var(--color-agent-soft);
+    color: var(--color-agent);
+  }
+}
+
+/* Component layer — design-system primitives (Phase 0 only ships what's needed). */
+@layer components {
+  .panel {
+    background: var(--color-surface);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-lg);
+  }
+
+  .panel-soft {
+    background: var(--color-surface-soft);
+    border: 1px solid var(--color-line);
+    border-radius: var(--radius-lg);
+  }
+
+  .badge-agent {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--color-agent-soft);
+    color: var(--color-agent);
+    font-size: var(--text-xs);
+    font-weight: 500;
+    line-height: 1.5;
+  }
+
+  .badge-deterministic {
+    display: inline-flex;
+    align-items: center;
+    gap: 4px;
+    padding: 2px 8px;
+    border-radius: 999px;
+    background: var(--color-deterministic-soft);
+    color: var(--color-deterministic);
+    font-size: var(--text-xs);
+    font-weight: 500;
+    line-height: 1.5;
+  }
+}
