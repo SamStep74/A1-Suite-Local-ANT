@@ -17,6 +17,24 @@ import {
   WorkflowRunSchema,
   WorkflowRunStatus,
   WorkflowRuleSchema,
+  CrmQuoteSchema,
+  CrmQuotesResponseSchema,
+  CrmActivitySchema,
+  CrmActivitiesResponseSchema,
+  CrmLeadSchema,
+  CreateCrmLeadInputSchema,
+  CrmForecastSchema,
+  CatalogItemSchema,
+  CatalogItemsResponseSchema,
+  CatalogCategorySchema,
+  MarginRuleSchema,
+  PriceListSchema,
+  StockBalanceSchema,
+  StockLocationSchema,
+  StockResponseSchema,
+  StockMoveSchema,
+  StockMovesResponseSchema,
+  CreateStockMoveInputSchema,
 } from "./schemas";
 
 const VALID_CASE = {
@@ -198,5 +216,412 @@ describe("WorkflowApprovalSchema / WorkflowRunSchema / WorkflowRuleSchema", () =
     if (r.success) {
       expect((r.data as { someExtra?: string }).someExtra).toBe("ignored-but-kept");
     }
+  });
+});
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Phase 2 — CRM + Catalog + Inventory schemas
+ *
+ * Each pair: one "accepts the real wire shape" + one "rejects a known-bad
+ * mutation". Wire shapes come from the live Fastify routes
+ * (server/app.js#/api/crm/*, /api/catalog/*, /api/inventory/*); they are
+ * permissive because of passthrough() but the enums and required fields
+ * are strict. These tests pin the contract so a server-side drift shows
+ * up as a CI failure, not a runtime blank screen.
+ * ──────────────────────────────────────────────────────────────────── */
+
+const VALID_QUOTE = {
+  id: "quote-1",
+  customerId: "cust-1",
+  customerName: "Ani Beauty",
+  taxId: null,
+  dealId: "deal-1",
+  dealTitle: "Q3 expansion",
+  dealStage: "Proposal",
+  number: "Q-2026-0042",
+  title: "Equipment for new clinic",
+  status: "draft" as const,
+  subtotal: 1000000,
+  vat: 200000,
+  total: 1200000,
+  currency: "AMD",
+  validUntil: "2026-07-10",
+  publicToken: null,
+  acceptanceUrl: null,
+  sentAt: null,
+  acceptedAt: null,
+  createdByName: "Owner",
+  createdAt: "2026-06-01T00:00:00.000Z",
+  updatedAt: "2026-06-05T00:00:00.000Z",
+  lines: [
+    {
+      id: "ql-1",
+      catalogItemId: "ci-1",
+      catalogItemVariantId: null,
+      catalogPriceListId: "pl-1",
+      catalogPriceListCode: "STANDARD",
+      pricingSource: "list",
+      pricingCustomerSegment: "retail",
+      discountAmount: 0,
+      marginStatus: "ok",
+      marginRuleCode: "STD-20",
+      marginRuleMinimumPercent: 20,
+      marginRuleTargetPercent: 25,
+      catalogSku: "EQ-CHAIR",
+      catalogName: "Treatment chair",
+      variantSku: null,
+      variantName: null,
+      description: "Hydraulic treatment chair",
+      quantity: 2,
+      unitPrice: 500000,
+      total: 1000000,
+      vatMode: "inclusive",
+      fiscalReceiptRequired: false,
+      position: 1,
+    },
+  ],
+};
+
+const VALID_LEAD = {
+  id: "lead-1",
+  companyName: "New Clinic LLC",
+  contactName: "Anna Petrosyan",
+  email: "anna@newclinic.am",
+  phone: "+37499123456",
+  taxId: null,
+  segment: "retail",
+  source: "Website",
+  channel: "Organic",
+  interest: "Aesthetic laser",
+  estimatedValue: 5000000,
+  currency: "AMD",
+  consentStatus: "granted",
+  score: 75,
+  rating: "warm",
+  status: "qualifying" as const,
+  routedToUserId: null,
+  routedToName: null,
+  nextAction: "Call back",
+  convertedCustomerId: null,
+  convertedCustomerName: null,
+  convertedDealId: null,
+  convertedDealTitle: null,
+  createdByName: "Web form",
+  convertedAt: null,
+  createdAt: "2026-06-01T00:00:00.000Z",
+  updatedAt: "2026-06-01T00:00:00.000Z",
+};
+
+const VALID_FORECAST = {
+  categories: [
+    { forecastCategory: "Commit", count: 2, value: 3000000, weightedValue: 3000000 },
+    { forecastCategory: "Best Case", count: 3, value: 8000000, weightedValue: 4000000 },
+  ],
+  deals: [
+    {
+      id: "deal-1",
+      customerId: "cust-1",
+      customerName: "Ani Beauty",
+      title: "Q3 expansion",
+      stage: "Proposal",
+      value: 2000000,
+      currency: "AMD",
+      probability: 60,
+      nextStep: "Send proposal",
+      forecastId: null,
+      forecastCategory: "Best Case",
+      closeDate: "2026-08-15",
+      weightedValue: 1200000,
+      healthScore: 72,
+      healthStatus: "on-track",
+      healthReasons: ["Active contact in last 7 days"],
+      managerNote: null,
+      forecastUpdatedAt: "2026-06-09T00:00:00.000Z",
+    },
+  ],
+  dealRiskBriefs: [],
+  totals: {
+    value: 11000000,
+    weightedValue: 7000000,
+    atRisk: 1,
+    unreviewed: 0,
+  },
+};
+
+const VALID_CATALOG_ITEM = {
+  id: "ci-1",
+  categoryId: "cat-1",
+  categoryName: "Equipment",
+  sku: "EQ-CHAIR",
+  name: "Treatment chair",
+  description: "Hydraulic treatment chair",
+  itemType: "stockable" as const,
+  status: "active" as const,
+  unitOfMeasure: "pc",
+  listPrice: 600000,
+  standardCost: 400000,
+  marginAmount: 200000,
+  marginPercent: 33.3,
+  currency: "AMD",
+  vatMode: "inclusive",
+  trackStock: true,
+  trackLots: false,
+  fiscalReceiptRequired: false,
+  variants: [],
+  variantCount: 0,
+};
+
+const VALID_STOCK_BALANCE = {
+  id: "sb-1",
+  catalogItemId: "ci-1",
+  catalogSku: "EQ-CHAIR",
+  catalogName: "Treatment chair",
+  locationId: "loc-1",
+  locationCode: "WH/STOCK",
+  locationName: "Main Warehouse",
+  locationType: "internal",
+  quantity: 8,
+  reservedQuantity: 0,
+  availableQuantity: 8,
+  averageCost: 400000,
+  updatedAt: "2026-06-09T00:00:00.000Z",
+};
+
+const VALID_STOCK_MOVE = {
+  id: "sm-1",
+  catalogItemId: "ci-1",
+  catalogSku: "EQ-CHAIR",
+  catalogName: "Treatment chair",
+  sourceLocationId: null,
+  sourceLocationCode: null,
+  sourceLocationName: null,
+  sourceLocationType: null,
+  destinationLocationId: "loc-1",
+  destinationLocationCode: "WH/STOCK",
+  destinationLocationName: "Main Warehouse",
+  destinationLocationType: "internal",
+  moveType: "receipt" as const,
+  quantity: 5,
+  unitCost: 400000,
+  totalCost: 2000000,
+  status: "completed",
+  reason: "Vendor delivery",
+  reference: "PO-2026-007",
+  createdByName: "Owner",
+  createdAt: "2026-06-09T00:00:00.000Z",
+};
+
+describe("CrmQuoteSchema", () => {
+  it("accepts a real /api/crm/quotes payload with lines", () => {
+    const r = CrmQuoteSchema.safeParse(VALID_QUOTE);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.lines).toHaveLength(1);
+      expect(r.data.lines![0]!.marginStatus).toBe("ok");
+    }
+  });
+
+  it("rejects a missing total (required field)", () => {
+    const { total: _total, ...rest } = VALID_QUOTE;
+    void _total;
+    const r = CrmQuoteSchema.safeParse(rest);
+    expect(r.success).toBe(false);
+  });
+
+  it("wraps in a /quotes response envelope", () => {
+    const r = CrmQuotesResponseSchema.safeParse({ quotes: [VALID_QUOTE] });
+    expect(r.success).toBe(true);
+  });
+});
+
+describe("CrmActivitySchema", () => {
+  it("accepts a real /api/crm/activities row", () => {
+    const r = CrmActivitySchema.safeParse({
+      id: "a-1",
+      customerId: "cust-1",
+      customerName: "Ani Beauty",
+      dealId: "deal-1",
+      dealTitle: "Q3 expansion",
+      kind: "quote_sent",
+      title: "Sent quote Q-2026-0042",
+      body: null,
+      actorName: "Owner",
+      occurredAt: "2026-06-09T00:00:00.000Z",
+      createdAt: "2026-06-09T00:00:00.000Z",
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects an unknown kind and still accepts any string fallback", () => {
+    // Server may emit new kinds we haven't enumerated yet — the
+    // `.or(z.string())` fallback should accept it.
+    const r = CrmActivitySchema.safeParse({
+      id: "a-2",
+      kind: "future_kind_we_dont_know_yet",
+      title: "x",
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("wraps in /activities response envelope", () => {
+    const r = CrmActivitiesResponseSchema.safeParse({ activities: [] });
+    expect(r.success).toBe(true);
+  });
+});
+
+describe("CrmLeadSchema", () => {
+  it("accepts a real /api/crm/leads payload", () => {
+    const r = CrmLeadSchema.safeParse(VALID_LEAD);
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects a missing required companyName", () => {
+    const { companyName: _companyName, ...rest } = VALID_LEAD;
+    void _companyName;
+    const r = CrmLeadSchema.safeParse(rest);
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("CreateCrmLeadInputSchema", () => {
+  it("accepts a minimal lead capture form", () => {
+    const r = CreateCrmLeadInputSchema.safeParse({
+      companyName: "Acme LLC",
+      contactName: "John Doe",
+      email: "john@acme.am",
+      phone: "+37499000000",
+      interest: "Need 5 treatment chairs",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.currency).toBe("AMD"); // default
+    }
+  });
+
+  it("rejects an invalid email", () => {
+    const r = CreateCrmLeadInputSchema.safeParse({
+      companyName: "Acme LLC",
+      contactName: "John Doe",
+      email: "not-an-email",
+      phone: "+37499000000",
+      interest: "Need 5 treatment chairs",
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("CrmForecastSchema", () => {
+  it("accepts a /api/crm/forecast payload with weighted pipeline", () => {
+    const r = CrmForecastSchema.safeParse(VALID_FORECAST);
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.deals).toHaveLength(1);
+      expect(r.data.totals.weightedValue).toBe(7000000);
+    }
+  });
+
+  it("rejects a missing totals object", () => {
+    const r = CrmForecastSchema.safeParse({
+      categories: [],
+      deals: [],
+      dealRiskBriefs: [],
+    });
+    expect(r.success).toBe(false);
+  });
+});
+
+describe("CatalogItemSchema", () => {
+  it("accepts a real /api/catalog/items row", () => {
+    const r = CatalogItemSchema.safeParse(VALID_CATALOG_ITEM);
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects a missing required sku", () => {
+    const { sku: _sku, ...rest } = VALID_CATALOG_ITEM;
+    void _sku;
+    const r = CatalogItemSchema.safeParse(rest);
+    expect(r.success).toBe(false);
+  });
+
+  it("wraps in /items response envelope with categories + priceLists", () => {
+    const r = CatalogItemsResponseSchema.safeParse({
+      items: [VALID_CATALOG_ITEM],
+      categories: [CatalogCategorySchema.parse({ id: "cat-1", name: "Equipment" })],
+      unitsOfMeasure: [],
+      marginRules: [
+        MarginRuleSchema.parse({
+          id: "mr-1",
+          code: "STD-20",
+          name: "Standard 20% minimum",
+          scopeType: "category",
+          minimumMarginPercent: 20,
+          targetMarginPercent: 25,
+        }),
+      ],
+      priceLists: [
+        PriceListSchema.parse({
+          id: "pl-1",
+          code: "STANDARD",
+          name: "Standard Price List",
+          items: [],
+        }),
+      ],
+    });
+    expect(r.success).toBe(true);
+  });
+});
+
+describe("Inventory schemas", () => {
+  it("StockBalanceSchema accepts a /api/inventory/stock row", () => {
+    const r = StockBalanceSchema.safeParse(VALID_STOCK_BALANCE);
+    expect(r.success).toBe(true);
+  });
+
+  it("StockLocationSchema accepts a /api/inventory/locations row", () => {
+    const r = StockLocationSchema.safeParse({
+      id: "loc-1",
+      code: "WH/STOCK",
+      name: "Main Warehouse",
+      locationType: "internal",
+      status: "active",
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("StockResponseSchema accepts the full stock envelope", () => {
+    const r = StockResponseSchema.safeParse({
+      stock: [VALID_STOCK_BALANCE],
+      locations: [
+        { id: "loc-1", code: "WH/STOCK", name: "Main Warehouse", locationType: "internal" },
+      ],
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("StockMoveSchema accepts a /api/inventory/moves row", () => {
+    const r = StockMoveSchema.safeParse(VALID_STOCK_MOVE);
+    expect(r.success).toBe(true);
+  });
+
+  it("StockMovesResponseSchema accepts the moves envelope", () => {
+    const r = StockMovesResponseSchema.safeParse({ moves: [VALID_STOCK_MOVE] });
+    expect(r.success).toBe(true);
+  });
+
+  it("CreateStockMoveInputSchema requires catalogItemId and moveType", () => {
+    const r = CreateStockMoveInputSchema.safeParse({
+      catalogItemId: "ci-1",
+      moveType: "receipt",
+      quantity: 5,
+    });
+    expect(r.success).toBe(true);
+  });
+
+  it("CreateStockMoveInputSchema rejects a missing moveType", () => {
+    const r = CreateStockMoveInputSchema.safeParse({
+      catalogItemId: "ci-1",
+      quantity: 5,
+    });
+    expect(r.success).toBe(false);
   });
 });

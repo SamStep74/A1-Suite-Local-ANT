@@ -197,3 +197,448 @@ export const UpdateServiceCaseInputSchema = z
   })
   .strict();
 export type UpdateServiceCaseInput = z.infer<typeof UpdateServiceCaseInputSchema>;
+
+/* ──────────────────────────────────────────────────────────────────────
+ * CRM schemas — mirror server/app.js#getQuotes / #getCrmLeads /
+ * #getCrmForecastSummary / #getCrmActivities (server/app.js:2709-2720,
+ * 2737-2746, 2716, 2857-2872). The legacy CRM module (web/src/crm.jsx)
+ * reads these envelopes; the new app uses the same shapes.
+ * ──────────────────────────────────────────────────────────────────── */
+
+/** Quote line item — pricing-evidence chip source.
+ *  Source: server/app.js#getQuoteLines (used inside #getQuotes). */
+export const CrmQuoteLineSchema = z.object({
+  id: z.string(),
+  catalogItemId: z.string().nullable().optional(),
+  catalogItemVariantId: z.string().nullable().optional(),
+  catalogPriceListId: z.string().nullable().optional(),
+  catalogPriceListCode: z.string().nullable().optional(),
+  pricingSource: z.string().nullable().optional(),
+  pricingCustomerSegment: z.string().nullable().optional(),
+  discountAmount: z.number().nullable().optional(),
+  marginStatus: z.string().nullable().optional(),
+  marginRuleCode: z.string().nullable().optional(),
+  marginRuleMinimumPercent: z.number().nullable().optional(),
+  marginRuleTargetPercent: z.number().nullable().optional(),
+  catalogSku: z.string().nullable().optional(),
+  catalogName: z.string().nullable().optional(),
+  variantSku: z.string().nullable().optional(),
+  variantName: z.string().nullable().optional(),
+  description: z.string().nullable().optional(),
+  quantity: z.number().nullable().optional(),
+  unitPrice: z.number().nullable().optional(),
+  total: z.number().nullable().optional(),
+  vatMode: z.string().nullable().optional(),
+  fiscalReceiptRequired: z.boolean().optional(),
+  position: z.number().optional(),
+}).passthrough();
+export type CrmQuoteLine = z.infer<typeof CrmQuoteLineSchema>;
+
+/** Quote — the document Armosphera calls a "quote" (also used for
+ *  invoices, acceptances, public tokens). Source: server/app.js#getQuotes. */
+export const CrmQuoteStatus = z.enum(["draft", "sent", "accepted", "declined", "expired"]);
+export type CrmQuoteStatus = z.infer<typeof CrmQuoteStatus>;
+
+export const CrmQuoteSchema = z.object({
+  id: z.string(),
+  customerId: z.string(),
+  customerName: z.string(),
+  taxId: z.string().nullable().optional(),
+  dealId: z.string().nullable().optional(),
+  dealTitle: z.string().nullable().optional(),
+  dealStage: z.string().nullable().optional(),
+  number: z.string().nullable().optional(),
+  title: z.string(),
+  status: CrmQuoteStatus,
+  subtotal: z.number().nullable().optional(),
+  vat: z.number().nullable().optional(),
+  total: z.number(),
+  currency: z.string().optional(),
+  validUntil: z.string().nullable().optional(),
+  publicToken: z.string().nullable().optional(),
+  acceptanceUrl: z.string().nullable().optional(),
+  sentAt: z.string().nullable().optional(),
+  acceptedAt: z.string().nullable().optional(),
+  createdByName: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+  lines: z.array(CrmQuoteLineSchema).optional(),
+}).passthrough();
+export type CrmQuote = z.infer<typeof CrmQuoteSchema>;
+
+export const CrmQuotesResponseSchema = z.object({
+  quotes: z.array(CrmQuoteSchema),
+});
+export type CrmQuotesResponse = z.infer<typeof CrmQuotesResponseSchema>;
+
+/** Activity — one event in the CRM timeline. Source: /api/crm/activities. */
+export const CrmActivityKind = z.enum([
+  "conversion",
+  "quote_sent",
+  "quote_accepted",
+  "quote_declined",
+  "note",
+  "call",
+  "email",
+  "task_completed",
+]);
+export type CrmActivityKind = z.infer<typeof CrmActivityKind>;
+
+export const CrmActivitySchema = z.object({
+  id: z.string(),
+  customerId: z.string().nullable().optional(),
+  customerName: z.string().nullable().optional(),
+  leadId: z.string().nullable().optional(),
+  dealId: z.string().nullable().optional(),
+  dealTitle: z.string().nullable().optional(),
+  kind: CrmActivityKind.or(z.string()),
+  title: z.string(),
+  body: z.string().nullable().optional(),
+  forecastCategory: z.string().nullable().optional(),
+  actorName: z.string().nullable().optional(),
+  occurredAt: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+}).passthrough();
+export type CrmActivity = z.infer<typeof CrmActivitySchema>;
+
+export const CrmActivitiesResponseSchema = z.object({
+  activities: z.array(CrmActivitySchema),
+});
+export type CrmActivitiesResponse = z.infer<typeof CrmActivitiesResponseSchema>;
+
+/** Lead — pre-conversion contact. Source: /api/crm/leads. */
+export const CrmLeadStatus = z.enum(["new", "qualifying", "qualified", "converted", "rejected"]);
+export type CrmLeadStatus = z.infer<typeof CrmLeadStatus>;
+
+export const CrmLeadSchema = z.object({
+  id: z.string(),
+  companyName: z.string(),
+  contactName: z.string().nullable().optional(),
+  email: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  taxId: z.string().nullable().optional(),
+  segment: z.string().nullable().optional(),
+  source: z.string().nullable().optional(),
+  channel: z.string().nullable().optional(),
+  interest: z.string().nullable().optional(),
+  estimatedValue: z.number().nullable().optional(),
+  currency: z.string().nullable().optional(),
+  consentStatus: z.string().nullable().optional(),
+  score: z.number().nullable().optional(),
+  rating: z.string().nullable().optional(),
+  status: CrmLeadStatus,
+  routedToUserId: z.string().nullable().optional(),
+  routedToName: z.string().nullable().optional(),
+  nextAction: z.string().nullable().optional(),
+  convertedCustomerId: z.string().nullable().optional(),
+  convertedCustomerName: z.string().nullable().optional(),
+  convertedDealId: z.string().nullable().optional(),
+  convertedDealTitle: z.string().nullable().optional(),
+  createdByName: z.string().nullable().optional(),
+  convertedAt: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+}).passthrough();
+export type CrmLead = z.infer<typeof CrmLeadSchema>;
+
+export const CrmLeadSummarySchema = z.object({
+  total: z.number(),
+  qualifiedPipeline: z.number().optional(),
+  converted: z.number().optional(),
+  hot: z.number().optional(),
+  byStatus: z.array(z.object({
+    status: z.string(),
+    count: z.number(),
+    value: z.number().optional(),
+  })).optional(),
+}).passthrough();
+export type CrmLeadSummary = z.infer<typeof CrmLeadSummarySchema>;
+
+export const CrmLeadsResponseSchema = z.object({
+  leads: z.array(CrmLeadSchema),
+  summary: CrmLeadSummarySchema.optional(),
+});
+export type CrmLeadsResponse = z.infer<typeof CrmLeadsResponseSchema>;
+
+/** Lead capture input. */
+export const CreateCrmLeadInputSchema = z.object({
+  companyName: z.string().min(2, "Company name required"),
+  contactName: z.string().min(2, "Contact name required"),
+  email: z.string().email("Valid email required"),
+  phone: z.string().min(4, "Phone required"),
+  interest: z.string().min(4, "Describe the interest"),
+  segment: z.string().optional(),
+  source: z.string().optional(),
+  channel: z.string().optional(),
+  estimatedValue: z.number().optional(),
+  currency: z.string().default("AMD"),
+});
+export type CreateCrmLeadInput = z.infer<typeof CreateCrmLeadInputSchema>;
+
+/** Forecast — deal-stage weighted pipeline. Source: /api/crm/forecast. */
+export const CrmForecastStage = z.enum(["Discovery", "Qualified", "Proposal", "Negotiation", "Won", "Lost"]);
+export type CrmForecastStage = z.infer<typeof CrmForecastStage>;
+
+export const CrmForecastDealSchema = z.object({
+  id: z.string(),
+  customerId: z.string(),
+  customerName: z.string(),
+  title: z.string(),
+  stage: CrmForecastStage.or(z.string()),
+  value: z.number(),
+  currency: z.string().optional(),
+  probability: z.number().nullable().optional(),
+  nextStep: z.string().nullable().optional(),
+  forecastId: z.string().nullable().optional(),
+  forecastCategory: z.string().nullable().optional(),
+  closeDate: z.string().nullable().optional(),
+  weightedValue: z.number().nullable().optional(),
+  healthScore: z.number().nullable().optional(),
+  healthStatus: z.string().nullable().optional(),
+  healthReasons: z.array(z.string()).optional(),
+  managerNote: z.string().nullable().optional(),
+  forecastUpdatedAt: z.string().nullable().optional(),
+}).passthrough();
+export type CrmForecastDeal = z.infer<typeof CrmForecastDealSchema>;
+
+export const CrmForecastSchema = z.object({
+  categories: z.array(z.object({
+    forecastCategory: z.string(),
+    count: z.number(),
+    value: z.number(),
+    weightedValue: z.number().optional(),
+  }).passthrough()),
+  deals: z.array(CrmForecastDealSchema),
+  dealRiskBriefs: z.array(z.unknown()),
+  totals: z.object({
+    value: z.number(),
+    weightedValue: z.number().optional(),
+    atRisk: z.number().optional(),
+    unreviewed: z.number().optional(),
+  }).passthrough(),
+}).passthrough();
+export type CrmForecast = z.infer<typeof CrmForecastSchema>;
+
+/* ──────────────────────────────────────────────────────────────────────
+ * Catalog & Inventory schemas — mirror server/app.js#registerApi at
+ * /api/catalog/{items,categories,price-lists,margin-rules} and
+ * /api/inventory/{stock,moves,locations} (server/app.js:454-545, 521-545).
+ * All have rich fields the legacy uses; the new app reads a small subset
+ * and is permissive for the rest.
+ * ──────────────────────────────────────────────────────────────────── */
+
+export const CatalogItemType = z.enum(["stockable", "service", "bundle"]);
+export type CatalogItemType = z.infer<typeof CatalogItemType>;
+
+export const CatalogItemStatus = z.enum(["active", "archived", "draft"]);
+export type CatalogItemStatus = z.infer<typeof CatalogItemStatus>;
+
+export const CatalogVariantSchema = z.object({
+  id: z.string(),
+  catalogItemId: z.string(),
+  sku: z.string(),
+  name: z.string(),
+  attributes: z.record(z.string(), z.unknown()).optional(),
+  unitOfMeasure: z.string().optional(),
+  listPrice: z.number().optional(),
+  standardCost: z.number().optional(),
+  marginAmount: z.number().optional(),
+  marginPercent: z.number().optional(),
+  currency: z.string().optional(),
+  status: z.string().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+}).passthrough();
+export type CatalogVariant = z.infer<typeof CatalogVariantSchema>;
+
+export const CatalogItemSchema = z.object({
+  id: z.string(),
+  categoryId: z.string().nullable().optional(),
+  categoryName: z.string().nullable().optional(),
+  sku: z.string(),
+  name: z.string(),
+  description: z.string().nullable().optional(),
+  itemType: CatalogItemType.or(z.string()),
+  status: CatalogItemStatus.or(z.string()),
+  unitOfMeasure: z.string().optional(),
+  listPrice: z.number().optional(),
+  standardCost: z.number().optional(),
+  marginAmount: z.number().optional(),
+  marginPercent: z.number().optional(),
+  currency: z.string().optional(),
+  vatMode: z.string().optional(),
+  trackStock: z.boolean().optional(),
+  trackLots: z.boolean().optional(),
+  fiscalReceiptRequired: z.boolean().optional(),
+  createdByUserId: z.string().nullable().optional(),
+  createdByName: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+  variants: z.array(CatalogVariantSchema).optional(),
+  variantCount: z.number().optional(),
+}).passthrough();
+export type CatalogItem = z.infer<typeof CatalogItemSchema>;
+
+export const CatalogCategorySchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  slug: z.string().nullable().optional(),
+  parentCategoryId: z.string().nullable().optional(),
+  status: z.string().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+}).passthrough();
+export type CatalogCategory = z.infer<typeof CatalogCategorySchema>;
+
+export const MarginRuleSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  name: z.string(),
+  scopeType: z.string(),
+  scopeValue: z.string().nullable().optional(),
+  minimumMarginPercent: z.number().optional(),
+  targetMarginPercent: z.number().optional(),
+  status: z.string().optional(),
+}).passthrough();
+export type MarginRule = z.infer<typeof MarginRuleSchema>;
+
+export const PriceListItemSchema = z.object({
+  id: z.string(),
+  priceListId: z.string(),
+  catalogItemId: z.string(),
+  catalogSku: z.string().optional(),
+  catalogName: z.string().optional(),
+  catalogItemVariantId: z.string().nullable().optional(),
+  variantSku: z.string().optional(),
+  variantName: z.string().optional(),
+  minQuantity: z.number().optional(),
+  listPrice: z.number().optional(),
+  discountPercent: z.number().optional(),
+  discountAmount: z.number().optional(),
+  netPrice: z.number().optional(),
+  standardCost: z.number().optional(),
+  marginAmount: z.number().optional(),
+  marginPercent: z.number().optional(),
+  marginRuleCode: z.string().optional(),
+  minimumMarginPercent: z.number().optional(),
+  targetMarginPercent: z.number().optional(),
+  marginStatus: z.string().optional(),
+  currency: z.string().optional(),
+  status: z.string().optional(),
+}).passthrough();
+export type PriceListItem = z.infer<typeof PriceListItemSchema>;
+
+export const PriceListSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  name: z.string(),
+  customerSegment: z.string().optional(),
+  currency: z.string().optional(),
+  status: z.string().optional(),
+  startsAt: z.string().nullable().optional(),
+  endsAt: z.string().nullable().optional(),
+  items: z.array(PriceListItemSchema).optional(),
+}).passthrough();
+export type PriceList = z.infer<typeof PriceListSchema>;
+
+export const CatalogItemsResponseSchema = z.object({
+  items: z.array(CatalogItemSchema),
+  categories: z.array(CatalogCategorySchema).optional(),
+  unitsOfMeasure: z.array(z.unknown()).optional(),
+  marginRules: z.array(MarginRuleSchema).optional(),
+  priceLists: z.array(PriceListSchema).optional(),
+});
+export type CatalogItemsResponse = z.infer<typeof CatalogItemsResponseSchema>;
+
+/** Stock balance — a (catalogItemId, locationId) row.
+ *  Source: /api/inventory/stock. */
+export const StockBalanceSchema = z.object({
+  id: z.string(),
+  catalogItemId: z.string(),
+  catalogSku: z.string().nullable().optional(),
+  catalogName: z.string().nullable().optional(),
+  locationId: z.string(),
+  locationCode: z.string().optional(),
+  locationName: z.string().nullable().optional(),
+  locationType: z.string().optional(),
+  quantity: z.number(),
+  reservedQuantity: z.number().optional(),
+  availableQuantity: z.number(),
+  averageCost: z.number().optional(),
+  updatedAt: z.string().nullable().optional(),
+}).passthrough();
+export type StockBalance = z.infer<typeof StockBalanceSchema>;
+
+/** Stock location — WH/STOCK, CUSTOMERS, SCRAP, etc.
+ *  Source: /api/inventory/locations. */
+export const StockLocationSchema = z.object({
+  id: z.string(),
+  code: z.string(),
+  name: z.string(),
+  locationType: z.string(),
+  status: z.string().optional(),
+  parentLocationId: z.string().nullable().optional(),
+}).passthrough();
+export type StockLocation = z.infer<typeof StockLocationSchema>;
+
+export const StockResponseSchema = z.object({
+  stock: z.array(StockBalanceSchema),
+  locations: z.array(StockLocationSchema).optional(),
+});
+export type StockResponse = z.infer<typeof StockResponseSchema>;
+
+/** Stock move — one transfer / receipt / delivery / adjustment / scrap event.
+ *  Source: /api/inventory/moves. */
+export const StockMoveType = z.enum(["transfer", "receipt", "delivery", "adjustment", "scrap"]);
+export type StockMoveType = z.infer<typeof StockMoveType>;
+
+export const StockMoveSchema = z.object({
+  id: z.string(),
+  catalogItemId: z.string(),
+  catalogSku: z.string().nullable().optional(),
+  catalogName: z.string().nullable().optional(),
+  sourceLocationId: z.string().nullable().optional(),
+  sourceLocationCode: z.string().nullable().optional(),
+  sourceLocationName: z.string().nullable().optional(),
+  sourceLocationType: z.string().nullable().optional(),
+  destinationLocationId: z.string().nullable().optional(),
+  destinationLocationCode: z.string().nullable().optional(),
+  destinationLocationName: z.string().nullable().optional(),
+  destinationLocationType: z.string().nullable().optional(),
+  moveType: StockMoveType.or(z.string()),
+  quantity: z.number(),
+  unitCost: z.number().optional(),
+  totalCost: z.number().optional(),
+  status: z.string().optional(),
+  reason: z.string().nullable().optional(),
+  reference: z.string().nullable().optional(),
+  createdByUserId: z.string().nullable().optional(),
+  createdByName: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+}).passthrough();
+export type StockMove = z.infer<typeof StockMoveSchema>;
+
+export const StockMovesResponseSchema = z.object({
+  moves: z.array(StockMoveSchema),
+});
+export type StockMovesResponse = z.infer<typeof StockMovesResponseSchema>;
+
+/** Input for POST /api/inventory/moves. The backend tolerates extra fields. */
+export const CreateStockMoveInputSchema = z.object({
+  catalogItemId: z.string().min(1),
+  sourceLocationId: z.string().optional(),
+  destinationLocationId: z.string().optional(),
+  moveType: StockMoveType,
+  quantity: z.number().min(1),
+  unitCost: z.number().min(0).optional(),
+  reason: z.string().optional(),
+  reference: z.string().optional(),
+});
+export type CreateStockMoveInput = z.infer<typeof CreateStockMoveInputSchema>;
+
+export const CreateStockMoveResponseSchema = z.object({
+  ok: z.literal(true),
+  move: StockMoveSchema,
+  stock: z.array(StockBalanceSchema).optional(),
+});
+export type CreateStockMoveResponse = z.infer<typeof CreateStockMoveResponseSchema>;
