@@ -23,6 +23,7 @@ import { Route as AppPeopleIndexRouteImport } from './routes/app/people/index'
 import { Route as AppInventoryIndexRouteImport } from './routes/app/inventory/index'
 import { Route as AppFormsIndexRouteImport } from './routes/app/forms/index'
 import { Route as AppFlowIndexRouteImport } from './routes/app/flow/index'
+import { Route as AppFinanceIndexRouteImport } from './routes/app/finance/index'
 import { Route as AppDocsIndexRouteImport } from './routes/app/docs/index'
 import { Route as AppDeskIndexRouteImport } from './routes/app/desk/index'
 import { Route as AppCrmIndexRouteImport } from './routes/app/crm/index'
@@ -36,6 +37,7 @@ import { Route as AppPeopleEmployeeIdRouteImport } from './routes/app/people/$em
 import { Route as AppInventoryItemIdRouteImport } from './routes/app/inventory/$itemId'
 import { Route as AppFormsFormIdRouteImport } from './routes/app/forms/$formId'
 import { Route as AppFlowRuleIdRouteImport } from './routes/app/flow/$ruleId'
+import { Route as AppFinanceInvoiceIdRouteImport } from './routes/app/finance/$invoiceId'
 import { Route as AppDocsDocumentIdRouteImport } from './routes/app/docs/$documentId'
 import { Route as AppDeskCaseIdRouteImport } from './routes/app/desk/$caseId'
 import { Route as AppCrmQuoteIdRouteImport } from './routes/app/crm/$quoteId'
@@ -113,6 +115,11 @@ const AppFlowIndexRoute = AppFlowIndexRouteImport.update({
   path: '/flow/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppFinanceIndexRoute = AppFinanceIndexRouteImport.update({
+  id: '/finance/',
+  path: '/finance/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppDocsIndexRoute = AppDocsIndexRouteImport.update({
   id: '/docs/',
   path: '/docs/',
@@ -178,6 +185,11 @@ const AppFlowRuleIdRoute = AppFlowRuleIdRouteImport.update({
   path: '/flow/$ruleId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppFinanceInvoiceIdRoute = AppFinanceInvoiceIdRouteImport.update({
+  id: '/finance/$invoiceId',
+  path: '/finance/$invoiceId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppDocsDocumentIdRoute = AppDocsDocumentIdRouteImport.update({
   id: '/docs/$documentId',
   path: '/docs/$documentId',
@@ -224,6 +236,7 @@ export interface FileRoutesByFullPath {
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
+  '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
   '/app/flow/$ruleId': typeof AppFlowRuleIdRoute
   '/app/forms/$formId': typeof AppFormsFormIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
@@ -237,6 +250,7 @@ export interface FileRoutesByFullPath {
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
+  '/app/finance/': typeof AppFinanceIndexRoute
   '/app/flow/': typeof AppFlowIndexRoute
   '/app/forms/': typeof AppFormsIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
@@ -257,6 +271,7 @@ export interface FileRoutesByTo {
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
+  '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
   '/app/flow/$ruleId': typeof AppFlowRuleIdRoute
   '/app/forms/$formId': typeof AppFormsFormIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
@@ -270,6 +285,7 @@ export interface FileRoutesByTo {
   '/app/crm': typeof AppCrmIndexRoute
   '/app/desk': typeof AppDeskIndexRoute
   '/app/docs': typeof AppDocsIndexRoute
+  '/app/finance': typeof AppFinanceIndexRoute
   '/app/flow': typeof AppFlowIndexRoute
   '/app/forms': typeof AppFormsIndexRoute
   '/app/inventory': typeof AppInventoryIndexRoute
@@ -293,6 +309,7 @@ export interface FileRoutesById {
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
+  '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
   '/app/flow/$ruleId': typeof AppFlowRuleIdRoute
   '/app/forms/$formId': typeof AppFormsFormIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
@@ -306,6 +323,7 @@ export interface FileRoutesById {
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
+  '/app/finance/': typeof AppFinanceIndexRoute
   '/app/flow/': typeof AppFlowIndexRoute
   '/app/forms/': typeof AppFormsIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
@@ -330,6 +348,7 @@ export interface FileRouteTypes {
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
     | '/app/docs/$documentId'
+    | '/app/finance/$invoiceId'
     | '/app/flow/$ruleId'
     | '/app/forms/$formId'
     | '/app/inventory/$itemId'
@@ -343,6 +362,7 @@ export interface FileRouteTypes {
     | '/app/crm/'
     | '/app/desk/'
     | '/app/docs/'
+    | '/app/finance/'
     | '/app/flow/'
     | '/app/forms/'
     | '/app/inventory/'
@@ -363,6 +383,7 @@ export interface FileRouteTypes {
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
     | '/app/docs/$documentId'
+    | '/app/finance/$invoiceId'
     | '/app/flow/$ruleId'
     | '/app/forms/$formId'
     | '/app/inventory/$itemId'
@@ -376,6 +397,7 @@ export interface FileRouteTypes {
     | '/app/crm'
     | '/app/desk'
     | '/app/docs'
+    | '/app/finance'
     | '/app/flow'
     | '/app/forms'
     | '/app/inventory'
@@ -398,6 +420,7 @@ export interface FileRouteTypes {
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
     | '/app/docs/$documentId'
+    | '/app/finance/$invoiceId'
     | '/app/flow/$ruleId'
     | '/app/forms/$formId'
     | '/app/inventory/$itemId'
@@ -411,6 +434,7 @@ export interface FileRouteTypes {
     | '/app/crm/'
     | '/app/desk/'
     | '/app/docs/'
+    | '/app/finance/'
     | '/app/flow/'
     | '/app/forms/'
     | '/app/inventory/'
@@ -526,6 +550,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFlowIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/finance/': {
+      id: '/app/finance/'
+      path: '/finance'
+      fullPath: '/app/finance/'
+      preLoaderRoute: typeof AppFinanceIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/docs/': {
       id: '/app/docs/'
       path: '/docs'
@@ -617,6 +648,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFlowRuleIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/finance/$invoiceId': {
+      id: '/app/finance/$invoiceId'
+      path: '/finance/$invoiceId'
+      fullPath: '/app/finance/$invoiceId'
+      preLoaderRoute: typeof AppFinanceInvoiceIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/docs/$documentId': {
       id: '/app/docs/$documentId'
       path: '/docs/$documentId'
@@ -685,6 +723,7 @@ interface AppRouteRouteChildren {
   AppCrmQuoteIdRoute: typeof AppCrmQuoteIdRoute
   AppDeskCaseIdRoute: typeof AppDeskCaseIdRoute
   AppDocsDocumentIdRoute: typeof AppDocsDocumentIdRoute
+  AppFinanceInvoiceIdRoute: typeof AppFinanceInvoiceIdRoute
   AppFlowRuleIdRoute: typeof AppFlowRuleIdRoute
   AppFormsFormIdRoute: typeof AppFormsFormIdRoute
   AppInventoryItemIdRoute: typeof AppInventoryItemIdRoute
@@ -697,6 +736,7 @@ interface AppRouteRouteChildren {
   AppCrmIndexRoute: typeof AppCrmIndexRoute
   AppDeskIndexRoute: typeof AppDeskIndexRoute
   AppDocsIndexRoute: typeof AppDocsIndexRoute
+  AppFinanceIndexRoute: typeof AppFinanceIndexRoute
   AppFlowIndexRoute: typeof AppFlowIndexRoute
   AppFormsIndexRoute: typeof AppFormsIndexRoute
   AppInventoryIndexRoute: typeof AppInventoryIndexRoute
@@ -714,6 +754,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppCrmQuoteIdRoute: AppCrmQuoteIdRoute,
   AppDeskCaseIdRoute: AppDeskCaseIdRoute,
   AppDocsDocumentIdRoute: AppDocsDocumentIdRoute,
+  AppFinanceInvoiceIdRoute: AppFinanceInvoiceIdRoute,
   AppFlowRuleIdRoute: AppFlowRuleIdRoute,
   AppFormsFormIdRoute: AppFormsFormIdRoute,
   AppInventoryItemIdRoute: AppInventoryItemIdRoute,
@@ -726,6 +767,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppCrmIndexRoute: AppCrmIndexRoute,
   AppDeskIndexRoute: AppDeskIndexRoute,
   AppDocsIndexRoute: AppDocsIndexRoute,
+  AppFinanceIndexRoute: AppFinanceIndexRoute,
   AppFlowIndexRoute: AppFlowIndexRoute,
   AppFormsIndexRoute: AppFormsIndexRoute,
   AppInventoryIndexRoute: AppInventoryIndexRoute,
