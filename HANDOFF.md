@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-11 · main after web-modern Pattern A UI rebuild (Phase 3.5 CFO + Phase 4) · 1203-test run on web-modern: 1203 pass, 0 fail (53 test files); server root suite 933+ pass · Ant-clone sync pending explicit user approval (per security rule: `git push ant <tag>`, never `origin`)_
+_Last updated: 2026-06-11 · main after web-modern Pattern A UI rebuild (Phase 3.5 CFO + Phase 4) · **1203 vitest pass on web-modern (53 files) + 933 node:test pass on server root = 2136 total, 0 fail, 0 cancelled** · Ant-clone sync pending explicit user approval (per security rule: `git push ant <tag>`, never `origin`)_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
