@@ -14,8 +14,11 @@ import { Route as AppRouteRouteImport } from './routes/app/route'
 import { Route as IndexRouteImport } from './routes/index'
 import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as LoginMfaRouteImport } from './routes/login.mfa'
+import { Route as AppCopilotRouteImport } from './routes/app/copilot'
 import { Route as AppAppIdRouteImport } from './routes/app/$appId'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
+import { Route as AppDeskIndexRouteImport } from './routes/app/desk/index'
+import { Route as AppDeskCaseIdRouteImport } from './routes/app/desk/$caseId'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -42,6 +45,11 @@ const LoginMfaRoute = LoginMfaRouteImport.update({
   path: '/mfa',
   getParentRoute: () => LoginRoute,
 } as any)
+const AppCopilotRoute = AppCopilotRouteImport.update({
+  id: '/copilot',
+  path: '/copilot',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppAppIdRoute = AppAppIdRouteImport.update({
   id: '/$appId',
   path: '/$appId',
@@ -52,6 +60,16 @@ const ApiSplatRoute = ApiSplatRouteImport.update({
   path: '/api/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppDeskIndexRoute = AppDeskIndexRouteImport.update({
+  id: '/desk/',
+  path: '/desk/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppDeskCaseIdRoute = AppDeskCaseIdRouteImport.update({
+  id: '/desk/$caseId',
+  path: '/desk/$caseId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -59,16 +77,22 @@ export interface FileRoutesByFullPath {
   '/login': typeof LoginRouteWithChildren
   '/api/$': typeof ApiSplatRoute
   '/app/$appId': typeof AppAppIdRoute
+  '/app/copilot': typeof AppCopilotRoute
   '/login/mfa': typeof LoginMfaRoute
   '/app/': typeof AppIndexRoute
+  '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/desk/': typeof AppDeskIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRouteWithChildren
   '/api/$': typeof ApiSplatRoute
   '/app/$appId': typeof AppAppIdRoute
+  '/app/copilot': typeof AppCopilotRoute
   '/login/mfa': typeof LoginMfaRoute
   '/app': typeof AppIndexRoute
+  '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/desk': typeof AppDeskIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -77,8 +101,11 @@ export interface FileRoutesById {
   '/login': typeof LoginRouteWithChildren
   '/api/$': typeof ApiSplatRoute
   '/app/$appId': typeof AppAppIdRoute
+  '/app/copilot': typeof AppCopilotRoute
   '/login/mfa': typeof LoginMfaRoute
   '/app/': typeof AppIndexRoute
+  '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/desk/': typeof AppDeskIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -88,10 +115,22 @@ export interface FileRouteTypes {
     | '/login'
     | '/api/$'
     | '/app/$appId'
+    | '/app/copilot'
     | '/login/mfa'
     | '/app/'
+    | '/app/desk/$caseId'
+    | '/app/desk/'
   fileRoutesByTo: FileRoutesByTo
-  to: '/' | '/login' | '/api/$' | '/app/$appId' | '/login/mfa' | '/app'
+  to:
+    | '/'
+    | '/login'
+    | '/api/$'
+    | '/app/$appId'
+    | '/app/copilot'
+    | '/login/mfa'
+    | '/app'
+    | '/app/desk/$caseId'
+    | '/app/desk'
   id:
     | '__root__'
     | '/'
@@ -99,8 +138,11 @@ export interface FileRouteTypes {
     | '/login'
     | '/api/$'
     | '/app/$appId'
+    | '/app/copilot'
     | '/login/mfa'
     | '/app/'
+    | '/app/desk/$caseId'
+    | '/app/desk/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -147,6 +189,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof LoginMfaRouteImport
       parentRoute: typeof LoginRoute
     }
+    '/app/copilot': {
+      id: '/app/copilot'
+      path: '/copilot'
+      fullPath: '/app/copilot'
+      preLoaderRoute: typeof AppCopilotRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/$appId': {
       id: '/app/$appId'
       path: '/$appId'
@@ -161,17 +210,37 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/desk/': {
+      id: '/app/desk/'
+      path: '/desk'
+      fullPath: '/app/desk/'
+      preLoaderRoute: typeof AppDeskIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/desk/$caseId': {
+      id: '/app/desk/$caseId'
+      path: '/desk/$caseId'
+      fullPath: '/app/desk/$caseId'
+      preLoaderRoute: typeof AppDeskCaseIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
   }
 }
 
 interface AppRouteRouteChildren {
   AppAppIdRoute: typeof AppAppIdRoute
+  AppCopilotRoute: typeof AppCopilotRoute
   AppIndexRoute: typeof AppIndexRoute
+  AppDeskCaseIdRoute: typeof AppDeskCaseIdRoute
+  AppDeskIndexRoute: typeof AppDeskIndexRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppAppIdRoute: AppAppIdRoute,
+  AppCopilotRoute: AppCopilotRoute,
   AppIndexRoute: AppIndexRoute,
+  AppDeskCaseIdRoute: AppDeskCaseIdRoute,
+  AppDeskIndexRoute: AppDeskIndexRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
