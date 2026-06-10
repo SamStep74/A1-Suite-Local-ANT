@@ -8,7 +8,7 @@
  * - "Agents idle" status string
  * - Offline transitions switch the right-side text to "Queued"
  */
-import { describe, expect, it, afterEach, beforeEach } from "vitest";
+import { describe, expect, it, afterEach } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 import { BottomBar } from "./BottomBar";
 

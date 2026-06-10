@@ -24,7 +24,7 @@ vi.mock("@tanstack/react-router", () => ({
     children: React.ReactNode;
     to: string;
     params?: Record<string, string>;
-    "aria-current"?: string;
+    "aria-current"?: "page" | "step" | "location" | "date" | "time" | true | false;
     title?: string;
   }) => (
     <a

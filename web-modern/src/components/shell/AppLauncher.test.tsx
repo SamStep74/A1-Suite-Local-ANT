@@ -71,7 +71,6 @@ describe("AppLauncher", () => {
 
   it("splits the catalog into core and extensions groups", () => {
     render(<AppLauncher open onClose={() => {}} />);
-    const dialog = screen.getByRole("dialog", { name: "App launcher" });
     // The core group is the first 4 apps; ext is the rest. We assert by
     // the "Core" / "Extensions" headings + that we render >= 1 of each.
     const coreCount = APP_IDS.filter((id) => APPS[id].group === "core").length;

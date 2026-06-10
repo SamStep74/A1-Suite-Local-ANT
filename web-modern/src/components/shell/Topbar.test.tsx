@@ -13,7 +13,7 @@
  *   - The density and theme cycles fire the mocked setters.
  *   - The "ANT" brand link and the ⌘K shortcut are visible.
  */
-import { describe, expect, it, afterEach, vi, beforeEach } from "vitest";
+import { describe, expect, it, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
 
 // Mocks MUST be set up before the component module is imported.
