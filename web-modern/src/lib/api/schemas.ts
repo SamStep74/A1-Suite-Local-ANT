@@ -1249,4 +1249,329 @@ export const CfoLoanScheduleResponseSchema = z
   .passthrough();
 export type CfoLoanScheduleResponse = z.infer<typeof CfoLoanScheduleResponseSchema>;
 
+/* ────────── Projects (Phase 4.2) ────────── */
 
+export const ProjectStatusSchema = z.enum([
+  "planning",
+  "active",
+  "on-hold",
+  "completed",
+  "cancelled",
+]).or(z.string());
+export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
+
+export const TaskStatusSchema = z.enum(["todo", "in-progress", "done"]).or(z.string());
+export type TaskStatus = z.infer<typeof TaskStatusSchema>;
+
+export const ProjectTaskSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    status: TaskStatusSchema,
+    assigneeEmployeeId: z.string().nullable().optional(),
+    dueDate: z.string().nullable().optional(),
+    updatedAt: z.string().optional(),
+  })
+  .passthrough();
+export type ProjectTask = z.infer<typeof ProjectTaskSchema>;
+
+export const ProjectMilestoneSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    dueDate: z.string().nullable().optional(),
+    reached: z.number().int(),
+    updatedAt: z.string().optional(),
+  })
+  .passthrough();
+export type ProjectMilestone = z.infer<typeof ProjectMilestoneSchema>;
+
+export const ProjectListItemSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    status: ProjectStatusSchema,
+    customerId: z.string().nullable().optional(),
+    dealId: z.string().nullable().optional(),
+    startDate: z.string().nullable().optional(),
+    dueDate: z.string().nullable().optional(),
+    updatedAt: z.string().optional(),
+    taskTotal: z.number().int().optional(),
+    taskDone: z.number().int().optional(),
+    milestoneTotal: z.number().int().optional(),
+    milestoneReached: z.number().int().optional(),
+    totalMinutes: z.number().int().optional(),
+  })
+  .passthrough();
+export type ProjectListItem = z.infer<typeof ProjectListItemSchema>;
+
+export const ProjectsListResponseSchema = z
+  .object({
+    projects: z.array(ProjectListItemSchema),
+  })
+  .passthrough();
+export type ProjectsListResponse = z.infer<typeof ProjectsListResponseSchema>;
+
+export const ProjectDetailSchema = ProjectListItemSchema.extend({
+  description: z.string().optional(),
+  createdAt: z.string().optional(),
+  tasks: z.array(ProjectTaskSchema).optional(),
+  milestones: z.array(ProjectMilestoneSchema).optional(),
+  timeEntryCount: z.number().int().optional(),
+}).passthrough();
+export type ProjectDetail = z.infer<typeof ProjectDetailSchema>;
+
+export const ProjectDetailResponseSchema = z
+  .object({
+    project: ProjectDetailSchema,
+  })
+  .passthrough();
+export type ProjectDetailResponse = z.infer<typeof ProjectDetailResponseSchema>;
+
+export const ProjectBillingPreviewSchema = z
+  .object({
+    projectId: z.string(),
+    customerId: z.string().nullable().optional(),
+    unbilledMinutes: z.number().int(),
+    unbilledEntries: z.number().int(),
+    hours: z.number(),
+    hourlyRate: z.number(),
+    subtotal: z.number(),
+    vat: z.number(),
+    total: z.number(),
+    vatRate: z.number(),
+    currency: z.string(),
+  })
+  .passthrough();
+export type ProjectBillingPreview = z.infer<typeof ProjectBillingPreviewSchema>;
+
+export const ProjectBillingPreviewResponseSchema = z
+  .object({
+    preview: ProjectBillingPreviewSchema,
+  })
+  .passthrough();
+export type ProjectBillingPreviewResponse = z.infer<typeof ProjectBillingPreviewResponseSchema>;
+
+/* ────────── Analytics (Phase 4.2) ────────── */
+
+export const AgingBucketSchema = z
+  .object({
+    key: z.string(),
+    label: z.string().optional(),
+    total: z.number(),
+    invoiceCount: z.number().int(),
+    customerCount: z.number().int().optional(),
+    invoices: z.array(z.unknown()).optional(),
+  })
+  .passthrough();
+export type AgingBucket = z.infer<typeof AgingBucketSchema>;
+
+export const ReceivablesAgingSummarySchema = z
+  .object({
+    totalOpen: z.number(),
+    overdue: z.number(),
+    current: z.number(),
+    invoiceCount: z.number().int(),
+    overdueInvoiceCount: z.number().int(),
+    customerCount: z.number().int().optional(),
+  })
+  .passthrough();
+export type ReceivablesAgingSummary = z.infer<typeof ReceivablesAgingSummarySchema>;
+
+export const ReceivablesAgingResponseSchema = z
+  .object({
+    currency: z.string().optional(),
+    reportDate: z.string().optional(),
+    summary: ReceivablesAgingSummarySchema,
+    buckets: z.array(AgingBucketSchema).optional(),
+    invoices: z.array(z.unknown()).optional(),
+    definitions: z.record(z.string(), z.string()).optional(),
+    invoiceOverdueExplanations: z.array(z.unknown()).optional(),
+  })
+  .passthrough();
+export type ReceivablesAgingResponse = z.infer<typeof ReceivablesAgingResponseSchema>;
+
+export const SemanticMetricSchema = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    value: z.number(),
+    unit: z.string(),
+    formula: z.string().optional(),
+    definition: z.string().optional(),
+    sourceApps: z.array(z.string()).optional(),
+    refreshCadence: z.string().optional(),
+    ownerRole: z.string().optional(),
+    recordCount: z.number().int().optional(),
+    drilldownUrl: z.string().optional(),
+  })
+  .passthrough();
+export type SemanticMetric = z.infer<typeof SemanticMetricSchema>;
+
+export const SemanticMetricsResponseSchema = z
+  .object({
+    semanticLayerVersion: z.string().optional(),
+    reportDate: z.string().optional(),
+    generatedAt: z.string().optional(),
+    metrics: z.array(SemanticMetricSchema),
+  })
+  .passthrough();
+export type SemanticMetricsResponse = z.infer<typeof SemanticMetricsResponseSchema>;
+
+export const SemanticMetricDrilldownResponseSchema = z
+  .object({
+    semanticLayerVersion: z.string().optional(),
+    reportDate: z.string().optional(),
+    metric: SemanticMetricSchema,
+    totals: z
+      .object({
+        recordCount: z.number().int(),
+        amdTotal: z.number(),
+      })
+      .passthrough()
+      .optional(),
+    records: z.array(z.unknown()).optional(),
+  })
+  .passthrough();
+export type SemanticMetricDrilldownResponse = z.infer<typeof SemanticMetricDrilldownResponseSchema>;
+
+export const RoleDashboardAppSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    category: z.string().optional(),
+  })
+  .passthrough();
+export type RoleDashboardApp = z.infer<typeof RoleDashboardAppSchema>;
+
+export const RoleDashboardMetricCardSchema = z
+  .object({
+    id: z.string(),
+    label: z.string(),
+    value: z.number(),
+    unit: z.string(),
+    recordCount: z.number().int().optional(),
+    sourceApps: z.array(z.string()).optional(),
+    formula: z.string().optional(),
+    definition: z.string().optional(),
+    drilldownUrl: z.string().optional(),
+    ownerRole: z.string().optional(),
+  })
+  .passthrough();
+export type RoleDashboardMetricCard = z.infer<typeof RoleDashboardMetricCardSchema>;
+
+export const RoleDashboardNextActionSchema = z
+  .object({
+    actionKey: z.string(),
+    label: z.string(),
+    description: z.string().optional(),
+  })
+  .passthrough();
+export type RoleDashboardNextAction = z.infer<typeof RoleDashboardNextActionSchema>;
+
+export const RoleDashboardResponseSchema = z
+  .object({
+    role: z.string(),
+    dashboardId: z.string().optional(),
+    title: z.string().optional(),
+    generatedAt: z.string().optional(),
+    apps: z.array(RoleDashboardAppSchema).optional(),
+    semanticLayerVersion: z.string().optional(),
+    primaryMetricIds: z.array(z.string()).optional(),
+    summaryCards: z.array(RoleDashboardMetricCardSchema).optional(),
+    snapshots: z.array(z.unknown()).optional(),
+    reports: z.array(z.unknown()).optional(),
+    permissions: z.record(z.string(), z.unknown()).optional(),
+    nextActions: z.array(RoleDashboardNextActionSchema).optional(),
+  })
+  .passthrough();
+export type RoleDashboardResponse = z.infer<typeof RoleDashboardResponseSchema>;
+
+export const SemanticSnapshotPointSchema = z
+  .object({
+    reportDate: z.string(),
+    value: z.number(),
+    recordCount: z.number().int().optional(),
+    checksum: z.string().optional(),
+    capturedAt: z.string().optional(),
+  })
+  .passthrough();
+export type SemanticSnapshotPoint = z.infer<typeof SemanticSnapshotPointSchema>;
+
+export const SemanticSnapshotSeriesSchema = z
+  .object({
+    metricId: z.string(),
+    label: z.string().optional(),
+    unit: z.string().optional(),
+    sourceApps: z.array(z.string()).optional(),
+    points: z.array(SemanticSnapshotPointSchema),
+  })
+  .passthrough();
+export type SemanticSnapshotSeries = z.infer<typeof SemanticSnapshotSeriesSchema>;
+
+export const SemanticSnapshotSchema = z
+  .object({
+    id: z.string(),
+    metricId: z.string(),
+    label: z.string().optional(),
+    unit: z.string().optional(),
+    value: z.number(),
+    recordCount: z.number().int().optional(),
+    reportDate: z.string(),
+    semanticLayerVersion: z.string().optional(),
+    sourceApps: z.array(z.string()).optional(),
+    formula: z.string().optional(),
+    definition: z.string().optional(),
+    checksum: z.string().optional(),
+    note: z.string().nullable().optional(),
+    capturedByUserId: z.string().optional(),
+    capturedByName: z.string().optional(),
+    capturedAt: z.string().optional(),
+  })
+  .passthrough();
+export type SemanticSnapshot = z.infer<typeof SemanticSnapshotSchema>;
+
+export const SemanticSnapshotsResponseSchema = z
+  .object({
+    semanticLayerVersion: z.string().optional(),
+    snapshots: z.array(SemanticSnapshotSchema).optional(),
+    series: z.array(SemanticSnapshotSeriesSchema).optional(),
+  })
+  .passthrough();
+export type SemanticSnapshotsResponse = z.infer<typeof SemanticSnapshotsResponseSchema>;
+
+export const AnalyticsReportSchema = z
+  .object({
+    id: z.string(),
+    reportType: z.string(),
+    periodKey: z.string().optional(),
+    format: z.string().optional(),
+    status: z.string().optional(),
+    metricCount: z.number().int().optional(),
+    snapshotCount: z.number().int().optional(),
+    checksum: z.string().optional(),
+    contentType: z.string().optional(),
+    fileName: z.string().optional(),
+    note: z.string().nullable().optional(),
+    createdByUserId: z.string().optional(),
+    createdByName: z.string().optional(),
+    createdAt: z.string().optional(),
+    payload: z.unknown().optional(),
+    exportContent: z.string().optional(),
+  })
+  .passthrough();
+export type AnalyticsReport = z.infer<typeof AnalyticsReportSchema>;
+
+export const AnalyticsReportsListResponseSchema = z
+  .object({
+    reports: z.array(AnalyticsReportSchema),
+  })
+  .passthrough();
+export type AnalyticsReportsListResponse = z.infer<typeof AnalyticsReportsListResponseSchema>;
+
+export const AnalyticsReportResponseSchema = z
+  .object({
+    report: AnalyticsReportSchema,
+  })
+  .passthrough();
+export type AnalyticsReportResponse = z.infer<typeof AnalyticsReportResponseSchema>;
