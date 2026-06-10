@@ -20,6 +20,11 @@ import {
   History,
   Settings,
   Search,
+  Plus,
+  Zap,
+  Inbox,
+  AlertTriangle,
+  Clock,
   type LucideIcon,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
@@ -27,6 +32,7 @@ import { useNavigate } from "@tanstack/react-router";
 import { APP_IDS, APPS, appHref, type AppId } from "../../lib/apps";
 import { useTheme } from "../../lib/theme/ThemeProvider";
 import { useDensity, DENSITIES, type Density } from "../../lib/density/DensityProvider";
+import { HybridBadge } from "../ui/HybridBadge";
 import { cn } from "../../lib/utils/cn";
 
 interface PaletteProps {
@@ -143,6 +149,81 @@ export function AskCommandPalette({ open, onOpenChange, onSignOut }: PaletteProp
               {APP_IDS.map((id) => (
                 <AppItem key={id} id={id} onSelect={() => goToApp(navigate, id, onOpenChange)} />
               ))}
+            </Command.Group>
+
+            {/* Quick create — agentic shortcuts (Phase 1.8). The
+                palette closes and the Desk page picks up the search
+                param to auto-open the inline create form. */}
+            <Command.Group
+              heading={
+                <span className="inline-flex items-center gap-1">
+                  <Sparkles className="size-3" /> Quick create
+                </span>
+              }
+              className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-[var(--color-agent)]"
+            >
+              <Command.Item
+                value="create ticket"
+                onSelect={() => {
+                  navigate({ to: "/app/desk", search: { status: "all", createTicket: "1" } });
+                  onOpenChange(false);
+                }}
+                className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 text-[var(--text-sm)] text-[var(--color-ink)] aria-selected:bg-[var(--color-surface-soft)]"
+              >
+                <Plus className="size-3.5 text-[var(--color-agent)]" />
+                <span className="flex-1">Create ticket</span>
+                <HybridBadge kind="agent" />
+              </Command.Item>
+            </Command.Group>
+
+            {/* Smart shortcuts — context deep-links. Phase 1.8 ships
+                two: waiting-customer and today's approvals. Phase 4
+                adds "My open tickets" (filtered by user.id) once
+                owner-based filtering lands. */}
+            <Command.Group
+              heading={
+                <span className="inline-flex items-center gap-1">
+                  <Zap className="size-3" /> Smart shortcuts
+                </span>
+              }
+              className="[&_[cmdk-group-heading]]:px-2 [&_[cmdk-group-heading]]:py-1 [&_[cmdk-group-heading]]:text-[10px] [&_[cmdk-group-heading]]:font-semibold [&_[cmdk-group-heading]]:uppercase [&_[cmdk-group-heading]]:tracking-wider [&_[cmdk-group-heading]]:text-[var(--color-muted)]"
+            >
+              <Command.Item
+                value="tickets waiting customer"
+                onSelect={() => {
+                  navigate({ to: "/app/desk", search: { status: "waiting-customer", createTicket: null } });
+                  onOpenChange(false);
+                }}
+                className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 text-[var(--text-sm)] text-[var(--color-ink)] aria-selected:bg-[var(--color-surface-soft)]"
+              >
+                <Clock className="size-3.5 text-[var(--color-copper)]" />
+                <span className="flex-1">Tickets waiting &gt; 3 days</span>
+                <span className="text-[10px] text-[var(--color-muted)]">Desk</span>
+              </Command.Item>
+              <Command.Item
+                value="today approvals"
+                onSelect={() => {
+                  navigate({ to: "/app/copilot" });
+                  onOpenChange(false);
+                }}
+                className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 text-[var(--text-sm)] text-[var(--color-ink)] aria-selected:bg-[var(--color-surface-soft)]"
+              >
+                <Inbox className="size-3.5 text-[var(--color-blue)]" />
+                <span className="flex-1">Today's approvals</span>
+                <span className="text-[10px] text-[var(--color-muted)]">Mission Control</span>
+              </Command.Item>
+              <Command.Item
+                value="at-risk SLA"
+                onSelect={() => {
+                  navigate({ to: "/app", search: {} });
+                  onOpenChange(false);
+                }}
+                className="flex cursor-pointer items-center gap-2 rounded-[var(--radius-md)] px-2 py-1.5 text-[var(--text-sm)] text-[var(--color-ink)] aria-selected:bg-[var(--color-surface-soft)]"
+              >
+                <AlertTriangle className="size-3.5 text-[var(--color-ruby)]" />
+                <span className="flex-1">At-risk &amp; breached SLAs</span>
+                <span className="text-[10px] text-[var(--color-muted)]">Today</span>
+              </Command.Item>
             </Command.Group>
 
             {/* Commands */}
