@@ -963,3 +963,120 @@ export const PurchaseAnalyticsResponseSchema = z.object({
 }).passthrough();
 export type PurchaseAnalyticsResponse = z.infer<typeof PurchaseAnalyticsResponseSchema>;
 
+/* ──────────────────────────────────────────────────────────────────────
+ * Docs & Sign schemas — mirror server/app.js (getDocument, getSignaturePackets,
+ * /api/docs/templates). State machine: draft → out-for-signature → signed
+ * (terminal) | voided (terminal).
+ * ──────────────────────────────────────────────────────────────────── */
+
+export const DocsDocumentStatus = z.enum([
+  "draft",
+  "out-for-signature",
+  "signed",
+  "voided",
+]);
+export type DocsDocumentStatus = z.infer<typeof DocsDocumentStatus>;
+
+export const DocsSignerStatus = z.enum([
+  "pending",
+  "signed",
+  "declined",
+  "voided",
+]);
+export type DocsSignerStatus = z.infer<typeof DocsSignerStatus>;
+
+export const DocsSignerSchema = z.object({
+  id: z.string(),
+  signerName: z.string(),
+  signerEmail: z.string().nullable().optional(),
+  signerUserId: z.string().nullable().optional(),
+  signOrder: z.number(),
+  status: DocsSignerStatus.or(z.string()),
+  signedAt: z.string().nullable().optional(),
+  checksum: z.string().nullable().optional(),
+}).passthrough();
+export type DocsSigner = z.infer<typeof DocsSignerSchema>;
+
+export const DocsDocumentSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  body: z.string().nullable().optional(),
+  docType: z.string(),
+  status: DocsDocumentStatus.or(z.string()),
+  customerId: z.string().nullable().optional(),
+  sealedChecksum: z.string().nullable().optional(),
+  sealedAt: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+  updatedAt: z.string().nullable().optional(),
+  signers: z.array(DocsSignerSchema).optional(),
+}).passthrough();
+export type DocsDocument = z.infer<typeof DocsDocumentSchema>;
+
+export const DocsDocumentsResponseSchema = z.object({
+  documents: z.array(DocsDocumentSchema),
+});
+export type DocsDocumentsResponse = z.infer<typeof DocsDocumentsResponseSchema>;
+
+export const DocsDocumentEnvelopeSchema = z.object({
+  document: DocsDocumentSchema,
+});
+export type DocsDocumentEnvelope = z.infer<typeof DocsDocumentEnvelopeSchema>;
+
+/** Signature packet — a quote-backed e-signature flow. */
+export const DocsSignaturePacketStatus = z.enum([
+  "draft",
+  "sent",
+  "signed",
+  "voided",
+  "expired",
+]);
+export type DocsSignaturePacketStatus = z.infer<typeof DocsSignaturePacketStatus>;
+
+export const DocsSignaturePacketSchema = z.object({
+  id: z.string(),
+  customerId: z.string().nullable().optional(),
+  customerName: z.string().nullable().optional(),
+  quoteId: z.string().nullable().optional(),
+  quoteNumber: z.string().nullable().optional(),
+  acceptanceId: z.string().nullable().optional(),
+  legalSourceId: z.string().nullable().optional(),
+  status: DocsSignaturePacketStatus.or(z.string()),
+  checksum: z.string().nullable().optional(),
+  payload: z.unknown().nullable().optional(),
+  note: z.string().nullable().optional(),
+  sourceKey: z.string().nullable().optional(),
+  createdByUserId: z.string().nullable().optional(),
+  createdByName: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+}).passthrough();
+export type DocsSignaturePacket = z.infer<typeof DocsSignaturePacketSchema>;
+
+export const DocsSignaturePacketsResponseSchema = z.object({
+  packets: z.array(DocsSignaturePacketSchema),
+});
+export type DocsSignaturePacketsResponse = z.infer<typeof DocsSignaturePacketsResponseSchema>;
+
+/** Template — drives generate → draft document. */
+export const DocsTemplateVariableSchema = z.object({
+  key: z.string(),
+  label: z.string().optional(),
+  required: z.boolean().optional(),
+});
+export type DocsTemplateVariable = z.infer<typeof DocsTemplateVariableSchema>;
+
+export const DocsTemplateSchema = z.object({
+  id: z.string(),
+  key: z.string(),
+  name: z.string(),
+  docType: z.string(),
+  titleTemplate: z.string(),
+  bodyTemplate: z.string(),
+  variables: z.array(DocsTemplateVariableSchema).optional(),
+}).passthrough();
+export type DocsTemplate = z.infer<typeof DocsTemplateSchema>;
+
+export const DocsTemplatesResponseSchema = z.object({
+  templates: z.array(DocsTemplateSchema),
+});
+export type DocsTemplatesResponse = z.infer<typeof DocsTemplatesResponseSchema>;
+

@@ -21,12 +21,14 @@ import { Route as AppPurchaseIndexRouteImport } from './routes/app/purchase/inde
 import { Route as AppPeopleIndexRouteImport } from './routes/app/people/index'
 import { Route as AppInventoryIndexRouteImport } from './routes/app/inventory/index'
 import { Route as AppFinanceIndexRouteImport } from './routes/app/finance/index'
+import { Route as AppDocsIndexRouteImport } from './routes/app/docs/index'
 import { Route as AppDeskIndexRouteImport } from './routes/app/desk/index'
 import { Route as AppCrmIndexRouteImport } from './routes/app/crm/index'
 import { Route as AppPurchaseOrderIdRouteImport } from './routes/app/purchase/$orderId'
 import { Route as AppPeopleEmployeeIdRouteImport } from './routes/app/people/$employeeId'
 import { Route as AppInventoryItemIdRouteImport } from './routes/app/inventory/$itemId'
 import { Route as AppFinanceInvoiceIdRouteImport } from './routes/app/finance/$invoiceId'
+import { Route as AppDocsDocumentIdRouteImport } from './routes/app/docs/$documentId'
 import { Route as AppDeskCaseIdRouteImport } from './routes/app/desk/$caseId'
 import { Route as AppCrmQuoteIdRouteImport } from './routes/app/crm/$quoteId'
 
@@ -90,6 +92,11 @@ const AppFinanceIndexRoute = AppFinanceIndexRouteImport.update({
   path: '/finance/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppDocsIndexRoute = AppDocsIndexRouteImport.update({
+  id: '/docs/',
+  path: '/docs/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppDeskIndexRoute = AppDeskIndexRouteImport.update({
   id: '/desk/',
   path: '/desk/',
@@ -120,6 +127,11 @@ const AppFinanceInvoiceIdRoute = AppFinanceInvoiceIdRouteImport.update({
   path: '/finance/$invoiceId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppDocsDocumentIdRoute = AppDocsDocumentIdRouteImport.update({
+  id: '/docs/$documentId',
+  path: '/docs/$documentId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppDeskCaseIdRoute = AppDeskCaseIdRouteImport.update({
   id: '/desk/$caseId',
   path: '/desk/$caseId',
@@ -142,12 +154,14 @@ export interface FileRoutesByFullPath {
   '/app/': typeof AppIndexRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
   '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
   '/app/people/$employeeId': typeof AppPeopleEmployeeIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
+  '/app/docs/': typeof AppDocsIndexRoute
   '/app/finance/': typeof AppFinanceIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
@@ -163,12 +177,14 @@ export interface FileRoutesByTo {
   '/app': typeof AppIndexRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
   '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
   '/app/people/$employeeId': typeof AppPeopleEmployeeIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/crm': typeof AppCrmIndexRoute
   '/app/desk': typeof AppDeskIndexRoute
+  '/app/docs': typeof AppDocsIndexRoute
   '/app/finance': typeof AppFinanceIndexRoute
   '/app/inventory': typeof AppInventoryIndexRoute
   '/app/people': typeof AppPeopleIndexRoute
@@ -186,12 +202,14 @@ export interface FileRoutesById {
   '/app/': typeof AppIndexRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
   '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
   '/app/people/$employeeId': typeof AppPeopleEmployeeIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
+  '/app/docs/': typeof AppDocsIndexRoute
   '/app/finance/': typeof AppFinanceIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
@@ -210,12 +228,14 @@ export interface FileRouteTypes {
     | '/app/'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/docs/$documentId'
     | '/app/finance/$invoiceId'
     | '/app/inventory/$itemId'
     | '/app/people/$employeeId'
     | '/app/purchase/$orderId'
     | '/app/crm/'
     | '/app/desk/'
+    | '/app/docs/'
     | '/app/finance/'
     | '/app/inventory/'
     | '/app/people/'
@@ -231,12 +251,14 @@ export interface FileRouteTypes {
     | '/app'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/docs/$documentId'
     | '/app/finance/$invoiceId'
     | '/app/inventory/$itemId'
     | '/app/people/$employeeId'
     | '/app/purchase/$orderId'
     | '/app/crm'
     | '/app/desk'
+    | '/app/docs'
     | '/app/finance'
     | '/app/inventory'
     | '/app/people'
@@ -253,12 +275,14 @@ export interface FileRouteTypes {
     | '/app/'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/docs/$documentId'
     | '/app/finance/$invoiceId'
     | '/app/inventory/$itemId'
     | '/app/people/$employeeId'
     | '/app/purchase/$orderId'
     | '/app/crm/'
     | '/app/desk/'
+    | '/app/docs/'
     | '/app/finance/'
     | '/app/inventory/'
     | '/app/people/'
@@ -358,6 +382,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFinanceIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/docs/': {
+      id: '/app/docs/'
+      path: '/docs'
+      fullPath: '/app/docs/'
+      preLoaderRoute: typeof AppDocsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/desk/': {
       id: '/app/desk/'
       path: '/desk'
@@ -400,6 +431,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFinanceInvoiceIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/docs/$documentId': {
+      id: '/app/docs/$documentId'
+      path: '/docs/$documentId'
+      fullPath: '/app/docs/$documentId'
+      preLoaderRoute: typeof AppDocsDocumentIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/desk/$caseId': {
       id: '/app/desk/$caseId'
       path: '/desk/$caseId'
@@ -423,12 +461,14 @@ interface AppRouteRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppCrmQuoteIdRoute: typeof AppCrmQuoteIdRoute
   AppDeskCaseIdRoute: typeof AppDeskCaseIdRoute
+  AppDocsDocumentIdRoute: typeof AppDocsDocumentIdRoute
   AppFinanceInvoiceIdRoute: typeof AppFinanceInvoiceIdRoute
   AppInventoryItemIdRoute: typeof AppInventoryItemIdRoute
   AppPeopleEmployeeIdRoute: typeof AppPeopleEmployeeIdRoute
   AppPurchaseOrderIdRoute: typeof AppPurchaseOrderIdRoute
   AppCrmIndexRoute: typeof AppCrmIndexRoute
   AppDeskIndexRoute: typeof AppDeskIndexRoute
+  AppDocsIndexRoute: typeof AppDocsIndexRoute
   AppFinanceIndexRoute: typeof AppFinanceIndexRoute
   AppInventoryIndexRoute: typeof AppInventoryIndexRoute
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
@@ -441,12 +481,14 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppCrmQuoteIdRoute: AppCrmQuoteIdRoute,
   AppDeskCaseIdRoute: AppDeskCaseIdRoute,
+  AppDocsDocumentIdRoute: AppDocsDocumentIdRoute,
   AppFinanceInvoiceIdRoute: AppFinanceInvoiceIdRoute,
   AppInventoryItemIdRoute: AppInventoryItemIdRoute,
   AppPeopleEmployeeIdRoute: AppPeopleEmployeeIdRoute,
   AppPurchaseOrderIdRoute: AppPurchaseOrderIdRoute,
   AppCrmIndexRoute: AppCrmIndexRoute,
   AppDeskIndexRoute: AppDeskIndexRoute,
+  AppDocsIndexRoute: AppDocsIndexRoute,
   AppFinanceIndexRoute: AppFinanceIndexRoute,
   AppInventoryIndexRoute: AppInventoryIndexRoute,
   AppPeopleIndexRoute: AppPeopleIndexRoute,
