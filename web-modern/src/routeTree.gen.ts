@@ -20,15 +20,16 @@ import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as AppPurchaseIndexRouteImport } from './routes/app/purchase/index'
 import { Route as AppPeopleIndexRouteImport } from './routes/app/people/index'
 import { Route as AppInventoryIndexRouteImport } from './routes/app/inventory/index'
-import { Route as AppFinanceIndexRouteImport } from './routes/app/finance/index'
+import { Route as AppFlowIndexRouteImport } from './routes/app/flow/index'
 import { Route as AppDocsIndexRouteImport } from './routes/app/docs/index'
 import { Route as AppDeskIndexRouteImport } from './routes/app/desk/index'
 import { Route as AppCrmIndexRouteImport } from './routes/app/crm/index'
 import { Route as AppCfoIndexRouteImport } from './routes/app/cfo/index'
+import { Route as AppCampaignsIndexRouteImport } from './routes/app/campaigns/index'
 import { Route as AppPurchaseOrderIdRouteImport } from './routes/app/purchase/$orderId'
 import { Route as AppPeopleEmployeeIdRouteImport } from './routes/app/people/$employeeId'
 import { Route as AppInventoryItemIdRouteImport } from './routes/app/inventory/$itemId'
-import { Route as AppFinanceInvoiceIdRouteImport } from './routes/app/finance/$invoiceId'
+import { Route as AppFlowRuleIdRouteImport } from './routes/app/flow/$ruleId'
 import { Route as AppDocsDocumentIdRouteImport } from './routes/app/docs/$documentId'
 import { Route as AppDeskCaseIdRouteImport } from './routes/app/desk/$caseId'
 import { Route as AppCrmQuoteIdRouteImport } from './routes/app/crm/$quoteId'
@@ -89,9 +90,9 @@ const AppInventoryIndexRoute = AppInventoryIndexRouteImport.update({
   path: '/inventory/',
   getParentRoute: () => AppRouteRoute,
 } as any)
-const AppFinanceIndexRoute = AppFinanceIndexRouteImport.update({
-  id: '/finance/',
-  path: '/finance/',
+const AppFlowIndexRoute = AppFlowIndexRouteImport.update({
+  id: '/flow/',
+  path: '/flow/',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppDocsIndexRoute = AppDocsIndexRouteImport.update({
@@ -114,6 +115,11 @@ const AppCfoIndexRoute = AppCfoIndexRouteImport.update({
   path: '/cfo/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCampaignsIndexRoute = AppCampaignsIndexRouteImport.update({
+  id: '/campaigns/',
+  path: '/campaigns/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppPurchaseOrderIdRoute = AppPurchaseOrderIdRouteImport.update({
   id: '/purchase/$orderId',
   path: '/purchase/$orderId',
@@ -129,9 +135,9 @@ const AppInventoryItemIdRoute = AppInventoryItemIdRouteImport.update({
   path: '/inventory/$itemId',
   getParentRoute: () => AppRouteRoute,
 } as any)
-const AppFinanceInvoiceIdRoute = AppFinanceInvoiceIdRouteImport.update({
-  id: '/finance/$invoiceId',
-  path: '/finance/$invoiceId',
+const AppFlowRuleIdRoute = AppFlowRuleIdRouteImport.update({
+  id: '/flow/$ruleId',
+  path: '/flow/$ruleId',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppDocsDocumentIdRoute = AppDocsDocumentIdRouteImport.update({
@@ -168,15 +174,16 @@ export interface FileRoutesByFullPath {
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
-  '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
+  '/app/flow/$ruleId': typeof AppFlowRuleIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
   '/app/people/$employeeId': typeof AppPeopleEmployeeIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
+  '/app/campaigns/': typeof AppCampaignsIndexRoute
   '/app/cfo/': typeof AppCfoIndexRoute
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
-  '/app/finance/': typeof AppFinanceIndexRoute
+  '/app/flow/': typeof AppFlowIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
@@ -193,15 +200,16 @@ export interface FileRoutesByTo {
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
-  '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
+  '/app/flow/$ruleId': typeof AppFlowRuleIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
   '/app/people/$employeeId': typeof AppPeopleEmployeeIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
+  '/app/campaigns': typeof AppCampaignsIndexRoute
   '/app/cfo': typeof AppCfoIndexRoute
   '/app/crm': typeof AppCrmIndexRoute
   '/app/desk': typeof AppDeskIndexRoute
   '/app/docs': typeof AppDocsIndexRoute
-  '/app/finance': typeof AppFinanceIndexRoute
+  '/app/flow': typeof AppFlowIndexRoute
   '/app/inventory': typeof AppInventoryIndexRoute
   '/app/people': typeof AppPeopleIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
@@ -220,15 +228,16 @@ export interface FileRoutesById {
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
-  '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
+  '/app/flow/$ruleId': typeof AppFlowRuleIdRoute
   '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
   '/app/people/$employeeId': typeof AppPeopleEmployeeIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
+  '/app/campaigns/': typeof AppCampaignsIndexRoute
   '/app/cfo/': typeof AppCfoIndexRoute
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
-  '/app/finance/': typeof AppFinanceIndexRoute
+  '/app/flow/': typeof AppFlowIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
@@ -248,15 +257,16 @@ export interface FileRouteTypes {
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
     | '/app/docs/$documentId'
-    | '/app/finance/$invoiceId'
+    | '/app/flow/$ruleId'
     | '/app/inventory/$itemId'
     | '/app/people/$employeeId'
     | '/app/purchase/$orderId'
+    | '/app/campaigns/'
     | '/app/cfo/'
     | '/app/crm/'
     | '/app/desk/'
     | '/app/docs/'
-    | '/app/finance/'
+    | '/app/flow/'
     | '/app/inventory/'
     | '/app/people/'
     | '/app/purchase/'
@@ -273,15 +283,16 @@ export interface FileRouteTypes {
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
     | '/app/docs/$documentId'
-    | '/app/finance/$invoiceId'
+    | '/app/flow/$ruleId'
     | '/app/inventory/$itemId'
     | '/app/people/$employeeId'
     | '/app/purchase/$orderId'
+    | '/app/campaigns'
     | '/app/cfo'
     | '/app/crm'
     | '/app/desk'
     | '/app/docs'
-    | '/app/finance'
+    | '/app/flow'
     | '/app/inventory'
     | '/app/people'
     | '/app/purchase'
@@ -299,15 +310,16 @@ export interface FileRouteTypes {
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
     | '/app/docs/$documentId'
-    | '/app/finance/$invoiceId'
+    | '/app/flow/$ruleId'
     | '/app/inventory/$itemId'
     | '/app/people/$employeeId'
     | '/app/purchase/$orderId'
+    | '/app/campaigns/'
     | '/app/cfo/'
     | '/app/crm/'
     | '/app/desk/'
     | '/app/docs/'
-    | '/app/finance/'
+    | '/app/flow/'
     | '/app/inventory/'
     | '/app/people/'
     | '/app/purchase/'
@@ -399,11 +411,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInventoryIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
-    '/app/finance/': {
-      id: '/app/finance/'
-      path: '/finance'
-      fullPath: '/app/finance/'
-      preLoaderRoute: typeof AppFinanceIndexRouteImport
+    '/app/flow/': {
+      id: '/app/flow/'
+      path: '/flow'
+      fullPath: '/app/flow/'
+      preLoaderRoute: typeof AppFlowIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/docs/': {
@@ -434,6 +446,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCfoIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/campaigns/': {
+      id: '/app/campaigns/'
+      path: '/campaigns'
+      fullPath: '/app/campaigns/'
+      preLoaderRoute: typeof AppCampaignsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/purchase/$orderId': {
       id: '/app/purchase/$orderId'
       path: '/purchase/$orderId'
@@ -455,11 +474,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppInventoryItemIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
-    '/app/finance/$invoiceId': {
-      id: '/app/finance/$invoiceId'
-      path: '/finance/$invoiceId'
-      fullPath: '/app/finance/$invoiceId'
-      preLoaderRoute: typeof AppFinanceInvoiceIdRouteImport
+    '/app/flow/$ruleId': {
+      id: '/app/flow/$ruleId'
+      path: '/flow/$ruleId'
+      fullPath: '/app/flow/$ruleId'
+      preLoaderRoute: typeof AppFlowRuleIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/docs/$documentId': {
@@ -501,15 +520,16 @@ interface AppRouteRouteChildren {
   AppCrmQuoteIdRoute: typeof AppCrmQuoteIdRoute
   AppDeskCaseIdRoute: typeof AppDeskCaseIdRoute
   AppDocsDocumentIdRoute: typeof AppDocsDocumentIdRoute
-  AppFinanceInvoiceIdRoute: typeof AppFinanceInvoiceIdRoute
+  AppFlowRuleIdRoute: typeof AppFlowRuleIdRoute
   AppInventoryItemIdRoute: typeof AppInventoryItemIdRoute
   AppPeopleEmployeeIdRoute: typeof AppPeopleEmployeeIdRoute
   AppPurchaseOrderIdRoute: typeof AppPurchaseOrderIdRoute
+  AppCampaignsIndexRoute: typeof AppCampaignsIndexRoute
   AppCfoIndexRoute: typeof AppCfoIndexRoute
   AppCrmIndexRoute: typeof AppCrmIndexRoute
   AppDeskIndexRoute: typeof AppDeskIndexRoute
   AppDocsIndexRoute: typeof AppDocsIndexRoute
-  AppFinanceIndexRoute: typeof AppFinanceIndexRoute
+  AppFlowIndexRoute: typeof AppFlowIndexRoute
   AppInventoryIndexRoute: typeof AppInventoryIndexRoute
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
@@ -523,15 +543,16 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppCrmQuoteIdRoute: AppCrmQuoteIdRoute,
   AppDeskCaseIdRoute: AppDeskCaseIdRoute,
   AppDocsDocumentIdRoute: AppDocsDocumentIdRoute,
-  AppFinanceInvoiceIdRoute: AppFinanceInvoiceIdRoute,
+  AppFlowRuleIdRoute: AppFlowRuleIdRoute,
   AppInventoryItemIdRoute: AppInventoryItemIdRoute,
   AppPeopleEmployeeIdRoute: AppPeopleEmployeeIdRoute,
   AppPurchaseOrderIdRoute: AppPurchaseOrderIdRoute,
+  AppCampaignsIndexRoute: AppCampaignsIndexRoute,
   AppCfoIndexRoute: AppCfoIndexRoute,
   AppCrmIndexRoute: AppCrmIndexRoute,
   AppDeskIndexRoute: AppDeskIndexRoute,
   AppDocsIndexRoute: AppDocsIndexRoute,
-  AppFinanceIndexRoute: AppFinanceIndexRoute,
+  AppFlowIndexRoute: AppFlowIndexRoute,
   AppInventoryIndexRoute: AppInventoryIndexRoute,
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,

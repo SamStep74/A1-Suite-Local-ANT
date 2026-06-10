@@ -94,18 +94,34 @@ export const AgentOptionSchema = z.object({
 });
 export type AgentOption = z.infer<typeof AgentOptionSchema>;
 
-/** Workflow approval — for the Today feed's "Awaiting your approval" widget.
- *  Source: server/app.js:4619. */
+/** Workflow approval — for the Today feed's "Awaiting your approval" widget
+ *  and the Flow workspace approvals list. Source: server/app.js:4619,
+ *  getWorkflowApprovals (54621), formatWorkflowApproval (60676).
+ *  Rich fields (riskLevel, createdAt, customerName, ...) are required by
+ *  Flow's /api/workflow/approvals handler — kept here so the widget,
+ *  Flow list, and approval drilldown all see the same shape. */
 export const WorkflowApprovalSchema = z.object({
   id: z.string(),
   status: z.string(),
-  // Loose typing: backend has rich fields (ruleId, subjectType, ...) but
-  // the widget only needs id + status + a label. Tighten later if needed.
+  ruleId: z.string().nullable().optional(),
+  customerId: z.string().nullable().optional(),
+  customerName: z.string().nullable().optional(),
+  requestedByName: z.string().nullable().optional(),
+  title: z.string().nullable().optional(),
+  actionKey: z.string().nullable().optional(),
+  riskLevel: z.string().nullable().optional(),
+  reason: z.string().nullable().optional(),
+  payload: z.unknown().nullable().optional(),
+  decidedByUserId: z.string().nullable().optional(),
+  decidedAt: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
 }).passthrough();
 export type WorkflowApproval = z.infer<typeof WorkflowApprovalSchema>;
 
-/** Workflow run — one execution of a rule. Source: /api/service/console#runs.
- *  Status values observed: "pending" | "completed" | "failed". */
+/** Workflow run — one execution of a rule. Source: /api/service/console#runs
+ *  and /api/workflow/runs (getWorkflowRuns 61766, formatWorkflowRun 61803).
+ *  Status values observed: "pending" | "running" | "completed" |
+ *  "failed" | "rolled-back". */
 export const WorkflowRunStatus = z.enum(["pending", "running", "completed", "failed", "rolled-back"]);
 export type WorkflowRunStatus = z.infer<typeof WorkflowRunStatus>;
 
@@ -122,7 +138,7 @@ export const WorkflowRunSchema = z.object({
   payload: z.record(z.string(), z.unknown()).optional(),
   startedAt: z.string().nullable().optional(),
   completedAt: z.string().nullable().optional(),
-});
+}).passthrough();
 export type WorkflowRun = z.infer<typeof WorkflowRunSchema>;
 
 /** Automation rule — the deterministic side of the agentic workspace.
@@ -1248,5 +1264,225 @@ export const CfoLoanScheduleResponseSchema = z
   })
   .passthrough();
 export type CfoLoanScheduleResponse = z.infer<typeof CfoLoanScheduleResponseSchema>;
+
+/* ════════════════════════════════════════════════════════════════════════
+ * Campaigns — /api/campaigns/performance
+ * Source: server/app.js#formatCampaignPerformance (line 45079+),
+ * getCampaignPerformance (45039+). Single endpoint, no mutations on
+ * the web-modern side. All amounts are integer AMD (budget / spend /
+ * influencedPipeline / acceptedRevenue / paidRevenue).
+ * ════════════════════════════════════════════════════════════════════════ */
+
+export const CampaignAttributionSchema = z
+  .object({
+    id: z.string(),
+    campaignId: z.string().optional(),
+    campaignName: z.string().optional(),
+    customerId: z.string().nullable().optional(),
+    customerName: z.string().nullable().optional(),
+    leadId: z.string().nullable().optional(),
+    leadCompanyName: z.string().nullable().optional(),
+    dealId: z.string().nullable().optional(),
+    dealTitle: z.string().nullable().optional(),
+    quoteId: z.string().nullable().optional(),
+    quoteNumber: z.string().nullable().optional(),
+    sourceType: z.string().optional(),
+    sourceKey: z.string().optional(),
+    attributionWeight: z.number().optional(),
+    createdAt: z.string().optional(),
+  })
+  .passthrough();
+export type CampaignAttribution = z.infer<typeof CampaignAttributionSchema>;
+
+export const CampaignPerformanceRowSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    channel: z.string().optional(),
+    audience: z.string().optional(),
+    status: z.string().optional(),
+    spend: z.number().int().optional(),
+    currency: z.string().optional(),
+    ownerName: z.string().nullable().optional(),
+    startedAt: z.string().nullable().optional(),
+    endedAt: z.string().nullable().optional(),
+    leadCount: z.number().int().optional(),
+    customerCount: z.number().int().optional(),
+    dealCount: z.number().int().optional(),
+    quoteCount: z.number().int().optional(),
+    influencedPipeline: z.number().int().optional(),
+    acceptedRevenue: z.number().int().optional(),
+    paidRevenue: z.number().int().optional(),
+    roiPercent: z.number().int().optional(),
+    attributions: z.array(CampaignAttributionSchema).optional(),
+  })
+  .passthrough();
+export type CampaignPerformanceRow = z.infer<typeof CampaignPerformanceRowSchema>;
+
+export const CampaignPerformanceSummarySchema = z
+  .object({
+    campaignCount: z.number().int().optional(),
+    totalSpend: z.number().int().optional(),
+    leadCount: z.number().int().optional(),
+    customerCount: z.number().int().optional(),
+    influencedPipeline: z.number().int().optional(),
+    acceptedRevenue: z.number().int().optional(),
+    paidRevenue: z.number().int().optional(),
+    roiPercent: z.number().int().optional(),
+  })
+  .passthrough();
+export type CampaignPerformanceSummary = z.infer<typeof CampaignPerformanceSummarySchema>;
+
+export const CampaignPerformanceResponseSchema = z
+  .object({
+    ok: z.boolean().optional(),
+    summary: CampaignPerformanceSummarySchema,
+    definitions: z.record(z.string(), z.string()).optional(),
+    campaigns: z.array(CampaignPerformanceRowSchema),
+    attributions: z.array(CampaignAttributionSchema).optional(),
+  })
+  .passthrough();
+export type CampaignPerformanceResponse = z.infer<typeof CampaignPerformanceResponseSchema>;
+
+/* ════════════════════════════════════════════════════════════════════════
+ * Flow / Workflow — /api/workflow/*
+ * Source: server/app.js#formatAutomationRule (48830), getAutomationRules
+ * (48817), formatAutomationRuleVersion (60661), getWorkflowApprovals
+ * (54621), formatWorkflowApproval (60676), getWorkflowRuns (61766),
+ * formatWorkflowRun (61803). All integer-AMD where amounts appear.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+export const AutomationRuleLastDryRunSchema = z
+  .object({
+    id: z.string(),
+    ruleId: z.string().optional(),
+    ruleName: z.string().optional(),
+    customerId: z.string().nullable().optional(),
+    customerName: z.string().nullable().optional(),
+    triggeredByUserId: z.string().nullable().optional(),
+    triggeredByName: z.string().nullable().optional(),
+    triggerKey: z.string().optional(),
+    actionKey: z.string().optional(),
+    status: z.string().optional(),
+    riskLevel: z.string().optional(),
+    approvalRequired: z.boolean().optional(),
+    matchedSubjectType: z.string().nullable().optional(),
+    matchedSubjectId: z.string().nullable().optional(),
+    resultPreview: z.unknown().nullable().optional(),
+    guardrails: z.unknown().nullable().optional(),
+    checksum: z.string().optional(),
+    note: z.string().optional(),
+    sourceKey: z.string().optional(),
+    createdAt: z.string().optional(),
+  })
+  .passthrough();
+export type AutomationRuleLastDryRun = z.infer<typeof AutomationRuleLastDryRunSchema>;
+
+export const AutomationRuleLastTestEventSchema = z
+  .object({
+    id: z.string(),
+    ruleId: z.string().optional(),
+    ruleName: z.string().optional(),
+    customerId: z.string().nullable().optional(),
+    customerName: z.string().nullable().optional(),
+    triggeredByUserId: z.string().nullable().optional(),
+    triggeredByName: z.string().nullable().optional(),
+    eventType: z.string().optional(),
+    triggerKey: z.string().optional(),
+    actionKey: z.string().optional(),
+    subjectType: z.string().optional(),
+    subjectId: z.string().optional(),
+    status: z.string().optional(),
+    evaluation: z.unknown().nullable().optional(),
+    inputPayload: z.unknown().nullable().optional(),
+    guardrails: z.unknown().nullable().optional(),
+    checksum: z.string().optional(),
+    note: z.string().optional(),
+    createdAt: z.string().optional(),
+  })
+  .passthrough();
+export type AutomationRuleLastTestEvent = z.infer<typeof AutomationRuleLastTestEventSchema>;
+
+export const AutomationRuleLatestVersionSchema = z
+  .object({
+    id: z.string(),
+    ruleId: z.string().optional(),
+    versionNumber: z.number().int().optional(),
+    enabled: z.boolean().optional(),
+    changeType: z.string().optional(),
+    reason: z.string().optional(),
+    checksum: z.string().optional(),
+    changedByUserId: z.string().nullable().optional(),
+    changedByName: z.string().nullable().optional(),
+    changedAt: z.string().optional(),
+  })
+  .passthrough();
+export type AutomationRuleLatestVersion = z.infer<typeof AutomationRuleLatestVersionSchema>;
+
+export const AutomationRuleSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    trigger: z.string().optional(),
+    action: z.string().optional(),
+    enabled: z.boolean().optional(),
+    currentVersion: z.number().int().optional(),
+    lastVersion: AutomationRuleLatestVersionSchema.nullable().optional(),
+    ownerRole: z.string().optional(),
+    approvalRequired: z.boolean().optional(),
+    lastDryRun: AutomationRuleLastDryRunSchema.nullable().optional(),
+    lastTestEvent: AutomationRuleLastTestEventSchema.nullable().optional(),
+  })
+  .passthrough();
+export type AutomationRule = z.infer<typeof AutomationRuleSchema>;
+
+export const AutomationRulesResponseSchema = z
+  .object({
+    ok: z.boolean().optional(),
+    rules: z.array(AutomationRuleSchema),
+  })
+  .passthrough();
+export type AutomationRulesResponse = z.infer<typeof AutomationRulesResponseSchema>;
+
+export const AutomationRuleVersionSchema = z
+  .object({
+    id: z.string(),
+    ruleId: z.string().optional(),
+    versionNumber: z.number().int().optional(),
+    enabled: z.boolean().optional(),
+    changeType: z.string().optional(),
+    reason: z.string().optional(),
+    checksum: z.string().optional(),
+    changedByUserId: z.string().nullable().optional(),
+    changedByName: z.string().nullable().optional(),
+    changedAt: z.string().optional(),
+  })
+  .passthrough();
+export type AutomationRuleVersion = z.infer<typeof AutomationRuleVersionSchema>;
+
+export const AutomationRuleVersionsResponseSchema = z
+  .object({
+    ok: z.boolean().optional(),
+    rule: AutomationRuleSchema,
+    versions: z.array(AutomationRuleVersionSchema),
+  })
+  .passthrough();
+export type AutomationRuleVersionsResponse = z.infer<typeof AutomationRuleVersionsResponseSchema>;
+
+export const WorkflowApprovalsResponseSchema = z
+  .object({
+    ok: z.boolean().optional(),
+    approvals: z.array(WorkflowApprovalSchema),
+  })
+  .passthrough();
+export type WorkflowApprovalsResponse = z.infer<typeof WorkflowApprovalsResponseSchema>;
+
+export const WorkflowRunsResponseSchema = z
+  .object({
+    ok: z.boolean().optional(),
+    runs: z.array(WorkflowRunSchema),
+  })
+  .passthrough();
+export type WorkflowRunsResponse = z.infer<typeof WorkflowRunsResponseSchema>;
 
 
