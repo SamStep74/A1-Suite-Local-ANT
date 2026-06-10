@@ -17,8 +17,10 @@ import { Route as LoginMfaRouteImport } from './routes/login.mfa'
 import { Route as AppCopilotRouteImport } from './routes/app/copilot'
 import { Route as AppAppIdRouteImport } from './routes/app/$appId'
 import { Route as ApiSplatRouteImport } from './routes/api/$'
+import { Route as AppInventoryIndexRouteImport } from './routes/app/inventory/index'
 import { Route as AppDeskIndexRouteImport } from './routes/app/desk/index'
 import { Route as AppCrmIndexRouteImport } from './routes/app/crm/index'
+import { Route as AppInventoryItemIdRouteImport } from './routes/app/inventory/$itemId'
 import { Route as AppDeskCaseIdRouteImport } from './routes/app/desk/$caseId'
 import { Route as AppCrmQuoteIdRouteImport } from './routes/app/crm/$quoteId'
 
@@ -62,6 +64,11 @@ const ApiSplatRoute = ApiSplatRouteImport.update({
   path: '/api/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppInventoryIndexRoute = AppInventoryIndexRouteImport.update({
+  id: '/inventory/',
+  path: '/inventory/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppDeskIndexRoute = AppDeskIndexRouteImport.update({
   id: '/desk/',
   path: '/desk/',
@@ -70,6 +77,11 @@ const AppDeskIndexRoute = AppDeskIndexRouteImport.update({
 const AppCrmIndexRoute = AppCrmIndexRouteImport.update({
   id: '/crm/',
   path: '/crm/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppInventoryItemIdRoute = AppInventoryItemIdRouteImport.update({
+  id: '/inventory/$itemId',
+  path: '/inventory/$itemId',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppDeskCaseIdRoute = AppDeskCaseIdRouteImport.update({
@@ -94,8 +106,10 @@ export interface FileRoutesByFullPath {
   '/app/': typeof AppIndexRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
+  '/app/inventory/': typeof AppInventoryIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -107,8 +121,10 @@ export interface FileRoutesByTo {
   '/app': typeof AppIndexRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
   '/app/crm': typeof AppCrmIndexRoute
   '/app/desk': typeof AppDeskIndexRoute
+  '/app/inventory': typeof AppInventoryIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -122,8 +138,10 @@ export interface FileRoutesById {
   '/app/': typeof AppIndexRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/inventory/$itemId': typeof AppInventoryItemIdRoute
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
+  '/app/inventory/': typeof AppInventoryIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -138,8 +156,10 @@ export interface FileRouteTypes {
     | '/app/'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/inventory/$itemId'
     | '/app/crm/'
     | '/app/desk/'
+    | '/app/inventory/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -151,8 +171,10 @@ export interface FileRouteTypes {
     | '/app'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/inventory/$itemId'
     | '/app/crm'
     | '/app/desk'
+    | '/app/inventory'
   id:
     | '__root__'
     | '/'
@@ -165,8 +187,10 @@ export interface FileRouteTypes {
     | '/app/'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/inventory/$itemId'
     | '/app/crm/'
     | '/app/desk/'
+    | '/app/inventory/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -234,6 +258,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/app/inventory/': {
+      id: '/app/inventory/'
+      path: '/inventory'
+      fullPath: '/app/inventory/'
+      preLoaderRoute: typeof AppInventoryIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/desk/': {
       id: '/app/desk/'
       path: '/desk'
@@ -246,6 +277,13 @@ declare module '@tanstack/react-router' {
       path: '/crm'
       fullPath: '/app/crm/'
       preLoaderRoute: typeof AppCrmIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/inventory/$itemId': {
+      id: '/app/inventory/$itemId'
+      path: '/inventory/$itemId'
+      fullPath: '/app/inventory/$itemId'
+      preLoaderRoute: typeof AppInventoryItemIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/desk/$caseId': {
@@ -271,8 +309,10 @@ interface AppRouteRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppCrmQuoteIdRoute: typeof AppCrmQuoteIdRoute
   AppDeskCaseIdRoute: typeof AppDeskCaseIdRoute
+  AppInventoryItemIdRoute: typeof AppInventoryItemIdRoute
   AppCrmIndexRoute: typeof AppCrmIndexRoute
   AppDeskIndexRoute: typeof AppDeskIndexRoute
+  AppInventoryIndexRoute: typeof AppInventoryIndexRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
@@ -281,8 +321,10 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppCrmQuoteIdRoute: AppCrmQuoteIdRoute,
   AppDeskCaseIdRoute: AppDeskCaseIdRoute,
+  AppInventoryItemIdRoute: AppInventoryItemIdRoute,
   AppCrmIndexRoute: AppCrmIndexRoute,
   AppDeskIndexRoute: AppDeskIndexRoute,
+  AppInventoryIndexRoute: AppInventoryIndexRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
