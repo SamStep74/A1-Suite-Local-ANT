@@ -3596,6 +3596,7 @@ function registerApi(app, db, options = {}) {
     const response = { ok: true, asset: updated, netBookAmd: netBook };
     recordIdempotent(db, user.org_id, idem, response);
     return response;
+  });
   // State Integrations (Гос. интеграции) — unified dispatch + status + audit.
   // Adapter: src | eregister | egov | idcard | mobileid | customs.
   // App access: "finance" (covers VAT/customs/counterparty) + "docs" for e-sign/ID
@@ -3688,6 +3689,7 @@ function registerApi(app, db, options = {}) {
     const to = url.searchParams.get("to") || "2999-12-31";
     const rows = db.prepare("SELECT id, adapter, operation, request_id, status, latency_ms, called_at FROM state_integration_calls WHERE org_id = ? AND called_at BETWEEN ? AND ? ORDER BY called_at DESC LIMIT 200").all(user.org_id, from, to);
     return { ok: true, audit: rows };
+  });
   // ---------- Fleet Management: vehicles, drivers, trips, devices, fuel, repairs, tires, cold-chain.
   // Auth: session-gated for human routes; X-Device-Token-gated for /devices/* (token hash table).
   const deviceAuth = buildDeviceAuth({ db });
@@ -6542,7 +6544,7 @@ ${controls}
   function ensureGreenhouseAssetRow(user, payload) {
     const id = randomId("asset");
     const now = new Date().toISOString();
-    db.prepare(`INSERT INTO assets (id, org_id, name, kind, status, acquired_at, created_at)
+    db.prepare(`INSERT INTO greenhouse_assets (id, org_id, name, kind, status, acquired_at, created_at)
                 VALUES (?, ?, ?, 'greenhouse', 'active', ?, ?)`).run(
       id, user.org_id, payload.name, now, now
     );

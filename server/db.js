@@ -7679,7 +7679,7 @@ function ensureSuiteAppLayer(db) {
     ["copilot", "Legal & Accounting Copilot", "AI", "Armenian-first cited legal, accounting, payroll, month-close, privacy, and e-sign guidance.", "/app/copilot", "controlled-advisory", 3],
     ["inventory", "Catalog & Inventory", "Operations", "Products, warehouse balances, stock locations, and governed stock moves.", "/app/inventory", "new", 7],
     ["purchase", "Purchase", "Operations", "RFQs, purchase orders, stock receipts, and AP vendor-bill handoff.", "/app/purchase", "new", 8],
-    ["fleet", "Fleet Management / Ավտոպարկ", "Operations", "Vehicle register, drivers, trips, GPS, fuel, repairs, tires, and cold-chain temperature logs for 350+ trucks.", "/app/fleet", "new", 14]
+    ["fleet", "Fleet Management / Ավտոպարկ", "Operations", "Vehicle register, drivers, trips, GPS, fuel, repairs, tires, and cold-chain temperature logs for 350+ trucks.", "/app/fleet", "internal", 14]
   ];
   const insertApp = db.prepare(`
     INSERT OR IGNORE INTO apps (id, name, category, description, route, maturity, priority)
@@ -8333,7 +8333,7 @@ function ensureAnalyticsLayer(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_device_tokens_token ON device_tokens(token);
 
-    CREATE TABLE IF NOT EXISTS assets (
+    CREATE TABLE IF NOT EXISTS greenhouse_assets (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL,
       name TEXT NOT NULL,
@@ -8342,7 +8342,7 @@ function ensureAnalyticsLayer(db) {
       acquired_at TEXT NOT NULL,
       created_at TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_assets_org ON assets(org_id, kind);
+    CREATE INDEX IF NOT EXISTS idx_greenhouse_assets_org ON greenhouse_assets(org_id, kind);
 
     CREATE TABLE IF NOT EXISTS greenhouses (
       id TEXT PRIMARY KEY,

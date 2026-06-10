@@ -5,9 +5,8 @@
       "name": "aoc",
       "runtimeExecutable": "node",
       "runtimeArgs": ["server/index.js"],
-      "port": 4178,
+      "autoPort": true,
       "env": {
-        "PORT": "4178",
         "ARMOSPHERA_ONE_DB": "/tmp/aoc-preview.sqlite",
         "ARMOSPHERA_ONE_ALLOW_EGRESS": "0"
       }

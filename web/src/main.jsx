@@ -4568,6 +4568,8 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           {["Owner", "Admin", "Accountant", "Operator"].includes(suite.user.role) && (
             <div id="suite-app-assets" className="suite-app-anchor">
               <AssetsPanel api={api} actionState={actionState} />
+            </div>
+          )}
           {(assignedAppIds.includes("greenhouse") || ["Owner", "Admin", "Operator"].includes(suite.user.role)) && (
             <div id="suite-app-greenhouse" className="suite-app-anchor">
               <GreenhousePanel
