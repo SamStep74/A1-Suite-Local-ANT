@@ -144,6 +144,9 @@ const stateInt = stateIntegrations;
 const exportDocs = require("./exportDocs");
 const exportDocsAi = require("./exportDocsAi");
 const assets = require("./assets");
+const fleet = require("./fleet");
+const { buildDeviceAuth, hashToken } = require("./fleet/deviceAuth");
+const coldChainRules = require("./fleet/coldChainRules.json");
 const postingCodes = require("./postingCodes");
 const settingsStore = require("./settingsStore");
 const aiProvider = require("./aiProvider");
@@ -3676,6 +3679,230 @@ function registerApi(app, db, options = {}) {
     const to = url.searchParams.get("to") || "2999-12-31";
     const rows = db.prepare("SELECT id, adapter, operation, request_id, status, latency_ms, called_at FROM state_integration_calls WHERE org_id = ? AND called_at BETWEEN ? AND ? ORDER BY called_at DESC LIMIT 200").all(user.org_id, from, to);
     return { ok: true, audit: rows };
+  // ---------- Fleet Management: vehicles, drivers, trips, devices, fuel, repairs, tires, cold-chain.
+  // Auth: session-gated for human routes; X-Device-Token-gated for /devices/* (token hash table).
+  const deviceAuth = buildDeviceAuth({ db });
+
+  app.post("/api/fleet/vehicles", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.plate) { const e = new Error("plate is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const id = randomId("veh");
+    db.prepare("INSERT INTO fleet_vehicles (id, org_id, plate, asset_id, model, year, capacity_kg, refrigeration, max_fuel_l, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, user.org_id, body.plate, body.assetId || null, body.model || null, body.year || null, body.capacityKg || null, body.refrigeration ? 1 : 0, body.maxFuelL || null, new Date().toISOString());
+    const envelope = { ok: true, vehicle: { id, plate: body.plate, model: body.model || null, refrigeration: !!body.refrigeration } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "fleet.vehicle.create", { vehicleId: id, plate: body.plate, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/fleet/drivers", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    if (!body.licenseNo) { const e = new Error("licenseNo is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const id = randomId("drv");
+    db.prepare("INSERT INTO fleet_drivers (id, org_id, employee_id, license_no, license_classes, license_expiry, hours_of_service_balance_min, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, user.org_id, body.employeeId || null, body.licenseNo, body.licenseClasses || null, body.licenseExpiry || null, 600, new Date().toISOString());
+    const envelope = { ok: true, driver: { id, licenseNo: body.licenseNo } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "fleet.driver.create", { driverId: id, licenseNo: body.licenseNo, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/fleet/trips", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const body = request.body || {};
+    const required = ["vehicleId", "driverId", "origin", "destination", "plannedDeparture"];
+    for (const f of required) if (!body[f]) { const e = new Error(`${f} is required`); e.statusCode = 400; throw e; }
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const id = randomId("trp");
+    db.prepare("INSERT INTO fleet_trips (id, org_id, vehicle_id, driver_id, origin, destination, planned_departure, planned_arrival, status, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'planned', ?)")
+      .run(id, user.org_id, body.vehicleId, body.driverId, body.origin, body.destination, body.plannedDeparture, body.plannedArrival || null, new Date().toISOString());
+    const envelope = { ok: true, trip: { id, status: "planned", vehicleId: body.vehicleId, driverId: body.driverId, origin: body.origin, destination: body.destination, plannedDeparture: body.plannedDeparture } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "fleet.trip.create", { tripId: id, vehicleId: body.vehicleId, driverId: body.driverId, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.patch("/api/fleet/trips/:id/status", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const body = request.body || {};
+    if (!body.action) { const e = new Error("action is required"); e.statusCode = 400; throw e; }
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const trip = db.prepare("SELECT id, org_id, status FROM fleet_trips WHERE id = ?").get(request.params.id);
+    if (!trip || trip.org_id !== user.org_id) { const e = new Error("trip not found"); e.statusCode = 404; throw e; }
+    const nextStatus = fleet.tripStateMachine.next(trip.status, body.action);
+    const now = new Date().toISOString();
+    if (nextStatus === "in_transit") db.prepare("UPDATE fleet_trips SET status = ?, actual_departure = ? WHERE id = ?").run(nextStatus, now, trip.id);
+    else if (nextStatus === "arrived") db.prepare("UPDATE fleet_trips SET status = ?, actual_arrival = ? WHERE id = ?").run(nextStatus, now, trip.id);
+    else db.prepare("UPDATE fleet_trips SET status = ? WHERE id = ?").run(nextStatus, trip.id);
+    const envelope = { ok: true, trip: { id: trip.id, status: nextStatus } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "fleet.trip.status", { tripId: trip.id, from: trip.status, to: nextStatus, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/fleet/devices/gps-batch", async request => {
+    await deviceAuth(request);
+    const body = request.body || {};
+    if (!Array.isArray(body.pings) || body.pings.length === 0) { const e = new Error("pings[] is required"); e.statusCode = 400; throw e; }
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const device = request.deviceContext;
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(device.orgId, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const insert = db.prepare("INSERT OR IGNORE INTO fleet_gps_pings (id, vehicle_id, recorded_at, lat, lon, speed_kph, heading_deg, ignition_on, recorded_via) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)");
+    let accepted = 0, deduped = 0;
+    for (const p of body.pings) {
+      const res = insert.run(randomId("gps"), device.vehicleId, p.recordedAt, p.lat, p.lon, p.speedKph || null, p.headingDeg || null, p.ignitionOn ? 1 : 0, p.recordedVia || "device-http");
+      if (res.changes > 0) accepted += 1; else deduped += 1;
+    }
+    const envelope = { ok: true, gps: { accepted, deduped, vehicleId: device.vehicleId } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), device.orgId, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, device.orgId, "device:" + device.tokenId, "fleet.device.gps-batch", { vehicleId: device.vehicleId, accepted, deduped, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/fleet/devices/cold-chain-batch", async request => {
+    await deviceAuth(request);
+    const body = request.body || {};
+    if (!Array.isArray(body.readings) || body.readings.length === 0) { const e = new Error("readings[] is required"); e.statusCode = 400; throw e; }
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const device = request.deviceContext;
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(device.orgId, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const insert = db.prepare("INSERT OR IGNORE INTO fleet_cold_chain_logs (id, vehicle_id, trip_id, recorded_at, temp_c, humidity, sensor_id, alert_kind) VALUES (?, ?, ?, ?, ?, ?, ?, ?)");
+    let accepted = 0, deduped = 0;
+    const rule = coldChainRules[body.category] || coldChainRules.default;
+    for (const r of body.readings) {
+      let alert = null;
+      if (r.tempC > rule.maxTempC) alert = "over_max";
+      else if (r.tempC < rule.minTempC) alert = "under_min";
+      const res = insert.run(randomId("cc"), device.vehicleId, r.tripId || null, r.recordedAt, r.tempC, r.humidity || null, r.sensorId || null, alert);
+      if (res.changes > 0) accepted += 1; else deduped += 1;
+    }
+    const envelope = { ok: true, coldChain: { accepted, deduped, rule, vehicleId: device.vehicleId } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), device.orgId, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, device.orgId, "device:" + device.tokenId, "fleet.device.cold-chain-batch", { vehicleId: device.vehicleId, accepted, deduped, rule, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/fleet/fuel-logs", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const body = request.body || {};
+    const required = ["vehicleId", "occurredAt", "liters", "costAmd", "odometerKm"];
+    for (const f of required) if (body[f] === undefined || body[f] === null) { const e = new Error(`${f} is required`); e.statusCode = 400; throw e; }
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const id = randomId("fl");
+    db.prepare("INSERT INTO fleet_fuel_logs (id, org_id, vehicle_id, occurred_at, liters, cost_amd, odometer_km, station, vendor_id, notes, file_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, user.org_id, body.vehicleId, body.occurredAt, body.liters, body.costAmd, body.odometerKm, body.station || null, body.vendorId || null, body.notes || null, body.fileId || null);
+    const envelope = { ok: true, fuelLog: { id, vehicleId: body.vehicleId, liters: body.liters, costAmd: body.costAmd } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "fleet.fuel-log.create", { vehicleId: body.vehicleId, liters: body.liters, costAmd: body.costAmd, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/fleet/repairs", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const body = request.body || {};
+    const required = ["vehicleId", "occurredAt", "kind", "costAmd"];
+    for (const f of required) if (!body[f]) { const e = new Error(`${f} is required`); e.statusCode = 400; throw e; }
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const id = randomId("rep");
+    db.prepare("INSERT INTO fleet_repairs (id, org_id, vehicle_id, occurred_at, kind, description, cost_amd, vendor_id, odometer_km, file_id, next_due_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, user.org_id, body.vehicleId, body.occurredAt, body.kind, body.description || null, body.costAmd, body.vendorId || null, body.odometerKm || null, body.fileId || null, body.nextDueAt || null);
+    const envelope = { ok: true, repair: { id, vehicleId: body.vehicleId, kind: body.kind, costAmd: body.costAmd } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "fleet.repair.create", { vehicleId: body.vehicleId, kind: body.kind, costAmd: body.costAmd, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/fleet/tires/install", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const body = request.body || {};
+    const required = ["vehicleId", "position", "installedAt"];
+    for (const f of required) if (!body[f]) { const e = new Error(`${f} is required`); e.statusCode = 400; throw e; }
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const id = randomId("tir");
+    db.prepare("INSERT INTO fleet_tires (id, org_id, vehicle_id, position, brand, installed_at, odometer_at_install, expected_life_km) VALUES (?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, user.org_id, body.vehicleId, body.position, body.brand || null, body.installedAt, body.odometerAtInstall || null, body.expectedLifeKm || null);
+    const envelope = { ok: true, tire: { id, vehicleId: body.vehicleId, position: body.position } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "fleet.tire.install", { vehicleId: body.vehicleId, position: body.position, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.get("/api/fleet/vehicles/:id/cold-chain-compliance", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const veh = db.prepare("SELECT id, org_id FROM fleet_vehicles WHERE id = ?").get(request.params.id);
+    if (!veh || veh.org_id !== user.org_id) { const e = new Error("vehicle not found"); e.statusCode = 404; throw e; }
+    const tripId = String(request.query.tripId || "");
+    const category = String(request.query.category || "default");
+    const rows = db.prepare("SELECT recorded_at AS recordedAt, temp_c AS tempC FROM fleet_cold_chain_logs WHERE vehicle_id = ? AND (? = '' OR trip_id = ?) ORDER BY recorded_at ASC")
+      .all(veh.id, tripId, tripId);
+    const report = fleet.coldChainCompliance(rows, { category, maxMinutesOutOfRange: (coldChainRules[category] || coldChainRules.default).maxMinutesOutOfRange });
+    return { ok: true, vehicleId: veh.id, tripId: tripId || null, category, report };
+  });
+
+  app.get("/api/fleet/analytics/fuel-efficiency", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const periodKey = String(request.query.periodKey || "");
+    if (!/^\d{4}-\d{2}$/.test(periodKey)) { const e = new Error("periodKey must be YYYY-MM"); e.statusCode = 400; throw e; }
+    const rows = db.prepare(
+      "SELECT vehicle_id AS vehicleId, liters, odometer_km AS odometerKm, occurred_at AS occurredAt FROM fleet_fuel_logs WHERE org_id = ? AND substr(occurred_at, 1, 7) = ? ORDER BY vehicle_id, occurred_at ASC"
+    ).all(user.org_id, periodKey);
+    const grouped = {};
+    for (const r of rows) {
+      const g = grouped[r.vehicleId] || (grouped[r.vehicleId] = { vehicleId: r.vehicleId, liters: 0, odometerDelta: 0 });
+      if (g.odometerAtStart === undefined) g.odometerAtStart = r.odometerKm;
+      g.odometerAtEnd = r.odometerKm;
+      g.liters += r.liters;
+    }
+    const result = Object.values(grouped).map(g => {
+      const km = Math.max(0, (g.odometerAtEnd || 0) - (g.odometerAtStart || 0));
+      return { vehicleId: g.vehicleId, ...fleet.fuelEfficiency({ liters: g.liters, km }) };
+    });
+    return { ok: true, periodKey, vehicles: result };
+  });
+
+  app.get("/api/fleet/analytics/maintenance-backlog", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const rows = db.prepare("SELECT vehicle_id AS vehicleId, kind, next_due_at AS nextDueAt FROM fleet_repairs WHERE org_id = ? AND next_due_at IS NOT NULL AND next_due_at < ?").all(user.org_id, new Date().toISOString());
+    return { ok: true, backlog: fleet.maintenanceBacklog(rows) };
   });
 
   // Document Cabinet (Документооборот) — incoming/outgoing/internal flows, versioning,

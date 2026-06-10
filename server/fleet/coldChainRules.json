@@ -1,0 +1,7 @@
+{
+  "default": { "maxTempC": 8, "minTempC": 0, "maxMinutesOutOfRange": 30 },
+  "dairy":   { "maxTempC": 6, "minTempC": 0, "maxMinutesOutOfRange": 30 },
+  "frozen":  { "maxTempC": -15, "minTempC": -25, "maxMinutesOutOfRange": 45 },
+  "produce": { "maxTempC": 10, "minTempC": 1, "maxMinutesOutOfRange": 60 },
+  "meat":    { "maxTempC": 4, "minTempC": 0, "maxMinutesOutOfRange": 30 }
+}
