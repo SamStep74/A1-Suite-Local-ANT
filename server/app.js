@@ -140,6 +140,7 @@ const documentCabinet = require("./documentCabinet");
 const documentAi = require("./documentAi");
 const documentCabinetRoutes = require("./documentCabinetRoutes");
 const stateIntegrations = require("./stateIntegrations");
+const stateInt = stateIntegrations;
 const exportDocs = require("./exportDocs");
 const exportDocsAi = require("./exportDocsAi");
 const assets = require("./assets");
@@ -3583,6 +3584,98 @@ function registerApi(app, db, options = {}) {
     const response = { ok: true, asset: updated, netBookAmd: netBook };
     recordIdempotent(db, user.org_id, idem, response);
     return response;
+  // State Integrations (Гос. интеграции) — unified dispatch + status + audit.
+  // Adapter: src | eregister | egov | idcard | mobileid | customs.
+  // App access: "finance" (covers VAT/customs/counterparty) + "docs" for e-sign/ID
+  // (the plan's "state" app id is not in the 13-apps list, so we use "finance"
+  // which has identical role-gating semantics for support-role 403).
+  app.post("/api/state-int/:adapter/:operation", async (request, reply) => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "finance");
+    const { adapter, operation } = request.params;
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) {
+      const err = new Error("idempotencyKey is required");
+      err.statusCode = 400;
+      throw err;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    // Per-table redaction policy for the state-int hub:
+    //   * state_integration_calls        — request_json + response_json are
+    //                                      redacted by hub.redactPII() before
+    //                                      INSERT (full 256-bit salted HMAC).
+    //   * state_signatures               — signer_id_hash is the unsalted
+    //                                      SHA-256 of the idNumber claim
+    //                                      (deterministic so an investigator
+    //                                      can join two signatures by the
+    //                                      same signer). signature_b64 +
+    //                                      certificate_thumbprint are stored
+    //                                      cleartext — they are cryptographic
+    //                                      evidence, not PII.
+    //   * state_id_verifications         — subject_id is stored cleartext
+    //                                      because the operator's whole point
+    //                                      of the call is "look up this
+    //                                      specific idNumber". claims_json is
+    //                                      the empty object in test mode
+    //                                      (the fail-closed stub fabricates
+    //                                      no identity claims).
+    //   * idempotency_keys              — the full response envelope is
+    //                                      cached verbatim so a replay
+    //                                      returns byte-identical bytes
+    //                                      (this is the whole point of
+    //                                      idempotency). Treat the table
+    //                                      contents as cleartext PII and
+    //                                      restrict row-level access.
+    const result = await stateInt.dispatch({
+      db, orgId: user.org_id, userId: user.id, adapter, operation, input: body
+    });
+    const envelope = { ok: true, stateInt: { adapter, operation, ...result } };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "state-int.dispatch", {
+      adapter, operation, requestId: result.requestId
+    });
+    return envelope;
+  });
+
+  app.get("/api/state-int/:adapter/:operation/:requestId/status", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "finance");
+    const { adapter, operation, requestId } = request.params;
+    const row = db.prepare("SELECT response_json, status, called_at, org_id FROM state_integration_calls WHERE request_id = ? ORDER BY called_at DESC LIMIT 1").get(requestId);
+    if (!row) {
+      const err = new Error("requestId not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    // IDOR: callers can only poll their own org's calls.
+    if (row.org_id !== user.org_id) {
+      const err = new Error("requestId not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    return {
+      ok: true,
+      stateIntStatus: {
+        adapter, operation, requestId, status: row.status, calledAt: row.called_at, response: JSON.parse(row.response_json)
+      }
+    };
+  });
+
+  app.get("/api/state-int/audit", async request => {
+    const user = await app.auth(request);
+    if (!["Owner", "Admin", "Auditor"].includes(user.role)) {
+      const err = new Error("Auditor role required");
+      err.statusCode = 403;
+      throw err;
+    }
+    const url = new URL(request.url, "http://localhost");
+    const from = url.searchParams.get("from") || "1970-01-01";
+    const to = url.searchParams.get("to") || "2999-12-31";
+    const rows = db.prepare("SELECT id, adapter, operation, request_id, status, latency_ms, called_at FROM state_integration_calls WHERE org_id = ? AND called_at BETWEEN ? AND ? ORDER BY called_at DESC LIMIT 200").all(user.org_id, from, to);
+    return { ok: true, audit: rows };
   });
 
   // Document Cabinet (Документооборот) — incoming/outgoing/internal flows, versioning,

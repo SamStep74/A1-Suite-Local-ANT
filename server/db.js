@@ -8138,6 +8138,59 @@ function ensureAnalyticsLayer(db) {
       checksum TEXT NOT NULL,
       method TEXT NOT NULL
     );
+
+    -- State Integrations (sub-plan 7) — Armenian state e-services audit + signed/ID trails.
+    -- Production calls are gated by STATE_INTEGRATION_MODE=production + per-adapter *_ENABLED=1;
+    -- default mode is "test" with deterministic stubs. These tables are first-class
+    -- audit sources for the State Integrations hub and the auditor console.
+    CREATE TABLE IF NOT EXISTS state_integration_calls (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id),
+      adapter TEXT NOT NULL,
+      operation TEXT NOT NULL,
+      request_id TEXT NOT NULL,
+      request_json TEXT NOT NULL,
+      response_json TEXT,
+      status TEXT NOT NULL,
+      latency_ms INTEGER NOT NULL DEFAULT 0,
+      called_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_state_calls_org ON state_integration_calls(org_id, called_at);
+
+    CREATE TABLE IF NOT EXISTS state_integration_credentials (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id),
+      adapter TEXT NOT NULL,
+      alias TEXT NOT NULL,
+      cert_alias TEXT,
+      key_alias TEXT,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, adapter, alias)
+    );
+
+    CREATE TABLE IF NOT EXISTS state_signatures (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id),
+      document_id TEXT NOT NULL,
+      adapter TEXT NOT NULL,
+      signer_id_hash TEXT NOT NULL,
+      signed_at TEXT NOT NULL,
+      signature_b64 TEXT NOT NULL,
+      certificate_thumbprint TEXT,
+      status TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_state_sigs_doc ON state_signatures(document_id);
+
+    CREATE TABLE IF NOT EXISTS state_id_verifications (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id),
+      subject_id TEXT NOT NULL,
+      adapter TEXT NOT NULL,
+      verified_at TEXT NOT NULL,
+      claims_json TEXT NOT NULL,
+      evidence_doc_id TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_state_idv_subject ON state_id_verifications(subject_id);
   `);
 
   // Seed hs_code_rules + country_rule_packs on first boot (idempotent).
