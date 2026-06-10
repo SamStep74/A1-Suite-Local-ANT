@@ -1249,4 +1249,200 @@ export const CfoLoanScheduleResponseSchema = z
   .passthrough();
 export type CfoLoanScheduleResponse = z.infer<typeof CfoLoanScheduleResponseSchema>;
 
+/* ────────── Forms schemas (Phase 4.3) ────────── */
+
+export const FormFieldTypeSchema = z.union([
+  z.enum(["text", "email", "phone", "textarea", "select", "number", "checkbox", "date"]),
+  z.string(),
+]);
+export type FormFieldType = z.infer<typeof FormFieldTypeSchema>;
+
+export const FormFieldSchema = z
+  .object({
+    key: z.string(),
+    label: z.string(),
+    type: FormFieldTypeSchema,
+    required: z.boolean().optional(),
+    options: z.array(z.string()).optional(),
+    placeholder: z.string().optional(),
+  })
+  .passthrough();
+export type FormField = z.infer<typeof FormFieldSchema>;
+
+export const FormStatusSchema = z.union([
+  z.enum(["draft", "published", "archived", "closed"]),
+  z.string(),
+]);
+export type FormStatus = z.infer<typeof FormStatusSchema>;
+
+export const FormSummarySchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    status: FormStatusSchema,
+    submissionCount: z.number().int().nonnegative(),
+    updatedAt: z.string().optional(),
+  })
+  .passthrough();
+export type FormSummary = z.infer<typeof FormSummarySchema>;
+
+export const FormsListResponseSchema = z
+  .object({
+    forms: z.array(FormSummarySchema),
+  })
+  .passthrough();
+export type FormsListResponse = z.infer<typeof FormsListResponseSchema>;
+
+export const FormSubmissionSchema = z
+  .object({
+    id: z.string(),
+    data: z.record(z.string(), z.unknown()),
+    leadId: z.string().nullable().optional(),
+    createdAt: z.string().optional(),
+  })
+  .passthrough();
+export type FormSubmission = z.infer<typeof FormSubmissionSchema>;
+
+export const FormDetailSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    description: z.string().nullable().optional(),
+    fields: z.array(FormFieldSchema),
+    status: FormStatusSchema,
+    submissionCount: z.number().int().nonnegative(),
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
+    submissions: z.array(FormSubmissionSchema).optional(),
+  })
+  .passthrough();
+export type FormDetail = z.infer<typeof FormDetailSchema>;
+
+export const FormDetailResponseSchema = z
+  .object({
+    form: FormDetailSchema,
+  })
+  .passthrough();
+export type FormDetailResponse = z.infer<typeof FormDetailResponseSchema>;
+
+/* ────────── Copilot chat schemas (Phase 4.3) ────────── */
+
+export const CopilotIntentSchema = z.union([
+  z.enum([
+    "vat",
+    "payroll",
+    "personal-data",
+    "esign",
+    "month-close",
+    "general",
+  ]),
+  z.string(),
+]);
+export type CopilotIntent = z.infer<typeof CopilotIntentSchema>;
+
+export const CopilotPacketStatusSchema = z.union([
+  z.enum(["draft", "blocked-missing-citation", "ready-for-review", "approved", "rejected"]),
+  z.string(),
+]);
+export type CopilotPacketStatus = z.infer<typeof CopilotPacketStatusSchema>;
+
+export const CopilotRiskLevelSchema = z.union([
+  z.enum(["legal", "financial", "operational", "low"]),
+  z.string(),
+]);
+export type CopilotRiskLevel = z.infer<typeof CopilotRiskLevelSchema>;
+
+export const CopilotCitationSchema = z
+  .object({
+    id: z.string(),
+    title: z.string().optional(),
+    status: z.string().optional(),
+  })
+  .passthrough();
+export type CopilotCitation = z.infer<typeof CopilotCitationSchema>;
+
+export const CopilotCalculationSchema = z
+  .object({
+    kind: z.string(),
+    outputs: z.record(z.string(), z.unknown()).optional(),
+  })
+  .passthrough();
+export type CopilotCalculation = z.infer<typeof CopilotCalculationSchema>;
+
+export const CopilotProposedActionSchema = z
+  .object({
+    key: z.string(),
+    label: z.string(),
+    intent: z.string().optional(),
+  })
+  .passthrough();
+export type CopilotProposedAction = z.infer<typeof CopilotProposedActionSchema>;
+
+export const CopilotPacketSchema = z
+  .object({
+    id: z.string(),
+    intent: CopilotIntentSchema,
+    status: CopilotPacketStatusSchema,
+    answer: z.string(),
+    confidence: z.number().min(0).max(100),
+    riskLevel: z.string(),
+    reviewRequired: z.boolean(),
+    advisoryOnly: z.boolean(),
+    citations: z.array(CopilotCitationSchema),
+    calculations: z.array(CopilotCalculationSchema),
+    proposedActions: z.array(CopilotProposedActionSchema),
+    createdAt: z.string().optional(),
+  })
+  .passthrough();
+export type CopilotPacket = z.infer<typeof CopilotPacketSchema>;
+
+export const CopilotChatRoleSchema = z.union([
+  z.enum(["user", "assistant", "system"]),
+  z.string(),
+]);
+export type CopilotChatRole = z.infer<typeof CopilotChatRoleSchema>;
+
+export const CopilotChatMessageSchema = z
+  .object({
+    id: z.string(),
+    role: CopilotChatRoleSchema,
+    content: z.string(),
+    packet: CopilotPacketSchema.optional(),
+    createdAt: z.string().optional(),
+  })
+  .passthrough();
+export type CopilotChatMessage = z.infer<typeof CopilotChatMessageSchema>;
+
+export const CopilotChatSummarySchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    lastMessageAt: z.string().optional(),
+    messageCount: z.number().int().nonnegative().optional(),
+    intent: CopilotIntentSchema.optional(),
+  })
+  .passthrough();
+export type CopilotChatSummary = z.infer<typeof CopilotChatSummarySchema>;
+
+export const CopilotChatsListResponseSchema = z
+  .object({
+    chats: z.array(CopilotChatSummarySchema),
+  })
+  .passthrough();
+export type CopilotChatsListResponse = z.infer<typeof CopilotChatsListResponseSchema>;
+
+export const CopilotChatDetailResponseSchema = z
+  .object({
+    chat: z
+      .object({
+        id: z.string(),
+        title: z.string(),
+        messages: z.array(CopilotChatMessageSchema),
+        createdAt: z.string().optional(),
+      })
+      .passthrough(),
+  })
+  .passthrough();
+export type CopilotChatDetailResponse = z.infer<typeof CopilotChatDetailResponseSchema>;
+
 
