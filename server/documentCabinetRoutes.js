@@ -635,16 +635,20 @@ function register(app, db, injected) {
       }
       const cached = readCachedIdempotent(db, user.org_id, input.idempotencyKey);
       if (cached) return cached;
-      // Delegate to the Armenian state e-signature adapter. In test mode
-      // (the default) this returns a deterministic stub envelope; live
-      // mode is wired in sub-plan 7.
-      const adapter = deps.stateIntegrations && deps.stateIntegrations.eSignAdapter
-        ? deps.stateIntegrations.eSignAdapter
-        : null;
-      if (!adapter || typeof adapter.prepare !== "function") {
+      // Sub-plan 6 follow-up: route through the new dispatch() hub so
+      // the call lands in state_integration_calls (with the same PII
+      // redaction as the new state-int endpoints). Falls back to the
+      // legacy sync stub if the hub adapter isn't wired (older builds).
+      const hub = deps.stateIntegrations || {};
+      let envelope;
+      if (typeof hub.eSignAdapterFor === "function") {
+        const adapter = hub.eSignAdapterFor({ db, orgId: user.org_id, userId: user.id });
+        envelope = await adapter.prepare({ cabinetId: input.cabinetId, signer: input.signer, document });
+      } else if (hub.eSignAdapter && typeof hub.eSignAdapter.prepare === "function") {
+        envelope = hub.eSignAdapter.prepare({ cabinetId: input.cabinetId, signer: input.signer, document });
+      } else {
         const e = new Error("E-sign adapter unavailable"); e.statusCode = 503; throw e;
       }
-      const envelope = adapter.prepare({ cabinetId: input.cabinetId, signer: input.signer, document });
       audit(db, user.org_id, user.id, "cabinet.esign.prepared", {
         cabinetId: input.cabinetId, envelopeId: envelope.envelopeId, provider: envelope.provider
       });

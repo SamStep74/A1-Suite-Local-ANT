@@ -286,3 +286,52 @@ test("document-cabinet: e-sign prepare returns a stub envelope without state egr
     assert.ok(["prepared", "pending"].includes(env.status), `status is prepared/pending: ${env.status}`);
   });
 });
+
+test("document-cabinet: e-sign prepare bridge writes state_integration_calls audit row with PII redaction", async () => {
+  await withApp(async app => {
+    const owner = await login(app);
+    const create = await app.inject({
+      method: "POST",
+      url: "/api/cabinet/documents",
+      headers: { cookie: owner },
+      payload: { title: "Esign bridge probe", direction: "outgoing", linkedType: "customer", linkedId: "cust-bridge", idempotencyKey: "cab-esign-bridge-1" }
+    });
+    const docId = create.json().document.id;
+
+    const before = app.db.prepare("SELECT COUNT(*) AS c FROM state_integration_calls").get().c;
+    const esign = await app.inject({
+      method: "POST",
+      url: "/api/cabinet/esign/prepare",
+      headers: { cookie: owner },
+      payload: {
+        cabinetId: docId,
+        signer: { name: "Anahit Stepanyan", email: "anahit@armosphera.local", idNumber: "AN7654321" },
+        idempotencyKey: "cab-esign-prep-bridge-1"
+      }
+    });
+    assert.equal(esign.statusCode, 200, esign.body);
+    const env = esign.json();
+    assert.ok(env.envelopeId, "envelopeId present after bridge");
+    assert.equal(env.provider, "test-stub", "stub provider routed via cabinet adapter");
+
+    // Sub-plan 6 follow-up: the bridge must persist an audit row in
+    // state_integration_calls so investigators can see the prepare
+    // attempt without reading the per-org cabinet table.
+    const after = app.db.prepare("SELECT COUNT(*) AS c FROM state_integration_calls").get().c;
+    assert.equal(after, before + 1, "state_integration_calls row must be written by the bridge");
+
+    const row = app.db.prepare(
+      "SELECT adapter, operation, request_id, status, request_json FROM state_integration_calls ORDER BY called_at DESC LIMIT 1"
+    ).get();
+    assert.equal(row.adapter, "cabinet", "audit row tagged with cabinet adapter");
+    assert.equal(row.operation, "esign.prepare", "audit row tagged with esign.prepare operation");
+    assert.equal(row.status, "prepared", "audit row records prepared status");
+    assert.ok(row.request_id, "request_id present for cross-referencing with cabinet audit row");
+
+    // PII redaction: the signer's idNumber must NOT be present in
+    // cleartext in the persisted request_json. The hub's redactPII
+    // replaces it with a [hash:sha256:<salt>:<digest>] marker.
+    assert.ok(!row.request_json.includes("AN7654321"), "signer idNumber must not be persisted in cleartext");
+    assert.ok(row.request_json.includes("[hash:sha256:"), "PII slot must be replaced with hashed marker");
+  });
+});

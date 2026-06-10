@@ -22,7 +22,7 @@ const crypto = require("node:crypto");
  *     backward compatibility; new code should use dispatch().
  */
 
-const SUPPORTED = ["src", "eregister", "egov", "idcard", "mobileid", "customs"];
+const SUPPORTED = ["src", "eregister", "egov", "idcard", "mobileid", "customs", "cabinet"];
 
 function loadAdapter(name) {
   if (!SUPPORTED.includes(name)) {
@@ -223,6 +223,69 @@ function eSignAdapter() {
   };
 }
 
+// --- Bridge: cabinet eSignAdapter wired into the new dispatch() hub ----------
+// Sub-plan 6 follow-up. The legacy eSignAdapter() above is preserved for any
+// caller that still wants the synchronous stub. New cabinet code should use
+// eSignAdapterFor({ db, orgId, userId }), whose prepare()/status() route
+// through dispatch() so the call lands in state_integration_calls with the
+// same PII redaction guarantees as the new state-int endpoints.
+function eSignAdapterFor({ db, orgId, userId }) {
+  if (!db) {
+    const err = new Error("eSignAdapterFor: db is required"); err.statusCode = 500; throw err;
+  }
+  if (!orgId) {
+    const err = new Error("eSignAdapterFor: orgId is required"); err.statusCode = 500; throw err;
+  }
+  return {
+    async prepare({ cabinetId, signer, document } = {}) {
+      const safeId = String(cabinetId || "").trim();
+      if (!safeId) {
+        const err = new Error("cabinetId is required"); err.statusCode = 400; throw err;
+      }
+      // Route through the hub. The cabinet adapter (see
+      // server/stateIntegrations/cabinet.js) is the non-strict
+      // sibling of eGov.js — it accepts the cabinet's broader
+      // signer pool but still funnels the call through the hub so
+      // the audit row + PII scrubbing fire.
+      const out = await dispatch({
+        db, orgId, userId: userId || null,
+        adapter: "cabinet",
+        operation: "esign.prepare",
+        input: { cabinetId: safeId, signer: signer || null, document: document || null }
+      });
+      // Map the hub's response back to the legacy envelope shape so
+      // the cabinet route (and any caller that reads
+      // envelope.envelopeId / envelope.provider / envelope.status)
+      // continues to work unchanged.
+      const signerName = signer && typeof signer === "object" ? String(signer.name || "").trim() : "";
+      return {
+        ok: true,
+        provider: out.provider || "test-stub",
+        mode: adapterMode(),
+        action: "esign.prepare",
+        status: out.status || "prepared",
+        advisoryOnly: true,
+        envelopeId: out.envelopeId,
+        cabinetId: safeId,
+        signer: signerName ? { name: signerName, email: signer.email || null } : null,
+        document: document ? { id: document.id || null, title: document.title || null } : null,
+        requestId: out.requestId,
+        createdAt: new Date().toISOString()
+      };
+    },
+    async status({ envelopeId } = {}) {
+      if (!envelopeId) {
+        const err = new Error("envelopeId is required"); err.statusCode = 400; throw err;
+      }
+      // The cabinet adapter has no live fetchStatus path; we mirror
+      // the legacy eSignAdapter().status() shape so the caller's
+      // existing contract is preserved. Future production wiring
+      // would poll the operator's signing ceremony here.
+      return stubEnvelope("test-stub", "esign.status", { envelopeId, status: "pending" });
+    }
+  };
+}
+
 function idCardAdapter() {
   return {
     verify({ personalId } = {}) {
@@ -334,6 +397,9 @@ module.exports = {
   isAdapterEnabled,
   SUPPORTED,
   scrubPII,
+  // Bridge: cabinet eSign adapter wired into the new dispatch() hub
+  // (sub-plan 6 follow-up). New code should use this factory.
+  eSignAdapterFor,
   // Legacy cabinet API (sub-plan 1, kept for backward compat)
   eSignAdapter: eSignAdapter(),
   idCardAdapter: idCardAdapter(),
