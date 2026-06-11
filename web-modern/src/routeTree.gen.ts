@@ -28,6 +28,7 @@ import { Route as AppFinanceIndexRouteImport } from './routes/app/finance/index'
 import { Route as AppDocsIndexRouteImport } from './routes/app/docs/index'
 import { Route as AppDeskIndexRouteImport } from './routes/app/desk/index'
 import { Route as AppCrmIndexRouteImport } from './routes/app/crm/index'
+import { Route as AppCrmTubeIndexRouteImport } from './routes/app/crm-tube/index'
 import { Route as AppCopilotIndexRouteImport } from './routes/app/copilot/index'
 import { Route as AppCfoIndexRouteImport } from './routes/app/cfo/index'
 import { Route as AppCampaignsIndexRouteImport } from './routes/app/campaigns/index'
@@ -46,6 +47,7 @@ import { Route as AppCopilotChatIdRouteImport } from './routes/app/copilot/$chat
 import { Route as AppCfoLoanIdRouteImport } from './routes/app/cfo/$loanId'
 import { Route as AppAnalyticsMetricIdRouteImport } from './routes/app/analytics/$metricId'
 import { Route as AppCfoReportsIndexRouteImport } from './routes/app/cfo/reports/index'
+import { Route as AppCrmTubeDealsDealIdRouteImport } from './routes/app/crm-tube/deals/$dealId'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -142,6 +144,11 @@ const AppCrmIndexRoute = AppCrmIndexRouteImport.update({
   path: '/crm/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCrmTubeIndexRoute = AppCrmTubeIndexRouteImport.update({
+  id: '/crm-tube/',
+  path: '/crm-tube/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppCopilotIndexRoute = AppCopilotIndexRouteImport.update({
   id: '/',
   path: '/',
@@ -232,6 +239,11 @@ const AppCfoReportsIndexRoute = AppCfoReportsIndexRouteImport.update({
   path: '/cfo/reports/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCrmTubeDealsDealIdRoute = AppCrmTubeDealsDealIdRouteImport.update({
+  id: '/crm-tube/deals/$dealId',
+  path: '/crm-tube/deals/$dealId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -259,6 +271,7 @@ export interface FileRoutesByFullPath {
   '/app/campaigns/': typeof AppCampaignsIndexRoute
   '/app/cfo/': typeof AppCfoIndexRoute
   '/app/copilot/': typeof AppCopilotIndexRoute
+  '/app/crm-tube/': typeof AppCrmTubeIndexRoute
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
@@ -270,6 +283,7 @@ export interface FileRoutesByFullPath {
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
+  '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
 }
 export interface FileRoutesByTo {
@@ -296,6 +310,7 @@ export interface FileRoutesByTo {
   '/app/campaigns': typeof AppCampaignsIndexRoute
   '/app/cfo': typeof AppCfoIndexRoute
   '/app/copilot': typeof AppCopilotIndexRoute
+  '/app/crm-tube': typeof AppCrmTubeIndexRoute
   '/app/crm': typeof AppCrmIndexRoute
   '/app/desk': typeof AppDeskIndexRoute
   '/app/docs': typeof AppDocsIndexRoute
@@ -307,6 +322,7 @@ export interface FileRoutesByTo {
   '/app/people': typeof AppPeopleIndexRoute
   '/app/projects': typeof AppProjectsIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
+  '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/cfo/reports': typeof AppCfoReportsIndexRoute
 }
 export interface FileRoutesById {
@@ -336,6 +352,7 @@ export interface FileRoutesById {
   '/app/campaigns/': typeof AppCampaignsIndexRoute
   '/app/cfo/': typeof AppCfoIndexRoute
   '/app/copilot/': typeof AppCopilotIndexRoute
+  '/app/crm-tube/': typeof AppCrmTubeIndexRoute
   '/app/crm/': typeof AppCrmIndexRoute
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
@@ -347,6 +364,7 @@ export interface FileRoutesById {
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
+  '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
 }
 export interface FileRouteTypes {
@@ -377,6 +395,7 @@ export interface FileRouteTypes {
     | '/app/campaigns/'
     | '/app/cfo/'
     | '/app/copilot/'
+    | '/app/crm-tube/'
     | '/app/crm/'
     | '/app/desk/'
     | '/app/docs/'
@@ -388,6 +407,7 @@ export interface FileRouteTypes {
     | '/app/people/'
     | '/app/projects/'
     | '/app/purchase/'
+    | '/app/crm-tube/deals/$dealId'
     | '/app/cfo/reports/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -414,6 +434,7 @@ export interface FileRouteTypes {
     | '/app/campaigns'
     | '/app/cfo'
     | '/app/copilot'
+    | '/app/crm-tube'
     | '/app/crm'
     | '/app/desk'
     | '/app/docs'
@@ -425,6 +446,7 @@ export interface FileRouteTypes {
     | '/app/people'
     | '/app/projects'
     | '/app/purchase'
+    | '/app/crm-tube/deals/$dealId'
     | '/app/cfo/reports'
   id:
     | '__root__'
@@ -453,6 +475,7 @@ export interface FileRouteTypes {
     | '/app/campaigns/'
     | '/app/cfo/'
     | '/app/copilot/'
+    | '/app/crm-tube/'
     | '/app/crm/'
     | '/app/desk/'
     | '/app/docs/'
@@ -464,6 +487,7 @@ export interface FileRouteTypes {
     | '/app/people/'
     | '/app/projects/'
     | '/app/purchase/'
+    | '/app/crm-tube/deals/$dealId'
     | '/app/cfo/reports/'
   fileRoutesById: FileRoutesById
 }
@@ -609,6 +633,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCrmIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/crm-tube/': {
+      id: '/app/crm-tube/'
+      path: '/crm-tube'
+      fullPath: '/app/crm-tube/'
+      preLoaderRoute: typeof AppCrmTubeIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/copilot/': {
       id: '/app/copilot/'
       path: '/'
@@ -735,6 +766,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCfoReportsIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/crm-tube/deals/$dealId': {
+      id: '/app/crm-tube/deals/$dealId'
+      path: '/crm-tube/deals/$dealId'
+      fullPath: '/app/crm-tube/deals/$dealId'
+      preLoaderRoute: typeof AppCrmTubeDealsDealIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
   }
 }
 
@@ -771,6 +809,7 @@ interface AppRouteRouteChildren {
   AppAnalyticsIndexRoute: typeof AppAnalyticsIndexRoute
   AppCampaignsIndexRoute: typeof AppCampaignsIndexRoute
   AppCfoIndexRoute: typeof AppCfoIndexRoute
+  AppCrmTubeIndexRoute: typeof AppCrmTubeIndexRoute
   AppCrmIndexRoute: typeof AppCrmIndexRoute
   AppDeskIndexRoute: typeof AppDeskIndexRoute
   AppDocsIndexRoute: typeof AppDocsIndexRoute
@@ -782,6 +821,7 @@ interface AppRouteRouteChildren {
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppProjectsIndexRoute: typeof AppProjectsIndexRoute
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
+  AppCrmTubeDealsDealIdRoute: typeof AppCrmTubeDealsDealIdRoute
   AppCfoReportsIndexRoute: typeof AppCfoReportsIndexRoute
 }
 
@@ -804,6 +844,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppAnalyticsIndexRoute: AppAnalyticsIndexRoute,
   AppCampaignsIndexRoute: AppCampaignsIndexRoute,
   AppCfoIndexRoute: AppCfoIndexRoute,
+  AppCrmTubeIndexRoute: AppCrmTubeIndexRoute,
   AppCrmIndexRoute: AppCrmIndexRoute,
   AppDeskIndexRoute: AppDeskIndexRoute,
   AppDocsIndexRoute: AppDocsIndexRoute,
@@ -815,6 +856,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppProjectsIndexRoute: AppProjectsIndexRoute,
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,
+  AppCrmTubeDealsDealIdRoute: AppCrmTubeDealsDealIdRoute,
   AppCfoReportsIndexRoute: AppCfoReportsIndexRoute,
 }
 
@@ -841,12 +883,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
