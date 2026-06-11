@@ -48,7 +48,9 @@ import { Route as AppCopilotChatIdRouteImport } from './routes/app/copilot/$chat
 import { Route as AppCfoLoanIdRouteImport } from './routes/app/cfo/$loanId'
 import { Route as AppAnalyticsMetricIdRouteImport } from './routes/app/analytics/$metricId'
 import { Route as AppCfoReportsIndexRouteImport } from './routes/app/cfo/reports/index'
-import { Route as AppCrmTubeDealsDealIdRouteImport } from './routes/app/crm-tube/deals/$dealId'
+import { Route as AppCrmTubeContactsIndexRouteImport } from './routes/app/crm-tube/contacts/index'
+import { Route as AppCrmTubeContactsContactIdRouteImport } from './routes/app/crm-tube/contacts/$contactId'
+import { Route as AppCrmTubeInboxRouteImport } from './routes/app/crm-tube/inbox'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -245,9 +247,19 @@ const AppCfoReportsIndexRoute = AppCfoReportsIndexRouteImport.update({
   path: '/cfo/reports/',
   getParentRoute: () => AppRouteRoute,
 } as any)
-const AppCrmTubeDealsDealIdRoute = AppCrmTubeDealsDealIdRouteImport.update({
-  id: '/crm-tube/deals/$dealId',
-  path: '/crm-tube/deals/$dealId',
+const AppCrmTubeContactsIndexRoute = AppCrmTubeContactsIndexRouteImport.update({
+  id: '/crm-tube/contacts/',
+  path: '/crm-tube/contacts/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppCrmTubeContactsContactIdRoute = AppCrmTubeContactsContactIdRouteImport.update({
+  id: '/crm-tube/contacts/$contactId',
+  path: '/crm-tube/contacts/$contactId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppCrmTubeInboxRoute = AppCrmTubeInboxRouteImport.update({
+  id: '/crm-tube/inbox',
+  path: '/crm-tube/inbox',
   getParentRoute: () => AppRouteRoute,
 } as any)
 
@@ -292,6 +304,9 @@ export interface FileRoutesByFullPath {
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
+  '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
+  '/app/crm-tube/contacts/': typeof AppCrmTubeContactsIndexRoute
+  '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -332,6 +347,9 @@ export interface FileRoutesByTo {
   '/app/purchase': typeof AppPurchaseIndexRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/cfo/reports': typeof AppCfoReportsIndexRoute
+  '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
+  '/app/crm-tube/contacts': typeof AppCrmTubeContactsIndexRoute
+  '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -375,6 +393,9 @@ export interface FileRoutesById {
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
+  '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
+  '/app/crm-tube/contacts/': typeof AppCrmTubeContactsIndexRoute
+  '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -419,6 +440,9 @@ export interface FileRouteTypes {
     | '/app/purchase/'
     | '/app/crm-tube/deals/$dealId'
     | '/app/cfo/reports/'
+    | '/app/crm-tube/contacts/$contactId'
+    | '/app/crm-tube/contacts/'
+    | '/app/crm-tube/inbox'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -459,6 +483,9 @@ export interface FileRouteTypes {
     | '/app/purchase'
     | '/app/crm-tube/deals/$dealId'
     | '/app/cfo/reports'
+    | '/app/crm-tube/contacts/$contactId'
+    | '/app/crm-tube/contacts'
+    | '/app/crm-tube/inbox'
   id:
     | '__root__'
     | '/'
@@ -501,6 +528,9 @@ export interface FileRouteTypes {
     | '/app/purchase/'
     | '/app/crm-tube/deals/$dealId'
     | '/app/cfo/reports/'
+    | '/app/crm-tube/contacts/$contactId'
+    | '/app/crm-tube/contacts/'
+    | '/app/crm-tube/inbox'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -785,11 +815,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCfoReportsIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
-    '/app/crm-tube/deals/$dealId': {
-      id: '/app/crm-tube/deals/$dealId'
-      path: '/crm-tube/deals/$dealId'
-      fullPath: '/app/crm-tube/deals/$dealId'
-      preLoaderRoute: typeof AppCrmTubeDealsDealIdRouteImport
+    '/app/crm-tube/contacts/$contactId': {
+      id: '/app/crm-tube/contacts/$contactId'
+      path: '/crm-tube/contacts/$contactId'
+      fullPath: '/app/crm-tube/contacts/$contactId'
+      preLoaderRoute: typeof AppCrmTubeContactsContactIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/crm-tube/contacts/': {
+      id: '/app/crm-tube/contacts/'
+      path: '/crm-tube/contacts'
+      fullPath: '/app/crm-tube/contacts/'
+      preLoaderRoute: typeof AppCrmTubeContactsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/crm-tube/inbox': {
+      id: '/app/crm-tube/inbox'
+      path: '/crm-tube/inbox'
+      fullPath: '/app/crm-tube/inbox'
+      preLoaderRoute: typeof AppCrmTubeInboxRouteImport
       parentRoute: typeof AppRouteRoute
     }
   }
@@ -843,6 +887,9 @@ interface AppRouteRouteChildren {
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
   AppCrmTubeDealsDealIdRoute: typeof AppCrmTubeDealsDealIdRoute
   AppCfoReportsIndexRoute: typeof AppCfoReportsIndexRoute
+  AppCrmTubeContactsContactIdRoute: typeof AppCrmTubeContactsContactIdRoute
+  AppCrmTubeContactsIndexRoute: typeof AppCrmTubeContactsIndexRoute
+  AppCrmTubeInboxRoute: typeof AppCrmTubeInboxRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
@@ -879,6 +926,9 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,
   AppCrmTubeDealsDealIdRoute: AppCrmTubeDealsDealIdRoute,
   AppCfoReportsIndexRoute: AppCfoReportsIndexRoute,
+  AppCrmTubeContactsContactIdRoute: AppCrmTubeContactsContactIdRoute,
+  AppCrmTubeContactsIndexRoute: AppCrmTubeContactsIndexRoute,
+  AppCrmTubeInboxRoute: AppCrmTubeInboxRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
