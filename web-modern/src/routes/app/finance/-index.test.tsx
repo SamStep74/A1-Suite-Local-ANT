@@ -245,11 +245,17 @@ const VALID_PAYMENTS = {
 
 /* ────────── per-test reset ────────── */
 
+/** Frozen "today" for the days-until-due / overdue math. The Finance
+ *  route calls `new Date()` directly in its render path (no
+ *  clock injection), so we pin the system clock here to make
+ *  "Ani Beauty 16 days late" deterministic regardless of when
+ *  the suite runs. The fixture's `dueDate: "2026-05-25"` is then
+ *  exactly 16 days before this frozen date. */
+const FROZEN_TODAY = new Date("2026-06-10T12:00:00.000Z");
+
 beforeEach(() => {
-  // Use a fixed clock so days-until-due / overdue math is deterministic.
-  // The component uses `new Date()` — vi.setSystemTime would require
-  // upgrading the route to read from a clock. Instead we shape the
-  // fixture dates around 2026-06-10 (the agent's working day).
+  vi.useFakeTimers();
+  vi.setSystemTime(FROZEN_TODAY);
   mocks.search = { view: "invoices", status: "all" };
   mocks.invoices = VALID_INVOICES;
   mocks.periods = VALID_PERIODS;
@@ -259,6 +265,7 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup();
+  vi.useRealTimers();
 });
 
 /* ────────── validateSearch ────────── */
