@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-11 · main after web-modern Pattern A UI rebuild (Phase 3.5 CFO + Phase 4) + Phase 5 (e2e smoke) + Phase 5.1 (flake fix) + Phase 6 (CI workflow) + Phase 7 (CFO printable financial statements) · **1254 vitest pass on web-modern (55 files) + 933 node:test pass on server root = 2187 total, 0 fail, 0 cancelled** · **16 Playwright e2e pass (14 apps smoke + 1 CRM happy-path detail + 1 CFO reports) in 4.5s** · Pushed to `ant` as `main` + tags `phase4-web-modern-pattern-a-v1` (SHA `62267c2`), `phase5-e2e-smoke-v1` (SHA `bc5e6c9`), `phase6-ci-v1` (SHA `e3ba3c6`), `phase7-cfo-reports-v1` (SHA `e8a4c12`) · 8 stale `wip/*` branches removed (worktrees pruned) · Repo is clean: 1 local branch (main), 0 worktrees_
+_Last updated: 2026-06-11 · **RECOVERY + 8.11 dispatched + 8.3-8.10 plans drafted** · main after web-modern Pattern A UI rebuild (Phase 3.5 CFO + Phase 4) + Phase 5 (e2e smoke) + Phase 5.1 (flake fix) + Phase 6 (CI workflow) + Phase 7 (CFO printable financial statements) + **Phase 8.2 cabinet (3 merge commits `aiob-cabinet-schemas-helpers`, `aiob-cabinet-route-test`, `aiob-cabinet-legacy-drop` pushed to `ant/main`)** · 8.11 ai-onboarding dmux in flight (3 worktrees `phase8-ai-onboarding-*` in tmux session) · 8.3-8.10 plans written to `.orchestration/phase8-*/plan.md` (UI-only, 8.6 has a discovered server gap of 7 missing GET list endpoints) · **1254 vitest pass on web-modern (55 files) + 933 node:test pass on server root = 2187 total, 0 fail, 0 cancelled** · **16 Playwright e2e pass (14 apps smoke + 1 CRM happy-path detail + 1 CFO reports) in 4.5s** · Pushed to `ant` as `main` + tags `phase4-web-modern-pattern-a-v1` (SHA `62267c2`), `phase5-e2e-smoke-v1` (SHA `bc5e6c9`), `phase6-ci-v1` (SHA `e3ba3c6`), `phase7-cfo-reports-v1` (SHA `e8a4c12`), `phase8-cabinet-v1` (SHA 3-merge stack) · 8 stale `wip/*` branches removed (worktrees pruned) · Repo is clean: 1 local branch (main), 0 worktrees_
 
 ## ⚠️ Pivot: legacy is out of the product (replaces Phase 8 strangler-fig)
 
@@ -35,7 +35,46 @@ The previously planned **Phase 8 — Strangler-fig redirect** (server-side 302 f
 
 **Recommended option:** keep the proposed ordering (it follows the existing sub-plan tags so the diffs are mechanical) and ship one sub-phase per turn. The user said "go for recommended options" so the next turn should kick off **8.1 `healthcheck`** (smallest scope, Pattern A template already proven, no backend changes, fastest green-to-green cycle) before tackling the larger modules.
 
+## Recovery note (2026-06-11)
 
+Cabinet (8.2) was in flight when the previous session ended. Recovery pushed the **3 cabinet merge commits** to `ant/main`:
+
+- `aiob-cabinet-schemas-helpers` → schemas.ts append + `lib/cabinet/status.ts` + tests
+- `aiob-cabinet-route-test` → `/app/cabinet/index.tsx` + co-located test + apps.ts update
+- `aiob-cabinet-legacy-drop` → remove cabinet import from main.jsx, git rm `web/src/cabinet.jsx`, e2e
+
+Lessons-learned (carry into 8.3+): always run `--merge` from a worktree on a REAL branch tracking `ant/main`, never from a detached HEAD.
+
+## Phase 8.11 ai-onboarding — DISPATCHED, IN FLIGHT (2026-06-11 15:58)
+
+3-worker dmux dispatch via `scripts/orchestrate-worktrees.js .orchestration/phase8-ai-onboarding/plan.json`. Tmux session: `phase8-ai-onboarding`. Worktrees at `/Users/samvelstepanyan/dev/A1-Suite-Local-ANT-queue-phase8-ai-onboarding-{aiob-schemas-helpers, aiob-route-test, aiob-legacy-drop}`. `baseRef: "ant/main"`. `mergeOrder: ["aiob-schemas-helpers", "aiob-route-test", "aiob-legacy-drop"]`.
+
+The CRM Tube clear signal was detected (3 M3 workers `wip/phase8-tube-{deals,contacts,sequences}` pushed); the 8.11 plan is a follow-up to the cabinet model. The plan was dispatched in 3-worker form following the established cabinet template (schemas+helpers, route+test, e2e+legacy-drop). It targets `/app/copilot/onboarding` with `requireOwner` gate and uses the existing `AiModel`, `AiModelsResponse`, `AiSettingsResponse` server endpoints (the engine is already on `ant/main`).
+
+## Phase 8.3-8.10 plans — DRAFTED, AWAITING DISPATCH (2026-06-11)
+
+All 8 plans written to `.orchestration/phase8-*/plan.md`. UI-only (no server/engine changes), with the following structural notes:
+
+| Plan | File | Lines | Top-level or sub-route? | NEW APP_IDS? | Worker split | Notes |
+|---|---|---|---|---|---|---|
+| 8.3 | warehouse.jsx | 222 | sub: `/app/inventory/warehouse` | no (inventory exists) | 3 | Server ready (10 endpoints on ant/main) |
+| 8.4 | procurement.jsx | 280 | sub: `/app/purchase/procurement` | no (purchase exists) | 3 | 12 server endpoints + 2 AI + 1 analytics |
+| 8.5 | assets.jsx | 163 | top-level: `/app/assets` | yes (Armenian "Հիմնական միdelays") | 3 | Role-based gate (Owner/Admin/Accountant/Operator) |
+| 8.6 | fleet.jsx | 501 | top-level: `/app/fleet` | yes ("Ավdelays" Armenian) | **4** | **DISCOVERED 7 missing server GETs**; needs server worker 1 |
+| 8.7 | greenhouse.jsx | 311 | top-level: `/app/greenhouse` | yes ("Ջերdelays" Armenian) | 3 | Stateful cross-tab flow (house→zone→crop→harvest) |
+| 8.8 | stateIntegrations.jsx | 172 | sub: `/app/cfo/state-integrations` | no (cfo exists) | 3 | 6-adapter dispatch + audit |
+| 8.9 | exportDocs.jsx | 136 | sub: `/app/cfo/export-docs` | no (cfo exists) | 3 | 4-step wizard with 2 AI endpoints |
+| 8.10 | compliance.jsx | 49 | sub: `/app/cfo/compliance` | no (cfo exists) | 3 | Read-only — smallest in phase 8 |
+
+**Key insight:** 8.3, 8.4, 8.5, 8.7, 8.8, 8.9, 8.10 are pure UI migrations — no server changes. 8.6 requires adding 7 GET list endpoints to `server/app.js` (the legacy SPA silently swallows 404s via `.catch(() => ({...}))` — modern route cannot).
+
+**Conflict risk:** all 8 plans touch `web-modern/src/lib/api/schemas.ts` and `web-modern/src/routeTree.gen.ts`; 8.5/8.6/8.7 also touch `web-modern/src/lib/apps.ts`. **Mitigation:** serialize. Each dmux must wait for the previous one to fully merge + CI green on `ant/main` before dispatching.
+
+## Phase 8.2b (cabinet AI sidebar) — PARKED
+
+A follow-up to cabinet (8.2) that adds a right-side AI sidebar to the cabinet page. Parked until cabinet's 3 merge commits are confirmed green on `ant/main` for a few days of CI runs.
+
+---
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
