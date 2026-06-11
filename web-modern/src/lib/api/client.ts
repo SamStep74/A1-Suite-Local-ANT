@@ -143,6 +143,5 @@ export function postVoid(path: string, body?: JsonBody) {
 
 /** Convenience: PATCH JSON. Mirrors postJson — the body is the patch object,
  *  the response is validated against an optional schema. */
-export function patchJson<T>(path: string, body: JsonBody, schema?: z.ZodType<T>, signal?: AbortSignal) {
-  return api(path, schema ?? null, { method: "PATCH", body, signal } as RequestInit & ApiOptions);
-}
+// (duplicate patchJson removed — sequences worker added a redundant copy; the
+// canonical one at line 135 is kept)
