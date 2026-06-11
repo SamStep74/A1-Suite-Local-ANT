@@ -2115,3 +2115,85 @@ export const HealthcheckPingResponseSchema = z.object({
   }),
 });
 export type HealthcheckPingResponse = z.infer<typeof HealthcheckPingResponseSchema>;
+
+/* ────────── document cabinet (Phase 8.2) ────────── */
+
+export const CabinetDirectionSchema = z.enum(["incoming", "outgoing", "internal"]);
+export type CabinetDirection = z.infer<typeof CabinetDirectionSchema>;
+
+export const CabinetStatusSchema = z.enum(["active", "archived"]);
+export type CabinetStatus = z.infer<typeof CabinetStatusSchema>;
+
+export const CabinetLinkedTypeSchema = z.enum([
+  "customer",
+  "vendor",
+  "employee",
+  "deal",
+  "project",
+]);
+export type CabinetLinkedType = z.infer<typeof CabinetLinkedTypeSchema>;
+
+export const CabinetOcrStatusSchema = z
+  .enum(["pending", "queued", "running", "done", "failed"])
+  .nullable();
+export type CabinetOcrStatus = z.infer<typeof CabinetOcrStatusSchema>;
+
+export const CabinetDocumentSchema = z.object({
+  id: z.string().regex(/^cab-[a-z0-9-]+$/),
+  title: z.string().min(3).max(200),
+  direction: CabinetDirectionSchema,
+  status: CabinetStatusSchema,
+  docType: z.string().nullable().optional(),
+  currentVersion: z.number().int().min(1),
+  linkedType: CabinetLinkedTypeSchema.nullable().optional(),
+  linkedId: z.string().nullable().optional(),
+  ocrStatus: CabinetOcrStatusSchema.optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+});
+export type CabinetDocument = z.infer<typeof CabinetDocumentSchema>;
+
+export const CabinetListResponseSchema = z.object({
+  documents: z.array(CabinetDocumentSchema),
+  total: z.number().int().min(0).optional(),
+});
+export type CabinetListResponse = z.infer<typeof CabinetListResponseSchema>;
+
+export const CabinetCreateRequestSchema = z.object({
+  title: z.string().min(3).max(200),
+  direction: CabinetDirectionSchema,
+  docType: z.string().min(1).max(40).optional(),
+  linkedType: CabinetLinkedTypeSchema.optional(),
+  linkedId: z.string().min(1).max(80).optional(),
+  body: z.string().max(20000).optional(),
+  idempotencyKey: z.string().min(1).max(200),
+});
+export type CabinetCreateRequest = z.infer<typeof CabinetCreateRequestSchema>;
+
+export const CabinetCreateResponseSchema = z.object({
+  document: CabinetDocumentSchema,
+  idempotencyKey: z.string().min(1).max(200),
+});
+export type CabinetCreateResponse = z.infer<typeof CabinetCreateResponseSchema>;
+
+export const CabinetPatchRequestSchema = z
+  .object({
+    status: CabinetStatusSchema.optional(),
+    docType: z.string().min(1).max(40).nullable().optional(),
+    linkedType: CabinetLinkedTypeSchema.nullable().optional(),
+    linkedId: z.string().min(1).max(80).nullable().optional(),
+    title: z.string().min(3).max(200).optional(),
+    idempotencyKey: z.string().min(1).max(200),
+  })
+  .refine(
+    (v) => Object.keys(v).filter((k) => k !== "idempotencyKey").length > 0,
+    { message: "patch must change at least one field" },
+  );
+export type CabinetPatchRequest = z.infer<typeof CabinetPatchRequestSchema>;
+
+export const CabinetFiltersSchema = z.object({
+  direction: CabinetDirectionSchema.optional(),
+  status: CabinetStatusSchema.optional(),
+  q: z.string().max(120).optional(),
+});
+export type CabinetFilters = z.infer<typeof CabinetFiltersSchema>;
