@@ -9,7 +9,6 @@ import { PeopleEmployeeForm, PeopleRegistryPanel, HrContractsPanel, HrLeavePanel
 import { DocsCreateForm, DocsRegistryPanel } from "./docs.jsx";
 import { CabinetPanel } from "./cabinet.jsx";
 import { ExportDocsPanel } from "./exportDocs.jsx";
-import { StateIntegrationsPanel } from "./stateIntegrations.jsx";
 import { CopilotPanel } from "./copilot.jsx";
 import { ProductionReadinessPanel } from "./compliance.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
@@ -4349,9 +4348,6 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               )}
               {["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role) && (
                 <ExportDocsPanel api={api} actionState={actionState} />
-              )}
-              {["Owner", "Admin", "Auditor"].includes(suite.user.role) && (
-                <StateIntegrationsPanel api={api} role={suite.user.role} actionState={actionState} />
               )}
             </>
           )}
