@@ -2676,3 +2676,324 @@ export type WarehouseTraceabilityResponse = z.infer<
   typeof WarehouseTraceabilityResponseSchema
 >;
 
+/* ────────── procurement extension (Phase 8.4) ──────────
+ *
+ * The 5-tab procurement surface on top of the existing `purchase` app
+ * spine. Endpoints are wired in server/app.js 860-998 (the
+ * `procurement.*` engine in server/procurement.js does the work). The
+ * modern route lives at /app/purchase/procurement and re-uses
+ * `requirePurchaseWriter(user)` on the server.
+ *
+ * Every write endpoint requires an `idempotencyKey` (1..200 chars). The
+ * server caches the response envelope in `idempotency_keys` and
+ * returns the cached envelope on a duplicate, so the client may safely
+ * retry without bouncing a 400.
+ */
+
+/* ── enums ── */
+
+export const ProcurementLandedCostKindSchema = z.enum([
+  "freight",
+  "duty",
+  "insurance",
+  "other",
+]);
+export type ProcurementLandedCostKind = z.infer<
+  typeof ProcurementLandedCostKindSchema
+>;
+
+export const ProcurementAllocationMethodSchema = z.enum([
+  "value",
+  "quantity",
+  "weight",
+]);
+export type ProcurementAllocationMethod = z.infer<
+  typeof ProcurementAllocationMethodSchema
+>;
+
+export const ProcurementRequisitionStatusSchema = z.enum([
+  "open",
+  "rfq",
+  "closed",
+  "cancelled",
+]);
+export type ProcurementRequisitionStatus = z.infer<
+  typeof ProcurementRequisitionStatusSchema
+>;
+
+/* ── requisitions ── */
+
+export const ProcurementRequisitionLineSchema = z.object({
+  catalogItemId: z.string().min(1).max(80),
+  quantity: z.number().int().positive(),
+  uom: z.string().min(1).max(20),
+});
+export type ProcurementRequisitionLine = z.infer<
+  typeof ProcurementRequisitionLineSchema
+>;
+
+export const ProcurementRequisitionSchema = z.object({
+  id: z.string(),
+  neededBy: z.string(),
+  justification: z.string().nullable(),
+  lines: z.array(ProcurementRequisitionLineSchema),
+  createdAt: z.string(),
+  status: ProcurementRequisitionStatusSchema,
+});
+export type ProcurementRequisition = z.infer<
+  typeof ProcurementRequisitionSchema
+>;
+
+/* ── RFQ ── */
+
+export const ProcurementRfqShortlistedVendorSchema = z.object({
+  vendorId: z.string(),
+  name: z.string(),
+  score: z.number(),
+  avgPrice: z.number(),
+});
+export type ProcurementRfqShortlistedVendor = z.infer<
+  typeof ProcurementRfqShortlistedVendorSchema
+>;
+
+export const ProcurementRfqSchema = z.object({
+  id: z.string(),
+  requisitionId: z.string(),
+  shortlistedVendors: z.array(ProcurementRfqShortlistedVendorSchema),
+  quotes: z.array(z.unknown()),
+  award: z.unknown().nullable(),
+  createdAt: z.string(),
+});
+export type ProcurementRfq = z.infer<typeof ProcurementRfqSchema>;
+
+/* ── blanket orders ── */
+
+export const ProcurementBlanketOrderSchema = z.object({
+  id: z.string(),
+  vendorId: z.string(),
+  catalogItemId: z.string(),
+  startDate: z.string(),
+  endDate: z.string(),
+  committedQty: z.number().int().nonnegative(),
+  unitPrice: z.number().nonnegative(),
+  currency: z.string().min(3).max(3),
+  createdAt: z.string(),
+});
+export type ProcurementBlanketOrder = z.infer<
+  typeof ProcurementBlanketOrderSchema
+>;
+
+export const ProcurementCoverageSchema = z.object({
+  committedQty: z.number().nonnegative(),
+  openPoQty: z.number().nonnegative(),
+  blanketOrders: z.array(ProcurementBlanketOrderSchema),
+});
+export type ProcurementCoverage = z.infer<
+  typeof ProcurementCoverageSchema
+>;
+
+/* ── landed costs ── */
+
+export const ProcurementLandedCostAllocationSchema = z.object({
+  lineId: z.string(),
+  amount: z.number().nonnegative(),
+});
+export type ProcurementLandedCostAllocation = z.infer<
+  typeof ProcurementLandedCostAllocationSchema
+>;
+
+export const ProcurementLandedCostSchema = z.object({
+  id: z.string(),
+  poId: z.string(),
+  kind: ProcurementLandedCostKindSchema,
+  amount: z.number().nonnegative(),
+  currency: z.string().min(3).max(3),
+  allocationMethod: ProcurementAllocationMethodSchema,
+  allocated: z.array(ProcurementLandedCostAllocationSchema),
+});
+export type ProcurementLandedCost = z.infer<
+  typeof ProcurementLandedCostSchema
+>;
+
+/* ── credit notes ── */
+
+export const ProcurementCreditNoteSchema = z.object({
+  id: z.string(),
+  poId: z.string(),
+  amount: z.number().nonnegative(),
+  currency: z.string().min(3).max(3),
+  createdAt: z.string(),
+});
+export type ProcurementCreditNote = z.infer<
+  typeof ProcurementCreditNoteSchema
+>;
+
+/* ── AI / analytics ── */
+
+export const ProcurementAiVendorSelectionSchema = z.object({
+  vendorId: z.string(),
+  name: z.string(),
+  score: z.number(),
+  reasoning: z.array(z.string()),
+});
+export type ProcurementAiVendorSelection = z.infer<
+  typeof ProcurementAiVendorSelectionSchema
+>;
+
+export const ProcurementAiPriceAnomalySchema = z.object({
+  isAnomaly: z.boolean(),
+  zScore: z.number(),
+  expectedRange: z.object({
+    low: z.number(),
+    high: z.number(),
+  }),
+});
+export type ProcurementAiPriceAnomaly = z.infer<
+  typeof ProcurementAiPriceAnomalySchema
+>;
+
+export const ProcurementReplenishmentSuggestionSchema = z.object({
+  catalogItemId: z.string(),
+  suggestedQty: z.number().nonnegative(),
+  onHand: z.number().nonnegative(),
+  inTransit: z.number().nonnegative(),
+  leadTimeDays: z.number().int().nonnegative(),
+});
+export type ProcurementReplenishmentSuggestion = z.infer<
+  typeof ProcurementReplenishmentSuggestionSchema
+>;
+
+/* ── request payloads (5 create endpoints — all with idempotencyKey) ── */
+
+const ProcurementIdempotencyKeySchema = z.string().min(1).max(200);
+
+export const ProcurementRequisitionCreateRequestSchema = z.object({
+  neededBy: z.string().min(1),
+  justification: z.string().max(500).optional(),
+  lines: z.array(ProcurementRequisitionLineSchema).optional(),
+  idempotencyKey: ProcurementIdempotencyKeySchema,
+});
+export type ProcurementRequisitionCreateRequest = z.infer<
+  typeof ProcurementRequisitionCreateRequestSchema
+>;
+
+export const ProcurementRfqConvertRequestSchema = z.object({
+  neededBy: z.string().min(1),
+  justification: z.string().max(500).optional(),
+  idempotencyKey: ProcurementIdempotencyKeySchema,
+});
+export type ProcurementRfqConvertRequest = z.infer<
+  typeof ProcurementRfqConvertRequestSchema
+>;
+
+export const ProcurementBlanketOrderCreateRequestSchema = z.object({
+  vendorId: z.string().min(1),
+  catalogItemId: z.string().min(1),
+  startDate: z.string().min(1),
+  endDate: z.string().min(1),
+  committedQty: z.number().int().nonnegative(),
+  unitPrice: z.number().nonnegative(),
+  currency: z.string().min(3).max(3),
+  idempotencyKey: ProcurementIdempotencyKeySchema,
+});
+export type ProcurementBlanketOrderCreateRequest = z.infer<
+  typeof ProcurementBlanketOrderCreateRequestSchema
+>;
+
+export const ProcurementLandedCostCreateRequestSchema = z.object({
+  poId: z.string().min(1),
+  kind: ProcurementLandedCostKindSchema,
+  amount: z.number().nonnegative(),
+  currency: z.string().min(3).max(3),
+  allocationMethod: ProcurementAllocationMethodSchema,
+  idempotencyKey: ProcurementIdempotencyKeySchema,
+});
+export type ProcurementLandedCostCreateRequest = z.infer<
+  typeof ProcurementLandedCostCreateRequestSchema
+>;
+
+export const ProcurementCreditNoteCreateRequestSchema = z.object({
+  poId: z.string().min(1),
+  amount: z.number().nonnegative(),
+  currency: z.string().min(3).max(3),
+  idempotencyKey: ProcurementIdempotencyKeySchema,
+});
+export type ProcurementCreditNoteCreateRequest = z.infer<
+  typeof ProcurementCreditNoteCreateRequestSchema
+>;
+
+/* ── response envelopes ── */
+
+export const ProcurementRequisitionCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  requisition: ProcurementRequisitionSchema,
+});
+export type ProcurementRequisitionCreateResponse = z.infer<
+  typeof ProcurementRequisitionCreateResponseSchema
+>;
+
+export const ProcurementRfqConvertResponseSchema = z.object({
+  ok: z.literal(true),
+  rfq: ProcurementRfqSchema,
+});
+export type ProcurementRfqConvertResponse = z.infer<
+  typeof ProcurementRfqConvertResponseSchema
+>;
+
+export const ProcurementBlanketOrderCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  blanket: ProcurementBlanketOrderSchema,
+});
+export type ProcurementBlanketOrderCreateResponse = z.infer<
+  typeof ProcurementBlanketOrderCreateResponseSchema
+>;
+
+export const ProcurementCoverageResponseSchema = z.object({
+  ok: z.literal(true),
+  coverage: ProcurementCoverageSchema,
+});
+export type ProcurementCoverageResponse = z.infer<
+  typeof ProcurementCoverageResponseSchema
+>;
+
+export const ProcurementLandedCostCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  landed: ProcurementLandedCostSchema,
+});
+export type ProcurementLandedCostCreateResponse = z.infer<
+  typeof ProcurementLandedCostCreateResponseSchema
+>;
+
+export const ProcurementCreditNoteCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  credit: ProcurementCreditNoteSchema,
+});
+export type ProcurementCreditNoteCreateResponse = z.infer<
+  typeof ProcurementCreditNoteCreateResponseSchema
+>;
+
+export const ProcurementAiVendorSelectionResponseSchema = z.object({
+  ok: z.literal(true),
+  selected: ProcurementAiVendorSelectionSchema,
+  reasoning: z.array(z.string()),
+});
+export type ProcurementAiVendorSelectionResponse = z.infer<
+  typeof ProcurementAiVendorSelectionResponseSchema
+>;
+
+export const ProcurementAiPriceAnomalyResponseSchema = z.object({
+  ok: z.literal(true),
+  anomaly: ProcurementAiPriceAnomalySchema,
+});
+export type ProcurementAiPriceAnomalyResponse = z.infer<
+  typeof ProcurementAiPriceAnomalyResponseSchema
+>;
+
+export const ProcurementReplenishmentResponseSchema = z.object({
+  ok: z.literal(true),
+  suggestions: z.array(ProcurementReplenishmentSuggestionSchema),
+});
+export type ProcurementReplenishmentResponse = z.infer<
+  typeof ProcurementReplenishmentResponseSchema
+>;
+
