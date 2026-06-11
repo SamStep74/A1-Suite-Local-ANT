@@ -2098,3 +2098,20 @@ export const AnalyticsReportResponseSchema = z
   })
   .passthrough();
 export type AnalyticsReportResponse = z.infer<typeof AnalyticsReportResponseSchema>;
+
+/* ────────── Healthcheck ping (POST /api/healthcheck/ping) ────────── */
+
+export const HealthcheckPingRequestSchema = z.object({
+  message: z.string().min(1).max(200),
+  idempotencyKey: z.string().optional(),
+});
+export type HealthcheckPingRequest = z.infer<typeof HealthcheckPingRequestSchema>;
+
+export const HealthcheckPingResponseSchema = z.object({
+  ok: z.literal(true),
+  healthcheck: z.object({
+    message: z.string(),
+    respondedAt: z.string(),
+  }),
+});
+export type HealthcheckPingResponse = z.infer<typeof HealthcheckPingResponseSchema>;
