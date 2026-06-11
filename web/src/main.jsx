@@ -18,7 +18,6 @@ import { FormCreateForm, FormsRegistryPanel } from "./forms.jsx";
 import { InventoryWorkspacePanel } from "./inventory.jsx";
 import { PurchaseWorkspacePanel } from "./purchase.jsx";
 import { CfoPanel } from "./cfo.jsx";
-import { AssetsPanel } from "./assets.jsx";
 import { GreenhousePanel } from "./greenhouse.jsx";
 import { loadOr } from "./load-section.js";
 import { loadAuditForRole } from "./audit-access.js";
@@ -4470,11 +4469,6 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
                 actionState={actionState}
                 canEdit={["Owner", "Admin", "Accountant"].includes(suite.user.role)}
               />
-            </div>
-          )}
-          {["Owner", "Admin", "Accountant", "Operator"].includes(suite.user.role) && (
-            <div id="suite-app-assets" className="suite-app-anchor">
-              <AssetsPanel api={api} actionState={actionState} />
             </div>
           )}
           {(assignedAppIds.includes("greenhouse") || ["Owner", "Admin", "Operator"].includes(suite.user.role)) && (
