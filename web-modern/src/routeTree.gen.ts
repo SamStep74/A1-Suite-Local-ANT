@@ -44,13 +44,18 @@ import { Route as AppFinanceInvoiceIdRouteImport } from './routes/app/finance/$i
 import { Route as AppDocsDocumentIdRouteImport } from './routes/app/docs/$documentId'
 import { Route as AppDeskCaseIdRouteImport } from './routes/app/desk/$caseId'
 import { Route as AppCrmQuoteIdRouteImport } from './routes/app/crm/$quoteId'
+import { Route as AppCrmTubeInboxRouteImport } from './routes/app/crm-tube/inbox'
 import { Route as AppCopilotChatIdRouteImport } from './routes/app/copilot/$chatId'
 import { Route as AppCfoLoanIdRouteImport } from './routes/app/cfo/$loanId'
 import { Route as AppAnalyticsMetricIdRouteImport } from './routes/app/analytics/$metricId'
 import { Route as AppCrmTubeSequencesIndexRouteImport } from './routes/app/crm-tube/sequences/index'
 import { Route as AppCrmTubeIntegrationsIndexRouteImport } from './routes/app/crm-tube/integrations/index'
+import { Route as AppCrmTubeContactsIndexRouteImport } from './routes/app/crm-tube/contacts/index'
+import { Route as AppCopilotOnboardingIndexRouteImport } from './routes/app/copilot/onboarding/index'
 import { Route as AppCfoReportsIndexRouteImport } from './routes/app/cfo/reports/index'
 import { Route as AppCrmTubeSequencesSequenceIdRouteImport } from './routes/app/crm-tube/sequences/$sequenceId'
+import { Route as AppCrmTubeDealsDealIdRouteImport } from './routes/app/crm-tube/deals/$dealId'
+import { Route as AppCrmTubeContactsContactIdRouteImport } from './routes/app/crm-tube/contacts/$contactId'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -227,6 +232,11 @@ const AppCrmQuoteIdRoute = AppCrmQuoteIdRouteImport.update({
   path: '/crm/$quoteId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCrmTubeInboxRoute = AppCrmTubeInboxRouteImport.update({
+  id: '/crm-tube/inbox',
+  path: '/crm-tube/inbox',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppCopilotChatIdRoute = AppCopilotChatIdRouteImport.update({
   id: '/$chatId',
   path: '/$chatId',
@@ -254,6 +264,17 @@ const AppCrmTubeIntegrationsIndexRoute =
     path: '/crm-tube/integrations/',
     getParentRoute: () => AppRouteRoute,
   } as any)
+const AppCrmTubeContactsIndexRoute = AppCrmTubeContactsIndexRouteImport.update({
+  id: '/crm-tube/contacts/',
+  path: '/crm-tube/contacts/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppCopilotOnboardingIndexRoute =
+  AppCopilotOnboardingIndexRouteImport.update({
+    id: '/onboarding/',
+    path: '/onboarding/',
+    getParentRoute: () => AppCopilotRoute,
+  } as any)
 const AppCfoReportsIndexRoute = AppCfoReportsIndexRouteImport.update({
   id: '/cfo/reports/',
   path: '/cfo/reports/',
@@ -263,6 +284,17 @@ const AppCrmTubeSequencesSequenceIdRoute =
   AppCrmTubeSequencesSequenceIdRouteImport.update({
     id: '/crm-tube/sequences/$sequenceId',
     path: '/crm-tube/sequences/$sequenceId',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
+const AppCrmTubeDealsDealIdRoute = AppCrmTubeDealsDealIdRouteImport.update({
+  id: '/crm-tube/deals/$dealId',
+  path: '/crm-tube/deals/$dealId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppCrmTubeContactsContactIdRoute =
+  AppCrmTubeContactsContactIdRouteImport.update({
+    id: '/crm-tube/contacts/$contactId',
+    path: '/crm-tube/contacts/$contactId',
     getParentRoute: () => AppRouteRoute,
   } as any)
 
@@ -278,6 +310,7 @@ export interface FileRoutesByFullPath {
   '/app/analytics/$metricId': typeof AppAnalyticsMetricIdRoute
   '/app/cfo/$loanId': typeof AppCfoLoanIdRoute
   '/app/copilot/$chatId': typeof AppCopilotChatIdRoute
+  '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
@@ -305,8 +338,12 @@ export interface FileRoutesByFullPath {
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
+  '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
+  '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
+  '/app/copilot/onboarding/': typeof AppCopilotOnboardingIndexRoute
+  '/app/crm-tube/contacts/': typeof AppCrmTubeContactsIndexRoute
   '/app/crm-tube/integrations/': typeof AppCrmTubeIntegrationsIndexRoute
   '/app/crm-tube/sequences/': typeof AppCrmTubeSequencesIndexRoute
 }
@@ -320,6 +357,7 @@ export interface FileRoutesByTo {
   '/app/analytics/$metricId': typeof AppAnalyticsMetricIdRoute
   '/app/cfo/$loanId': typeof AppCfoLoanIdRoute
   '/app/copilot/$chatId': typeof AppCopilotChatIdRoute
+  '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
@@ -347,8 +385,12 @@ export interface FileRoutesByTo {
   '/app/people': typeof AppPeopleIndexRoute
   '/app/projects': typeof AppProjectsIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
+  '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
+  '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
   '/app/cfo/reports': typeof AppCfoReportsIndexRoute
+  '/app/copilot/onboarding': typeof AppCopilotOnboardingIndexRoute
+  '/app/crm-tube/contacts': typeof AppCrmTubeContactsIndexRoute
   '/app/crm-tube/integrations': typeof AppCrmTubeIntegrationsIndexRoute
   '/app/crm-tube/sequences': typeof AppCrmTubeSequencesIndexRoute
 }
@@ -365,6 +407,7 @@ export interface FileRoutesById {
   '/app/analytics/$metricId': typeof AppAnalyticsMetricIdRoute
   '/app/cfo/$loanId': typeof AppCfoLoanIdRoute
   '/app/copilot/$chatId': typeof AppCopilotChatIdRoute
+  '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
@@ -392,8 +435,12 @@ export interface FileRoutesById {
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
+  '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
+  '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
+  '/app/copilot/onboarding/': typeof AppCopilotOnboardingIndexRoute
+  '/app/crm-tube/contacts/': typeof AppCrmTubeContactsIndexRoute
   '/app/crm-tube/integrations/': typeof AppCrmTubeIntegrationsIndexRoute
   '/app/crm-tube/sequences/': typeof AppCrmTubeSequencesIndexRoute
 }
@@ -411,6 +458,7 @@ export interface FileRouteTypes {
     | '/app/analytics/$metricId'
     | '/app/cfo/$loanId'
     | '/app/copilot/$chatId'
+    | '/app/crm-tube/inbox'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
     | '/app/docs/$documentId'
@@ -438,8 +486,12 @@ export interface FileRouteTypes {
     | '/app/people/'
     | '/app/projects/'
     | '/app/purchase/'
+    | '/app/crm-tube/contacts/$contactId'
+    | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
     | '/app/cfo/reports/'
+    | '/app/copilot/onboarding/'
+    | '/app/crm-tube/contacts/'
     | '/app/crm-tube/integrations/'
     | '/app/crm-tube/sequences/'
   fileRoutesByTo: FileRoutesByTo
@@ -453,6 +505,7 @@ export interface FileRouteTypes {
     | '/app/analytics/$metricId'
     | '/app/cfo/$loanId'
     | '/app/copilot/$chatId'
+    | '/app/crm-tube/inbox'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
     | '/app/docs/$documentId'
@@ -480,8 +533,12 @@ export interface FileRouteTypes {
     | '/app/people'
     | '/app/projects'
     | '/app/purchase'
+    | '/app/crm-tube/contacts/$contactId'
+    | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
     | '/app/cfo/reports'
+    | '/app/copilot/onboarding'
+    | '/app/crm-tube/contacts'
     | '/app/crm-tube/integrations'
     | '/app/crm-tube/sequences'
   id:
@@ -497,6 +554,7 @@ export interface FileRouteTypes {
     | '/app/analytics/$metricId'
     | '/app/cfo/$loanId'
     | '/app/copilot/$chatId'
+    | '/app/crm-tube/inbox'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
     | '/app/docs/$documentId'
@@ -524,8 +582,12 @@ export interface FileRouteTypes {
     | '/app/people/'
     | '/app/projects/'
     | '/app/purchase/'
+    | '/app/crm-tube/contacts/$contactId'
+    | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
     | '/app/cfo/reports/'
+    | '/app/copilot/onboarding/'
+    | '/app/crm-tube/contacts/'
     | '/app/crm-tube/integrations/'
     | '/app/crm-tube/sequences/'
   fileRoutesById: FileRoutesById
@@ -784,6 +846,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCrmQuoteIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/crm-tube/inbox': {
+      id: '/app/crm-tube/inbox'
+      path: '/crm-tube/inbox'
+      fullPath: '/app/crm-tube/inbox'
+      preLoaderRoute: typeof AppCrmTubeInboxRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/copilot/$chatId': {
       id: '/app/copilot/$chatId'
       path: '/$chatId'
@@ -819,6 +888,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCrmTubeIntegrationsIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/crm-tube/contacts/': {
+      id: '/app/crm-tube/contacts/'
+      path: '/crm-tube/contacts'
+      fullPath: '/app/crm-tube/contacts/'
+      preLoaderRoute: typeof AppCrmTubeContactsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/copilot/onboarding/': {
+      id: '/app/copilot/onboarding/'
+      path: '/onboarding'
+      fullPath: '/app/copilot/onboarding/'
+      preLoaderRoute: typeof AppCopilotOnboardingIndexRouteImport
+      parentRoute: typeof AppCopilotRoute
+    }
     '/app/cfo/reports/': {
       id: '/app/cfo/reports/'
       path: '/cfo/reports'
@@ -833,17 +916,33 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCrmTubeSequencesSequenceIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/crm-tube/deals/$dealId': {
+      id: '/app/crm-tube/deals/$dealId'
+      path: '/crm-tube/deals/$dealId'
+      fullPath: '/app/crm-tube/deals/$dealId'
+      preLoaderRoute: typeof AppCrmTubeDealsDealIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/crm-tube/contacts/$contactId': {
+      id: '/app/crm-tube/contacts/$contactId'
+      path: '/crm-tube/contacts/$contactId'
+      fullPath: '/app/crm-tube/contacts/$contactId'
+      preLoaderRoute: typeof AppCrmTubeContactsContactIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
   }
 }
 
 interface AppCopilotRouteChildren {
   AppCopilotChatIdRoute: typeof AppCopilotChatIdRoute
   AppCopilotIndexRoute: typeof AppCopilotIndexRoute
+  AppCopilotOnboardingIndexRoute: typeof AppCopilotOnboardingIndexRoute
 }
 
 const AppCopilotRouteChildren: AppCopilotRouteChildren = {
   AppCopilotChatIdRoute: AppCopilotChatIdRoute,
   AppCopilotIndexRoute: AppCopilotIndexRoute,
+  AppCopilotOnboardingIndexRoute: AppCopilotOnboardingIndexRoute,
 }
 
 const AppCopilotRouteWithChildren = AppCopilotRoute._addFileChildren(
@@ -856,6 +955,7 @@ interface AppRouteRouteChildren {
   AppIndexRoute: typeof AppIndexRoute
   AppAnalyticsMetricIdRoute: typeof AppAnalyticsMetricIdRoute
   AppCfoLoanIdRoute: typeof AppCfoLoanIdRoute
+  AppCrmTubeInboxRoute: typeof AppCrmTubeInboxRoute
   AppCrmQuoteIdRoute: typeof AppCrmQuoteIdRoute
   AppDeskCaseIdRoute: typeof AppDeskCaseIdRoute
   AppDocsDocumentIdRoute: typeof AppDocsDocumentIdRoute
@@ -882,8 +982,11 @@ interface AppRouteRouteChildren {
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppProjectsIndexRoute: typeof AppProjectsIndexRoute
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
+  AppCrmTubeContactsContactIdRoute: typeof AppCrmTubeContactsContactIdRoute
+  AppCrmTubeDealsDealIdRoute: typeof AppCrmTubeDealsDealIdRoute
   AppCrmTubeSequencesSequenceIdRoute: typeof AppCrmTubeSequencesSequenceIdRoute
   AppCfoReportsIndexRoute: typeof AppCfoReportsIndexRoute
+  AppCrmTubeContactsIndexRoute: typeof AppCrmTubeContactsIndexRoute
   AppCrmTubeIntegrationsIndexRoute: typeof AppCrmTubeIntegrationsIndexRoute
   AppCrmTubeSequencesIndexRoute: typeof AppCrmTubeSequencesIndexRoute
 }
@@ -894,6 +997,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppIndexRoute: AppIndexRoute,
   AppAnalyticsMetricIdRoute: AppAnalyticsMetricIdRoute,
   AppCfoLoanIdRoute: AppCfoLoanIdRoute,
+  AppCrmTubeInboxRoute: AppCrmTubeInboxRoute,
   AppCrmQuoteIdRoute: AppCrmQuoteIdRoute,
   AppDeskCaseIdRoute: AppDeskCaseIdRoute,
   AppDocsDocumentIdRoute: AppDocsDocumentIdRoute,
@@ -920,8 +1024,11 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppProjectsIndexRoute: AppProjectsIndexRoute,
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,
+  AppCrmTubeContactsContactIdRoute: AppCrmTubeContactsContactIdRoute,
+  AppCrmTubeDealsDealIdRoute: AppCrmTubeDealsDealIdRoute,
   AppCrmTubeSequencesSequenceIdRoute: AppCrmTubeSequencesSequenceIdRoute,
   AppCfoReportsIndexRoute: AppCfoReportsIndexRoute,
+  AppCrmTubeContactsIndexRoute: AppCrmTubeContactsIndexRoute,
   AppCrmTubeIntegrationsIndexRoute: AppCrmTubeIntegrationsIndexRoute,
   AppCrmTubeSequencesIndexRoute: AppCrmTubeSequencesIndexRoute,
 }
