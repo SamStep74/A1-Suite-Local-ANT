@@ -25,6 +25,7 @@ import {
   TrendingUp,
   RadioTower,
   Boxes,
+  Truck,
   type LucideIcon,
 } from "lucide-react";
 
@@ -45,6 +46,7 @@ export const APP_IDS = [
   "flow",
   "forms",
   "cfo",
+  "fleet",
 ] as const;
 
 export type AppId = (typeof APP_IDS)[number];
@@ -229,6 +231,16 @@ export const APPS: Record<AppId, AppMeta> = {
     accent: "green",
     group: "ext",
     legacyMountId: "suite-app-cfo",
+  },
+  fleet: {
+    id: "fleet",
+    label: "Fleet",
+    labelAm: "Ավdelays",
+    tagline: "Vehicles · drivers · trips · fuel · repairs · tires · cold chain",
+    icon: Truck,
+    accent: "teal",
+    group: "ext",
+    legacyMountId: "suite-app-fleet",
   },
 };
 
