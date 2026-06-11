@@ -31,6 +31,7 @@ import { Route as AppCrmIndexRouteImport } from './routes/app/crm/index'
 import { Route as AppCopilotIndexRouteImport } from './routes/app/copilot/index'
 import { Route as AppCfoIndexRouteImport } from './routes/app/cfo/index'
 import { Route as AppCampaignsIndexRouteImport } from './routes/app/campaigns/index'
+import { Route as AppCabinetIndexRouteImport } from './routes/app/cabinet/index'
 import { Route as AppAnalyticsIndexRouteImport } from './routes/app/analytics/index'
 import { Route as AppPurchaseOrderIdRouteImport } from './routes/app/purchase/$orderId'
 import { Route as AppProjectsProjectIdRouteImport } from './routes/app/projects/$projectId'
@@ -157,6 +158,11 @@ const AppCampaignsIndexRoute = AppCampaignsIndexRouteImport.update({
   path: '/campaigns/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCabinetIndexRoute = AppCabinetIndexRouteImport.update({
+  id: '/cabinet/',
+  path: '/cabinet/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppAnalyticsIndexRoute = AppAnalyticsIndexRouteImport.update({
   id: '/analytics/',
   path: '/analytics/',
@@ -256,6 +262,7 @@ export interface FileRoutesByFullPath {
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/analytics/': typeof AppAnalyticsIndexRoute
+  '/app/cabinet/': typeof AppCabinetIndexRoute
   '/app/campaigns/': typeof AppCampaignsIndexRoute
   '/app/cfo/': typeof AppCfoIndexRoute
   '/app/copilot/': typeof AppCopilotIndexRoute
@@ -293,6 +300,7 @@ export interface FileRoutesByTo {
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/analytics': typeof AppAnalyticsIndexRoute
+  '/app/cabinet': typeof AppCabinetIndexRoute
   '/app/campaigns': typeof AppCampaignsIndexRoute
   '/app/cfo': typeof AppCfoIndexRoute
   '/app/copilot': typeof AppCopilotIndexRoute
@@ -333,6 +341,7 @@ export interface FileRoutesById {
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/analytics/': typeof AppAnalyticsIndexRoute
+  '/app/cabinet/': typeof AppCabinetIndexRoute
   '/app/campaigns/': typeof AppCampaignsIndexRoute
   '/app/cfo/': typeof AppCfoIndexRoute
   '/app/copilot/': typeof AppCopilotIndexRoute
@@ -374,6 +383,7 @@ export interface FileRouteTypes {
     | '/app/projects/$projectId'
     | '/app/purchase/$orderId'
     | '/app/analytics/'
+    | '/app/cabinet/'
     | '/app/campaigns/'
     | '/app/cfo/'
     | '/app/copilot/'
@@ -411,6 +421,7 @@ export interface FileRouteTypes {
     | '/app/projects/$projectId'
     | '/app/purchase/$orderId'
     | '/app/analytics'
+    | '/app/cabinet'
     | '/app/campaigns'
     | '/app/cfo'
     | '/app/copilot'
@@ -450,6 +461,7 @@ export interface FileRouteTypes {
     | '/app/projects/$projectId'
     | '/app/purchase/$orderId'
     | '/app/analytics/'
+    | '/app/cabinet/'
     | '/app/campaigns/'
     | '/app/cfo/'
     | '/app/copilot/'
@@ -630,6 +642,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCampaignsIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/cabinet/': {
+      id: '/app/cabinet/'
+      path: '/cabinet'
+      fullPath: '/app/cabinet/'
+      preLoaderRoute: typeof AppCabinetIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/analytics/': {
       id: '/app/analytics/'
       path: '/analytics'
@@ -769,6 +788,7 @@ interface AppRouteRouteChildren {
   AppProjectsProjectIdRoute: typeof AppProjectsProjectIdRoute
   AppPurchaseOrderIdRoute: typeof AppPurchaseOrderIdRoute
   AppAnalyticsIndexRoute: typeof AppAnalyticsIndexRoute
+  AppCabinetIndexRoute: typeof AppCabinetIndexRoute
   AppCampaignsIndexRoute: typeof AppCampaignsIndexRoute
   AppCfoIndexRoute: typeof AppCfoIndexRoute
   AppCrmIndexRoute: typeof AppCrmIndexRoute
@@ -802,6 +822,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppProjectsProjectIdRoute: AppProjectsProjectIdRoute,
   AppPurchaseOrderIdRoute: AppPurchaseOrderIdRoute,
   AppAnalyticsIndexRoute: AppAnalyticsIndexRoute,
+  AppCabinetIndexRoute: AppCabinetIndexRoute,
   AppCampaignsIndexRoute: AppCampaignsIndexRoute,
   AppCfoIndexRoute: AppCfoIndexRoute,
   AppCrmIndexRoute: AppCrmIndexRoute,
@@ -841,12 +862,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}

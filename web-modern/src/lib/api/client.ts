@@ -135,3 +135,9 @@ export function postJson<T>(path: string, body: JsonBody, schema?: z.ZodType<T>,
 export function postVoid(path: string, body?: JsonBody) {
   return api(path, null, { method: "POST", body, noParse: true } as RequestInit & ApiOptions);
 }
+
+/** Convenience: PATCH JSON. Mirrors postJson — the body is the patch object,
+ *  the response is validated against an optional schema. */
+export function patchJson<T>(path: string, body: JsonBody, schema?: z.ZodType<T>, signal?: AbortSignal) {
+  return api(path, schema ?? null, { method: "PATCH", body, signal } as RequestInit & ApiOptions);
+}
