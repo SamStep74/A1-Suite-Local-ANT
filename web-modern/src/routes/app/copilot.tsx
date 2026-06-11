@@ -34,6 +34,7 @@ import {
   CheckCircle2,
   ChevronRight,
   Clock,
+  KeyRound,
   Pause,
   Play,
   Sparkles,
@@ -114,11 +115,22 @@ function MissionControl() {
   return (
     <div className="mx-auto max-w-5xl space-y-6 p-6 [data-density=compact]:p-4 [data-density=spacious]:p-8">
       <header>
-        <div className="flex items-center gap-2">
-          <Sparkles className="size-5 text-[var(--color-agent)]" aria-hidden />
-          <h1 className="text-[var(--text-2xl)] font-semibold text-[var(--color-ink)]">
-            Mission Control
-          </h1>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <div className="flex items-center gap-2">
+            <Sparkles className="size-5 text-[var(--color-agent)]" aria-hidden />
+            <h1 className="text-[var(--text-2xl)] font-semibold text-[var(--color-ink)]">
+              Mission Control
+            </h1>
+          </div>
+          <Link
+            to="/app/copilot/onboarding"
+            data-testid="mission-control-onboarding-link"
+            data-entity="copilot-mission-control-onboarding-link"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1.5 text-[var(--text-sm)] font-semibold text-[var(--color-ink)] hover:bg-[var(--color-surface-soft)]"
+          >
+            <KeyRound className="size-3.5" aria-hidden />
+            AI Provider setup
+          </Link>
         </div>
         <p className="mt-1 text-[var(--text-sm)] text-[var(--color-muted)]">
           What the agents and rules are doing, what's waiting on you, and

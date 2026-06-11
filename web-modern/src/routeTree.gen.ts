@@ -46,6 +46,7 @@ import { Route as AppCrmQuoteIdRouteImport } from './routes/app/crm/$quoteId'
 import { Route as AppCopilotChatIdRouteImport } from './routes/app/copilot/$chatId'
 import { Route as AppCfoLoanIdRouteImport } from './routes/app/cfo/$loanId'
 import { Route as AppAnalyticsMetricIdRouteImport } from './routes/app/analytics/$metricId'
+import { Route as AppCopilotOnboardingIndexRouteImport } from './routes/app/copilot/onboarding/index'
 import { Route as AppCfoReportsIndexRouteImport } from './routes/app/cfo/reports/index'
 
 const LoginRoute = LoginRouteImport.update({
@@ -233,6 +234,12 @@ const AppAnalyticsMetricIdRoute = AppAnalyticsMetricIdRouteImport.update({
   path: '/analytics/$metricId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCopilotOnboardingIndexRoute =
+  AppCopilotOnboardingIndexRouteImport.update({
+    id: '/onboarding/',
+    path: '/onboarding/',
+    getParentRoute: () => AppCopilotRoute,
+  } as any)
 const AppCfoReportsIndexRoute = AppCfoReportsIndexRouteImport.update({
   id: '/cfo/reports/',
   path: '/cfo/reports/',
@@ -278,6 +285,7 @@ export interface FileRoutesByFullPath {
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
+  '/app/copilot/onboarding/': typeof AppCopilotOnboardingIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -316,6 +324,7 @@ export interface FileRoutesByTo {
   '/app/projects': typeof AppProjectsIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
   '/app/cfo/reports': typeof AppCfoReportsIndexRoute
+  '/app/copilot/onboarding': typeof AppCopilotOnboardingIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -357,6 +366,7 @@ export interface FileRoutesById {
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
+  '/app/copilot/onboarding/': typeof AppCopilotOnboardingIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -399,6 +409,7 @@ export interface FileRouteTypes {
     | '/app/projects/'
     | '/app/purchase/'
     | '/app/cfo/reports/'
+    | '/app/copilot/onboarding/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -437,6 +448,7 @@ export interface FileRouteTypes {
     | '/app/projects'
     | '/app/purchase'
     | '/app/cfo/reports'
+    | '/app/copilot/onboarding'
   id:
     | '__root__'
     | '/'
@@ -477,6 +489,7 @@ export interface FileRouteTypes {
     | '/app/projects/'
     | '/app/purchase/'
     | '/app/cfo/reports/'
+    | '/app/copilot/onboarding/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -747,6 +760,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAnalyticsMetricIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/copilot/onboarding/': {
+      id: '/app/copilot/onboarding/'
+      path: '/onboarding'
+      fullPath: '/app/copilot/onboarding/'
+      preLoaderRoute: typeof AppCopilotOnboardingIndexRouteImport
+      parentRoute: typeof AppCopilotRoute
+    }
     '/app/cfo/reports/': {
       id: '/app/cfo/reports/'
       path: '/cfo/reports'
@@ -760,11 +780,13 @@ declare module '@tanstack/react-router' {
 interface AppCopilotRouteChildren {
   AppCopilotChatIdRoute: typeof AppCopilotChatIdRoute
   AppCopilotIndexRoute: typeof AppCopilotIndexRoute
+  AppCopilotOnboardingIndexRoute: typeof AppCopilotOnboardingIndexRoute
 }
 
 const AppCopilotRouteChildren: AppCopilotRouteChildren = {
   AppCopilotChatIdRoute: AppCopilotChatIdRoute,
   AppCopilotIndexRoute: AppCopilotIndexRoute,
+  AppCopilotOnboardingIndexRoute: AppCopilotOnboardingIndexRoute,
 }
 
 const AppCopilotRouteWithChildren = AppCopilotRoute._addFileChildren(
