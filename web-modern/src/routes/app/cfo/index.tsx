@@ -28,6 +28,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   Banknote,
+  Building2,
   ChevronLeft,
   CircleSlash,
   Globe,
@@ -152,6 +153,15 @@ function CfoWorkspace() {
           >
             <Printer className="size-3.5" />
             Reports
+          </Link>
+          <Link
+            to="/app/cfo/state-integrations"
+            data-testid="cfo-toolbar-state-integrations"
+            data-entity="cfo-toolbar-state-integrations"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2.5 py-1 text-[var(--text-sm)] text-[var(--color-ink)] hover:bg-[var(--color-line)]"
+          >
+            <Building2 className="size-3.5" />
+            Կառավարության ինտեգրացիաներ
           </Link>
           <Link
             to="/app"
