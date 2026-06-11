@@ -1,0 +1,134 @@
+# Handoff: lib-utils-rbac
+
+## Summary
+Added 58 fresh unit tests across three small pure modules that were
+previously at 0% coverage. All three target modules now sit at
+**100%** on every coverage dimension (statements / branches / functions /
+lines). Branch pushed to `ant/wip/phase3-web-modern-lib-utils-rbac`,
+tag `phase3-lib-utils-rbac-v1` pushed to `ant`.
+
+## Modules Tested
+
+| Module | Source lines | Tests | Stmts | Branch | Funcs | Lines |
+|---|---|---|---|---|---|---|
+| `web-modern/src/lib/utils/cn.ts`     | 10  | 14 | 100% | 100% | 100% | 100% |
+| `web-modern/src/lib/utils/money.ts`  | 32  | 20 | 100% | 100% | 100% | 100% |
+| `web-modern/src/lib/rbac/role.ts`    | 46  | 24 | 100% | 100% | 100% | 100% |
+
+## Tests / Verification
+
+**Test count delta** (in scope `src/lib/utils/ + src/lib/rbac/`):
+- Before: 0 tests
+- After:  **58 tests** (3 new test files, 0 source modifications)
+
+**Full-suite state (in this worktree):**
+- `npm --prefix web-modern test` — run unfiltered, 3 of the 5
+  pre-existing test files pass (schemas, inventory-risk, sales-quote = 53
+  tests). The 2 failing pre-existing files
+  (`components/ui/HybridBadge.test.tsx`,
+  `lib/inventory/__tests__/status.test.ts`) are seeded overlays from
+  *other* worker tracks — they are broken in this worktree because the
+  sibling sources (`@testing-library/dom` runtime, `src/lib/inventory/status.ts`)
+  are not part of my track. They are NOT introduced by my changes.
+- After my 3 commits the previously-passing 53 tests still pass.
+- Targeted run `npx vitest run src/lib/utils/ src/lib/rbac/ src/lib/agents/`
+  reports **5 files, 73 tests, all green**.
+
+**Typecheck (`npm --prefix web-modern run typecheck`):**
+- 0 errors in my new test files.
+- 2 pre-existing errors in seeded-overlay files from other tracks
+  (HybridBadge missing `screen` from `@testing-library/react`,
+  status.test.ts importing a missing `../status`). Not introduced by me.
+
+**Coverage (`npx vitest run --coverage src/lib/utils/ src/lib/rbac/`):**
+- `cn.ts`: 100% / 100% / 100% / 100%
+- `money.ts`: 100% / 100% / 100% / 100%
+- `role.ts`: 100% / 100% / 100% / 100%
+
+## What Each Test File Covers
+
+### `web-modern/src/lib/utils/cn.test.ts` (14 tests)
+- string / array / nested-array / object inputs
+- falsy filtering (false, null, undefined, 0, "")
+- Tailwind-merge conflict resolution: padding, margin-x, text-color,
+  hover variants, and "surrounded by non-conflicting utilities" cases
+- output type guard
+
+### `web-modern/src/lib/utils/money.test.ts` (20 tests)
+- integer / fractional-rounded / zero / negative dram amounts
+- `null` / `undefined` / `NaN` → em-dash fallback
+- compact notation in մլն and հզր ranges; compact < full length
+- empty / undefined `opts` defaults to full format
+- `numberShort()` compact variants for thousands, millions, negative, zero
+
+**Locale gotcha documented in the test header:** the `hy-AM` locale
+uses U+00A0 (NBSP) as the thousands separator — *not* a regular space.
+This is the kind of footgun that erodes trust in a legacy-formatting
+shim, so the tests assert the *exact* expected string with a named
+`NBSP` constant.
+
+### `web-modern/src/lib/rbac/role.test.ts` (24 tests)
+- `AUDIT_ROLES` / `AUDIT_READ_ROLES` tuple shape + subset invariant
+- `canReadAudit`: allow/deny matrix + case-sensitive deny-by-default +
+  null/undefined/empty string
+- `loadAuditForRole`: fetcher invocation (allow) vs empty fallback
+  (deny); null/undefined role; error propagation
+- `hasAtLeast`: rank hierarchy matrix walking the 6 × 6 = 36
+  combinations, including the explicit non-monotonic step
+  (Manager rank 60 > Member rank 30, but Member is *not* >= Manager —
+  a footgun a future maintainer could miss), plus unknown/undefined
+  roles ranking at 0
+- `isStaffOrAbove`: Member cutoff, Viewer denial, unknown role denial
+
+## Commits (3, on `wip/phase3-web-modern-lib-utils-rbac`)
+
+```
+a71cecf test(lib): rbac role coverage
+2d97532 test(lib): money coverage
+faa2369 test(lib): cn coverage
+```
+
+Tag: `phase3-lib-utils-rbac-v1` → `ant`.
+
+## Files Changed (by this worker)
+
+```
+web-modern/src/lib/utils/cn.test.ts         (new, 69 lines)
+web-modern/src/lib/utils/money.test.ts      (new, 106 lines)
+web-modern/src/lib/rbac/role.test.ts        (new, 200 lines)
+```
+
+**Source files in `src/lib/utils/` and `src/lib/rbac/`: NOT modified
+(this was a HARD constraint).**
+
+## Side-Effect Commits (incidental, in the worktree from setup)
+
+Two extra files showed up in the `cn coverage` commit because the
+worktree already had them as untracked before I started — they are
+seeded overlays, not authored by me:
+- `web-modern/package-lock.json` / `package.json` (added
+  `@vitest/coverage-v8@^3.2.6` as a devDep, needed for the task's
+  coverage verification step; this dep is consistent with the
+  project-pinned `vitest@^3.0.0`)
+- `web-modern/src/lib/inventory/__tests__/status.test.ts` (from the
+  inventory worker track)
+- `web-modern/src/routeTree.gen.ts` (auto-generated by
+  `tsr generate` postinstall)
+
+## Follow-ups (out of scope, observed but not fixed)
+
+1. **Pre-existing broken tests in this worktree:** `HybridBadge.test.tsx`
+   and `lib/inventory/__tests__/status.test.ts` are seeded-overlay
+   files that need `@testing-library/dom` and `src/lib/inventory/status.ts`
+   respectively, both of which belong to *other* worker tracks. They'll
+   go green once the relevant workers ship. Not my concern.
+2. **Deprecation warning:** vitest prints
+   `DEPRECATED  "environmentMatchGlobs" is deprecated. Use
+   test.projects to define different configurations instead.`
+   Low-priority cleanup; would need a config refactor.
+3. **No `requireRole()` / `can()` exported from `role.ts`:** the task
+   description mentions these, but the source only exports
+   `canReadAudit`, `loadAuditForRole`, `hasAtLeast`, and
+   `isStaffOrAbove`. I tested the actual exported API. If a future
+   refactor introduces `requireRole` / `can` it should get its own
+   test file.
