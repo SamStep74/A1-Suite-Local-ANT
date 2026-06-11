@@ -3814,3 +3814,99 @@ export const GreenhouseAiForecastResponseSchema = z.object({
 export type GreenhouseAiForecastResponse = z.infer<
   typeof GreenhouseAiForecastResponseSchema
 >;
+
+/* ════════════════════════════════════════════════════════════════════════
+   State Integrations (Phase 8.8)
+
+   Mirrors server/app.js#app.post("/api/state-int/:adapter/:operation", ...),
+   app.get("/api/state-int/:adapter/:operation/:requestId/status", ...) and
+   app.get("/api/state-int/audit", ...). The dispatch request body uses
+   .passthrough() so the per-adapter payload (period/taxId/phone/...) is
+   accepted unchanged — the server uses req.body spread to the per-adapter
+   adapter module.
+
+   Audit row keys are snake_case to match the SELECT projection verbatim:
+     SELECT id, adapter, operation, request_id, status, latency_ms, called_at
+   The legacy web/ panel and the audit export CSV both read these as-is, so
+   the TypeScript shape has to use the same casing.
+   ─────────────────────────────────────────────────────────────────────── */
+
+/* ── enum constants ── */
+
+export const StateIntAdapterIdSchema = z.enum([
+  "src",
+  "eregister",
+  "egov",
+  "idcard",
+  "mobileid",
+  "customs",
+]);
+export type StateIntAdapterId = z.infer<typeof StateIntAdapterIdSchema>;
+
+export const StateIntOperationSchema = z.enum([
+  "submitVat",
+  "lookup",
+  "sign",
+  "verify",
+  "challenge",
+  "declare",
+]);
+export type StateIntOperation = z.infer<typeof StateIntOperationSchema>;
+
+export const StateIntStatusSchema = z.enum(["ok", "deferred", "advisory", "failed"]);
+export type StateIntStatus = z.infer<typeof StateIntStatusSchema>;
+
+/* ── request / response envelopes ── */
+
+export const StateIntDispatchRequestSchema = z
+  .object({
+    idempotencyKey: z.string().min(1).max(200),
+  })
+  .passthrough();
+export type StateIntDispatchRequest = z.infer<
+  typeof StateIntDispatchRequestSchema
+>;
+
+export const StateIntDispatchResponseSchema = z.object({
+  requestId: z.string().min(1),
+  status: StateIntStatusSchema,
+  providerRef: z.string().optional(),
+  signatureB64: z.string().optional(),
+  certificateThumbprint: z.string().optional(),
+  advisoryOnly: z.boolean().optional(),
+});
+export type StateIntDispatchResponse = z.infer<
+  typeof StateIntDispatchResponseSchema
+>;
+
+export const StateIntStatusEnvelopeSchema = z.object({
+  adapter: StateIntAdapterIdSchema,
+  operation: StateIntOperationSchema,
+  requestId: z.string().min(1),
+  status: StateIntStatusSchema,
+  calledAt: z.string().min(1),
+  response: z.unknown(),
+});
+export type StateIntStatusEnvelope = z.infer<
+  typeof StateIntStatusEnvelopeSchema
+>;
+
+/* ── audit list ── */
+
+export const StateIntAuditRowSchema = z.object({
+  id: z.string().min(1),
+  adapter: StateIntAdapterIdSchema,
+  operation: StateIntOperationSchema,
+  request_id: z.string().min(1),
+  status: StateIntStatusSchema,
+  latency_ms: z.number().int().nonnegative(),
+  called_at: z.string().min(1),
+});
+export type StateIntAuditRow = z.infer<typeof StateIntAuditRowSchema>;
+
+export const StateIntAuditResponseSchema = z.object({
+  audit: z.array(StateIntAuditRowSchema),
+});
+export type StateIntAuditResponse = z.infer<
+  typeof StateIntAuditResponseSchema
+>;
