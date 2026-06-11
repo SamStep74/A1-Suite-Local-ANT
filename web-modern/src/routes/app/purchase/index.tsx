@@ -32,6 +32,7 @@ import {
   CircleX,
   FileText,
   Package,
+  ShoppingCart,
   Truck,
   Wallet,
 } from "lucide-react";
@@ -181,13 +182,24 @@ function PurchaseWorkspace() {
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <ViewSwitcher options={VIEW_OPTIONS} value={view} onChange={setView} />
-        <Link
-          to="/app"
-          className="inline-flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
-        >
-          <ChevronLeft className="size-3.5" />
-          Today
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/app/purchase/procurement"
+            data-testid="purchase-toolbar-procurement"
+            data-entity="purchase-toolbar-procurement"
+            className="inline-flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+          >
+            <ShoppingCart className="size-3.5" />
+            Procurement
+          </Link>
+          <Link
+            to="/app"
+            className="inline-flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+          >
+            <ChevronLeft className="size-3.5" />
+            Today
+          </Link>
+        </div>
       </div>
 
       {view === "vendors" && (

@@ -48,6 +48,7 @@ import { Route as AppCrmTubeInboxRouteImport } from './routes/app/crm-tube/inbox
 import { Route as AppCopilotChatIdRouteImport } from './routes/app/copilot/$chatId'
 import { Route as AppCfoLoanIdRouteImport } from './routes/app/cfo/$loanId'
 import { Route as AppAnalyticsMetricIdRouteImport } from './routes/app/analytics/$metricId'
+import { Route as AppPurchaseProcurementIndexRouteImport } from './routes/app/purchase/procurement/index'
 import { Route as AppInventoryWarehouseIndexRouteImport } from './routes/app/inventory/warehouse/index'
 import { Route as AppCrmTubeSequencesIndexRouteImport } from './routes/app/crm-tube/sequences/index'
 import { Route as AppCrmTubeIntegrationsIndexRouteImport } from './routes/app/crm-tube/integrations/index'
@@ -253,6 +254,12 @@ const AppAnalyticsMetricIdRoute = AppAnalyticsMetricIdRouteImport.update({
   path: '/analytics/$metricId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppPurchaseProcurementIndexRoute =
+  AppPurchaseProcurementIndexRouteImport.update({
+    id: '/purchase/procurement/',
+    path: '/purchase/procurement/',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
 const AppInventoryWarehouseIndexRoute =
   AppInventoryWarehouseIndexRouteImport.update({
     id: '/inventory/warehouse/',
@@ -354,6 +361,7 @@ export interface FileRoutesByFullPath {
   '/app/crm-tube/integrations/': typeof AppCrmTubeIntegrationsIndexRoute
   '/app/crm-tube/sequences/': typeof AppCrmTubeSequencesIndexRoute
   '/app/inventory/warehouse/': typeof AppInventoryWarehouseIndexRoute
+  '/app/purchase/procurement/': typeof AppPurchaseProcurementIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -402,6 +410,7 @@ export interface FileRoutesByTo {
   '/app/crm-tube/integrations': typeof AppCrmTubeIntegrationsIndexRoute
   '/app/crm-tube/sequences': typeof AppCrmTubeSequencesIndexRoute
   '/app/inventory/warehouse': typeof AppInventoryWarehouseIndexRoute
+  '/app/purchase/procurement': typeof AppPurchaseProcurementIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -453,6 +462,7 @@ export interface FileRoutesById {
   '/app/crm-tube/integrations/': typeof AppCrmTubeIntegrationsIndexRoute
   '/app/crm-tube/sequences/': typeof AppCrmTubeSequencesIndexRoute
   '/app/inventory/warehouse/': typeof AppInventoryWarehouseIndexRoute
+  '/app/purchase/procurement/': typeof AppPurchaseProcurementIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -505,6 +515,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/integrations/'
     | '/app/crm-tube/sequences/'
     | '/app/inventory/warehouse/'
+    | '/app/purchase/procurement/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -553,6 +564,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/integrations'
     | '/app/crm-tube/sequences'
     | '/app/inventory/warehouse'
+    | '/app/purchase/procurement'
   id:
     | '__root__'
     | '/'
@@ -603,6 +615,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/integrations/'
     | '/app/crm-tube/sequences/'
     | '/app/inventory/warehouse/'
+    | '/app/purchase/procurement/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -887,6 +900,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAnalyticsMetricIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/purchase/procurement/': {
+      id: '/app/purchase/procurement/'
+      path: '/purchase/procurement'
+      fullPath: '/app/purchase/procurement/'
+      preLoaderRoute: typeof AppPurchaseProcurementIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/inventory/warehouse/': {
       id: '/app/inventory/warehouse/'
       path: '/inventory/warehouse'
@@ -1010,6 +1030,7 @@ interface AppRouteRouteChildren {
   AppCrmTubeIntegrationsIndexRoute: typeof AppCrmTubeIntegrationsIndexRoute
   AppCrmTubeSequencesIndexRoute: typeof AppCrmTubeSequencesIndexRoute
   AppInventoryWarehouseIndexRoute: typeof AppInventoryWarehouseIndexRoute
+  AppPurchaseProcurementIndexRoute: typeof AppPurchaseProcurementIndexRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
@@ -1053,6 +1074,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppCrmTubeIntegrationsIndexRoute: AppCrmTubeIntegrationsIndexRoute,
   AppCrmTubeSequencesIndexRoute: AppCrmTubeSequencesIndexRoute,
   AppInventoryWarehouseIndexRoute: AppInventoryWarehouseIndexRoute,
+  AppPurchaseProcurementIndexRoute: AppPurchaseProcurementIndexRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
