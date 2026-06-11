@@ -10,7 +10,6 @@ import { DocsCreateForm, DocsRegistryPanel } from "./docs.jsx";
 import { CabinetPanel } from "./cabinet.jsx";
 import { ExportDocsPanel } from "./exportDocs.jsx";
 import { StateIntegrationsPanel } from "./stateIntegrations.jsx";
-import { FleetPanel } from "./fleet.jsx";
 import { CopilotPanel } from "./copilot.jsx";
 import { ProductionReadinessPanel } from "./compliance.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
@@ -4386,9 +4385,6 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
                 onCreateMove={createStockMove}
               />
             </div>
-          )}
-          {["Owner", "Admin", "Operator"].includes(suite.user.role) && (
-            <FleetPanel api={api} actionState={actionState} canWrite={true} />
           )}
           {purchase && (
             <div id="suite-app-purchase" className="suite-app-anchor">
