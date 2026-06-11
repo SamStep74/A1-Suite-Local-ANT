@@ -16,7 +16,6 @@ import { ProductionReadinessPanel } from "./compliance.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
 import { FormCreateForm, FormsRegistryPanel } from "./forms.jsx";
 import { InventoryWorkspacePanel } from "./inventory.jsx";
-import { WarehousePanel } from "./warehouse.jsx";
 import { PurchaseWorkspacePanel } from "./purchase.jsx";
 import { ProcurementExtensionPanel } from "./procurement.jsx";
 import { CfoPanel } from "./cfo.jsx";
@@ -4447,19 +4446,6 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
                 canMove={["Owner", "Admin", "Operator", "Accountant"].includes(suite.user.role)}
                 actionState={actionState}
                 onCreateMove={createStockMove}
-              />
-              <WarehousePanel
-                lots={warehouseLots}
-                serials={warehouseSerials}
-                readings={warehouseReadings}
-                abc={warehouseAbc}
-                turnover={warehouseTurnover}
-                forecast={warehouseForecast}
-                actionState={actionState}
-                onCreateLot={createWarehouseLot}
-                onRegisterSerial={registerWarehouseSerial}
-                onRecordReading={recordWarehouseReading}
-                onRunForecast={runWarehouseForecast}
               />
             </div>
           )}
