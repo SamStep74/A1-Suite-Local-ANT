@@ -46,6 +46,9 @@ import { Route as AppCopilotChatIdRouteImport } from './routes/app/copilot/$chat
 import { Route as AppCfoLoanIdRouteImport } from './routes/app/cfo/$loanId'
 import { Route as AppAnalyticsMetricIdRouteImport } from './routes/app/analytics/$metricId'
 import { Route as AppCfoReportsIndexRouteImport } from './routes/app/cfo/reports/index'
+import { Route as AppCrmTubeContactsIndexRouteImport } from './routes/app/crm-tube/contacts/index'
+import { Route as AppCrmTubeContactsContactIdRouteImport } from './routes/app/crm-tube/contacts/$contactId'
+import { Route as AppCrmTubeInboxRouteImport } from './routes/app/crm-tube/inbox'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -232,6 +235,21 @@ const AppCfoReportsIndexRoute = AppCfoReportsIndexRouteImport.update({
   path: '/cfo/reports/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCrmTubeContactsIndexRoute = AppCrmTubeContactsIndexRouteImport.update({
+  id: '/crm-tube/contacts/',
+  path: '/crm-tube/contacts/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppCrmTubeContactsContactIdRoute = AppCrmTubeContactsContactIdRouteImport.update({
+  id: '/crm-tube/contacts/$contactId',
+  path: '/crm-tube/contacts/$contactId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppCrmTubeInboxRoute = AppCrmTubeInboxRouteImport.update({
+  id: '/crm-tube/inbox',
+  path: '/crm-tube/inbox',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -271,6 +289,9 @@ export interface FileRoutesByFullPath {
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
+  '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
+  '/app/crm-tube/contacts/': typeof AppCrmTubeContactsIndexRoute
+  '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -308,6 +329,9 @@ export interface FileRoutesByTo {
   '/app/projects': typeof AppProjectsIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
   '/app/cfo/reports': typeof AppCfoReportsIndexRoute
+  '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
+  '/app/crm-tube/contacts': typeof AppCrmTubeContactsIndexRoute
+  '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -348,6 +372,9 @@ export interface FileRoutesById {
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
+  '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
+  '/app/crm-tube/contacts/': typeof AppCrmTubeContactsIndexRoute
+  '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -389,6 +416,9 @@ export interface FileRouteTypes {
     | '/app/projects/'
     | '/app/purchase/'
     | '/app/cfo/reports/'
+    | '/app/crm-tube/contacts/$contactId'
+    | '/app/crm-tube/contacts/'
+    | '/app/crm-tube/inbox'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -426,6 +456,9 @@ export interface FileRouteTypes {
     | '/app/projects'
     | '/app/purchase'
     | '/app/cfo/reports'
+    | '/app/crm-tube/contacts/$contactId'
+    | '/app/crm-tube/contacts'
+    | '/app/crm-tube/inbox'
   id:
     | '__root__'
     | '/'
@@ -465,6 +498,9 @@ export interface FileRouteTypes {
     | '/app/projects/'
     | '/app/purchase/'
     | '/app/cfo/reports/'
+    | '/app/crm-tube/contacts/$contactId'
+    | '/app/crm-tube/contacts/'
+    | '/app/crm-tube/inbox'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -735,6 +771,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCfoReportsIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/crm-tube/contacts/$contactId': {
+      id: '/app/crm-tube/contacts/$contactId'
+      path: '/crm-tube/contacts/$contactId'
+      fullPath: '/app/crm-tube/contacts/$contactId'
+      preLoaderRoute: typeof AppCrmTubeContactsContactIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/crm-tube/contacts/': {
+      id: '/app/crm-tube/contacts/'
+      path: '/crm-tube/contacts'
+      fullPath: '/app/crm-tube/contacts/'
+      preLoaderRoute: typeof AppCrmTubeContactsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/crm-tube/inbox': {
+      id: '/app/crm-tube/inbox'
+      path: '/crm-tube/inbox'
+      fullPath: '/app/crm-tube/inbox'
+      preLoaderRoute: typeof AppCrmTubeInboxRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
   }
 }
 
@@ -783,6 +840,9 @@ interface AppRouteRouteChildren {
   AppProjectsIndexRoute: typeof AppProjectsIndexRoute
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
   AppCfoReportsIndexRoute: typeof AppCfoReportsIndexRoute
+  AppCrmTubeContactsContactIdRoute: typeof AppCrmTubeContactsContactIdRoute
+  AppCrmTubeContactsIndexRoute: typeof AppCrmTubeContactsIndexRoute
+  AppCrmTubeInboxRoute: typeof AppCrmTubeInboxRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
@@ -816,6 +876,9 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppProjectsIndexRoute: AppProjectsIndexRoute,
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,
   AppCfoReportsIndexRoute: AppCfoReportsIndexRoute,
+  AppCrmTubeContactsContactIdRoute: AppCrmTubeContactsContactIdRoute,
+  AppCrmTubeContactsIndexRoute: AppCrmTubeContactsIndexRoute,
+  AppCrmTubeInboxRoute: AppCrmTubeInboxRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
@@ -841,12 +904,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
