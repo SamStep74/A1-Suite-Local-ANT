@@ -3503,3 +3503,314 @@ export const FleetTireInstallResponseSchema = z.object({
 export type FleetTireInstallResponse = z.infer<
   typeof FleetTireInstallResponseSchema
 >;
+
+/* ════════════════════════════════════════════════════════════════════════
+ * Greenhouse (Phase 8.7) — Zod schemas for the /api/greenhouse/* surface.
+ * Source: server/app.js (the greenhouse block — 7 tabs + 1 AI endpoint).
+ * The 7 tabs are House, Zone, Crop, Climate (GDD), Energy, Bioprotection,
+ * and Harvest. State flows: houseId → zoneId → cropId — the legacy panel
+ * holds these in local component state and exposes them as "ID" pills
+ * (web/src/greenhouse.jsx lines 65/73/81). The legacy render reuses
+ * `harvestedAt` for `appliedAt` in the bioprotection POST (line 105-106),
+ * which is intentional: both are date-of-action fields.
+ *
+ * Every write endpoint carries an `idempotencyKey: z.string().min(1).max(200)`
+ * (server stores the response envelope in `idempotency_keys` so safe
+ * retries return the cached envelope).
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* ── enum constants ── */
+
+export const GreenhouseGlazingKindSchema = z.enum(["glass", "poly", "film"]);
+export type GreenhouseGlazingKind = z.infer<typeof GreenhouseGlazingKindSchema>;
+
+export const GreenhouseHeatingKindSchema = z.enum([
+  "gas",
+  "electric",
+  "biomass",
+  "geothermal",
+]);
+export type GreenhouseHeatingKind = z.infer<typeof GreenhouseHeatingKindSchema>;
+
+export const GreenhouseIrrigationKindSchema = z.enum([
+  "drip",
+  "sprinkler",
+  "flood",
+  "manual",
+]);
+export type GreenhouseIrrigationKind = z.infer<
+  typeof GreenhouseIrrigationKindSchema
+>;
+
+export const GreenhouseCropKindSchema = z.enum([
+  "tomato",
+  "cucumber",
+  "pepper",
+  "lettuce",
+  "strawberry",
+  "herb",
+]);
+export type GreenhouseCropKind = z.infer<typeof GreenhouseCropKindSchema>;
+
+export const GreenhouseCropStatusSchema = z.enum([
+  "growing",
+  "harvested",
+  "lost",
+  "terminated",
+]);
+export type GreenhouseCropStatus = z.infer<typeof GreenhouseCropStatusSchema>;
+
+export const GreenhouseQualityGradeSchema = z.enum(["A", "B", "C"]);
+export type GreenhouseQualityGrade = z.infer<typeof GreenhouseQualityGradeSchema>;
+
+export const GreenhouseAiIntentSchema = z.enum([
+  "yield-forecast",
+  "climate-anomaly",
+  "pest-risk",
+]);
+export type GreenhouseAiIntent = z.infer<typeof GreenhouseAiIntentSchema>;
+
+/* ── entities ── */
+
+export const GreenhouseHouseSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  areaM2: z.number(),
+  glazingKind: GreenhouseGlazingKindSchema,
+  heatingKind: GreenhouseHeatingKindSchema,
+  createdAt: z.string(),
+});
+export type GreenhouseHouse = z.infer<typeof GreenhouseHouseSchema>;
+
+export const GreenhouseZoneSchema = z.object({
+  id: z.string(),
+  greenhouseId: z.string(),
+  name: z.string(),
+  areaM2: z.number(),
+  irrigationKind: GreenhouseIrrigationKindSchema,
+  createdAt: z.string(),
+});
+export type GreenhouseZone = z.infer<typeof GreenhouseZoneSchema>;
+
+export const GreenhouseCropSchema = z.object({
+  id: z.string(),
+  zoneId: z.string(),
+  cropKind: GreenhouseCropKindSchema,
+  plantedAt: z.string(),
+  expectedHarvestAt: z.string(),
+  expectedYieldKg: z.number(),
+  seedSource: z.string(),
+  status: GreenhouseCropStatusSchema,
+  createdAt: z.string(),
+});
+export type GreenhouseCrop = z.infer<typeof GreenhouseCropSchema>;
+
+export const GreenhouseBioprotectionSchema = z.object({
+  id: z.string(),
+  zoneId: z.string(),
+  appliedAt: z.string(),
+  agentKind: z.string(),
+  dose: z.string(),
+  targetPest: z.string(),
+  withdrawalPeriodDays: z.number().int().nonnegative(),
+  recordedBy: z.string(),
+  createdAt: z.string(),
+});
+export type GreenhouseBioprotection = z.infer<
+  typeof GreenhouseBioprotectionSchema
+>;
+
+export const GreenhouseHarvestSchema = z.object({
+  id: z.string(),
+  cropId: z.string(),
+  harvestedAt: z.string(),
+  quantityKg: z.number(),
+  qualityGrade: GreenhouseQualityGradeSchema,
+  lotId: z.string(),
+  createdAt: z.string(),
+});
+export type GreenhouseHarvest = z.infer<typeof GreenhouseHarvestSchema>;
+
+/* ── analytics rows / packets ── */
+
+export const GreenhouseYieldRowSchema = z.object({
+  cropId: z.string(),
+  cropKind: GreenhouseCropKindSchema,
+  expectedKg: z.number(),
+  actualKg: z.number().nullable(),
+  pctOfForecast: z.number().nullable(),
+});
+export type GreenhouseYieldRow = z.infer<typeof GreenhouseYieldRowSchema>;
+
+export const GreenhouseEnergySchema = z.object({
+  totalKwh: z.number(),
+  totalGasM3: z.number(),
+  totalKg: z.number(),
+  kwhPerKg: z.number(),
+  gasM3PerKg: z.number(),
+});
+export type GreenhouseEnergy = z.infer<typeof GreenhouseEnergySchema>;
+
+export const GreenhouseGddSchema = z.object({
+  baseTempC: z.number(),
+  growingDegreeDays: z.number(),
+  sampleSize: z.number(),
+});
+export type GreenhouseGdd = z.infer<typeof GreenhouseGddSchema>;
+
+export const GreenhouseAiForecastPacketSchema = z.object({
+  intent: GreenhouseAiIntentSchema,
+  aiSource: z.string(),
+  answer: z.string(),
+  confidence: z.number(),
+  riskLevel: z.string(),
+});
+export type GreenhouseAiForecastPacket = z.infer<
+  typeof GreenhouseAiForecastPacketSchema
+>;
+
+/* ── analytics response envelopes (per legacy GET) ── */
+
+export const GreenhouseYieldResponseSchema = z.object({
+  rows: z.array(GreenhouseYieldRowSchema),
+});
+export type GreenhouseYieldResponse = z.infer<
+  typeof GreenhouseYieldResponseSchema
+>;
+
+export const GreenhouseEnergyResponseSchema = z.object({
+  energy: GreenhouseEnergySchema,
+});
+export type GreenhouseEnergyResponse = z.infer<
+  typeof GreenhouseEnergyResponseSchema
+>;
+
+export const GreenhouseGddResponseSchema = z.object({
+  baseTempC: z.number(),
+  growingDegreeDays: z.number(),
+  sampleSize: z.number(),
+});
+export type GreenhouseGddResponse = z.infer<typeof GreenhouseGddResponseSchema>;
+
+/* ── request payloads (6 create endpoints — all with idempotencyKey) ── */
+
+const GreenhouseIdempotencyKeySchema = z.string().min(1).max(200);
+
+export const GreenhouseHouseCreateRequestSchema = z.object({
+  name: z.string().min(1).max(120),
+  areaM2: z.number().positive(),
+  glazingKind: GreenhouseGlazingKindSchema,
+  heatingKind: GreenhouseHeatingKindSchema,
+  idempotencyKey: GreenhouseIdempotencyKeySchema,
+});
+export type GreenhouseHouseCreateRequest = z.infer<
+  typeof GreenhouseHouseCreateRequestSchema
+>;
+
+export const GreenhouseZoneCreateRequestSchema = z.object({
+  greenhouseId: z.string().min(1),
+  name: z.string().min(1).max(120),
+  areaM2: z.number().positive(),
+  irrigationKind: GreenhouseIrrigationKindSchema,
+  idempotencyKey: GreenhouseIdempotencyKeySchema,
+});
+export type GreenhouseZoneCreateRequest = z.infer<
+  typeof GreenhouseZoneCreateRequestSchema
+>;
+
+export const GreenhouseCropCreateRequestSchema = z.object({
+  zoneId: z.string().min(1),
+  cropKind: GreenhouseCropKindSchema,
+  plantedAt: z.string().min(1),
+  expectedHarvestAt: z.string().min(1),
+  expectedYieldKg: z.number().nonnegative(),
+  seedSource: z.string().min(1).max(120),
+  idempotencyKey: GreenhouseIdempotencyKeySchema,
+});
+export type GreenhouseCropCreateRequest = z.infer<
+  typeof GreenhouseCropCreateRequestSchema
+>;
+
+export const GreenhouseBioprotectionCreateRequestSchema = z.object({
+  zoneId: z.string().min(1),
+  appliedAt: z.string().min(1),
+  agentKind: z.string().min(1).max(120),
+  dose: z.string().min(1).max(60),
+  targetPest: z.string().min(1).max(120),
+  withdrawalPeriodDays: z.number().int().nonnegative(),
+  recordedBy: z.string().min(1).max(120),
+  idempotencyKey: GreenhouseIdempotencyKeySchema,
+});
+export type GreenhouseBioprotectionCreateRequest = z.infer<
+  typeof GreenhouseBioprotectionCreateRequestSchema
+>;
+
+export const GreenhouseHarvestCreateRequestSchema = z.object({
+  cropId: z.string().min(1),
+  harvestedAt: z.string().min(1),
+  quantityKg: z.number().nonnegative(),
+  qualityGrade: GreenhouseQualityGradeSchema,
+  idempotencyKey: GreenhouseIdempotencyKeySchema,
+});
+export type GreenhouseHarvestCreateRequest = z.infer<
+  typeof GreenhouseHarvestCreateRequestSchema
+>;
+
+export const GreenhouseAiForecastRequestSchema = z.object({
+  periodKey: z.string().regex(/^\d{4}-\d{2}$/),
+  question: z.string().min(1).max(500),
+  idempotencyKey: GreenhouseIdempotencyKeySchema,
+});
+export type GreenhouseAiForecastRequest = z.infer<
+  typeof GreenhouseAiForecastRequestSchema
+>;
+
+/* ── write response envelopes ── */
+
+export const GreenhouseHouseCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  greenhouse: GreenhouseHouseSchema,
+});
+export type GreenhouseHouseCreateResponse = z.infer<
+  typeof GreenhouseHouseCreateResponseSchema
+>;
+
+export const GreenhouseZoneCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  zone: GreenhouseZoneSchema,
+});
+export type GreenhouseZoneCreateResponse = z.infer<
+  typeof GreenhouseZoneCreateResponseSchema
+>;
+
+export const GreenhouseCropCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  crop: GreenhouseCropSchema,
+});
+export type GreenhouseCropCreateResponse = z.infer<
+  typeof GreenhouseCropCreateResponseSchema
+>;
+
+export const GreenhouseBioprotectionCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  bioprotection: GreenhouseBioprotectionSchema,
+});
+export type GreenhouseBioprotectionCreateResponse = z.infer<
+  typeof GreenhouseBioprotectionCreateResponseSchema
+>;
+
+export const GreenhouseHarvestCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  harvest: GreenhouseHarvestSchema,
+});
+export type GreenhouseHarvestCreateResponse = z.infer<
+  typeof GreenhouseHarvestCreateResponseSchema
+>;
+
+export const GreenhouseAiForecastResponseSchema = z.object({
+  ok: z.literal(true),
+  packet: GreenhouseAiForecastPacketSchema,
+});
+export type GreenhouseAiForecastResponse = z.infer<
+  typeof GreenhouseAiForecastResponseSchema
+>;
