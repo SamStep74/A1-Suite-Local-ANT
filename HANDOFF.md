@@ -1,6 +1,6 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-11 · main after web-modern Pattern A UI rebuild (Phase 3.5 CFO + Phase 4) · **1203 vitest pass on web-modern (53 files) + 933 node:test pass on server root = 2136 total, 0 fail, 0 cancelled** · Ant-clone sync pending explicit user approval (per security rule: `git push ant <tag>`, never `origin`)_
+_Last updated: 2026-06-11 · main after web-modern Pattern A UI rebuild (Phase 3.5 CFO + Phase 4) + Phase 5 (e2e smoke) · **1202 vitest pass on web-modern (52 files; 1 pre-existing time-coupling flake in finance overdue) + 933 node:test pass on server root = 2135 total** · **15 Playwright e2e pass (14 apps smoke + 1 CRM happy-path detail) in 4.0s** · Pushed to `ant` as `main` + tag `phase4-web-modern-pattern-a-v1` at SHA `62267c2` · 8 stale `wip/*` branches removed (worktrees pruned) · Repo is clean: 1 local branch (main), 0 worktrees_
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
