@@ -2997,3 +2997,147 @@ export type ProcurementReplenishmentResponse = z.infer<
   typeof ProcurementReplenishmentResponseSchema
 >;
 
+/* ════════════════════════════════════════════════════════════════════════
+ * Assets (Phase 8.5) — Zod schemas for the /api/assets/* surface.
+ * Source: server/app.js lines 3602-3851 (categories, registry, depreciation,
+ * maintenance-history, post-depreciation, assign, return, write-off, value
+ * rollup) and server/assets.js#buildSchedule / #rollUpValueByCategory.
+ *
+ * The Assets workspace in web-modern renders 4 tabs: Registry, Depreciation,
+ * Maintenance, Assignment. All integer-AMD where amounts appear. Maintenance
+ * log `performed_at` is YYYY-MM-DD; the depreciation schedule is
+ * `{periodIndex, depreciationAmd, accumulatedAmd, netBookValueAmd}` per
+ * line; the value rollup is a per-category aggregate.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** One row of the registry tab — a (category, count, totals) aggregate.
+ *  Source: server/app.js#rollUpValueByCategory (line 197). */
+export const AssetsValueRollupRowSchema = z.object({
+  categoryId: z.string(),
+  count: z.number().int().nonnegative(),
+  totalCostAmd: z.number().int(),
+  totalNbvAmd: z.number().int(),
+});
+export type AssetsValueRollupRow = z.infer<typeof AssetsValueRollupRowSchema>;
+
+export const AssetsValueRollupResponseSchema = z.object({
+  ok: z.literal(true),
+  rollup: z.array(AssetsValueRollupRowSchema),
+});
+export type AssetsValueRollupResponse = z.infer<
+  typeof AssetsValueRollupResponseSchema
+>;
+
+/** One period in a depreciation schedule.
+ *  Source: server/assets.js#depreciateStraightLine / #depreciateReducingBalance
+ *  (lines 129-167). The `accumulatedAmd` field is surfaced in the response
+ *  even though the legacy UI only reads `depreciationAmd` and `netBookValueAmd`
+ *  — keeping it here for parity with the wire format. */
+export const AssetsDepreciationLineSchema = z.object({
+  periodIndex: z.number().int().nonnegative(),
+  depreciationAmd: z.number().int(),
+  accumulatedAmd: z.number().int(),
+  netBookValueAmd: z.number().int(),
+});
+export type AssetsDepreciationLine = z.infer<
+  typeof AssetsDepreciationLineSchema
+>;
+
+export const AssetsDepreciationResponseSchema = z.object({
+  ok: z.literal(true),
+  assetId: z.string(),
+  schedule: z.array(AssetsDepreciationLineSchema),
+});
+export type AssetsDepreciationResponse = z.infer<
+  typeof AssetsDepreciationResponseSchema
+>;
+
+/** Body for POST /api/assets/:id/post-depreciation. Mirrors the validator
+ *  in server/app.js (line 3692: `periodKey must be YYYY-MM`,
+ *  `monthIndex` clamped into `[0, schedule.length-1]`). `monthIndex: 0` is
+ *  always sent from the legacy UI (line 49 of web/src/assets.jsx). */
+export const AssetsPostDepreciationRequestSchema = z.object({
+  periodKey: z.string().regex(/^\d{4}-\d{2}$/, "periodKey must be YYYY-MM"),
+  monthIndex: z.number().int().nonnegative().default(0),
+  idempotencyKey: z.string().min(1).max(200),
+});
+export type AssetsPostDepreciationRequest = z.infer<
+  typeof AssetsPostDepreciationRequestSchema
+>;
+
+export const AssetsPostDepreciationResponseSchema = z.object({
+  ok: z.literal(true),
+  period: z
+    .object({
+      id: z.string(),
+      asset_id: z.string().optional(),
+      period_key: z.string().optional(),
+      depreciation_amd: z.number().int().optional(),
+      accumulated_amd: z.number().int().optional(),
+      net_book_value_amd: z.number().int().optional(),
+      status: z.string().optional(),
+      posted_at: z.string().optional(),
+    })
+    .passthrough(),
+});
+export type AssetsPostDepreciationResponse = z.infer<
+  typeof AssetsPostDepreciationResponseSchema
+>;
+
+/** One maintenance log entry.
+ *  Source: server/db.js asset_maintenance_logs (line 8394) and
+ *  server/app.js GET /api/assets/:id/maintenance-history (3724).
+ *  The legacy UI renders `performed_at` (YYYY-MM-DD), `kind`, and
+ *  `cost_amd`; we expose the full row plus optional vendor / notes / next-due
+ *  fields for parity. */
+export const AssetsMaintenanceLogSchema = z.object({
+  id: z.string(),
+  asset_id: z.string().optional(),
+  performed_at: z.string(),
+  kind: z.string(),
+  cost_amd: z.number().int().nonnegative(),
+  vendor_id: z.string().nullable().optional(),
+  notes: z.string().nullable().optional(),
+  file_id: z.string().nullable().optional(),
+  next_due_at: z.string().nullable().optional(),
+});
+export type AssetsMaintenanceLog = z.infer<typeof AssetsMaintenanceLogSchema>;
+
+export const AssetsMaintenanceResponseSchema = z.object({
+  ok: z.literal(true),
+  assetId: z.string(),
+  logs: z.array(AssetsMaintenanceLogSchema),
+});
+export type AssetsMaintenanceResponse = z.infer<
+  typeof AssetsMaintenanceResponseSchema
+>;
+
+/** Body for POST /api/assets/:id/assign. Mirrors the validator in
+ *  server/app.js (line 3783-3785: both `assigneeType` and `assigneeId`
+ *  required, non-empty after trim). */
+export const AssetsAssignRequestSchema = z.object({
+  assigneeType: z.string().min(1).max(60),
+  assigneeId: z.string().min(1).max(80),
+  idempotencyKey: z.string().min(1).max(200),
+});
+export type AssetsAssignRequest = z.infer<typeof AssetsAssignRequestSchema>;
+
+export const AssetsAssignmentSchema = z
+  .object({
+    id: z.string(),
+    asset_id: z.string().optional(),
+    assignee_type: z.string().optional(),
+    assignee_id: z.string().optional(),
+    assigned_at: z.string().optional(),
+    returned_at: z.string().nullable().optional(),
+    signature_doc_id: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type AssetsAssignment = z.infer<typeof AssetsAssignmentSchema>;
+
+export const AssetsAssignResponseSchema = z.object({
+  ok: z.literal(true),
+  assignment: AssetsAssignmentSchema,
+});
+export type AssetsAssignResponse = z.infer<typeof AssetsAssignResponseSchema>;
+
