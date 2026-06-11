@@ -17,7 +17,6 @@ import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
 import { FormCreateForm, FormsRegistryPanel } from "./forms.jsx";
 import { InventoryWorkspacePanel } from "./inventory.jsx";
 import { PurchaseWorkspacePanel } from "./purchase.jsx";
-import { ProcurementExtensionPanel } from "./procurement.jsx";
 import { CfoPanel } from "./cfo.jsx";
 import { AssetsPanel } from "./assets.jsx";
 import { GreenhousePanel } from "./greenhouse.jsx";
@@ -1333,66 +1332,6 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
     try {
       const result = await api("/api/warehouse/forecast/restock", { method: "POST", body: payload });
       setWarehouseForecast(result.forecast);
-      return result;
-    } finally { setActionState(""); }
-  };
-
-  const [procurementRequisitions, setProcurementRequisitions] = useState([]);
-  const [procurementRfq, setProcurementRfq] = useState(null);
-  const [procurementCoverage, setProcurementCoverage] = useState(null);
-
-  const refreshProcurement = useCallback(async () => {
-    if (!api) return;
-    try {
-      const [requisitions, coverage] = await Promise.all([
-        api("/api/procurement/requisitions"),
-        api("/api/procurement/blanket-orders/coverage")
-      ]);
-      setProcurementRequisitions(requisitions?.requisitions || requisitions || []);
-      setProcurementCoverage(coverage?.coverage || null);
-    } catch (error) {
-      console.warn("procurement refresh failed", error);
-    }
-  }, [api]);
-
-  const createRequisition = async payload => {
-    setActionState("procurement:requisition");
-    setActionError("");
-    try {
-      const result = await api("/api/procurement/requisitions", { method: "POST", body: payload });
-      setProcurementRequisitions(prev => [...prev, result.requisition || result]);
-      return result;
-    } finally { setActionState(""); }
-  };
-  const convertToRfq = async payload => {
-    setActionState("procurement:convert");
-    setActionError("");
-    try {
-      const result = await api("/api/procurement/requisitions/x/convert-to-rfq", { method: "POST", body: payload });
-      setProcurementRfq(result.rfq || result);
-      return result;
-    } finally { setActionState(""); }
-  };
-  const allocateLanded = async payload => {
-    setActionState("procurement:landed");
-    setActionError("");
-    try {
-      return await api("/api/procurement/landed-costs", { method: "POST", body: payload });
-    } finally { setActionState(""); }
-  };
-  const issueCredit = async payload => {
-    setActionState("procurement:credit");
-    setActionError("");
-    try {
-      return await api("/api/procurement/credit-notes", { method: "POST", body: payload });
-    } finally { setActionState(""); }
-  };
-  const createBlanket = async payload => {
-    setActionState("procurement:blanket");
-    setActionError("");
-    try {
-      const result = await api("/api/procurement/blanket-orders", { method: "POST", body: payload });
-      await refreshProcurement();
       return result;
     } finally { setActionState(""); }
   };
@@ -4464,17 +4403,6 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
                 onReceiveOrder={receivePurchaseOrder}
                 onReturnOrder={returnPurchaseOrder}
                 onBillOrder={billPurchaseOrder}
-              />
-              <ProcurementExtensionPanel
-                requisitions={procurementRequisitions}
-                rfqs={procurementRfq}
-                coverage={procurementCoverage}
-                actionState={actionState}
-                onCreateRequisition={createRequisition}
-                onConvertToRfq={convertToRfq}
-                onAllocateLanded={allocateLanded}
-                onIssueCredit={issueCredit}
-                onCreateBlanket={createBlanket}
               />
             </div>
           )}
