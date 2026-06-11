@@ -22,6 +22,7 @@ import { Route as AppProjectsIndexRouteImport } from './routes/app/projects/inde
 import { Route as AppPeopleIndexRouteImport } from './routes/app/people/index'
 import { Route as AppInventoryIndexRouteImport } from './routes/app/inventory/index'
 import { Route as AppHealthcheckIndexRouteImport } from './routes/app/healthcheck/index'
+import { Route as AppGreenhouseIndexRouteImport } from './routes/app/greenhouse/index'
 import { Route as AppFormsIndexRouteImport } from './routes/app/forms/index'
 import { Route as AppFlowIndexRouteImport } from './routes/app/flow/index'
 import { Route as AppFleetIndexRouteImport } from './routes/app/fleet/index'
@@ -124,6 +125,11 @@ const AppInventoryIndexRoute = AppInventoryIndexRouteImport.update({
 const AppHealthcheckIndexRoute = AppHealthcheckIndexRouteImport.update({
   id: '/healthcheck/',
   path: '/healthcheck/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppGreenhouseIndexRoute = AppGreenhouseIndexRouteImport.update({
+  id: '/greenhouse/',
+  path: '/greenhouse/',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppFormsIndexRoute = AppFormsIndexRouteImport.update({
@@ -361,6 +367,7 @@ export interface FileRoutesByFullPath {
   '/app/fleet/': typeof AppFleetIndexRoute
   '/app/flow/': typeof AppFlowIndexRoute
   '/app/forms/': typeof AppFormsIndexRoute
+  '/app/greenhouse/': typeof AppGreenhouseIndexRoute
   '/app/healthcheck/': typeof AppHealthcheckIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
@@ -412,6 +419,7 @@ export interface FileRoutesByTo {
   '/app/fleet': typeof AppFleetIndexRoute
   '/app/flow': typeof AppFlowIndexRoute
   '/app/forms': typeof AppFormsIndexRoute
+  '/app/greenhouse': typeof AppGreenhouseIndexRoute
   '/app/healthcheck': typeof AppHealthcheckIndexRoute
   '/app/inventory': typeof AppInventoryIndexRoute
   '/app/people': typeof AppPeopleIndexRoute
@@ -466,6 +474,7 @@ export interface FileRoutesById {
   '/app/fleet/': typeof AppFleetIndexRoute
   '/app/flow/': typeof AppFlowIndexRoute
   '/app/forms/': typeof AppFormsIndexRoute
+  '/app/greenhouse/': typeof AppGreenhouseIndexRoute
   '/app/healthcheck/': typeof AppHealthcheckIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
@@ -521,6 +530,7 @@ export interface FileRouteTypes {
     | '/app/fleet/'
     | '/app/flow/'
     | '/app/forms/'
+    | '/app/greenhouse/'
     | '/app/healthcheck/'
     | '/app/inventory/'
     | '/app/people/'
@@ -572,6 +582,7 @@ export interface FileRouteTypes {
     | '/app/fleet'
     | '/app/flow'
     | '/app/forms'
+    | '/app/greenhouse'
     | '/app/healthcheck'
     | '/app/inventory'
     | '/app/people'
@@ -625,6 +636,7 @@ export interface FileRouteTypes {
     | '/app/fleet/'
     | '/app/flow/'
     | '/app/forms/'
+    | '/app/greenhouse/'
     | '/app/healthcheck/'
     | '/app/inventory/'
     | '/app/people/'
@@ -740,6 +752,13 @@ declare module '@tanstack/react-router' {
       path: '/healthcheck'
       fullPath: '/app/healthcheck/'
       preLoaderRoute: typeof AppHealthcheckIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/greenhouse/': {
+      id: '/app/greenhouse/'
+      path: '/greenhouse'
+      fullPath: '/app/greenhouse/'
+      preLoaderRoute: typeof AppGreenhouseIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/forms/': {
@@ -1057,6 +1076,7 @@ interface AppRouteRouteChildren {
   AppFleetIndexRoute: typeof AppFleetIndexRoute
   AppFlowIndexRoute: typeof AppFlowIndexRoute
   AppFormsIndexRoute: typeof AppFormsIndexRoute
+  AppGreenhouseIndexRoute: typeof AppGreenhouseIndexRoute
   AppHealthcheckIndexRoute: typeof AppHealthcheckIndexRoute
   AppInventoryIndexRoute: typeof AppInventoryIndexRoute
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
@@ -1103,6 +1123,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppFleetIndexRoute: AppFleetIndexRoute,
   AppFlowIndexRoute: AppFlowIndexRoute,
   AppFormsIndexRoute: AppFormsIndexRoute,
+  AppGreenhouseIndexRoute: AppGreenhouseIndexRoute,
   AppHealthcheckIndexRoute: AppHealthcheckIndexRoute,
   AppInventoryIndexRoute: AppInventoryIndexRoute,
   AppPeopleIndexRoute: AppPeopleIndexRoute,

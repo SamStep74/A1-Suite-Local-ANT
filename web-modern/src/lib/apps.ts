@@ -26,6 +26,7 @@ import {
   RadioTower,
   Boxes,
   Truck,
+  Sprout,
   type LucideIcon,
 } from "lucide-react";
 
@@ -47,6 +48,7 @@ export const APP_IDS = [
   "forms",
   "cfo",
   "fleet",
+  "greenhouse",
 ] as const;
 
 export type AppId = (typeof APP_IDS)[number];
@@ -235,12 +237,22 @@ export const APPS: Record<AppId, AppMeta> = {
   fleet: {
     id: "fleet",
     label: "Fleet",
-    labelAm: "Ավdelays",
+    labelAm: "Ավտոպառկ",
     tagline: "Vehicles · drivers · trips · fuel · repairs · tires · cold chain",
     icon: Truck,
     accent: "teal",
     group: "ext",
     legacyMountId: "suite-app-fleet",
+  },
+  greenhouse: {
+    id: "greenhouse",
+    label: "Greenhouse",
+    labelAm: "Ջեռանոչհ",
+    tagline: "Houses · zones · crops · climate · energy · bioprotection · harvest",
+    icon: Sprout,
+    accent: "green",
+    group: "ext",
+    legacyMountId: "suite-app-greenhouse",
   },
 };
 
