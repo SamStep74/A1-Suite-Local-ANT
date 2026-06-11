@@ -4180,6 +4180,75 @@ function registerApi(app, db, options = {}) {
     return { ok: true, backlog: fleet.maintenanceBacklog(rows) };
   });
 
+  // ---------- Phase 8.6: list GET endpoints (tenant-scoped, recent-first). ----------
+  // Pattern: app.auth + requireAppAccess + org_id filter + ORDER BY <time-col> DESC LIMIT 100.
+  // Tables without created_at use their event-time column (occurred_at / installed_at / recorded_at).
+  // fleet_cold_chain_logs has no org_id, so it JOINs fleet_vehicles for tenant scoping.
+
+  app.get("/api/fleet/vehicles", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const vehicles = db.prepare(
+      "SELECT id, org_id AS orgId, plate, asset_id AS assetId, model, year, capacity_kg AS capacityKg, refrigeration, max_fuel_l AS maxFuelL, created_at AS createdAt FROM fleet_vehicles WHERE org_id = ? ORDER BY created_at DESC LIMIT 100"
+    ).all(user.org_id);
+    return { ok: true, vehicles };
+  });
+
+  app.get("/api/fleet/drivers", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const drivers = db.prepare(
+      "SELECT id, org_id AS orgId, employee_id AS employeeId, license_no AS licenseNo, license_classes AS licenseClasses, license_expiry AS licenseExpiry, hours_of_service_balance_min AS hoursOfServiceBalanceMin, created_at AS createdAt FROM fleet_drivers WHERE org_id = ? ORDER BY created_at DESC LIMIT 100"
+    ).all(user.org_id);
+    return { ok: true, drivers };
+  });
+
+  app.get("/api/fleet/trips", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const trips = db.prepare(
+      "SELECT id, org_id AS orgId, vehicle_id AS vehicleId, driver_id AS driverId, origin, destination, planned_departure AS plannedDeparture, planned_arrival AS plannedArrival, actual_departure AS actualDeparture, actual_arrival AS actualArrival, distance_km AS distanceKm, fuel_l AS fuelL, status, export_doc_id AS exportDocId, created_at AS createdAt FROM fleet_trips WHERE org_id = ? ORDER BY created_at DESC LIMIT 100"
+    ).all(user.org_id);
+    return { ok: true, trips };
+  });
+
+  app.get("/api/fleet/fuel-logs", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const fuelLogs = db.prepare(
+      "SELECT id, org_id AS orgId, vehicle_id AS vehicleId, occurred_at AS occurredAt, liters, cost_amd AS costAmd, odometer_km AS odometerKm, station, vendor_id AS vendorId, notes, file_id AS fileId FROM fleet_fuel_logs WHERE org_id = ? ORDER BY occurred_at DESC LIMIT 100"
+    ).all(user.org_id);
+    return { ok: true, fuelLogs };
+  });
+
+  app.get("/api/fleet/repairs", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const repairs = db.prepare(
+      "SELECT id, org_id AS orgId, vehicle_id AS vehicleId, occurred_at AS occurredAt, kind, description, cost_amd AS costAmd, vendor_id AS vendorId, odometer_km AS odometerKm, file_id AS fileId, next_due_at AS nextDueAt FROM fleet_repairs WHERE org_id = ? ORDER BY occurred_at DESC LIMIT 100"
+    ).all(user.org_id);
+    return { ok: true, repairs };
+  });
+
+  app.get("/api/fleet/tires", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    const tires = db.prepare(
+      "SELECT id, org_id AS orgId, vehicle_id AS vehicleId, position, brand, installed_at AS installedAt, removed_at AS removedAt, odometer_at_install AS odometerAtInstall, expected_life_km AS expectedLifeKm FROM fleet_tires WHERE org_id = ? ORDER BY installed_at DESC LIMIT 100"
+    ).all(user.org_id);
+    return { ok: true, tires };
+  });
+
+  app.get("/api/fleet/cold-chain", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "fleet");
+    // fleet_cold_chain_logs has no org_id; tenant-scope via JOIN on fleet_vehicles.
+    const logs = db.prepare(
+      "SELECT c.id, c.vehicle_id AS vehicleId, c.trip_id AS tripId, c.recorded_at AS recordedAt, c.temp_c AS tempC, c.humidity, c.sensor_id AS sensorId, c.alert_kind AS alertKind FROM fleet_cold_chain_logs c JOIN fleet_vehicles v ON c.vehicle_id = v.id WHERE v.org_id = ? ORDER BY c.recorded_at DESC LIMIT 100"
+    ).all(user.org_id);
+    return { ok: true, logs };
+  });
+
   // Document Cabinet (Документооборот) — incoming/outgoing/internal flows, versioning,
   // archive, local OCR, AI classify/extract/risk/compare/reply, FTS search, e-sign stub.
   // Auth + app access + idempotency + audit are owned by the route module.
