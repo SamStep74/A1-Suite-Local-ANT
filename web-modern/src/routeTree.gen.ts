@@ -24,6 +24,7 @@ import { Route as AppInventoryIndexRouteImport } from './routes/app/inventory/in
 import { Route as AppHealthcheckIndexRouteImport } from './routes/app/healthcheck/index'
 import { Route as AppFormsIndexRouteImport } from './routes/app/forms/index'
 import { Route as AppFlowIndexRouteImport } from './routes/app/flow/index'
+import { Route as AppFleetIndexRouteImport } from './routes/app/fleet/index'
 import { Route as AppFinanceIndexRouteImport } from './routes/app/finance/index'
 import { Route as AppDocsIndexRouteImport } from './routes/app/docs/index'
 import { Route as AppDeskIndexRouteImport } from './routes/app/desk/index'
@@ -133,6 +134,11 @@ const AppFormsIndexRoute = AppFormsIndexRouteImport.update({
 const AppFlowIndexRoute = AppFlowIndexRouteImport.update({
   id: '/flow/',
   path: '/flow/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppFleetIndexRoute = AppFleetIndexRouteImport.update({
+  id: '/fleet/',
+  path: '/fleet/',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppFinanceIndexRoute = AppFinanceIndexRouteImport.update({
@@ -352,6 +358,7 @@ export interface FileRoutesByFullPath {
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
   '/app/finance/': typeof AppFinanceIndexRoute
+  '/app/fleet/': typeof AppFleetIndexRoute
   '/app/flow/': typeof AppFlowIndexRoute
   '/app/forms/': typeof AppFormsIndexRoute
   '/app/healthcheck/': typeof AppHealthcheckIndexRoute
@@ -402,6 +409,7 @@ export interface FileRoutesByTo {
   '/app/desk': typeof AppDeskIndexRoute
   '/app/docs': typeof AppDocsIndexRoute
   '/app/finance': typeof AppFinanceIndexRoute
+  '/app/fleet': typeof AppFleetIndexRoute
   '/app/flow': typeof AppFlowIndexRoute
   '/app/forms': typeof AppFormsIndexRoute
   '/app/healthcheck': typeof AppHealthcheckIndexRoute
@@ -455,6 +463,7 @@ export interface FileRoutesById {
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
   '/app/finance/': typeof AppFinanceIndexRoute
+  '/app/fleet/': typeof AppFleetIndexRoute
   '/app/flow/': typeof AppFlowIndexRoute
   '/app/forms/': typeof AppFormsIndexRoute
   '/app/healthcheck/': typeof AppHealthcheckIndexRoute
@@ -509,6 +518,7 @@ export interface FileRouteTypes {
     | '/app/desk/'
     | '/app/docs/'
     | '/app/finance/'
+    | '/app/fleet/'
     | '/app/flow/'
     | '/app/forms/'
     | '/app/healthcheck/'
@@ -559,6 +569,7 @@ export interface FileRouteTypes {
     | '/app/desk'
     | '/app/docs'
     | '/app/finance'
+    | '/app/fleet'
     | '/app/flow'
     | '/app/forms'
     | '/app/healthcheck'
@@ -611,6 +622,7 @@ export interface FileRouteTypes {
     | '/app/desk/'
     | '/app/docs/'
     | '/app/finance/'
+    | '/app/fleet/'
     | '/app/flow/'
     | '/app/forms/'
     | '/app/healthcheck/'
@@ -742,6 +754,13 @@ declare module '@tanstack/react-router' {
       path: '/flow'
       fullPath: '/app/flow/'
       preLoaderRoute: typeof AppFlowIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/fleet/': {
+      id: '/app/fleet/'
+      path: '/fleet'
+      fullPath: '/app/fleet/'
+      preLoaderRoute: typeof AppFleetIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/finance/': {
@@ -1035,6 +1054,7 @@ interface AppRouteRouteChildren {
   AppDeskIndexRoute: typeof AppDeskIndexRoute
   AppDocsIndexRoute: typeof AppDocsIndexRoute
   AppFinanceIndexRoute: typeof AppFinanceIndexRoute
+  AppFleetIndexRoute: typeof AppFleetIndexRoute
   AppFlowIndexRoute: typeof AppFlowIndexRoute
   AppFormsIndexRoute: typeof AppFormsIndexRoute
   AppHealthcheckIndexRoute: typeof AppHealthcheckIndexRoute
@@ -1080,6 +1100,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppDeskIndexRoute: AppDeskIndexRoute,
   AppDocsIndexRoute: AppDocsIndexRoute,
   AppFinanceIndexRoute: AppFinanceIndexRoute,
+  AppFleetIndexRoute: AppFleetIndexRoute,
   AppFlowIndexRoute: AppFlowIndexRoute,
   AppFormsIndexRoute: AppFormsIndexRoute,
   AppHealthcheckIndexRoute: AppHealthcheckIndexRoute,
