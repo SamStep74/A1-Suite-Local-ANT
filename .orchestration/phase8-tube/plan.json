@@ -1,0 +1,57 @@
+{
+  "sessionName": "phase8-tube",
+  "baseRef": "ant/wip/phase8-healthcheck",
+  "branchPrefix": "wip/phase8-tube",
+  "launcherCommand": "claude \"$(cat {task_file})\"",
+  "replaceExisting": false,
+  "mergeOrder": [
+    "tube-deals-board",
+    "tube-contacts",
+    "tube-sequences"
+  ],
+  "seedPaths": [
+    "web-modern/src/lib/api/schemas.ts",
+    "web-modern/src/lib/agents/types.ts",
+    "web-modern/src/lib/agents/tube/registry.ts",
+    "web-modern/src/lib/agents/tube/deal-health.ts",
+    "web-modern/src/lib/agents/tube/enrich-opportunity.ts",
+    "web-modern/src/lib/agents/tube/sequence-rollout.ts",
+    "web-modern/src/lib/agents/tube/deal-health.test.ts",
+    "web-modern/src/lib/agents/tube/enrich-opportunity.test.ts",
+    "web-modern/src/lib/agents/tube/sequence-rollout.test.ts",
+    "web-modern/src/lib/apps.ts",
+    "web-modern/src/routes/app/crm/index.tsx",
+    "web-modern/src/routes/app/inventory/index.tsx",
+    "web-modern/src/routes/app/inventory/$itemId.tsx",
+    "web-modern/src/routes/app/inventory/-index.test.tsx",
+    "web-modern/src/routes/app/inventory/-itemId.test.tsx",
+    "web-modern/src/routes/app/healthcheck/index.tsx",
+    "web-modern/src/routes/app/healthcheck/-index.test.tsx",
+    "web-modern/src/lib/api/client.ts",
+    "server/crmTube.js",
+    "server/crmTube/connectors/registry.js",
+    "server/app.js",
+    "server/db.js",
+    "test/crmTube.test.js",
+    "test/crmTube-connectors.test.js",
+    "test/api.test.js",
+    "docs/phase8-tube/design.md"
+  ],
+  "workers": [
+    {
+      "name": "tube-deals-board",
+      "tagName": "phase8-tube-v1",
+      "task": "see .orchestration/phase8-tube/tube-deals-board/task.md"
+    },
+    {
+      "name": "tube-contacts",
+      "tagName": "phase8-tube-v1",
+      "task": "see .orchestration/phase8-tube/tube-contacts/task.md"
+    },
+    {
+      "name": "tube-sequences",
+      "tagName": "phase8-tube-v1",
+      "task": "see .orchestration/phase8-tube/tube-sequences/task.md"
+    }
+  ]
+}
