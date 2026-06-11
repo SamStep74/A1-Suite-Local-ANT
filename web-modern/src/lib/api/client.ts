@@ -131,6 +131,11 @@ export function postJson<T>(path: string, body: JsonBody, schema?: z.ZodType<T>,
   return api(path, schema ?? null, { method: "POST", body, signal } as RequestInit & ApiOptions);
 }
 
+/** Convenience: PATCH JSON. Mirrors postJson but with method PATCH. */
+export function patchJson<T>(path: string, body: JsonBody, schema?: z.ZodType<T>, signal?: AbortSignal) {
+  return api(path, schema ?? null, { method: "PATCH", body, signal } as RequestInit & ApiOptions);
+}
+
 /** Convenience: POST that returns nothing (e.g. logout). */
 export function postVoid(path: string, body?: JsonBody) {
   return api(path, null, { method: "POST", body, noParse: true } as RequestInit & ApiOptions);

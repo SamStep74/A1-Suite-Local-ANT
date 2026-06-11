@@ -45,7 +45,10 @@ import { Route as AppCrmQuoteIdRouteImport } from './routes/app/crm/$quoteId'
 import { Route as AppCopilotChatIdRouteImport } from './routes/app/copilot/$chatId'
 import { Route as AppCfoLoanIdRouteImport } from './routes/app/cfo/$loanId'
 import { Route as AppAnalyticsMetricIdRouteImport } from './routes/app/analytics/$metricId'
+import { Route as AppCrmTubeSequencesIndexRouteImport } from './routes/app/crm-tube/sequences/index'
+import { Route as AppCrmTubeIntegrationsIndexRouteImport } from './routes/app/crm-tube/integrations/index'
 import { Route as AppCfoReportsIndexRouteImport } from './routes/app/cfo/reports/index'
+import { Route as AppCrmTubeSequencesSequenceIdRouteImport } from './routes/app/crm-tube/sequences/$sequenceId'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -227,11 +230,29 @@ const AppAnalyticsMetricIdRoute = AppAnalyticsMetricIdRouteImport.update({
   path: '/analytics/$metricId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCrmTubeSequencesIndexRoute =
+  AppCrmTubeSequencesIndexRouteImport.update({
+    id: '/crm-tube/sequences/',
+    path: '/crm-tube/sequences/',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
+const AppCrmTubeIntegrationsIndexRoute =
+  AppCrmTubeIntegrationsIndexRouteImport.update({
+    id: '/crm-tube/integrations/',
+    path: '/crm-tube/integrations/',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
 const AppCfoReportsIndexRoute = AppCfoReportsIndexRouteImport.update({
   id: '/cfo/reports/',
   path: '/cfo/reports/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCrmTubeSequencesSequenceIdRoute =
+  AppCrmTubeSequencesSequenceIdRouteImport.update({
+    id: '/crm-tube/sequences/$sequenceId',
+    path: '/crm-tube/sequences/$sequenceId',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -270,7 +291,10 @@ export interface FileRoutesByFullPath {
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
+  '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
+  '/app/crm-tube/integrations/': typeof AppCrmTubeIntegrationsIndexRoute
+  '/app/crm-tube/sequences/': typeof AppCrmTubeSequencesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -307,7 +331,10 @@ export interface FileRoutesByTo {
   '/app/people': typeof AppPeopleIndexRoute
   '/app/projects': typeof AppProjectsIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
+  '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
   '/app/cfo/reports': typeof AppCfoReportsIndexRoute
+  '/app/crm-tube/integrations': typeof AppCrmTubeIntegrationsIndexRoute
+  '/app/crm-tube/sequences': typeof AppCrmTubeSequencesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -347,7 +374,10 @@ export interface FileRoutesById {
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
+  '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
+  '/app/crm-tube/integrations/': typeof AppCrmTubeIntegrationsIndexRoute
+  '/app/crm-tube/sequences/': typeof AppCrmTubeSequencesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -388,7 +418,10 @@ export interface FileRouteTypes {
     | '/app/people/'
     | '/app/projects/'
     | '/app/purchase/'
+    | '/app/crm-tube/sequences/$sequenceId'
     | '/app/cfo/reports/'
+    | '/app/crm-tube/integrations/'
+    | '/app/crm-tube/sequences/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -425,7 +458,10 @@ export interface FileRouteTypes {
     | '/app/people'
     | '/app/projects'
     | '/app/purchase'
+    | '/app/crm-tube/sequences/$sequenceId'
     | '/app/cfo/reports'
+    | '/app/crm-tube/integrations'
+    | '/app/crm-tube/sequences'
   id:
     | '__root__'
     | '/'
@@ -464,7 +500,10 @@ export interface FileRouteTypes {
     | '/app/people/'
     | '/app/projects/'
     | '/app/purchase/'
+    | '/app/crm-tube/sequences/$sequenceId'
     | '/app/cfo/reports/'
+    | '/app/crm-tube/integrations/'
+    | '/app/crm-tube/sequences/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -728,11 +767,32 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAnalyticsMetricIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/crm-tube/sequences/': {
+      id: '/app/crm-tube/sequences/'
+      path: '/crm-tube/sequences'
+      fullPath: '/app/crm-tube/sequences/'
+      preLoaderRoute: typeof AppCrmTubeSequencesIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/crm-tube/integrations/': {
+      id: '/app/crm-tube/integrations/'
+      path: '/crm-tube/integrations'
+      fullPath: '/app/crm-tube/integrations/'
+      preLoaderRoute: typeof AppCrmTubeIntegrationsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/cfo/reports/': {
       id: '/app/cfo/reports/'
       path: '/cfo/reports'
       fullPath: '/app/cfo/reports/'
       preLoaderRoute: typeof AppCfoReportsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/crm-tube/sequences/$sequenceId': {
+      id: '/app/crm-tube/sequences/$sequenceId'
+      path: '/crm-tube/sequences/$sequenceId'
+      fullPath: '/app/crm-tube/sequences/$sequenceId'
+      preLoaderRoute: typeof AppCrmTubeSequencesSequenceIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
   }
@@ -782,7 +842,10 @@ interface AppRouteRouteChildren {
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppProjectsIndexRoute: typeof AppProjectsIndexRoute
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
+  AppCrmTubeSequencesSequenceIdRoute: typeof AppCrmTubeSequencesSequenceIdRoute
   AppCfoReportsIndexRoute: typeof AppCfoReportsIndexRoute
+  AppCrmTubeIntegrationsIndexRoute: typeof AppCrmTubeIntegrationsIndexRoute
+  AppCrmTubeSequencesIndexRoute: typeof AppCrmTubeSequencesIndexRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
@@ -815,7 +878,10 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppProjectsIndexRoute: AppProjectsIndexRoute,
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,
+  AppCrmTubeSequencesSequenceIdRoute: AppCrmTubeSequencesSequenceIdRoute,
   AppCfoReportsIndexRoute: AppCfoReportsIndexRoute,
+  AppCrmTubeIntegrationsIndexRoute: AppCrmTubeIntegrationsIndexRoute,
+  AppCrmTubeSequencesIndexRoute: AppCrmTubeSequencesIndexRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
@@ -841,12 +907,3 @@ const rootRouteChildren: RootRouteChildren = {
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
   ._addFileTypes<FileRouteTypes>()
-
-import type { getRouter } from './router.tsx'
-import type { createStart } from '@tanstack/react-start'
-declare module '@tanstack/react-start' {
-  interface Register {
-    ssr: true
-    router: Awaited<ReturnType<typeof getRouter>>
-  }
-}
