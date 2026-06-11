@@ -2389,3 +2389,290 @@ export const AiSettingsPutResponseSchema = z.object({
 });
 export type AiSettingsPutResponse = z.infer<typeof AiSettingsPutResponseSchema>;
 
+/* ════════════════════════════════════════════════════════════════════════
+ * Warehouse (Phase 8.3) — Zod schemas for the /api/warehouse/* surface.
+ * Source: server/app.js#warehouse (lines 548-798) and server/warehouse.js
+ * (FEFO ordering, ABC classification, turnover days, restock forecast,
+ * cold-storage reading normalization, AI restock assist). All lot /
+ * serial / cold-storage PKs are SQLite integer IDs — the legacy web app
+ * renders them via `Number(...).toLocaleString("hy-AM")` which is
+ * tolerant of either string or number, so we keep `z.number()` to
+ * match the wire format from better-sqlite3.
+ *
+ * The route that consumes these schemas lives at
+ * /app/inventory/warehouse and surfaces 4 tabs: lots, serials,
+ * cold storage, and analytics (ABC + turnover + forecast). The forecast
+ * tab is the warehouse-restock AI assist (Phase 8.3 layer 2).
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/** Lot — a single production / harvest batch. FEFO-ordered by expiry.
+ *  Source: GET/POST /api/warehouse/lots. */
+export const WarehouseLotSchema = z
+  .object({
+    id: z.number().int(),
+    productId: z.string(),
+    lotCode: z.string(),
+    mfgDate: z.string().nullable().optional(),
+    expiryDate: z.string().nullable().optional(),
+    harvestDate: z.string().nullable().optional(),
+    sourceVendorId: z.string().nullable().optional(),
+    createdAt: z.string().optional(),
+  })
+  .passthrough();
+export type WarehouseLot = z.infer<typeof WarehouseLotSchema>;
+
+/** Serial — a tracked serial-numbered stock unit (instruments, equipment).
+ *  Source: GET/POST /api/warehouse/serials. */
+export const WarehouseSerialSchema = z
+  .object({
+    id: z.number().int(),
+    productId: z.string(),
+    serial: z.string(),
+    status: z.string(),
+    currentLocationId: z.string().nullable().optional(),
+    createdAt: z.string().optional(),
+  })
+  .passthrough();
+export type WarehouseSerial = z.infer<typeof WarehouseSerialSchema>;
+
+/** Cold-storage reading — one sensor sample (temperature + humidity).
+ *  Source: GET/POST /api/warehouse/cold-storage/readings. */
+export const WarehouseColdStorageReadingSchema = z
+  .object({
+    id: z.number().int(),
+    locationId: z.string(),
+    recordedAt: z.string(),
+    tempC: z.number(),
+    humidity: z.number().nullable().optional(),
+    sensorId: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type WarehouseColdStorageReading = z.infer<
+  typeof WarehouseColdStorageReadingSchema
+>;
+
+/** ABC classification row — one product's revenue share + bucket.
+ *  Source: GET /api/warehouse/analytics/abc. */
+export const WarehouseAbcRowSchema = z
+  .object({
+    productId: z.string(),
+    bucket: z.enum(["A", "B", "C"]),
+    /** 0..1 — product's share of period revenue. */
+    revenueShare: z.number().min(0).max(1),
+    /** 0..1 — cumulative revenue share when sorted by revenue desc. */
+    cumulativeShare: z.number().min(0).max(1),
+  })
+  .passthrough();
+export type WarehouseAbcRow = z.infer<typeof WarehouseAbcRowSchema>;
+
+/** Turnover row — days of inventory on hand for one product.
+ *  Source: GET /api/warehouse/analytics/turnover. */
+export const WarehouseTurnoverRowSchema = z
+  .object({
+    productId: z.string(),
+    turnoverDays: z.number().nonnegative(),
+  })
+  .passthrough();
+export type WarehouseTurnoverRow = z.infer<typeof WarehouseTurnoverRowSchema>;
+
+/** AI-assist metadata for a forecast run. The server's `maybeAiRestockAssist`
+ *  returns `{ source, text }` (OpenRouter echo), but the route's helper
+ *  contract is `{ provider, model, usedFallback }`. The Zod schema is
+ *  permissive (`passthrough()`) so the route can derive a stable shape
+ *  from either source. */
+export const WarehouseAiAssistSchema = z
+  .object({
+    provider: z.string().optional(),
+    model: z.string().optional(),
+    usedFallback: z.boolean().optional(),
+  })
+  .passthrough();
+export type WarehouseAiAssist = z.infer<typeof WarehouseAiAssistSchema>;
+
+/** Restock forecast — one product's suggested reorder quantity.
+ *  Source: POST /api/warehouse/forecast/restock. */
+export const WarehouseForecastSchema = z
+  .object({
+    suggestedQuantity: z.number().int().nonnegative(),
+    source: z.string(),
+    reasoning: z.array(z.string()),
+    aiAssist: z
+      .union([WarehouseAiAssistSchema, z.null()])
+      .optional(),
+  })
+  .passthrough();
+export type WarehouseForecast = z.infer<typeof WarehouseForecastSchema>;
+
+/** Trace node — one upstream (vendor) or downstream (move) link in a
+ *  lot's provenance chain. The server's `traceLot` returns a flat list
+ *  rather than a strict tree, so the schema is a single permissive
+ *  object. Discriminate on shape: upstream nodes have `vendorId` +
+ *  `vendorName`; downstream nodes have `moveId` + `customerLocationId`.
+ *  Source: GET /api/warehouse/traceability/:lotId. */
+export const WarehouseTraceNodeSchema = z
+  .object({
+    vendorId: z.string().optional(),
+    vendorName: z.string().optional(),
+    receivedAt: z.string().optional(),
+    moveId: z.number().int().optional(),
+    customerLocationId: z.string().optional(),
+    quantity: z.number().optional(),
+    movedAt: z.string().optional(),
+  })
+  .passthrough();
+export type WarehouseTraceNode = z.infer<typeof WarehouseTraceNodeSchema>;
+
+/** Trace envelope — the lot at the center of the chain plus its
+ *  upstream (vendor) and downstream (customer moves) nodes. */
+export const WarehouseTraceSchema = z
+  .object({
+    lotId: z.number().int(),
+    lotCode: z.string(),
+    upstream: z.array(WarehouseTraceNodeSchema),
+    downstream: z.array(WarehouseTraceNodeSchema),
+  })
+  .passthrough();
+export type WarehouseTrace = z.infer<typeof WarehouseTraceSchema>;
+
+/** Request body for POST /api/warehouse/lots. Validation mirrors
+ *  server/warehouse.js#validateLotCode + #validateExpiry. The server
+ *  rejects `expiryDate < mfgDate` and requires `lotCode` to match
+ *  /^[A-Z0-9][A-Z0-9_-]{1,31}$/. */
+export const WarehouseLotCreateRequestSchema = z.object({
+  productId: z.string().min(3).max(80),
+  lotCode: z.string().regex(/^[A-Z0-9][A-Z0-9_-]{1,31}$/, {
+    message: "lotCode must match /^[A-Z0-9][A-Z0-9_-]{1,31}$/",
+  }),
+  mfgDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  expiryDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  harvestDate: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .nullable()
+    .optional(),
+  sourceVendorId: z.string().min(1).max(80).nullable().optional(),
+});
+export type WarehouseLotCreateRequest = z.infer<
+  typeof WarehouseLotCreateRequestSchema
+>;
+
+/** Request body for POST /api/warehouse/serials. Mirrors
+ *  server/warehouse.js#validateSerial. */
+export const WarehouseSerialCreateRequestSchema = z.object({
+  productId: z.string().min(3).max(80),
+  serial: z.string().regex(/^[A-Z0-9][A-Z0-9_-]{1,63}$/, {
+    message: "serial must match /^[A-Z0-9][A-Z0-9_-]{1,63}$/",
+  }),
+  currentLocationId: z.string().min(1).max(80).nullable().optional(),
+});
+export type WarehouseSerialCreateRequest = z.infer<
+  typeof WarehouseSerialCreateRequestSchema
+>;
+
+/** Request body for POST /api/warehouse/cold-storage/readings. Mirrors
+ *  server/warehouse.js#recordColdStorageReading (tempC in [-80, 80],
+ *  humidity in [0, 100] or null). */
+export const WarehouseColdStorageReadingCreateRequestSchema = z.object({
+  locationId: z.string().min(3).max(80),
+  recordedAt: z.string().regex(
+    /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/,
+    { message: "recordedAt must be ISO-8601 with milliseconds and Z" },
+  ),
+  tempC: z.number().min(-80).max(80),
+  humidity: z.number().min(0).max(100).nullable().optional(),
+  sensorId: z.string().max(80).nullable().optional(),
+});
+export type WarehouseColdStorageReadingCreateRequest = z.infer<
+  typeof WarehouseColdStorageReadingCreateRequestSchema
+>;
+
+/** Request body for POST /api/warehouse/forecast/restock. The server
+ *  clamps `horizonDays` to [1, 180] and refuses any `intent` other than
+ *  "warehouse-restock" (returns 400). The literal locks the type. */
+export const WarehouseForecastRequestSchema = z.object({
+  productId: z.string().min(3).max(80),
+  horizonDays: z.number().int().min(1).max(180),
+  intent: z.literal("warehouse-restock"),
+});
+export type WarehouseForecastRequest = z.infer<
+  typeof WarehouseForecastRequestSchema
+>;
+
+/* ────────── response envelopes ────────── */
+
+export const WarehouseLotCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  lot: WarehouseLotSchema,
+});
+export type WarehouseLotCreateResponse = z.infer<
+  typeof WarehouseLotCreateResponseSchema
+>;
+
+export const WarehouseLotsResponseSchema = z.object({
+  lots: z.array(WarehouseLotSchema),
+});
+export type WarehouseLotsResponse = z.infer<typeof WarehouseLotsResponseSchema>;
+
+export const WarehouseSerialCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  serial: WarehouseSerialSchema,
+});
+export type WarehouseSerialCreateResponse = z.infer<
+  typeof WarehouseSerialCreateResponseSchema
+>;
+
+export const WarehouseColdStorageReadingCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  reading: WarehouseColdStorageReadingSchema,
+});
+export type WarehouseColdStorageReadingCreateResponse = z.infer<
+  typeof WarehouseColdStorageReadingCreateResponseSchema
+>;
+
+export const WarehouseColdStorageReadingsResponseSchema = z.object({
+  readings: z.array(WarehouseColdStorageReadingSchema),
+});
+export type WarehouseColdStorageReadingsResponse = z.infer<
+  typeof WarehouseColdStorageReadingsResponseSchema
+>;
+
+export const WarehouseAbcResponseSchema = z.object({
+  ok: z.literal(true),
+  periodKey: z.string().max(20),
+  abc: z.array(WarehouseAbcRowSchema),
+});
+export type WarehouseAbcResponse = z.infer<typeof WarehouseAbcResponseSchema>;
+
+export const WarehouseTurnoverResponseSchema = z.object({
+  ok: z.literal(true),
+  periodKey: z.string().max(20),
+  turnover: z.array(WarehouseTurnoverRowSchema),
+});
+export type WarehouseTurnoverResponse = z.infer<
+  typeof WarehouseTurnoverResponseSchema
+>;
+
+export const WarehouseForecastResponseSchema = z.object({
+  ok: z.literal(true),
+  forecast: WarehouseForecastSchema,
+});
+export type WarehouseForecastResponse = z.infer<
+  typeof WarehouseForecastResponseSchema
+>;
+
+export const WarehouseTraceabilityResponseSchema = z.object({
+  ok: z.literal(true),
+  trace: WarehouseTraceSchema,
+});
+export type WarehouseTraceabilityResponse = z.infer<
+  typeof WarehouseTraceabilityResponseSchema
+>;
+
