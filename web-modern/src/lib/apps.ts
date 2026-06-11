@@ -24,6 +24,7 @@ import {
   ClipboardList,
   TrendingUp,
   RadioTower,
+  Boxes,
   type LucideIcon,
 } from "lucide-react";
 
@@ -35,6 +36,7 @@ export const APP_IDS = [
   "desk",
   "campaigns",
   "projects",
+  "assets",
   "inventory",
   "purchase",
   "people",
@@ -137,6 +139,16 @@ export const APPS: Record<AppId, AppMeta> = {
     accent: "teal",
     group: "ext",
     legacyMountId: "suite-app-projects",
+  },
+  assets: {
+    id: "assets",
+    label: "Assets",
+    labelAm: "Հիմնական միջոցներ",
+    tagline: "Fixed assets · depreciation · maintenance · assignment",
+    icon: Boxes,
+    accent: "amber",
+    group: "ext",
+    legacyMountId: "suite-app-assets",
   },
   inventory: {
     id: "inventory",

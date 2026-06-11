@@ -33,6 +33,7 @@ import { Route as AppCopilotIndexRouteImport } from './routes/app/copilot/index'
 import { Route as AppCfoIndexRouteImport } from './routes/app/cfo/index'
 import { Route as AppCampaignsIndexRouteImport } from './routes/app/campaigns/index'
 import { Route as AppCabinetIndexRouteImport } from './routes/app/cabinet/index'
+import { Route as AppAssetsIndexRouteImport } from './routes/app/assets/index'
 import { Route as AppAnalyticsIndexRouteImport } from './routes/app/analytics/index'
 import { Route as AppPurchaseOrderIdRouteImport } from './routes/app/purchase/$orderId'
 import { Route as AppProjectsProjectIdRouteImport } from './routes/app/projects/$projectId'
@@ -177,6 +178,11 @@ const AppCampaignsIndexRoute = AppCampaignsIndexRouteImport.update({
 const AppCabinetIndexRoute = AppCabinetIndexRouteImport.update({
   id: '/cabinet/',
   path: '/cabinet/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppAssetsIndexRoute = AppAssetsIndexRouteImport.update({
+  id: '/assets/',
+  path: '/assets/',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppAnalyticsIndexRoute = AppAnalyticsIndexRouteImport.update({
@@ -336,6 +342,7 @@ export interface FileRoutesByFullPath {
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/analytics/': typeof AppAnalyticsIndexRoute
+  '/app/assets/': typeof AppAssetsIndexRoute
   '/app/cabinet/': typeof AppCabinetIndexRoute
   '/app/campaigns/': typeof AppCampaignsIndexRoute
   '/app/cfo/': typeof AppCfoIndexRoute
@@ -385,6 +392,7 @@ export interface FileRoutesByTo {
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/analytics': typeof AppAnalyticsIndexRoute
+  '/app/assets': typeof AppAssetsIndexRoute
   '/app/cabinet': typeof AppCabinetIndexRoute
   '/app/campaigns': typeof AppCampaignsIndexRoute
   '/app/cfo': typeof AppCfoIndexRoute
@@ -437,6 +445,7 @@ export interface FileRoutesById {
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/analytics/': typeof AppAnalyticsIndexRoute
+  '/app/assets/': typeof AppAssetsIndexRoute
   '/app/cabinet/': typeof AppCabinetIndexRoute
   '/app/campaigns/': typeof AppCampaignsIndexRoute
   '/app/cfo/': typeof AppCfoIndexRoute
@@ -490,6 +499,7 @@ export interface FileRouteTypes {
     | '/app/projects/$projectId'
     | '/app/purchase/$orderId'
     | '/app/analytics/'
+    | '/app/assets/'
     | '/app/cabinet/'
     | '/app/campaigns/'
     | '/app/cfo/'
@@ -539,6 +549,7 @@ export interface FileRouteTypes {
     | '/app/projects/$projectId'
     | '/app/purchase/$orderId'
     | '/app/analytics'
+    | '/app/assets'
     | '/app/cabinet'
     | '/app/campaigns'
     | '/app/cfo'
@@ -590,6 +601,7 @@ export interface FileRouteTypes {
     | '/app/projects/$projectId'
     | '/app/purchase/$orderId'
     | '/app/analytics/'
+    | '/app/assets/'
     | '/app/cabinet/'
     | '/app/campaigns/'
     | '/app/cfo/'
@@ -793,6 +805,13 @@ declare module '@tanstack/react-router' {
       path: '/cabinet'
       fullPath: '/app/cabinet/'
       preLoaderRoute: typeof AppCabinetIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/assets/': {
+      id: '/app/assets/'
+      path: '/assets'
+      fullPath: '/app/assets/'
+      preLoaderRoute: typeof AppAssetsIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/analytics/': {
@@ -1007,6 +1026,7 @@ interface AppRouteRouteChildren {
   AppProjectsProjectIdRoute: typeof AppProjectsProjectIdRoute
   AppPurchaseOrderIdRoute: typeof AppPurchaseOrderIdRoute
   AppAnalyticsIndexRoute: typeof AppAnalyticsIndexRoute
+  AppAssetsIndexRoute: typeof AppAssetsIndexRoute
   AppCabinetIndexRoute: typeof AppCabinetIndexRoute
   AppCampaignsIndexRoute: typeof AppCampaignsIndexRoute
   AppCfoIndexRoute: typeof AppCfoIndexRoute
@@ -1051,6 +1071,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppProjectsProjectIdRoute: AppProjectsProjectIdRoute,
   AppPurchaseOrderIdRoute: AppPurchaseOrderIdRoute,
   AppAnalyticsIndexRoute: AppAnalyticsIndexRoute,
+  AppAssetsIndexRoute: AppAssetsIndexRoute,
   AppCabinetIndexRoute: AppCabinetIndexRoute,
   AppCampaignsIndexRoute: AppCampaignsIndexRoute,
   AppCfoIndexRoute: AppCfoIndexRoute,
