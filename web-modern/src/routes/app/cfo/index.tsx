@@ -31,6 +31,7 @@ import {
   ChevronLeft,
   CircleSlash,
   Globe,
+  Printer,
 } from "lucide-react";
 import { getJson } from "../../../lib/api/client";
 import {
@@ -143,13 +144,23 @@ function CfoWorkspace() {
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <ViewSwitcher options={VIEW_OPTIONS} value={view} onChange={setView} />
-        <Link
-          to="/app"
-          className="inline-flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
-        >
-          <ChevronLeft className="size-3.5" />
-          Today
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/app/cfo/reports"
+            search={{ period: "2026-06", statement: "p-and-l" }}
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2.5 py-1 text-[var(--text-sm)] text-[var(--color-ink)] hover:bg-[var(--color-line)]"
+          >
+            <Printer className="size-3.5" />
+            Reports
+          </Link>
+          <Link
+            to="/app"
+            className="inline-flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+          >
+            <ChevronLeft className="size-3.5" />
+            Today
+          </Link>
+        </div>
       </div>
 
       {view === "cash-flow" && (

@@ -44,6 +44,7 @@ import { Route as AppCrmQuoteIdRouteImport } from './routes/app/crm/$quoteId'
 import { Route as AppCopilotChatIdRouteImport } from './routes/app/copilot/$chatId'
 import { Route as AppCfoLoanIdRouteImport } from './routes/app/cfo/$loanId'
 import { Route as AppAnalyticsMetricIdRouteImport } from './routes/app/analytics/$metricId'
+import { Route as AppCfoReportsIndexRouteImport } from './routes/app/cfo/reports/index'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -220,6 +221,11 @@ const AppAnalyticsMetricIdRoute = AppAnalyticsMetricIdRouteImport.update({
   path: '/analytics/$metricId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCfoReportsIndexRoute = AppCfoReportsIndexRouteImport.update({
+  id: '/cfo/reports/',
+  path: '/cfo/reports/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -257,6 +263,7 @@ export interface FileRoutesByFullPath {
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
+  '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -292,6 +299,7 @@ export interface FileRoutesByTo {
   '/app/people': typeof AppPeopleIndexRoute
   '/app/projects': typeof AppProjectsIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
+  '/app/cfo/reports': typeof AppCfoReportsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -330,6 +338,7 @@ export interface FileRoutesById {
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
+  '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -369,6 +378,7 @@ export interface FileRouteTypes {
     | '/app/people/'
     | '/app/projects/'
     | '/app/purchase/'
+    | '/app/cfo/reports/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -404,6 +414,7 @@ export interface FileRouteTypes {
     | '/app/people'
     | '/app/projects'
     | '/app/purchase'
+    | '/app/cfo/reports'
   id:
     | '__root__'
     | '/'
@@ -441,6 +452,7 @@ export interface FileRouteTypes {
     | '/app/people/'
     | '/app/projects/'
     | '/app/purchase/'
+    | '/app/cfo/reports/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -697,6 +709,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAnalyticsMetricIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/cfo/reports/': {
+      id: '/app/cfo/reports/'
+      path: '/cfo/reports'
+      fullPath: '/app/cfo/reports/'
+      preLoaderRoute: typeof AppCfoReportsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
   }
 }
 
@@ -743,6 +762,7 @@ interface AppRouteRouteChildren {
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppProjectsIndexRoute: typeof AppProjectsIndexRoute
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
+  AppCfoReportsIndexRoute: typeof AppCfoReportsIndexRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
@@ -774,6 +794,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppProjectsIndexRoute: AppProjectsIndexRoute,
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,
+  AppCfoReportsIndexRoute: AppCfoReportsIndexRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(

@@ -1126,6 +1126,92 @@ export const CfoCashFlowResponseSchema = z
   .passthrough();
 export type CfoCashFlowResponse = z.infer<typeof CfoCashFlowResponseSchema>;
 
+/* ────────── Financial Statements (P&L, Balance Sheet, Cash Flow) ──────────
+ * Source: server/accounting.js#financialStatements (called by
+ * server/app.js at GET /api/finance/statements, line 5644). Returns
+ * three reports in one envelope: incomeStatement, balanceSheet,
+ * cashFlow. All amounts are integer AMD (no fractional tetri). The
+ * chart-of-accounts seeded by server/db.js uses Armenian account
+ * names — `name` is therefore a non-empty string in Armenian script,
+ * not an enum.
+ *
+ * The route is /app/cfo/reports/ (CFO printable view, Phase 7). It
+ * reuses the same backend as the finance module's printable view in
+ * web/src/finance/print.xhtml, but renders in the modern UI.
+ *
+ * The accounting engine pre-sorts each section by account code and
+ * strips minor-unit metadata before serializing — sections are flat
+ * arrays, not {lines, total} envelopes.
+ */
+export const FinancialStatementLineSchema = z
+  .object({
+    id: z.string(),
+    code: z.string(),
+    name: z.string(),
+    amount: z.number().int(),
+  })
+  .passthrough();
+export type FinancialStatementLine = z.infer<typeof FinancialStatementLineSchema>;
+
+export const IncomeStatementSchema = z
+  .object({
+    income: z.array(FinancialStatementLineSchema),
+    expense: z.array(FinancialStatementLineSchema),
+    totalIncome: z.number().int(),
+    totalExpense: z.number().int(),
+    netProfit: z.number().int(),
+  })
+  .passthrough();
+export type IncomeStatement = z.infer<typeof IncomeStatementSchema>;
+
+export const BalanceSheetSchema = z
+  .object({
+    assets: z.array(FinancialStatementLineSchema),
+    liabilities: z.array(FinancialStatementLineSchema),
+    equity: z.array(FinancialStatementLineSchema),
+    totalAssets: z.number().int(),
+    totalLiabilities: z.number().int(),
+    totalEquity: z.number().int(),
+    /** Net profit folded into equity for the balanced equation.
+     *  Surfaced in the UI as a "retained earnings" line in the equity
+     *  column when non-zero. */
+    retainedEarnings: z.number().int(),
+    /** Liabilities + equity + retainedEarnings. The accounting
+     *  engine's `balanced` flag compares this to totalAssets. */
+    totalEquityAndLiabilities: z.number().int(),
+    /** Server-computed balance check. Independent of the helper
+     *  `isBalanced()` in lib/cfo/reports.ts which re-derives it from
+     *  A − (L + E) for the route. We trust neither over the other —
+     *  if they disagree, the warning chip renders. */
+    balanced: z.boolean(),
+  })
+  .passthrough();
+export type BalanceSheet = z.infer<typeof BalanceSheetSchema>;
+
+/** Cash flow is a flat summary in Phase 7, not the full operating /
+ *  investing / financing breakdown. The accounting engine returns
+ *  just the cash-in / cash-out totals — a full direct-method cash
+ *  flow statement is a follow-up phase (CFO is the upper layer; the
+ *  engine stays minimal for now). */
+export const CashFlowStatementSchema = z
+  .object({
+    cashIn: z.number().int(),
+    cashOut: z.number().int(),
+    /** cashIn − cashOut. Negative = net cash bled during the period. */
+    netCashChange: z.number().int(),
+  })
+  .passthrough();
+export type CashFlowStatement = z.infer<typeof CashFlowStatementSchema>;
+
+export const FinancialStatementsResponseSchema = z
+  .object({
+    incomeStatement: IncomeStatementSchema,
+    balanceSheet: BalanceSheetSchema,
+    cashFlow: CashFlowStatementSchema,
+  })
+  .passthrough();
+export type FinancialStatementsResponse = z.infer<typeof FinancialStatementsResponseSchema>;
+
 export const CfoBudgetStatus = z.enum(["active", "draft", "closed", "archived"]);
 export type CfoBudgetStatus = z.infer<typeof CfoBudgetStatus>;
 

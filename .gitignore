@@ -10,6 +10,6 @@ data/*.db-wal
 node_modules
 npm-debug.log*
 public/
-reports/
+/reports/
 web/node_modules/
 deploy/*.log
