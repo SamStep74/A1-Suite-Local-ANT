@@ -3141,3 +3141,365 @@ export const AssetsAssignResponseSchema = z.object({
 });
 export type AssetsAssignResponse = z.infer<typeof AssetsAssignResponseSchema>;
 
+/* ════════════════════════════════════════════════════════════════════════
+ * Fleet (Phase 8.6) — Zod schemas for the /api/fleet/* surface.
+ * Source: server/app.js lines 3697-3930 (the 9 list / POST / PATCH / analytics
+ * endpoints plus the cold-chain compliance report), and server/fleet.js
+ * (the trip status state machine).
+ *
+ * The Fleet workspace in web-modern renders 7 tabs: Vehicles, Drivers,
+ * Trips, Fuel, Repairs, Tires, ColdChain. Each tab has its own GET
+ * envelope below. Two analytics GETs (`/analytics/fuel-efficiency` and
+ * `/analytics/maintenance-backlog`) plus one derived response
+ * (`/vehicles/:id/cold-chain-compliance`) round out the surface. The
+ * two IoT device-batch POSTs are server-side only — not surfaced.
+ *
+ * Every write endpoint carries an `idempotencyKey: z.string().min(1).max(200)`
+ * (server stores the response envelope in `idempotency_keys` so safe
+ * retries return the cached envelope). Trip status PATCH is the only
+ * non-CRUD write — see `FleetTripStatusPatchRequestSchema` below.
+ * ════════════════════════════════════════════════════════════════════════ */
+
+/* ── shared enum constants ── */
+
+export const FleetTripStateSchema = z.enum([
+  "planned",
+  "in_transit",
+  "arrived",
+  "cancelled",
+]);
+export type FleetTripState = z.infer<typeof FleetTripStateSchema>;
+
+export const FleetTripActionSchema = z.enum([
+  "departed",
+  "arrived",
+  "cancelled",
+]);
+export type FleetTripAction = z.infer<typeof FleetTripActionSchema>;
+
+export const FleetColdChainCategorySchema = z.enum([
+  "dairy",
+  "frozen",
+  "produce",
+  "meat",
+  "default",
+]);
+export type FleetColdChainCategory = z.infer<
+  typeof FleetColdChainCategorySchema
+>;
+
+/* ── entities ── */
+
+export const FleetVehicleSchema = z.object({
+  id: z.string(),
+  plate: z.string(),
+  make: z.string(),
+  model: z.string(),
+  year: z.number().int().nullable(),
+  kind: z.string(),
+});
+export type FleetVehicle = z.infer<typeof FleetVehicleSchema>;
+
+export const FleetDriverSchema = z.object({
+  id: z.string(),
+  fullName: z.string(),
+  phone: z.string().nullable(),
+  licenseNumber: z.string(),
+});
+export type FleetDriver = z.infer<typeof FleetDriverSchema>;
+
+export const FleetTripSchema = z.object({
+  id: z.string(),
+  status: FleetTripStateSchema,
+  origin: z.string(),
+  destination: z.string(),
+  scheduledDeparture: z.string(),
+  actualDeparture: z.string().nullable(),
+  actualArrival: z.string().nullable(),
+  vehicleId: z.string(),
+  driverId: z.string(),
+  createdAt: z.string(),
+});
+export type FleetTrip = z.infer<typeof FleetTripSchema>;
+
+export const FleetFuelLogSchema = z.object({
+  id: z.string(),
+  vehicleId: z.string(),
+  liters: z.number().nonnegative(),
+  odometerKm: z.number().nonnegative(),
+  fuelCostPerL: z.number().nonnegative(),
+  occurredAt: z.string(),
+});
+export type FleetFuelLog = z.infer<typeof FleetFuelLogSchema>;
+
+export const FleetRepairSchema = z.object({
+  id: z.string(),
+  vehicleId: z.string(),
+  kind: z.string(),
+  odometerKm: z.number().nonnegative(),
+  cost: z.number().nonnegative(),
+  performedAt: z.string(),
+  nextDueAt: z.string().nullable(),
+});
+export type FleetRepair = z.infer<typeof FleetRepairSchema>;
+
+export const FleetTireSchema = z.object({
+  id: z.string(),
+  vehicleId: z.string(),
+  position: z.string(),
+  brand: z.string().nullable(),
+  installedAt: z.string(),
+  odometerAtInstall: z.number().int().nullable(),
+  expectedLifeKm: z.number().int().nullable(),
+});
+export type FleetTire = z.infer<typeof FleetTireSchema>;
+
+export const FleetColdChainLogSchema = z.object({
+  id: z.string(),
+  vehicleId: z.string(),
+  tempC: z.number(),
+  humidity: z.number().nullable(),
+  recordedAt: z.string(),
+});
+export type FleetColdChainLog = z.infer<typeof FleetColdChainLogSchema>;
+
+/* ── analytics + compliance ── */
+
+export const FleetColdChainComplianceBreachSchema = z.object({
+  startedAt: z.string(),
+  endedAt: z.string(),
+  minutes: z.number().nonnegative(),
+});
+export type FleetColdChainComplianceBreach = z.infer<
+  typeof FleetColdChainComplianceBreachSchema
+>;
+
+export const FleetColdChainComplianceReportSchema = z.object({
+  worstTempC: z.number(),
+  sustainedMinutes: z.number().nonnegative(),
+  breaches: z.array(FleetColdChainComplianceBreachSchema),
+});
+export type FleetColdChainComplianceReport = z.infer<
+  typeof FleetColdChainComplianceReportSchema
+>;
+
+export const FleetColdChainComplianceResponseSchema = z.object({
+  category: FleetColdChainCategorySchema,
+  report: FleetColdChainComplianceReportSchema,
+});
+export type FleetColdChainComplianceResponse = z.infer<
+  typeof FleetColdChainComplianceResponseSchema
+>;
+
+export const FleetFuelEfficiencyRowSchema = z.object({
+  vehicleId: z.string(),
+  liters: z.number().nonnegative(),
+  km: z.number().nonnegative(),
+  lPer100km: z.number().nonnegative(),
+  kmPerL: z.number().nullable(),
+});
+export type FleetFuelEfficiencyRow = z.infer<
+  typeof FleetFuelEfficiencyRowSchema
+>;
+
+export const FleetMaintenanceBacklogRowSchema = z.object({
+  vehicleId: z.string(),
+  kind: z.string(),
+  overdueDays: z.number().int().nonnegative(),
+});
+export type FleetMaintenanceBacklogRow = z.infer<
+  typeof FleetMaintenanceBacklogRowSchema
+>;
+
+/* ── list envelopes (one per tab) ── */
+
+export const FleetVehiclesResponseSchema = z.object({
+  vehicles: z.array(FleetVehicleSchema),
+});
+export type FleetVehiclesResponse = z.infer<typeof FleetVehiclesResponseSchema>;
+
+export const FleetDriversResponseSchema = z.object({
+  drivers: z.array(FleetDriverSchema),
+});
+export type FleetDriversResponse = z.infer<typeof FleetDriversResponseSchema>;
+
+export const FleetTripsResponseSchema = z.object({
+  trips: z.array(FleetTripSchema),
+});
+export type FleetTripsResponse = z.infer<typeof FleetTripsResponseSchema>;
+
+export const FleetFuelLogsResponseSchema = z.object({
+  fuelLogs: z.array(FleetFuelLogSchema),
+});
+export type FleetFuelLogsResponse = z.infer<typeof FleetFuelLogsResponseSchema>;
+
+export const FleetRepairsResponseSchema = z.object({
+  repairs: z.array(FleetRepairSchema),
+});
+export type FleetRepairsResponse = z.infer<typeof FleetRepairsResponseSchema>;
+
+export const FleetTiresResponseSchema = z.object({
+  tires: z.array(FleetTireSchema),
+});
+export type FleetTiresResponse = z.infer<typeof FleetTiresResponseSchema>;
+
+export const FleetColdChainLogsResponseSchema = z.object({
+  logs: z.array(FleetColdChainLogSchema),
+});
+export type FleetColdChainLogsResponse = z.infer<
+  typeof FleetColdChainLogsResponseSchema
+>;
+
+export const FleetFuelEfficiencyResponseSchema = z.object({
+  efficiency: z.array(FleetFuelEfficiencyRowSchema),
+});
+export type FleetFuelEfficiencyResponse = z.infer<
+  typeof FleetFuelEfficiencyResponseSchema
+>;
+
+export const FleetMaintenanceBacklogResponseSchema = z.object({
+  backlog: z.array(FleetMaintenanceBacklogRowSchema),
+});
+export type FleetMaintenanceBacklogResponse = z.infer<
+  typeof FleetMaintenanceBacklogResponseSchema
+>;
+
+/* ── request payloads (one per writer endpoint) ── */
+
+const FleetIdempotencyKeySchema = z.string().min(1).max(200);
+
+export const FleetVehicleCreateRequestSchema = z.object({
+  plate: z.string().min(1).max(40),
+  make: z.string().min(1).max(60),
+  model: z.string().min(1).max(60),
+  year: z.number().int().min(1900).max(2100).nullable().optional(),
+  kind: z.string().min(1).max(40).default("truck"),
+  idempotencyKey: FleetIdempotencyKeySchema,
+});
+export type FleetVehicleCreateRequest = z.infer<
+  typeof FleetVehicleCreateRequestSchema
+>;
+
+export const FleetDriverCreateRequestSchema = z.object({
+  fullName: z.string().min(1).max(120),
+  phone: z.string().min(1).max(40).nullable().optional(),
+  licenseNumber: z.string().min(1).max(40),
+  idempotencyKey: FleetIdempotencyKeySchema,
+});
+export type FleetDriverCreateRequest = z.infer<
+  typeof FleetDriverCreateRequestSchema
+>;
+
+export const FleetTripCreateRequestSchema = z.object({
+  vehicleId: z.string().min(1),
+  driverId: z.string().min(1),
+  origin: z.string().min(1).max(200),
+  destination: z.string().min(1).max(200),
+  scheduledDeparture: z.string().min(1),
+  idempotencyKey: FleetIdempotencyKeySchema,
+});
+export type FleetTripCreateRequest = z.infer<
+  typeof FleetTripCreateRequestSchema
+>;
+
+export const FleetTripStatusPatchRequestSchema = z.object({
+  action: FleetTripActionSchema,
+  idempotencyKey: FleetIdempotencyKeySchema,
+});
+export type FleetTripStatusPatchRequest = z.infer<
+  typeof FleetTripStatusPatchRequestSchema
+>;
+
+export const FleetFuelLogCreateRequestSchema = z.object({
+  vehicleId: z.string().min(1),
+  liters: z.number().nonnegative(),
+  odometerKm: z.number().nonnegative(),
+  fuelCostPerL: z.number().nonnegative(),
+  idempotencyKey: FleetIdempotencyKeySchema,
+});
+export type FleetFuelLogCreateRequest = z.infer<
+  typeof FleetFuelLogCreateRequestSchema
+>;
+
+export const FleetRepairCreateRequestSchema = z.object({
+  vehicleId: z.string().min(1),
+  kind: z.string().min(1).max(60),
+  odometerKm: z.number().nonnegative(),
+  cost: z.number().nonnegative(),
+  nextDueAt: z.string().nullable().optional(),
+  idempotencyKey: FleetIdempotencyKeySchema,
+});
+export type FleetRepairCreateRequest = z.infer<
+  typeof FleetRepairCreateRequestSchema
+>;
+
+export const FleetTireInstallRequestSchema = z.object({
+  vehicleId: z.string().min(1),
+  position: z.string().min(1).max(20),
+  brand: z.string().min(1).max(60).nullable().optional(),
+  installedAt: z.string().min(1),
+  odometerAtInstall: z.number().int().nonnegative().nullable().optional(),
+  expectedLifeKm: z.number().int().nonnegative().nullable().optional(),
+  idempotencyKey: FleetIdempotencyKeySchema,
+});
+export type FleetTireInstallRequest = z.infer<
+  typeof FleetTireInstallRequestSchema
+>;
+
+/* ── write response envelopes ── */
+
+export const FleetVehicleCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  vehicle: FleetVehicleSchema,
+});
+export type FleetVehicleCreateResponse = z.infer<
+  typeof FleetVehicleCreateResponseSchema
+>;
+
+export const FleetDriverCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  driver: FleetDriverSchema,
+});
+export type FleetDriverCreateResponse = z.infer<
+  typeof FleetDriverCreateResponseSchema
+>;
+
+export const FleetTripCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  trip: FleetTripSchema,
+});
+export type FleetTripCreateResponse = z.infer<
+  typeof FleetTripCreateResponseSchema
+>;
+
+export const FleetTripStatusPatchResponseSchema = z.object({
+  ok: z.literal(true),
+  trip: FleetTripSchema,
+});
+export type FleetTripStatusPatchResponse = z.infer<
+  typeof FleetTripStatusPatchResponseSchema
+>;
+
+export const FleetFuelLogCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  log: FleetFuelLogSchema,
+});
+export type FleetFuelLogCreateResponse = z.infer<
+  typeof FleetFuelLogCreateResponseSchema
+>;
+
+export const FleetRepairCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  repair: FleetRepairSchema,
+});
+export type FleetRepairCreateResponse = z.infer<
+  typeof FleetRepairCreateResponseSchema
+>;
+
+export const FleetTireInstallResponseSchema = z.object({
+  ok: z.literal(true),
+  tire: FleetTireSchema,
+});
+export type FleetTireInstallResponse = z.infer<
+  typeof FleetTireInstallResponseSchema
+>;
