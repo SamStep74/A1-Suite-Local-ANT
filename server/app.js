@@ -136,6 +136,7 @@ const cfoAi = require("./cfoAi");
 const vatReturn = require("./vatReturn");
 const locale = require("./locale");
 const healthcheck = require("./healthcheck");
+const crmTube = require("./crmTube");
 const documentCabinet = require("./documentCabinet");
 const documentAi = require("./documentAi");
 const documentCabinetRoutes = require("./documentCabinetRoutes");
@@ -2874,6 +2875,269 @@ function registerApi(app, db, options = {}) {
     requireCollectionEditor(user);
     const taskId = normalizeCollectionTaskPathId(request.params.id, request.raw?.url);
     return createCollectionPromiseForTask(db, user, taskId, request.body === undefined ? {} : request.body);
+  });
+
+  // ─── A1 CRM Tube (Phase 8.13) ──────────────────────────────────────────
+  // Pattern A: thin routes over the pure engine in server/crmTube.js.
+  // All mutations require idempotencyKey, write one audit_events row,
+  // and are gated to users with crm-tube app access. The 5-gate
+  // contract suite in test/crmTube.test.js exercises this surface.
+
+  app.get("/api/crm/tube", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    const tubeId = crmTube.ensureDefaultTube(db, user.org_id);
+    const tubes = crmTube.listTubes(db, user.org_id);
+    return { tubes, defaultTubeId: tubeId };
+  });
+
+  app.get("/api/crm/tube/deals", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    return { deals: crmTube.listDeals(db, user.org_id, request.query || {}) };
+  });
+
+  app.get("/api/crm/tube/deals/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    const deal = crmTube.getDeal(db, user.org_id, request.params.id);
+    if (!deal) {
+      const err = new Error("Deal not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    return { deal };
+  });
+
+  app.post("/api/crm/tube/deals/:id/stage", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    const body = request.body || {};
+    const stageId = String(body.stageId || "").trim();
+    if (!stageId) {
+      const err = new Error("stageId is required");
+      err.statusCode = 400;
+      throw err;
+    }
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) {
+      const err = new Error("idempotencyKey is required");
+      err.statusCode = 400;
+      throw err;
+    }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const deal = crmTube.moveDealStage(db, user.org_id, request.params.id, stageId);
+    const envelope = { ok: true, deal };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "crm-tube.deal.stage", { dealId: request.params.id, stageId, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.get("/api/crm/tube/contacts", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    return { contacts: crmTube.listContacts(db, user.org_id, request.query || {}) };
+  });
+
+  app.get("/api/crm/tube/organizations", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    return { organizations: crmTube.listOrganizations(db, user.org_id, request.query || {}) };
+  });
+
+  app.get("/api/crm/tube/activities", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    return { activities: crmTube.listActivities(db, user.org_id, request.query || {}) };
+  });
+
+  app.get("/api/crm/tube/conversations", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    return { conversations: crmTube.listConversations(db, user.org_id, request.query || {}) };
+  });
+
+  app.get("/api/crm/tube/integrations", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    return { integrations: crmTube.listIntegrations(db, user.org_id) };
+  });
+
+  // Connector health check — the one demo route the registry wires
+  // up. The actual connector pull / push / webhook surface ships in
+  // a follow-up sub-phase; this endpoint proves the env-flag branch
+  // works (stub vs real) and that secrets never land in audit_events.
+  const { getConnector: getTubeConnector, TUBE_CONNECTORS } = require("./crmTube/connectors/registry");
+  app.post("/api/crm/tube/integrations/:key/health-check", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    const key = String(request.params.key || "").trim();
+    if (!TUBE_CONNECTORS[key]) {
+      const err = new Error(`Unknown connector: ${key}`);
+      err.statusCode = 404;
+      throw err;
+    }
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    // The secret comes from the request body in this demo; production
+    // would read it from the per-connector row in tube_integrations.
+    // We deliberately do NOT log it — only the fingerprint lands in
+    // the audit payload.
+    const adapter = getTubeConnector(key, { secret: body.secret || null });
+    const envelope = adapter.healthCheck();
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "crm-tube.integration.health", {
+      connector: key,
+      mode: envelope.mode,
+      latencyMs: envelope.data && envelope.data.latencyMs,
+      fingerprint: envelope.evidence && envelope.evidence.fingerprint,
+      idempotencyKey: idem
+    });
+    return envelope;
+  });
+
+  // ─── Sequences (v0.5) ─────────────────────────────────────────────────
+  app.get("/api/crm/tube/sequences", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    return { sequences: crmTube.listSequences(db, user.org_id) };
+  });
+
+  app.get("/api/crm/tube/sequences/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    const seq = crmTube.getSequence(db, user.org_id, request.params.id);
+    if (!seq) { const err = new Error("Sequence not found"); err.statusCode = 404; throw err; }
+    return { sequence: seq, enrollments: crmTube.listSequenceEnrollments(db, user.org_id, request.params.id) };
+  });
+
+  app.post("/api/crm/tube/sequences", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const sequence = crmTube.createSequence(db, user.org_id, body);
+    const envelope = { ok: true, sequence };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "crm-tube.sequence.created", { sequenceId: sequence.id, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.patch("/api/crm/tube/sequences/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const sequence = crmTube.updateSequence(db, user.org_id, request.params.id, body);
+    if (!sequence) { const err = new Error("Sequence not found"); err.statusCode = 404; throw err; }
+    const envelope = { ok: true, sequence };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "crm-tube.sequence.updated", { sequenceId: sequence.id, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.delete("/api/crm/tube/sequences/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    const idem = String((request.body || {}).idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    crmTube.deleteSequence(db, user.org_id, request.params.id);
+    const envelope = { ok: true, deleted: request.params.id };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "crm-tube.sequence.deleted", { sequenceId: request.params.id, idempotencyKey: idem });
+    return envelope;
+  });
+
+  app.post("/api/crm/tube/sequences/enroll", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const sequenceId = String(body.sequenceId || "").trim();
+    const ids = Array.isArray(body.contactIds) ? body.contactIds.filter(s => typeof s === "string" && s.length > 0) : [];
+    if (!sequenceId || ids.length === 0) {
+      const err = new Error("sequenceId and a non-empty contactIds[] are required");
+      err.statusCode = 400;
+      throw err;
+    }
+    const seq = crmTube.getSequence(db, user.org_id, sequenceId);
+    if (!seq) { const err = new Error("Sequence not found"); err.statusCode = 404; throw err; }
+    const enrolled = crmTube.enrollContactsInSequence(db, user.org_id, sequenceId, ids);
+    const envelope = { ok: true, enrolled, sequenceId, requested: ids.length };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "crm-tube.sequence.enroll", { sequenceId, requested: ids.length, enrolled, idempotencyKey: idem });
+    return envelope;
+  });
+
+  // ─── Inbox + bulk enrich (v0.5) ────────────────────────────────────────
+  app.get("/api/crm/tube/inbox", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    const q = request.query || {};
+    const entityType = String(q.entityType || "").trim();
+    const id = String(q.id || "").trim();
+    if (!entityType || !id) {
+      const err = new Error("entityType and id are required");
+      err.statusCode = 400;
+      throw err;
+    }
+    return { items: crmTube.listInboxForEntity(db, user.org_id, { entityType, id, limit: q.limit }) };
+  });
+
+  app.post("/api/crm/tube/contacts/enrich", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "crm-tube");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const ids = Array.isArray(body.contactIds) ? body.contactIds.filter(s => typeof s === "string" && s.length > 0) : [];
+    if (ids.length === 0) {
+      const err = new Error("contactIds[] is required and must be non-empty");
+      err.statusCode = 400;
+      throw err;
+    }
+    const rows = crmTube.findContactsForEnrich(db, user.org_id, ids);
+    // Real adapter selection lives in the v0.5 sub-phase; for now
+    // we mark the rows as enriched with a deterministic stub payload
+    // and surface the count so the SPA can render a toast. The
+    // deterministic stub is the ANT-native answer for the data-
+    // sovereignty posture (outbound OFF by default); per-connector
+    // adapters swap in via <CONNECTOR>_ENABLED=1 in a follow-up.
+    rows.forEach(row => {
+      crmTube.writeContactEnrichment(db, user.org_id, row.id, {
+        provider: "stub",
+        at: new Date().toISOString(),
+        keys: ["email", "linkedin_url", "full_name"]
+      });
+    });
+    const envelope = { ok: true, enriched: rows.length, requested: ids.length };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "crm-tube.contacts.enrich", { requested: ids.length, enriched: rows.length, idempotencyKey: idem });
+    return envelope;
   });
 
   app.get("/api/docs/signature-packets", async request => {

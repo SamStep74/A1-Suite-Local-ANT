@@ -23,11 +23,13 @@ import {
   Workflow,
   ClipboardList,
   TrendingUp,
+  RadioTower,
   type LucideIcon,
 } from "lucide-react";
 
 export const APP_IDS = [
   "crm",
+  "crm-tube",
   "finance",
   "copilot",
   "desk",
@@ -75,6 +77,16 @@ export const APPS: Record<AppId, AppMeta> = {
     accent: "teal",
     group: "core",
     legacyMountId: "suite-app-crm",
+  },
+  "crm-tube": {
+    id: "crm-tube",
+    label: "Tube",
+    labelAm: "Խողովակ",
+    tagline: "Apollo · CloudTalk · 10 sovereign connectors",
+    icon: RadioTower,
+    accent: "violet",
+    group: "ext",
+    legacyMountId: "suite-app-crm-tube",
   },
   finance: {
     id: "finance",

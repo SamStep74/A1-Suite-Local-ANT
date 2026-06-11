@@ -81,7 +81,7 @@ test("owner login loads organization, app launcher, localization, and audit", as
     const body = response.json();
     assert.equal(body.organization.currency, "AMD");
     assert.equal(body.organization.locale, "hy-AM");
-    assert.equal(body.apps.length, 13);
+    assert.equal(body.apps.length, 14);
     assert.ok(body.apps.some(app => app.id === "finance"));
     assert.ok(body.apps.some(app => app.id === "copilot"));
     assert.ok(body.apps.some(app => app.id === "inventory"));

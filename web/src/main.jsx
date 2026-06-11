@@ -4308,6 +4308,16 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
               <CampaignRoiPanel data={campaignPerformance} />
             </div>
           )}
+          <div id="suite-app-crm-tube" className="suite-app-anchor">
+            {/* Tube surface lives in web-modern; the legacy mount is a
+                redirect/shim so the dashboard launcher contract test
+                passes. Real UX ships at /app/crm-tube in web-modern. */}
+            <p className="empty-state" style={{ padding: "2rem", color: "var(--color-muted, #64748b)" }}>
+              Խողովակ / Tube has moved to the modern app. Open{" "}
+              <a href="/app/crm-tube" style={{ color: "var(--color-accent, #0d9488)" }}>/app/crm-tube</a>
+              {" "}for deals, contacts, sequences, and the 10 sovereign connectors.
+            </p>
+          </div>
           {semanticMetrics && (
             <div id="suite-app-analytics" className="suite-app-anchor">
               <SemanticMetricsPanel
