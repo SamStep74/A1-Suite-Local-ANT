@@ -47,10 +47,10 @@ import { Route as AppCrmQuoteIdRouteImport } from './routes/app/crm/$quoteId'
 import { Route as AppCopilotChatIdRouteImport } from './routes/app/copilot/$chatId'
 import { Route as AppCfoLoanIdRouteImport } from './routes/app/cfo/$loanId'
 import { Route as AppAnalyticsMetricIdRouteImport } from './routes/app/analytics/$metricId'
+import { Route as AppCrmTubeSequencesIndexRouteImport } from './routes/app/crm-tube/sequences/index'
+import { Route as AppCrmTubeIntegrationsIndexRouteImport } from './routes/app/crm-tube/integrations/index'
 import { Route as AppCfoReportsIndexRouteImport } from './routes/app/cfo/reports/index'
-import { Route as AppCrmTubeContactsIndexRouteImport } from './routes/app/crm-tube/contacts/index'
-import { Route as AppCrmTubeContactsContactIdRouteImport } from './routes/app/crm-tube/contacts/$contactId'
-import { Route as AppCrmTubeInboxRouteImport } from './routes/app/crm-tube/inbox'
+import { Route as AppCrmTubeSequencesSequenceIdRouteImport } from './routes/app/crm-tube/sequences/$sequenceId'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -242,26 +242,29 @@ const AppAnalyticsMetricIdRoute = AppAnalyticsMetricIdRouteImport.update({
   path: '/analytics/$metricId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCrmTubeSequencesIndexRoute =
+  AppCrmTubeSequencesIndexRouteImport.update({
+    id: '/crm-tube/sequences/',
+    path: '/crm-tube/sequences/',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
+const AppCrmTubeIntegrationsIndexRoute =
+  AppCrmTubeIntegrationsIndexRouteImport.update({
+    id: '/crm-tube/integrations/',
+    path: '/crm-tube/integrations/',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
 const AppCfoReportsIndexRoute = AppCfoReportsIndexRouteImport.update({
   id: '/cfo/reports/',
   path: '/cfo/reports/',
   getParentRoute: () => AppRouteRoute,
 } as any)
-const AppCrmTubeContactsIndexRoute = AppCrmTubeContactsIndexRouteImport.update({
-  id: '/crm-tube/contacts/',
-  path: '/crm-tube/contacts/',
-  getParentRoute: () => AppRouteRoute,
-} as any)
-const AppCrmTubeContactsContactIdRoute = AppCrmTubeContactsContactIdRouteImport.update({
-  id: '/crm-tube/contacts/$contactId',
-  path: '/crm-tube/contacts/$contactId',
-  getParentRoute: () => AppRouteRoute,
-} as any)
-const AppCrmTubeInboxRoute = AppCrmTubeInboxRouteImport.update({
-  id: '/crm-tube/inbox',
-  path: '/crm-tube/inbox',
-  getParentRoute: () => AppRouteRoute,
-} as any)
+const AppCrmTubeSequencesSequenceIdRoute =
+  AppCrmTubeSequencesSequenceIdRouteImport.update({
+    id: '/crm-tube/sequences/$sequenceId',
+    path: '/crm-tube/sequences/$sequenceId',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -302,11 +305,10 @@ export interface FileRoutesByFullPath {
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
-  '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
+  '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
-  '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
-  '/app/crm-tube/contacts/': typeof AppCrmTubeContactsIndexRoute
-  '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
+  '/app/crm-tube/integrations/': typeof AppCrmTubeIntegrationsIndexRoute
+  '/app/crm-tube/sequences/': typeof AppCrmTubeSequencesIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -345,11 +347,10 @@ export interface FileRoutesByTo {
   '/app/people': typeof AppPeopleIndexRoute
   '/app/projects': typeof AppProjectsIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
-  '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
+  '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
   '/app/cfo/reports': typeof AppCfoReportsIndexRoute
-  '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
-  '/app/crm-tube/contacts': typeof AppCrmTubeContactsIndexRoute
-  '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
+  '/app/crm-tube/integrations': typeof AppCrmTubeIntegrationsIndexRoute
+  '/app/crm-tube/sequences': typeof AppCrmTubeSequencesIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -391,11 +392,10 @@ export interface FileRoutesById {
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
-  '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
+  '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
-  '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
-  '/app/crm-tube/contacts/': typeof AppCrmTubeContactsIndexRoute
-  '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
+  '/app/crm-tube/integrations/': typeof AppCrmTubeIntegrationsIndexRoute
+  '/app/crm-tube/sequences/': typeof AppCrmTubeSequencesIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -438,11 +438,10 @@ export interface FileRouteTypes {
     | '/app/people/'
     | '/app/projects/'
     | '/app/purchase/'
-    | '/app/crm-tube/deals/$dealId'
+    | '/app/crm-tube/sequences/$sequenceId'
     | '/app/cfo/reports/'
-    | '/app/crm-tube/contacts/$contactId'
-    | '/app/crm-tube/contacts/'
-    | '/app/crm-tube/inbox'
+    | '/app/crm-tube/integrations/'
+    | '/app/crm-tube/sequences/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -481,11 +480,10 @@ export interface FileRouteTypes {
     | '/app/people'
     | '/app/projects'
     | '/app/purchase'
-    | '/app/crm-tube/deals/$dealId'
+    | '/app/crm-tube/sequences/$sequenceId'
     | '/app/cfo/reports'
-    | '/app/crm-tube/contacts/$contactId'
-    | '/app/crm-tube/contacts'
-    | '/app/crm-tube/inbox'
+    | '/app/crm-tube/integrations'
+    | '/app/crm-tube/sequences'
   id:
     | '__root__'
     | '/'
@@ -526,11 +524,10 @@ export interface FileRouteTypes {
     | '/app/people/'
     | '/app/projects/'
     | '/app/purchase/'
-    | '/app/crm-tube/deals/$dealId'
+    | '/app/crm-tube/sequences/$sequenceId'
     | '/app/cfo/reports/'
-    | '/app/crm-tube/contacts/$contactId'
-    | '/app/crm-tube/contacts/'
-    | '/app/crm-tube/inbox'
+    | '/app/crm-tube/integrations/'
+    | '/app/crm-tube/sequences/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -808,6 +805,20 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAnalyticsMetricIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/crm-tube/sequences/': {
+      id: '/app/crm-tube/sequences/'
+      path: '/crm-tube/sequences'
+      fullPath: '/app/crm-tube/sequences/'
+      preLoaderRoute: typeof AppCrmTubeSequencesIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/crm-tube/integrations/': {
+      id: '/app/crm-tube/integrations/'
+      path: '/crm-tube/integrations'
+      fullPath: '/app/crm-tube/integrations/'
+      preLoaderRoute: typeof AppCrmTubeIntegrationsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/cfo/reports/': {
       id: '/app/cfo/reports/'
       path: '/cfo/reports'
@@ -815,25 +826,11 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCfoReportsIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
-    '/app/crm-tube/contacts/$contactId': {
-      id: '/app/crm-tube/contacts/$contactId'
-      path: '/crm-tube/contacts/$contactId'
-      fullPath: '/app/crm-tube/contacts/$contactId'
-      preLoaderRoute: typeof AppCrmTubeContactsContactIdRouteImport
-      parentRoute: typeof AppRouteRoute
-    }
-    '/app/crm-tube/contacts/': {
-      id: '/app/crm-tube/contacts/'
-      path: '/crm-tube/contacts'
-      fullPath: '/app/crm-tube/contacts/'
-      preLoaderRoute: typeof AppCrmTubeContactsIndexRouteImport
-      parentRoute: typeof AppRouteRoute
-    }
-    '/app/crm-tube/inbox': {
-      id: '/app/crm-tube/inbox'
-      path: '/crm-tube/inbox'
-      fullPath: '/app/crm-tube/inbox'
-      preLoaderRoute: typeof AppCrmTubeInboxRouteImport
+    '/app/crm-tube/sequences/$sequenceId': {
+      id: '/app/crm-tube/sequences/$sequenceId'
+      path: '/crm-tube/sequences/$sequenceId'
+      fullPath: '/app/crm-tube/sequences/$sequenceId'
+      preLoaderRoute: typeof AppCrmTubeSequencesSequenceIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
   }
@@ -885,11 +882,10 @@ interface AppRouteRouteChildren {
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppProjectsIndexRoute: typeof AppProjectsIndexRoute
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
-  AppCrmTubeDealsDealIdRoute: typeof AppCrmTubeDealsDealIdRoute
+  AppCrmTubeSequencesSequenceIdRoute: typeof AppCrmTubeSequencesSequenceIdRoute
   AppCfoReportsIndexRoute: typeof AppCfoReportsIndexRoute
-  AppCrmTubeContactsContactIdRoute: typeof AppCrmTubeContactsContactIdRoute
-  AppCrmTubeContactsIndexRoute: typeof AppCrmTubeContactsIndexRoute
-  AppCrmTubeInboxRoute: typeof AppCrmTubeInboxRoute
+  AppCrmTubeIntegrationsIndexRoute: typeof AppCrmTubeIntegrationsIndexRoute
+  AppCrmTubeSequencesIndexRoute: typeof AppCrmTubeSequencesIndexRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
@@ -924,11 +920,10 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppProjectsIndexRoute: AppProjectsIndexRoute,
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,
-  AppCrmTubeDealsDealIdRoute: AppCrmTubeDealsDealIdRoute,
+  AppCrmTubeSequencesSequenceIdRoute: AppCrmTubeSequencesSequenceIdRoute,
   AppCfoReportsIndexRoute: AppCfoReportsIndexRoute,
-  AppCrmTubeContactsContactIdRoute: AppCrmTubeContactsContactIdRoute,
-  AppCrmTubeContactsIndexRoute: AppCrmTubeContactsIndexRoute,
-  AppCrmTubeInboxRoute: AppCrmTubeInboxRoute,
+  AppCrmTubeIntegrationsIndexRoute: AppCrmTubeIntegrationsIndexRoute,
+  AppCrmTubeSequencesIndexRoute: AppCrmTubeSequencesIndexRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
