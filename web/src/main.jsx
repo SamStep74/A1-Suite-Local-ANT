@@ -12,7 +12,6 @@ import { ExportDocsPanel } from "./exportDocs.jsx";
 import { StateIntegrationsPanel } from "./stateIntegrations.jsx";
 import { FleetPanel } from "./fleet.jsx";
 import { CopilotPanel } from "./copilot.jsx";
-import { AiOnboardingPanel } from "./ai-onboarding.jsx";
 import { ProductionReadinessPanel } from "./compliance.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
 import { FormCreateForm, FormsRegistryPanel } from "./forms.jsx";
@@ -4284,7 +4283,6 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
           </div>
           {canUseCopilot && (
           <div id="suite-app-copilot" className="suite-app-anchor">
-            {suite.user.role === "Owner" && <AiOnboardingPanel api={api} />}
             <CopilotPanel
               customers={(serviceConsole && serviceConsole.customers) || []}
               docs={docs}
