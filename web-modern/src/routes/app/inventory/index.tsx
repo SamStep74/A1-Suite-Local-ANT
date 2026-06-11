@@ -264,6 +264,15 @@ function WorkspaceHeader({
           <span className="text-[11px] text-[var(--color-muted)]">
             Stock tiers and moves are deterministic
           </span>
+          <Link
+            to="/app/inventory/warehouse"
+            data-testid="inventory-warehouse-link"
+            data-entity="inventory-warehouse-link"
+            className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 py-0.5 text-[11px] font-semibold text-[var(--color-ink)] hover:bg-[var(--color-surface-soft)]"
+          >
+            <PackageOpen className="size-3" />
+            Պահեստ
+          </Link>
         </div>
       </div>
       <ViewSwitcher
