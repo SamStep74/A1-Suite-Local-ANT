@@ -1,6 +1,41 @@
 # Armosphera One Claude — Handoff & State
 
-_Last updated: 2026-06-11 · main after web-modern Pattern A UI rebuild (Phase 3.5 CFO + Phase 4) + Phase 5 (e2e smoke) + Phase 5.1 (flake fix) + Phase 6 (CI workflow) + Phase 7 (CFO printable financial statements) · **1254 vitest pass on web-modern (55 files) + 933 node:test pass on server root = 2187 total, 0 fail, 0 cancelled** · **16 Playwright e2e pass (14 apps smoke + 1 CRM happy-path detail + 1 CFO reports) in 4.5s** · Pushed to `ant` as `main` + tags `phase4-web-modern-pattern-a-v1` (SHA `62267c2`), `phase5-e2e-smoke-v1` (SHA `bc5e6c9`), `phase6-ci-v1` (SHA `e3ba3c6`) · Phase 7 ready to push as tag `phase7-cfo-reports-v1` · 8 stale `wip/*` branches removed (worktrees pruned) · Repo is clean: 1 local branch (main), 0 worktrees_
+_Last updated: 2026-06-11 · main after web-modern Pattern A UI rebuild (Phase 3.5 CFO + Phase 4) + Phase 5 (e2e smoke) + Phase 5.1 (flake fix) + Phase 6 (CI workflow) + Phase 7 (CFO printable financial statements) · **1254 vitest pass on web-modern (55 files) + 933 node:test pass on server root = 2187 total, 0 fail, 0 cancelled** · **16 Playwright e2e pass (14 apps smoke + 1 CRM happy-path detail + 1 CFO reports) in 4.5s** · Pushed to `ant` as `main` + tags `phase4-web-modern-pattern-a-v1` (SHA `62267c2`), `phase5-e2e-smoke-v1` (SHA `bc5e6c9`), `phase6-ci-v1` (SHA `e3ba3c6`), `phase7-cfo-reports-v1` (SHA `e8a4c12`) · 8 stale `wip/*` branches removed (worktrees pruned) · Repo is clean: 1 local branch (main), 0 worktrees_
+
+## ⚠️ Pivot: legacy is out of the product (replaces Phase 8 strangler-fig)
+
+**Product decision (2026-06-11):** _"No need for back to legacy — we need to have only modern, no need for legacy in the product. All functionality that was in legacy must be migrated to modern, and legacy trails removed and tested migrations."_
+
+The previously planned **Phase 8 — Strangler-fig redirect** (server-side 302 from legacy `/app/crm` to modern `:4173/app/crm`, with a `legacy_back` query param the modern app would surface as a "← back to legacy" affordance) has been **reverted before commit**. Linking the modern app back to the legacy SPA is the opposite of the new direction. The server-side `maybeRedirectToModern` helper, the `setNotFoundHandler` wrapper, the `WEB_MODERN_URL/ WEB_MODERN_PATHS / WEB_MODERN_DISABLED` env surface, and the `legacy_back` query handling in `web-modern/src/routes/app/crm/index.tsx` + `web-modern/src/routes/app/crm/$quoteId.tsx` are all gone from the working tree (re-`git checkout` + the new test file removed).
+
+**What this means in concrete terms:**
+
+- The 14 modern apps shipped (analytics, campaigns, cfo, copilot, crm, desk, docs, finance, flow, forms, inventory, people, projects, purchase) are the *only* customer-facing surface; everything else in the modern app is a "Coming soon — migration in progress" stub with a clear breadcrumb back to the dashboard.
+- The **legacy SPA at `web/` and its built bundle at `public/` will be deleted** as the last sub-phase of this pivot. Until then it stays on disk for two reasons only: (1) the new e2e smoke harness still mounts it on `:4100` to confirm `/app/crm` returns 200 from the legacy app while the modern migration is incomplete, and (2) several PWA-precache manifest entries in `public/manifest.webmanifest` reference its icons and shell. Both reasons evaporate once the last modern app ships.
+- 11 legacy modules need migration to `web-modern/`: `ai-onboarding`, `assets`, `cabinet`, `compliance`, `exportDocs`, `fleet`, `greenhouse`, `procurement`, `stateIntegrations`, `warehouse`, `healthcheck`. Each migration is one sub-phase: typed Zod schema(s) → pure helpers + tests → route component + co-located test → Playwright e2e → drop the legacy module + bumb the `apps.ts` list if a new slug ships → tag `phase8-<module>-v1` and push to `ant`.
+- Migration **must** carry a test that proves parity with the legacy module (same API surface, same audit trail, same RBAC). Just rebuilding the panel in React isn't enough; the contract test is the migration's definition of done.
+- After the 11th module ships, one final phase deletes `web/`, the `public/` legacy bundle, the `:4100` legacy mount in `server/app.js#registerStatic`, and all references in `package.json` / `Dockerfile` / `docs/`. CI's `server` + `web-modern` + `e2e` jobs all stay green through the whole sequence because each sub-phase ends with the full test run.
+
+**Recommended sequencing** (each row is one sub-phase of the new Phase 8; order is by business value × reusability, not by file size):
+
+| # | Module | Backend already in `server/`? | New `web-modern` route | Reusable shared bits |
+|---|---|---|---|---|
+| 8.1 | `healthcheck` | ✅ (sub-plan "Pattern A skeleton") | `/app/healthcheck` (Pat. A template) | engine + `/api/healthcheck/ping` |
+| 8.2 | `cabinet` | ✅ (sub-plan "Document cabinet") | `/app/cabinet` | server/cabinet.js + `/api/cabinet/*` |
+| 8.3 | `warehouse` | ✅ (sub-plan "Warehouse extension") | `/app/warehouse` (or merge into `/app/inventory`) | server/warehouse.js + `/api/warehouse/*` |
+| 8.4 | `procurement` | ✅ (sub-plan "Procurement extension") | `/app/procurement` (or merge into `/app/purchase`) | server/procurement.js + `/api/procurement/*` |
+| 8.5 | `assets` | ✅ (sub-plan "Asset management") | `/app/assets` | server/assets.js + `/api/assets/*` |
+| 8.6 | `fleet` | ✅ (sub-plan "Fleet management") | `/app/fleet` | server/fleet.js + `/api/fleet/*` |
+| 8.7 | `greenhouse` | ✅ (sub-plan "Greenhouse ERP") | `/app/greenhouse` | server/greenhouse.js + `/api/greenhouse/*` |
+| 8.8 | `stateIntegrations` | ✅ (sub-plan "State integrations hub") | `/app/state-integrations` (route through `requireAppAccess("finance")`) | server/stateIntegrations.js + `/api/state-int/*` |
+| 8.9 | `exportDocs` | partial (flows live inside `cabinet`) | `/app/export-docs` | re-export cabinet's `export*` endpoints |
+| 8.10 | `compliance` | partial (audit + period-lock are engine-wide) | `/app/compliance` | new `/api/compliance/*` thin routes |
+| 8.11 | `ai-onboarding` | n/a (UI-only guide) | `/app/onboarding` (or fold into `/app/copilot`) | new AI helper + 1 panel |
+| 8.12 | **delete legacy** | — | — | `rm -rf web/ public/`, strip `server/app.js#registerStatic`, drop `:4100` from CI e2e, rewrite `Dockerfile` + `package.json` build steps |
+
+**Recommended option:** keep the proposed ordering (it follows the existing sub-plan tags so the diffs are mechanical) and ship one sub-phase per turn. The user said "go for recommended options" so the next turn should kick off **8.1 `healthcheck`** (smallest scope, Pattern A template already proven, no backend changes, fastest green-to-green cycle) before tackling the larger modules.
+
+
 
 > **Repo home:** private GitHub `SamStep74/A1-Suite-Local`, developed locally at `~/dev/A1-Suite-Local` (moved off the OneDrive-synced folder — the old `node --test` "cancelled" stalls were OneDrive FS contention, now gone: the full suite runs clean on local disk).
 
