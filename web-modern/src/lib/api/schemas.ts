@@ -2323,3 +2323,69 @@ export const TubeListResponseSchema = z.object({
   items: z.array(TubeInboxItemSchema).optional(),
 });
 
+/* ────────── AI onboarding (Phase 8.11) ────────── */
+
+export const AiModelSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+}).passthrough();
+export type AiModel = z.infer<typeof AiModelSchema>;
+
+export const AiModelsResponseSchema = z.object({
+  provider: z.literal("openrouter"),
+  online: z.boolean(),
+  source: z.enum(["live", "offline-fallback"]),
+  reason: z.string().nullable(),
+  egressAllowed: z.boolean(),
+  openrouterHost: z.string(),
+  models: z.array(AiModelSchema),
+});
+export type AiModelsResponse = z.infer<typeof AiModelsResponseSchema>;
+
+export const AI_MODEL_KEYS = ["default", "copilot", "transform", "finance", "crm", "docs"] as const;
+export type AiModelKey = typeof AI_MODEL_KEYS[number];
+
+export const AiSettingsModelsSchema = z.object({
+  default: z.string().default(""),
+  copilot: z.string().default(""),
+  transform: z.string().default(""),
+  finance: z.string().default(""),
+  crm: z.string().default(""),
+  docs: z.string().default(""),
+});
+export type AiSettingsModels = z.infer<typeof AiSettingsModelsSchema>;
+
+export const AiSettingsOpenNotebookSchema = z.object({
+  apiKeySet: z.boolean(),
+  enabled: z.boolean(),
+  baseUrl: z.string(),
+});
+export type AiSettingsOpenNotebook = z.infer<typeof AiSettingsOpenNotebookSchema>;
+
+export const AiSettingsResponseSchema = z.object({
+  provider: z.literal("openrouter"),
+  egressAllowed: z.boolean(),
+  openrouterHost: z.string(),
+  settings: z.object({
+    openrouterApiKeySet: z.boolean(),
+    openNotebook: AiSettingsOpenNotebookSchema,
+    models: AiSettingsModelsSchema,
+  }),
+});
+export type AiSettingsResponse = z.infer<typeof AiSettingsResponseSchema>;
+
+export const AiSettingsPutRequestSchema = z.object({
+  openrouterApiKey: z.string().min(1).max(500).optional(),
+  models: AiSettingsModelsSchema.partial().optional(),
+  openNotebook: AiSettingsOpenNotebookSchema.partial().extend({
+    apiKey: z.string().min(1).max(500).optional(),
+  }).optional(),
+});
+export type AiSettingsPutRequest = z.infer<typeof AiSettingsPutRequestSchema>;
+
+export const AiSettingsPutResponseSchema = z.object({
+  ok: z.literal(true),
+  settings: AiSettingsResponseSchema.shape.settings,
+});
+export type AiSettingsPutResponse = z.infer<typeof AiSettingsPutResponseSchema>;
+
