@@ -38,7 +38,8 @@ export type GateableAppId =
   | "flow"
   | "forms"
   | "cfo"
-  | "fleet";
+  | "fleet"
+  | "greenhouse";
 
 /** Per-app access map: app id → does the current user have access?
  *  Default value (`undefined`) → permissive. */
@@ -63,6 +64,7 @@ const DEFAULT_ACCESS: UserAccessMap = {
   forms: true,
   cfo: true,
   fleet: true,
+  greenhouse: true,
 };
 
 const UserAccessContext = createContext<UserAccessMap>(DEFAULT_ACCESS);
