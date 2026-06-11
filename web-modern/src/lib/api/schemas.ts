@@ -2115,3 +2115,128 @@ export const HealthcheckPingResponseSchema = z.object({
   }),
 });
 export type HealthcheckPingResponse = z.infer<typeof HealthcheckPingResponseSchema>;
+
+/**
+ * A1 CRM Tube (Phase 8.13) — Zod schemas for the /api/crm/tube/* surface.
+ * Source: docs/phase8-tube/design.md section 2.1.
+ */
+
+export const TubeStageSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  position: z.number().int(),
+  probability: z.number().int().min(0).max(100),
+  is_won: z.number().int(),
+  is_lost: z.number().int(),
+  color: z.string().nullable(),
+});
+export type TubeStage = z.infer<typeof TubeStageSchema>;
+
+export const TubeTubeSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  is_default: z.number().int(),
+  position: z.number().int(),
+  stages: z.array(TubeStageSchema),
+});
+export type TubeTube = z.infer<typeof TubeTubeSchema>;
+
+export const TubeDealSchema = z.object({
+  id: z.string(),
+  title: z.string(),
+  value: z.number(),
+  currency: z.string(),
+  status: z.enum(["open", "won", "lost"]),
+  stage_id: z.string(),
+  tube_id: z.string(),
+  contact_id: z.string().nullable(),
+  organization_id: z.string().nullable(),
+  owner_user_id: z.string().nullable(),
+  contact_name: z.string().nullable(),
+  contact_email: z.string().nullable(),
+  organization_name: z.string().nullable(),
+  stage_name: z.string().nullable(),
+  stage_probability: z.number().int().nullable(),
+  expected_close_at: z.string().nullable(),
+  closed_at: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type TubeDeal = z.infer<typeof TubeDealSchema>;
+
+export const TubeContactSchema = z.object({
+  id: z.string(),
+  organization_id: z.string().nullable(),
+  full_name: z.string().nullable(),
+  first_name: z.string().nullable(),
+  last_name: z.string().nullable(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  title: z.string().nullable(),
+  linkedin_url: z.string().nullable(),
+  lead_score: z.number().int().nullable(),
+  status: z.string(),
+  organization_name: z.string().nullable(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type TubeContact = z.infer<typeof TubeContactSchema>;
+
+export const TubeSequenceSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  description: z.string().nullable(),
+  is_active: z.boolean(),
+  integration_key: z.string().nullable(),
+  external_id: z.string().nullable(),
+  step_count: z.number().int(),
+  created_at: z.string(),
+  updated_at: z.string(),
+});
+export type TubeSequence = z.infer<typeof TubeSequenceSchema>;
+
+export const TubeSequenceDetailSchema = TubeSequenceSchema.extend({
+  steps: z.array(z.unknown()),
+});
+export type TubeSequenceDetail = z.infer<typeof TubeSequenceDetailSchema>;
+
+export const TubeIntegrationSchema = z.object({
+  id: z.string(),
+  connector_key: z.string(),
+  display_name: z.string(),
+  status: z.enum(["planned", "connected", "paused", "error"]),
+  environment: z.enum(["sandbox", "production", "test"]),
+  auth_type: z.string(),
+  last_health_status: z.string().nullable(),
+  last_health_at: z.string().nullable(),
+  last_health_latency: z.number().int().nullable(),
+  last_sync_at: z.string().nullable(),
+});
+export type TubeIntegration = z.infer<typeof TubeIntegrationSchema>;
+
+export const TubeInboxItemSchema = z.object({
+  kind: z.enum(["activity", "conversation"]),
+  id: z.string(),
+  contact_id: z.string().nullable(),
+  contact_name: z.string().nullable(),
+  channel: z.string().nullable(),
+  subject: z.string().nullable(),
+  body: z.string().nullable(),
+  occurred_at: z.string(),
+  created_at: z.string(),
+});
+export type TubeInboxItem = z.infer<typeof TubeInboxItemSchema>;
+
+// Envelope shapes the SPA will type its fetches against.
+export const TubeListResponseSchema = z.object({
+  tubes: z.array(TubeTubeSchema).optional(),
+  deals: z.array(TubeDealSchema).optional(),
+  contacts: z.array(TubeContactSchema).optional(),
+  organizations: z.array(z.unknown()).optional(),
+  activities: z.array(z.unknown()).optional(),
+  conversations: z.array(z.unknown()).optional(),
+  integrations: z.array(TubeIntegrationSchema).optional(),
+  sequences: z.array(TubeSequenceSchema).optional(),
+  items: z.array(TubeInboxItemSchema).optional(),
+});

@@ -247,6 +247,7 @@ function openDatabase(dbPath) {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA journal_mode = WAL");
   initSchema(db);
+  ensureCrmTubeSchema(db);
   ensurePilotPacketLayer(db);
   ensureSessionGovernanceLayer(db);
   seedIfEmpty(db);
@@ -7503,6 +7504,7 @@ function seedIfEmpty(db) {
 
   const apps = [
     ["crm", "Armosphera CRM", "Sales", "Customers, deals, quotes, inbox, tasks, and Armenian SMB Tubes.", "/app/crm", "partial-integration", 1],
+    ["crm-tube", "Armosphera Tube", "Sales", "Tubes, deals, contacts, sequences, and 10 sovereign connectors (Apollo, CloudTalk, Respond.io, Surfe, Dexatel, Make, Webflow, Closely, Instantly, Pixxi).", "/app/crm-tube", "new", 15],
     ["finance", "HayHashvapah Finance", "Finance", "Accounting, invoices, VAT, payroll, bank import, period locks, and Armenian legal RAG.", "/app/finance", "partial-integration", 2],
     ["copilot", "Legal & Accounting Copilot", "AI", "Armenian-first cited legal, accounting, payroll, month-close, privacy, and e-sign guidance.", "/app/copilot", "controlled-advisory", 3],
     ["desk", "Armosphera Desk", "Service", "Tickets, SLA-lite, channels, support knowledge, and customer portal.", "/app/desk", "new", 4],
@@ -7523,7 +7525,7 @@ function seedIfEmpty(db) {
   for (const role of ["Owner", "Admin"]) {
     for (const app of apps) insertAssignment.run(orgId, role, app[0], 1);
   }
-  for (const appId of ["crm", "finance", "desk", "campaigns", "projects", "inventory", "purchase", "analytics", "cfo"]) {
+  for (const appId of ["crm", "crm-tube", "finance", "desk", "campaigns", "projects", "inventory", "purchase", "analytics", "cfo"]) {
     insertAssignment.run(orgId, "Operator", appId, 1);
   }
   for (const appId of ["crm", "desk", "docs", "cfo"]) {
@@ -7721,6 +7723,299 @@ function ensureSuiteAppLayer(db) {
       insertAssignment.run(org.id, role, "fleet");
     }
   }
+}
+
+// ─── A1 CRM Tube (Phase 8.13) ──────────────────────────────────────────
+// 14 tables, all prefixed `tube_` to avoid collision with the
+// existing `crm_*` and `customers` tables. Schema ported verbatim
+// from a1-suite-local-extended/server/crm-tube/migrations/001-tube.sql
+// (the v0.5 audit-grade shape with UNIQUE(sequence_id, contact_id)
+// on tube_sequence_enrollments). Idempotent — every table is
+// CREATE TABLE IF NOT EXISTS, and the unique index is IF NOT EXISTS
+// so existing production DBs gain the constraint on next open.
+function ensureCrmTubeSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS tube_tubes (
+      id            TEXT PRIMARY KEY,
+      org_id        TEXT NOT NULL,
+      name          TEXT NOT NULL,
+      description   TEXT,
+      is_default    INTEGER NOT NULL DEFAULT 0,
+      position      INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL,
+      UNIQUE (org_id, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS tube_stages (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      tube_id         TEXT NOT NULL REFERENCES tube_tubes(id) ON DELETE CASCADE,
+      name            TEXT NOT NULL,
+      position        INTEGER NOT NULL DEFAULT 0,
+      probability     INTEGER NOT NULL DEFAULT 50,
+      is_won          INTEGER NOT NULL DEFAULT 0,
+      is_lost         INTEGER NOT NULL DEFAULT 0,
+      color           TEXT,
+      created_at      TEXT NOT NULL,
+      UNIQUE (tube_id, name)
+    );
+
+    CREATE TABLE IF NOT EXISTS tube_organizations (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      name            TEXT NOT NULL,
+      domain          TEXT,
+      industry        TEXT,
+      size            TEXT,
+      country         TEXT,
+      phone           TEXT,
+      website         TEXT,
+      owner_user_id   TEXT,
+      source          TEXT,
+      source_id       TEXT,
+      enrichment      TEXT,
+      custom_fields   TEXT,
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL,
+      UNIQUE (org_id, source, source_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tube_orgs_domain ON tube_organizations(org_id, domain);
+    CREATE INDEX IF NOT EXISTS idx_tube_orgs_name   ON tube_organizations(org_id, name);
+
+    CREATE TABLE IF NOT EXISTS tube_contacts (
+      id                TEXT PRIMARY KEY,
+      org_id            TEXT NOT NULL,
+      organization_id   TEXT REFERENCES tube_organizations(id) ON DELETE SET NULL,
+      first_name        TEXT,
+      last_name         TEXT,
+      full_name         TEXT,
+      email             TEXT,
+      phone             TEXT,
+      title             TEXT,
+      linkedin_url      TEXT,
+      owner_user_id     TEXT,
+      source            TEXT,
+      source_id         TEXT,
+      enrichment        TEXT,
+      lead_score        INTEGER,
+      status            TEXT NOT NULL DEFAULT 'new',
+      custom_fields     TEXT,
+      created_at        TEXT NOT NULL,
+      updated_at        TEXT NOT NULL,
+      UNIQUE (org_id, source, source_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tube_contacts_email ON tube_contacts(org_id, email);
+    CREATE INDEX IF NOT EXISTS idx_tube_contacts_org   ON tube_contacts(org_id, organization_id);
+
+    CREATE TABLE IF NOT EXISTS tube_deals (
+      id                TEXT PRIMARY KEY,
+      org_id            TEXT NOT NULL,
+      tube_id           TEXT NOT NULL REFERENCES tube_tubes(id) ON DELETE RESTRICT,
+      stage_id          TEXT NOT NULL REFERENCES tube_stages(id) ON DELETE RESTRICT,
+      title             TEXT NOT NULL,
+      value             REAL NOT NULL DEFAULT 0,
+      currency          TEXT NOT NULL DEFAULT 'AMD',
+      value_amd         REAL,
+      value_usd         REAL,
+      contact_id        TEXT REFERENCES tube_contacts(id) ON DELETE SET NULL,
+      organization_id   TEXT REFERENCES tube_organizations(id) ON DELETE SET NULL,
+      owner_user_id     TEXT,
+      source            TEXT,
+      source_id         TEXT,
+      status            TEXT NOT NULL DEFAULT 'open',
+      win_probability   INTEGER,
+      expected_close_at TEXT,
+      closed_at         TEXT,
+      lost_reason       TEXT,
+      custom_fields     TEXT,
+      created_at        TEXT NOT NULL,
+      updated_at        TEXT NOT NULL,
+      UNIQUE (org_id, source, source_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tube_deals_stage    ON tube_deals(org_id, stage_id);
+    CREATE INDEX IF NOT EXISTS idx_tube_deals_contact  ON tube_deals(org_id, contact_id);
+    CREATE INDEX IF NOT EXISTS idx_tube_deals_owner    ON tube_deals(org_id, owner_user_id);
+
+    CREATE TABLE IF NOT EXISTS tube_activities (
+      id                TEXT PRIMARY KEY,
+      org_id            TEXT NOT NULL,
+      deal_id           TEXT REFERENCES tube_deals(id) ON DELETE SET NULL,
+      contact_id        TEXT REFERENCES tube_contacts(id) ON DELETE SET NULL,
+      owner_user_id     TEXT,
+      kind              TEXT NOT NULL,
+      direction         TEXT,
+      subject           TEXT,
+      body              TEXT,
+      duration_seconds  INTEGER,
+      recording_url     TEXT,
+      transcript        TEXT,
+      status            TEXT,
+      integration_key   TEXT,
+      external_id       TEXT,
+      occurred_at       TEXT NOT NULL,
+      created_at        TEXT NOT NULL,
+      UNIQUE (org_id, integration_key, external_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tube_activities_deal ON tube_activities(org_id, deal_id);
+
+    CREATE TABLE IF NOT EXISTS tube_conversations (
+      id                  TEXT PRIMARY KEY,
+      org_id              TEXT NOT NULL,
+      contact_id          TEXT REFERENCES tube_contacts(id) ON DELETE SET NULL,
+      deal_id             TEXT REFERENCES tube_deals(id) ON DELETE SET NULL,
+      channel             TEXT NOT NULL,
+      integration_key     TEXT NOT NULL,
+      external_thread_id  TEXT,
+      subject             TEXT,
+      last_message_at     TEXT,
+      unread_count        INTEGER NOT NULL DEFAULT 0,
+      status              TEXT NOT NULL DEFAULT 'open',
+      created_at          TEXT NOT NULL,
+      updated_at          TEXT NOT NULL,
+      UNIQUE (org_id, integration_key, external_thread_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS tube_messages (
+      id                  TEXT PRIMARY KEY,
+      org_id              TEXT NOT NULL,
+      conversation_id     TEXT NOT NULL REFERENCES tube_conversations(id) ON DELETE CASCADE,
+      direction           TEXT NOT NULL,
+      body                TEXT,
+      attachments         TEXT,
+      external_id         TEXT,
+      sent_at             TEXT NOT NULL,
+      created_at          TEXT NOT NULL,
+      UNIQUE (org_id, external_id)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tube_messages_conv ON tube_messages(org_id, conversation_id, sent_at);
+
+    CREATE TABLE IF NOT EXISTS tube_sequences (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      name            TEXT NOT NULL,
+      description     TEXT,
+      steps           TEXT NOT NULL,
+      is_active       INTEGER NOT NULL DEFAULT 0,
+      integration_key TEXT,
+      external_id     TEXT,
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS tube_sequence_enrollments (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      sequence_id     TEXT NOT NULL REFERENCES tube_sequences(id) ON DELETE CASCADE,
+      contact_id      TEXT NOT NULL REFERENCES tube_contacts(id) ON DELETE CASCADE,
+      deal_id         TEXT REFERENCES tube_deals(id) ON DELETE SET NULL,
+      current_step    INTEGER NOT NULL DEFAULT 0,
+      status          TEXT NOT NULL DEFAULT 'active',
+      external_id     TEXT,
+      enrolled_at     TEXT NOT NULL,
+      next_run_at     TEXT,
+      UNIQUE (sequence_id, contact_id)
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS ux_tube_sequence_enrollments_pair
+      ON tube_sequence_enrollments(sequence_id, contact_id);
+    CREATE INDEX IF NOT EXISTS idx_tube_seq_enroll_active
+      ON tube_sequence_enrollments(org_id, status, next_run_at);
+
+    CREATE TABLE IF NOT EXISTS tube_workflows (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      name            TEXT NOT NULL,
+      description     TEXT,
+      trigger         TEXT NOT NULL,
+      conditions      TEXT,
+      actions         TEXT NOT NULL,
+      is_active       INTEGER NOT NULL DEFAULT 0,
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS tube_integrations (
+      id                  TEXT PRIMARY KEY,
+      org_id              TEXT NOT NULL,
+      connector_key       TEXT NOT NULL,
+      display_name        TEXT NOT NULL,
+      status              TEXT NOT NULL DEFAULT 'planned',
+      environment         TEXT NOT NULL DEFAULT 'sandbox',
+      auth_type           TEXT NOT NULL,
+      config              TEXT,
+      secret_hash         TEXT,
+      secret_fingerprint  TEXT,
+      scopes              TEXT,
+      capabilities        TEXT,
+      last_health_status  TEXT,
+      last_health_at      TEXT,
+      last_health_latency INTEGER,
+      last_sync_at        TEXT,
+      last_sync_cursor    TEXT,
+      note                TEXT,
+      created_by_user_id  TEXT,
+      updated_by_user_id  TEXT,
+      created_at          TEXT NOT NULL,
+      updated_at          TEXT NOT NULL,
+      UNIQUE (org_id, connector_key)
+    );
+
+    CREATE TABLE IF NOT EXISTS tube_integration_events (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      integration_id  TEXT NOT NULL REFERENCES tube_integrations(id) ON DELETE CASCADE,
+      event_id        TEXT,
+      event_type      TEXT,
+      payload_hash    TEXT NOT NULL,
+      payload         TEXT,
+      received_at     TEXT NOT NULL,
+      processed_at    TEXT,
+      process_status  TEXT NOT NULL DEFAULT 'pending',
+      process_error   TEXT,
+      UNIQUE (org_id, integration_id, event_id, payload_hash)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tube_intev_pending
+      ON tube_integration_events(org_id, process_status, received_at);
+
+    CREATE TABLE IF NOT EXISTS tube_field_mappings (
+      id                  TEXT PRIMARY KEY,
+      org_id              TEXT NOT NULL,
+      integration_id      TEXT NOT NULL REFERENCES tube_integrations(id) ON DELETE CASCADE,
+      source_field        TEXT NOT NULL,
+      target_entity       TEXT NOT NULL,
+      target_field        TEXT NOT NULL,
+      transform           TEXT,
+      UNIQUE (org_id, integration_id, source_field, target_entity, target_field)
+    );
+
+    CREATE TABLE IF NOT EXISTS tube_ai_signals (
+      id                TEXT PRIMARY KEY,
+      org_id            TEXT NOT NULL,
+      subject_type      TEXT NOT NULL,
+      subject_id        TEXT NOT NULL,
+      signal_type       TEXT NOT NULL,
+      score             REAL,
+      payload           TEXT,
+      model_name        TEXT,
+      computed_at       TEXT NOT NULL,
+      UNIQUE (org_id, subject_type, subject_id, signal_type, computed_at)
+    );
+    CREATE INDEX IF NOT EXISTS idx_tube_ai_subject
+      ON tube_ai_signals(org_id, subject_type, subject_id);
+
+    CREATE TABLE IF NOT EXISTS tube_audit_log (
+      id            INTEGER PRIMARY KEY AUTOINCREMENT,
+      org_id        TEXT NOT NULL,
+      actor_user_id TEXT,
+      action        TEXT NOT NULL,
+      target_type   TEXT,
+      target_id     TEXT,
+      payload       TEXT,
+      occurred_at   TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_tube_audit_target
+      ON tube_audit_log(org_id, target_type, target_id, occurred_at);
+  `);
 }
 
 function ensureSessionGovernanceLayer(db) {

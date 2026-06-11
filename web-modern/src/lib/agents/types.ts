@@ -63,7 +63,11 @@ export interface AgentSuggestion {
     | "crm.quote"
     | "crm.lead"
     | "catalog.item"
-    | "inventory.balance";
+    | "inventory.balance"
+    | "tube.deal"
+    | "tube.contact"
+    | "tube.sequence"
+    | "tube.integration";
   contextId: string;
   /** Card title (1 line). */
   title: string;
@@ -111,6 +115,10 @@ export type AgentContext =
   | { type: "crm.deal"; id: string; data: unknown }
   | { type: "crm.quote"; id: string; data: unknown }
   | { type: "crm.lead"; id: string; data: unknown }
+  | { type: "tube.deal"; id: string; data: unknown }
+  | { type: "tube.contact"; id: string; data: unknown }
+  | { type: "tube.sequence"; id: string; data: unknown }
+  | { type: "tube.integration"; id: string; data: unknown }
   | { type: "catalog.item"; id: string; data: unknown }
   | { type: "inventory.balance"; id: string; data: unknown };
 
