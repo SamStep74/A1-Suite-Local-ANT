@@ -4179,3 +4179,29 @@ export const ProductionReadinessResponseSchema = z.object({
 export type ProductionReadinessResponse = z.infer<
   typeof ProductionReadinessResponseSchema
 >;
+
+/* ────────── Phase 10.2b: HR schemas (pre-allocated blocks) ──────────
+ *
+ * The 3 people/HR workers (people, hr-ops, hr-performance) each edit
+ * ONLY their own block below. This preserves the file-isolated
+ * pattern: workers do not collide on schemas.ts.
+ *
+ *   W0 (people):           block-hr-people-begin … block-hr-people-end
+ *   W1 (hr-ops):           block-hr-ops-begin … block-hr-ops-end
+ *   W2 (hr-performance):   block-hr-perf-begin … block-hr-perf-end
+ *
+ * DO NOT remove the begin/end marker comments. The orchestrator
+ * resolves any drift by re-running git merge in strict file order.
+ */
+
+/* ─── block-hr-people-begin ─── */
+/* (W0 inserts HrEmployee + HrPayrollRun + HrLeaveRequest + response shapes here) */
+/* ─── block-hr-people-end ─── */
+
+/* ─── block-hr-ops-begin ─── */
+/* (W1 inserts HrContract + HrLeaveBalance + HrBusinessTrip + HrEquipmentAssign here) */
+/* ─── block-hr-ops-end ─── */
+
+/* ─── block-hr-perf-begin ─── */
+/* (W2 inserts HrTimesheetEntry + HrTimesheetReport + HrKpiTarget + HrKpiActual + HrKpiScore + HrRecruitmentPipeline + HrRecruitmentCandidate + HrOrder here) */
+/* ─── block-hr-perf-end ─── */
