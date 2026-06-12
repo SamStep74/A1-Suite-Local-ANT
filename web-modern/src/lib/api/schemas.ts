@@ -4007,20 +4007,20 @@ export type ExportDocAutoFillRequest = z.infer<
 
 /** A single package the country-check returned. `requiredCertificates`
  *  is open-ended: the server returns arbitrary cert names, so we use
- *  `z.array(z.string())` rather than a closed enum. `hsNote` is a
- *  free-form Armenian note the server may attach. */
+ *  `z.array(z.string())` rather than a closed enum. */
 export const ExportDocCountryCheckPackSchema = z.object({
   requiredCertificates: z.array(z.string()),
-  hsNote: z.string().optional(),
 });
 export type ExportDocCountryCheckPack = z.infer<
   typeof ExportDocCountryCheckPackSchema
 >;
 
-/** Response body for GET /api/export-docs/ai/country-check?country=. */
+/** Response body for GET /api/export-docs/ai/country-check?country=.
+ *  `hsNote` is a free-form Armenian note the server may attach. */
 export const ExportDocCountryCheckResponseSchema = z.object({
   destinationCountry: ExportDocDestinationSchema,
   pack: ExportDocCountryCheckPackSchema,
+  hsNote: z.string().optional(),
 });
 export type ExportDocCountryCheckResponse = z.infer<
   typeof ExportDocCountryCheckResponseSchema
@@ -4041,7 +4041,7 @@ export const ExportDocSchema = z.object({
   kind: ExportDocTemplateKindSchema,
   destinationCountry: ExportDocDestinationSchema,
   status: ExportDocStatusSchema,
-  salesOrder: ExportDocSalesOrderSchema,
+  lines: z.array(ExportDocAutoFillDraftLineSchema).min(1),
   createdAt: z.string().min(1),
   finalizedAt: z.string().optional(),
 });
