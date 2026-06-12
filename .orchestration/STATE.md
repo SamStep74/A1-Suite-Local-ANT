@@ -345,8 +345,10 @@ Wire Lingui v5 (hy / ru / en) end-to-end across the entire web-modern SPA and co
 
 ### Teardown
 
-- Worktree removal: `node scripts/orchestrate-worktrees.js .orchestration/phase10-3-i18n-infra/plan.json --teardown` — *pending* (next concrete step)
-- 4 tracking refs already aligned at bc8b159: `HEAD`, `main`, `refs/heads/ant/main`, `refs/remotes/ant/main`
+- `node scripts/orchestrate-worktrees.js .orchestration/phase10-3-i18n-infra/plan.json --teardown` → killed tmux session `phase10-3-i18n-infra`, removed worktree `A1-Suite-Local-ANT-queue-phase10-3-i18n-infra-i18n-infra` + local branch `wip/phase10-3-i18n-infra-i18n-infra` ✅
+- 4 tracking refs aligned at `763b2b0` (post-STATE.md push): `HEAD`, `main`, `refs/heads/ant/main`, `refs/remotes/ant/main`
+- Local `__tmp__/wip__phase10-3-i18n-infra-i18n-infra` ref pruned (leftover from `merge.sh` fetch workaround)
+- Remote branch `remotes/ant/wip/phase10-3-i18n-infra-i18n-infra` + tag `phase10-3-i18n-infra-v1` preserved (intended)
 
 ### Push
 
