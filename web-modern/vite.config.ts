@@ -1,33 +1,47 @@
 import { defineConfig } from "vite";
-import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import tsConfigPaths from "vite-tsconfig-paths";
 
 /**
- * TanStack Start 1.0 + React 19 + Tailwind v4.
+ * React 19 + Tailwind v4 + Vite 6 — pure-SPA build.
  *
  * The new app lives at web-modern/ alongside the legacy Vite app at web/.
  * Dev server: http://localhost:4173 (Fastify on :4100, legacy Vite on :5173).
  *
  * ── API proxy strategy (two-track architecture) ──────────────────────
- * DEV   : custom Vite plugin `apiProxy` (this file) — Node `fetch` →
- *         Fastify. We use a hand-written Connect middleware instead
- *         of Vite's `server.proxy` because http-proxy (the lib behind
- *         `server.proxy`) strips `Set-Cookie` from the browser-facing
- *         response when `cookieDomainRewrite` / `autoRewrite` aren't
- *         configured. Curl sees the header (curl talks to the proxy
- *         directly), the browser doesn't. Forwarding the response
- *         with the raw middleware passes Set-Cookie through verbatim.
+ * DEV  : custom Vite plugin `apiProxy` (this file) — Node `fetch` →
+ *        Fastify. We use a hand-written Connect middleware instead
+ *        of Vite's `server.proxy` because http-proxy (the lib behind
+ *        `server.proxy`) strips `Set-Cookie` from the browser-facing
+ *        response when `cookieDomainRewrite` / `autoRewrite` aren't
+ *        configured. Curl sees the header (curl talks to the proxy
+ *        directly), the browser doesn't. Forwarding the response
+ *        with the raw middleware passes Set-Cookie through verbatim.
  *
- *         The new app authenticates via `Authorization: Bearer <sid>`
- *         (see src/lib/api/auth-token.ts), so the Set-Cookie bug is
- *         moot for the new app — but the legacy Vite app on :5173
- *         still relies on cookies and benefits from the verbatim
- *         Set-Cookie forwarding.
+ *        The new app authenticates via `Authorization: Bearer <sid>`
+ *        (see src/lib/api/auth-token.ts), so the Set-Cookie bug is
+ *        moot for the new app — but the legacy Vite app on :5173
+ *        still relies on cookies and benefits from the verbatim
+ *        Set-Cookie forwarding.
  *
- * PROD  : TanStack Start server route at `src/routes/api/$.ts`.
- *         Lives in the `.output/server/index.mjs` bundle.
+ * PROD : /api/* is proxied by `scripts/serve-spa.mjs` (which reads
+ *        the dist/ emitted by `vite build`).
+ * ──────────────────────────────────────────────────────────────────────
+ *
+ * ── Why no `tanstackStart()` plugin (Phase 10.0 D1 hotfix) ──────────
+ * The 10.0 D1 flip made this app a pure SPA — no SSR, no server
+ * functions, no `createServerFn`. The `@tanstack/react-router` (not
+ * `@tanstack/react-start`) is what powers routing. The
+ * `tanstackStart()` plugin was removed because:
+ *   1. Its build output (`dist/server/server.js` + `dist/client/assets/*`
+ *      with NO `dist/index.html`) is what `serve-spa.mjs` cannot serve.
+ *   2. None of the src/ files import from `@tanstack/react-start` —
+ *      a `grep -rE 'from .@tanstack/react-start' web-modern/src/`
+ *      returns zero matches. The plugin was pure overhead.
+ *   3. `@tanstack/router-cli` (in devDeps) handles route-tree codegen
+ *      via the `tsr generate` postinstall hook; we still get type-safe
+ *      file-based routing without the start plugin.
  * ──────────────────────────────────────────────────────────────────────
  */
 import type { Plugin, Connect } from "vite";
@@ -135,10 +149,9 @@ export default defineConfig({
   plugins: [
     // Tailwind v4 — CSS-first config; tokens live in src/styles/tokens.css.
     tailwindcss(),
-    // The API proxy MUST be registered before TanStack Start so it
-    // runs before the dev-server-plugin's catch-all middleware.
+    // The API proxy MUST be registered before Vite's own middlewares
+    // (SPA fallback, CORS, HMR, etc.) so /api/* hits our handler first.
     apiProxy(),
-    tanstackStart(),
     react(),
     tsConfigPaths(),
   ],
