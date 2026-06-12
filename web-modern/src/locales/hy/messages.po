@@ -13,26 +13,152 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
-#: src/routes/app/analytics/index.tsx:109
+#: src/components/shared/BulkActionBar.tsx:98
+msgid "{count} selected"
+msgstr "{count} selected"
+
+#: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:88
+msgid "Bucket"
+msgstr "Bucket"
+
+#: src/components/shared/SavedViews.tsx:255
+msgid "Cancel"
+msgstr "Cancel"
+
+#: src/components/shared/PeekPanel.tsx:119
+msgid "Close"
+msgstr "Close"
+
+#: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:129
+msgid "Customers"
+msgstr "Customers"
+
+#: src/routes/app/analytics/index.tsx:110
 msgid "Dashboard"
 msgstr "Dashboard"
 
-#: src/routes/app/analytics/index.tsx:111
+#: src/components/shared/BulkActionBar.tsx:39
+msgid "Delete"
+msgstr "Delete"
+
+#: src/components/shared/SavedViews.tsx:214
+msgid "Delete view"
+msgstr "Delete view"
+
+#: src/components/shared/PeekPanel.tsx:114
+msgid "Details"
+msgstr "Details"
+
+#: src/components/shared/BulkActionBar.tsx:45
+msgid "Export CSV"
+msgstr "Export CSV"
+
+#: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:182
+msgid "Failed to load receivables aging."
+msgstr "Failed to load receivables aging."
+
+#: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:118
+msgid "Invoices"
+msgstr "Invoices"
+
+#: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:97
+msgid "Label"
+msgstr "Label"
+
+#: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:177
+msgid "Loading receivables…"
+msgstr "Loading receivables…"
+
+#: src/routes/app/analytics/index.tsx:112
 msgid "Metrics"
 msgstr "Metrics"
 
-#: src/routes/app/analytics/index.tsx:110
+#: src/components/shared/SavedViews.tsx:235
+msgid "Name this view"
+msgstr "Name this view"
+
+#: src/components/shared/DataTable.tsx:420
+msgid "Next"
+msgstr "Next"
+
+#: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:208
+msgid "No buckets in this period"
+msgstr "No buckets in this period"
+
+#: src/components/shared/DataTable.tsx:373
+msgid "No results"
+msgstr "No results"
+
+#: src/components/shared/SavedViews.tsx:153
+msgid "No saved views yet"
+msgstr "No saved views yet"
+
+#. placeholder {0}: pageIndex + 1
+#. placeholder {1}: Math.max(1, pageCount)
+#: src/components/shared/DataTable.tsx:410
+msgid "Page {0} of {1}"
+msgstr "Page {0} of {1}"
+
+#: src/components/shared/DataTable.tsx:407
+msgid "Prev"
+msgstr "Prev"
+
+#: src/routes/app/analytics/index.tsx:111
 msgid "Receivables"
 msgstr "Receivables"
 
-#: src/routes/app/analytics/index.tsx:113
+#: src/components/shared/SavedViews.tsx:178
+#: src/components/shared/SavedViews.tsx:205
+msgid "Rename view"
+msgstr "Rename view"
+
+#: src/routes/app/analytics/index.tsx:114
 msgid "Reports"
 msgstr "Reports"
 
-#: src/routes/app/analytics/index.tsx:112
+#: src/components/shared/SavedViews.tsx:186
+#: src/components/shared/SavedViews.tsx:245
+msgid "Save"
+msgstr "Save"
+
+#: src/components/shared/SavedViews.tsx:266
+msgid "Save current view"
+msgstr "Save current view"
+
+#: src/components/shared/SavedViews.tsx:147
+msgid "Saved views"
+msgstr "Saved views"
+
+#. placeholder {0}: Math.min(pageIndex * pageSize + 1, totalRows)
+#. placeholder {1}: Math.min((pageIndex + 1) * pageSize, totalRows)
+#: src/components/shared/DataTable.tsx:392
+msgid "Showing {0}–{1} of {totalRows}"
+msgstr "Showing {0}–{1} of {totalRows}"
+
+#: src/routes/app/analytics/index.tsx:113
 msgid "Snapshots"
 msgstr "Snapshots"
 
-#: src/routes/app/analytics/index.tsx:163
+#: src/components/shared/BulkActionBar.tsx:51
+msgid "Tag"
+msgstr "Tag"
+
+#: src/routes/app/analytics/index.tsx:164
 msgid "Today"
 msgstr "Today"
+
+#: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:107
+msgid "Total"
+msgstr "Total"
+
+#: src/components/shared/UndoToast.tsx:120
+msgid "Undo"
+msgstr "Undo"
+
+#: src/components/shared/SavedViews.tsx:236
+msgid "View name"
+msgstr "View name"
+
+#: src/components/shared/SavedViews.tsx:137
+msgid "Views"
+msgstr "Views"

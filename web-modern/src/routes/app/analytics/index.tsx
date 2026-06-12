@@ -56,7 +56,7 @@ import {
   AnalyticsDashboardView,
   AnalyticsMetricsView,
   AnalyticsPageHeader,
-  AnalyticsReceivablesView,
+  AnalyticsReceivablesTableView,
   AnalyticsReportsView,
   AnalyticsSnapshotsView,
 } from "../../../lib/analytics/panels";
@@ -70,6 +70,7 @@ export {
   AnalyticsMetricsView,
   AnalyticsPageHeader,
   AnalyticsReceivablesView,
+  AnalyticsReceivablesTableView,
   AnalyticsReportsView,
   AnalyticsSnapshotsView,
 } from "../../../lib/analytics/panels";
@@ -172,7 +173,7 @@ function AnalyticsWorkspace() {
         />
       )}
       {view === "receivables" && (
-        <AnalyticsReceivablesView
+        <AnalyticsReceivablesTableView
           data={receivablesQ.data}
           loading={receivablesQ.isLoading}
           error={receivablesQ.isError}

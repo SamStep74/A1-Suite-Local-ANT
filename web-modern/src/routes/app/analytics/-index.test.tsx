@@ -423,20 +423,43 @@ describe("Analytics — Receivables view", () => {
     renderRoute();
     expect(screen.getByText(/Failed to load receivables aging/i)).toBeInTheDocument();
   });
-  it("renders 4 KPIs + 3 aging buckets + invoice overdue ratio", () => {
+  it("renders the 5-column DataTable + 3 bucket rows from the new shared primitive", () => {
     mocks.data.receivables = RECEIVABLES;
     renderRoute();
-    expect(screen.getByText(/Total open \(AMD\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Overdue \(AMD\)/)).toBeInTheDocument();
-    expect(screen.getByText(/Overdue ratio/)).toBeInTheDocument();
-    // "Invoices" appears as both a KPI label and a table column header.
-    expect(screen.getAllByText(/^Invoices$/).length).toBeGreaterThan(0);
-    const marker = document.querySelector('[data-entity="analytics-aging-bucket"]');
-    expect(marker).not.toBeNull();
-    expect(marker?.getAttribute("data-count")).toBe("3");
-    expect(
-      document.querySelector('[data-entity="analytics-invoice-overdue-ratio"]'),
-    ).not.toBeNull();
+    // The route renders AnalyticsReceivablesTableView (Phase 10.4 C1),
+    // which is a <DataTable> with columns Bucket | Label | Total |
+    // Invoices | Customers. Assert on the table surface, not on the
+    // legacy KPI cards (those live on the re-exported legacy
+    // AnalyticsReceivablesView, which the route no longer mounts).
+    const table = document.querySelector(
+      '[data-entity="data-table"][data-table-id="analytics-receivables-buckets"]',
+    );
+    expect(table).not.toBeNull();
+    expect(table?.getAttribute("data-row-count")).toBe("3");
+    // Header row carries the 5 column titles.
+    const headerRow = table?.querySelector("thead tr");
+    expect(headerRow).not.toBeNull();
+    const headerCells = Array.from(headerRow?.querySelectorAll("th") ?? []);
+    const headerLabels = headerCells.map((th) => th.textContent?.trim() ?? "");
+    // Index 0 is the select-all cell, then 5 data columns.
+    expect(headerLabels).toEqual([
+      "", // select-all checkbox (no label)
+      "Bucket",
+      "Label",
+      "Total",
+      "Invoices",
+      "Customers",
+    ]);
+    // 3 bucket rows — one per aging bucket, sorted by total desc.
+    const rows = table?.querySelectorAll("tbody tr") ?? [];
+    expect(rows.length).toBe(3);
+    // The 3 bucket keys (rendered in <span class="font-mono">) appear
+    // in the Bucket column (2nd td, after the select-all checkbox).
+    // Other columns also use .font-mono for numeric formatting, so we
+    // scope the assertion to the first data cell of each row.
+    const keyCells = table?.querySelectorAll("tbody tr td:nth-child(2)") ?? [];
+    const keyTexts = Array.from(keyCells).map((c) => c.textContent?.trim() ?? "");
+    expect(keyTexts).toEqual(["current", "0-30", "31-60"]);
   });
 });
 

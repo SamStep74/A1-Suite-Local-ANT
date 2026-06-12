@@ -1,6 +1,14 @@
 /**
  * /app/analytics — view subcomponents (Phase 10.0 split).
  *
+ * The `AnalyticsReceivablesTableView` re-export below is the
+ * 10.4 conversion (DataTable + SavedViews + PeekPanel +
+ * BulkActionBar on the Receivables tab). It lives in its own
+ * file (`./AnalyticsReceivablesTable`) so the legacy
+ * `AnalyticsReceivablesView` (KPI cards + plain table) keeps its
+ * existing test surface intact — both are re-exported from here
+ * so the route can pick whichever it wants.
+ *
  * The five view subcomponents (Dashboard | Receivables | Metrics |
  * Snapshots | Reports) plus the shared `KpiCard`, `PageHeader`, and
  * `EmptyState` live here. The route file
@@ -764,3 +772,7 @@ export function AnalyticsReportsView({
     </div>
   );
 }
+
+/* ────────── 10.4 conversion (DataTable + SavedViews + PeekPanel + BulkActionBar) ────────── */
+
+export { AnalyticsReceivablesTableView } from "./AnalyticsReceivablesTable";
