@@ -23,12 +23,9 @@ echo "==> Backend health ($HOST:$BACKEND_PORT/api/health):"
 probe "/api/health"             "http://$HOST:$BACKEND_PORT/api/health"
 echo "==> SPA ($HOST:$SPA_PORT/):"
 probe "/"                       "http://$HOST:$SPA_PORT/"
-echo "==> Legacy hatch ($HOST:$BACKEND_PORT/legacy/):"
-probe "/legacy/"                "http://$HOST:$BACKEND_PORT/legacy/"
 echo "==> API sentinel (must 404, not SPA fallback) ($HOST:$BACKEND_PORT/api/foo):"
 probe "/api/foo"                "http://$HOST:$BACKEND_PORT/api/foo"
 
 echo
 echo "==> DEPLOY_DEFAULT hint:"
 echo "    - DEPLOY_DEFAULT=spa    → open http://$HOST:$SPA_PORT"
-echo "    - DEPLOY_DEFAULT=legacy → open http://$HOST:$BACKEND_PORT/legacy/  (and point SPA at legacy via reverse proxy or just use :$BACKEND_PORT)"

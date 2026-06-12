@@ -92,9 +92,8 @@ fi
 # --- Deploy summary ---
 echo
 echo "==> Deploy summary:"
-echo "    Backend:    http://127.0.0.1:$PORT  (Fastify, /api/* + /legacy/*)"
+echo "    Backend:    http://127.0.0.1:$PORT  (Fastify, /api/*)"
 echo "    SPA:        http://127.0.0.1:$SPA_PORT  (web-modern, DEPLOY_DEFAULT=$DEPLOY_DEFAULT)"
-echo "    Legacy:     http://127.0.0.1:$PORT/legacy/  (escape hatch)"
 echo "    Rollback:   DEPLOY_DEFAULT=legacy bash deploy/install.sh"
 echo
 echo "==> Health: bash deploy/scripts/healthcheck.sh"

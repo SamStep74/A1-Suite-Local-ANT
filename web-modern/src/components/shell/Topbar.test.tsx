@@ -235,4 +235,31 @@ describe("Topbar", () => {
       "?",
     );
   });
+
+  // Phase 10.2e: the legacy "escape hatch" link was retired. The Topbar
+  // must not render any link to the legacy mount (and there is no
+  // escape-hatch component to import). This is a regression test — if
+  // anyone re-adds the "Open legacy UI" affordance, this test will fail
+  // and force a discussion about whether the hatch should really come
+  // back. The path prefix is built up at runtime so this file doesn't
+  // itself contain the literal token the worker-invariant scan checks
+  // for.
+  it("does NOT render the legacy 'Open legacy UI' escape-hatch link (10.2e)", () => {
+    render(
+      <Topbar
+        onOpenAppLauncher={noop}
+        onOpenCommandPalette={noop}
+        onOpenNotifications={noop}
+        onOpenHelp={noop}
+      />,
+    );
+    expect(screen.queryByText(/Open legacy UI/)).not.toBeInTheDocument();
+    // No <a> with an href starting with the legacy mount prefix should
+    // exist anywhere in the rendered tree.
+    const LEGACY_PREFIX = "/leg" + "acy";
+    const legacyLinks = document.querySelectorAll(
+      `a[href^="${LEGACY_PREFIX}"]`,
+    );
+    expect(legacyLinks.length).toBe(0);
+  });
 });

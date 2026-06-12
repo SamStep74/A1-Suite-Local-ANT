@@ -4,7 +4,7 @@
 # and forwards signals / child exits to each other.
 #
 # Env (set by the plist / unit — not from .env, to keep the service contract explicit):
-#   DEPLOY_DEFAULT  spa | legacy  (informational — Fastify's /legacy/* is always mounted; this is the URL the user opens)
+#   DEPLOY_DEFAULT  spa | legacy  (informational — since 10.2e the legacy UI is retired; "legacy" is a no-op label preserved for compat)
 #   BACKEND_PORT    default 4100
 #   SPA_PORT        default 3000
 #   HOST            default 127.0.0.1
@@ -60,7 +60,7 @@ for i in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15; do
   fi
 done
 
-echo "[start-all] ready — open http://$HOST:$SPA_PORT (or http://$HOST:$BACKEND_PORT/legacy for the legacy UI)"
+echo "[start-all] ready — open http://$HOST:$SPA_PORT"
 
 # Block on the children; if either dies, kill the other.
 wait -n
