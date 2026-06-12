@@ -248,6 +248,7 @@ function openDatabase(dbPath) {
   db.exec("PRAGMA journal_mode = WAL");
   initSchema(db);
   ensureCrmTubeSchema(db);
+  ensureRbacSchema(db);
   ensurePilotPacketLayer(db);
   ensureSessionGovernanceLayer(db);
   seedIfEmpty(db);
@@ -9923,6 +9924,122 @@ function resolveVatRate(db, orgId, date) {
   return rate > 0 ? rate : 0.2;
 }
 
+// ─── RBAC (Phase 9: M14.3 RLS + M14.5 RBAC) ────────────────────────────
+//
+// 5 tables (rbac_roles, rbac_permissions, rbac_role_permissions,
+// rbac_user_roles, rbac_audit) + the §2.3 5×N matrix seed. The pure
+// engine lives in server/rbac.js; this layer is the SQL source of
+// truth (idempotent CREATE IF NOT EXISTS + INSERT OR IGNORE seeds).
+//
+// The matrix in rbac.PERMISSIONS_BY_ROLE is mirrored into the
+// rbac_role_permissions join table at boot. After that, the engine's
+// effectivePermissionsFor(db, ...) reads from the DB (single source
+// of truth at runtime). The static matrix in rbac.js remains the
+// fast-path for the demo route + tests that don't want to re-derive
+// the set from a 29-row table.
+const rbac = require("./rbac");
+function ensureRbacSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS rbac_roles (
+      id          TEXT PRIMARY KEY,
+      code        TEXT NOT NULL UNIQUE,
+      name_en     TEXT NOT NULL,
+      name_hy     TEXT,
+      is_super    INTEGER NOT NULL DEFAULT 0,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS rbac_permissions (
+      id          TEXT PRIMARY KEY,
+      code        TEXT NOT NULL UNIQUE,
+      resource    TEXT NOT NULL,
+      action      TEXT NOT NULL,
+      description TEXT,
+      created_at  TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+
+    CREATE TABLE IF NOT EXISTS rbac_role_permissions (
+      role_id       TEXT NOT NULL REFERENCES rbac_roles(id) ON DELETE CASCADE,
+      permission_id TEXT NOT NULL REFERENCES rbac_permissions(id) ON DELETE CASCADE,
+      PRIMARY KEY (role_id, permission_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS rbac_user_roles (
+      id                TEXT PRIMARY KEY,
+      org_id            TEXT NOT NULL,
+      user_id           TEXT NOT NULL,
+      role_id           TEXT NOT NULL REFERENCES rbac_roles(id),
+      granted_by_user_id TEXT,
+      granted_at        TEXT NOT NULL DEFAULT (datetime('now')),
+      UNIQUE (org_id, user_id, role_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS rbac_audit (
+      id         TEXT PRIMARY KEY,
+      org_id     TEXT NOT NULL,
+      user_id    TEXT NOT NULL,
+      action     TEXT NOT NULL,
+      resource   TEXT,
+      detail     TEXT,
+      created_at TEXT NOT NULL DEFAULT (datetime('now'))
+    );
+    CREATE INDEX IF NOT EXISTS idx_rbac_audit_org_user_created
+      ON rbac_audit(org_id, user_id, created_at);
+  `);
+
+  // Seed: 5 roles (owner is_super=1; the rest 0).
+  const insertRole = db.prepare(`
+    INSERT OR IGNORE INTO rbac_roles (id, code, name_en, name_hy, is_super)
+    VALUES (?, ?, ?, NULL, ?)
+  `);
+  const roleSeed = [
+    ["rbac-role-owner",      "owner",      "Owner",      1],
+    ["rbac-role-admin",      "admin",      "Admin",      0],
+    ["rbac-role-accountant", "accountant", "Accountant", 0],
+    ["rbac-role-operator",   "operator",   "Operator",   0],
+    ["rbac-role-viewer",     "viewer",     "Viewer",     0]
+  ];
+  for (const [id, code, nameEn, isSuper] of roleSeed) {
+    insertRole.run(id, code, nameEn, isSuper);
+  }
+
+  // Seed: 29 permissions (one per code in rbac.PERMISSIONS).
+  // resource is the dot-prefix; action is the dot-suffix.
+  const insertPermission = db.prepare(`
+    INSERT OR IGNORE INTO rbac_permissions (id, code, resource, action, description)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  for (const code of rbac.PERMISSIONS) {
+    const [resource, ...rest] = code.split(".");
+    const action = rest.join(".");
+    const id = `rbac-perm-${code.replace(/\./g, "-")}`;
+    insertPermission.run(id, code, resource, action, `${code} (Phase 9 RBAC)`);
+  }
+
+  // Seed: 5×N role-permission join rows from rbac.PERMISSIONS_BY_ROLE.
+  // The engine and the DB agree because both are sourced from the
+  // same const; if the matrix changes, both layers move together.
+  const insertJoin = db.prepare(`
+    INSERT OR IGNORE INTO rbac_role_permissions (role_id, permission_id)
+    VALUES (?, ?)
+  `);
+  const roleIdByCode = new Map([
+    ["owner",      "rbac-role-owner"],
+    ["admin",      "rbac-role-admin"],
+    ["accountant", "rbac-role-accountant"],
+    ["operator",   "rbac-role-operator"],
+    ["viewer",     "rbac-role-viewer"]
+  ]);
+  for (const [roleCode, perms] of Object.entries(rbac.PERMISSIONS_BY_ROLE)) {
+    const roleId = roleIdByCode.get(roleCode);
+    if (!roleId) continue;
+    for (const permCode of perms) {
+      const permId = `rbac-perm-${permCode.replace(/\./g, "-")}`;
+      insertJoin.run(roleId, permId);
+    }
+  }
+}
+
 module.exports = {
   DEFAULT_EMAIL,
   DEFAULT_PASSWORD,
@@ -9935,6 +10052,7 @@ module.exports = {
   resolveTaxRate,
   resolvePayrollConfig,
   resolveVatRate,
+  ensureRbacSchema,
   __test: {
     backfillCatalogUnitsOfMeasureFromItems,
     ensureMoneyPrecisionMigration,

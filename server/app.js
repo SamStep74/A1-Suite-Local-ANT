@@ -137,6 +137,7 @@ const vatReturn = require("./vatReturn");
 const locale = require("./locale");
 const healthcheck = require("./healthcheck");
 const crmTube = require("./crmTube");
+const rbac = require("./rbac");
 const documentCabinet = require("./documentCabinet");
 const documentAi = require("./documentAi");
 const documentCabinetRoutes = require("./documentCabinetRoutes");
@@ -287,6 +288,49 @@ function registerApi(app, db, options = {}) {
     );
     audit(db, user.org_id, user.id, "healthcheck.ping", { message: result.message, idempotencyKey: idem });
     return envelope;
+  });
+
+  // ─── RBAC (Phase 9) — demo route ──────────────────────────────────────
+  // POST /api/rbac/check
+  //   Body:    { userId, orgId, permission }
+  //   200:     { allowed: true, effectivePermissions: string[] }
+  //   403:     RbacError → { error: "PERMISSION_DENIED" | "ORG_MISMATCH", message }
+  //
+  // This is the "show that the helper works" route — it lets the SPA
+  // (or the verifier) pre-flight a permission check on a target user
+  // without performing the underlying mutation. It is intentionally
+  // NOT gated by requireAppAccess (the route IS the demo of the gate
+  // itself); a real per-resource route in V2 will double-gate:
+  // `requireAppAccess(...) && requirePermission(...)`.
+  app.post("/api/rbac/check", async request => {
+    await app.auth(request);
+    const body = request.body || {};
+    const userId = String(body.userId || "").trim();
+    const orgId = String(body.orgId || "").trim();
+    const permission = String(body.permission || "").trim();
+    if (!userId || !orgId || !permission) {
+      const err = new Error("userId, orgId, and permission are required");
+      err.statusCode = 400;
+      throw err;
+    }
+    // Look up the target user (the auth'd user is just the operator
+    // running the check; the target is the user being inspected).
+    // If the target doesn't exist, we still call requirePermission —
+    // it will throw ORG_MISMATCH because targetUser.org_id is null.
+    const targetUser = db.prepare(
+      "SELECT id, org_id, role FROM users WHERE id = ?"
+    ).get(userId) || { id: userId, org_id: null, role: null };
+    rbac.requirePermission(db, targetUser, orgId, permission);
+    // On the allow path, return the full effective set so the SPA
+    // can render role badges or hide buttons without a second call.
+    const effective = rbac.effectivePermissionsFor(db, userId, orgId);
+    return {
+      allowed: true,
+      userId,
+      orgId,
+      permission,
+      effectivePermissions: Array.from(effective).sort()
+    };
   });
 
   app.get("/api/platform/tenant", async request => {
