@@ -2,8 +2,9 @@
 
 **Status:** Proposed (audit + research complete, awaiting ratification)
 **Date:** 2026-06-12
-**Repo:** SamStep74/A1-Suite-Local-ANT, mainline = branch **`ant/main`** at `2b88b51`
-(⚠ the repo's default branch `main` is stale at `f4ef8e7` / Phase 8.3 — see §8 R10)
+**Repo:** SamStep74/A1-Suite-Local-ANT, GitHub default/mainline branch **`refs/heads/ant/main`** at `2b88b51`
+(legacy branch `main` is stale at `f4ef8e7` / Phase 8.3, but CI filters still need the
+explicit branch-topology retargeting in §8 R10 before this topology is safe)
 **Scope:** finish the in-flight legacy→`web-modern` migration safely, ship `web-modern` to
 production, and close the gap between what's built and best-in-class business-software UX.
 **Inputs:** (a) three-agent repo audit of `web-modern/`, remaining `web/`, and the
@@ -220,17 +221,28 @@ CI uses it); delete `pnpm-lock.yaml`.
 **D4 — Deployment flip with an escape hatch (the QuickBooks lesson).**
 New root `build:ui` builds **web-modern** into `public/` (SPA output per D1); legacy build
 moves to `public/legacy/` behind a `/legacy` mount + a visible "switch to classic" link for
-one transition window. Login/session already work on both (Bearer + cookie). Rollback =
-repoint `build:ui`. The transition window ends at 8.12 (legacy deletion), which deletes the
-escape hatch too.
+one transition window. The legacy bundle must be built with a `/legacy/` Vite base, Fastify
+must serve a prefixed `/legacy/*` index fallback before the root SPA fallback, and the legacy
+router helpers must either run with a `/legacy` basename or rewrite `appIdFromLocation()` /
+`appRoute()` so classic navigation stays under `/legacy/app/...`. Non-MFA login/session already
+work on both (Bearer + cookie); the flip is gated on an MFA login parity test covering
+`/api/login` returning `mfaRequired` + `challengeId`, verification at `/api/login/mfa`, and
+storing the returned `sid`. Rollback = restore the legacy root contract, not just repoint
+`build:ui`: rebuild legacy with the root Vite base/basename, return classic router helpers to
+root `/app/...`, and restore the root static/index fallback while disabling the `/legacy/*`
+fallback. The transition window ends at 8.12 (legacy deletion), which deletes the escape hatch too.
 
 **D5 — Keep the orchestration grammar; add the verifier.**
 All Phase 10 work ships as `.orchestration/<session>/` sessions (plan.json, per-worker
 task.md/status.md/handoff.md, merge-order.md, shared design/contract docs), 3-layer worker
-split, append-only `schemas.ts`, `tsr generate` for routeTree, no-ff merges to **`ant/main`**
-in declared order, `phase10-*-v1` tags to remote `ant`, serialized against any other session
-touching `schemas.ts`. Adopt phase 9's read-only **verifier session** for every Phase 10
-session (it caught nothing yet only because phase 9 hasn't run; the pattern is right).
+split, append-only `schemas.ts`, `tsr generate` for routeTree, no-ff merges in declared order
+through the chosen R10 explicit-ref flow (preferred: fetch
+`refs/heads/ant/main:refs/remotes/ant/ant/main`, reset from `refs/remotes/ant/ant/main`, push
+`HEAD:refs/heads/ant/main`; fallback: fetch `refs/heads/main:refs/remotes/ant/main`, reset from
+`refs/remotes/ant/main`, push `HEAD:refs/heads/main`), `phase10-*-v1` tags to remote `ant`,
+serialized against any other session touching `schemas.ts`. Adopt phase 9's read-only
+**verifier session** for every Phase 10 session (it caught nothing yet only because phase 9 hasn't
+run; the pattern is right).
 
 ---
 
@@ -246,8 +258,9 @@ session (it caught nothing yet only because phase 9 hasn't run; the pattern is r
 - **8.9 export-docs layer 3** (legacy-drop) — branches exist; merge after CI green.
 - **8.10 compliance** — smallest module, as planned (`/app/cfo/compliance`).
 - **8.12 delete legacy** — **re-gated**: now requires 10.1 (deploy flip) + 10.2 (main.jsx
-  remainder) complete. Scope as written (rm -rf `web/ public/`-legacy, strip legacy mount,
-  Dockerfile/package.json rewrite) plus delete the `/legacy` escape hatch.
+  remainder) complete. Scope is `rm -rf web/` plus `public/legacy/` and the `/legacy` escape
+  hatch/fallback, while preserving modern production assets in `public/`; strip the legacy
+  mount and rewrite Dockerfile/package.json only where they still point at the legacy build.
 
 ### Phase 10.0 — Ratify D1–D5 + hygiene sweep (1 session, ~1 week)
 SPA-mode flip (D1); dep wire-or-remove (D3); fix audit warts: duplicate PricingEvidence,
@@ -259,11 +272,15 @@ hole product-wide in one layer); split the 5 over-800-line route files.
 on every route.
 
 ### Phase 10.1 — Deployment flip (1 session, ~1 week; after 10.0)
-D4 as specified: `build:ui` → web-modern; legacy at `/legacy`; deploy/install.sh + launchd/
-systemd templates updated; **offline smoke job** (network-blocked Playwright) added to CI;
-bundle-size budget baseline recorded.
+D4 as specified: `build:ui` → web-modern; legacy at `/legacy` with `/legacy/` Vite base,
+a prefixed Fastify legacy index fallback before the root SPA fallback, and legacy router
+basename/prefix handling so `appRoute()` and `appIdFromLocation()` do not escape to root
+`/app/...`; deploy/install.sh + launchd/systemd templates updated; **offline smoke job**
+(network-blocked Playwright) added to CI; bundle-size budget baseline recorded; MFA login parity
+covered before production flip.
 *Exit:* a fresh `deploy/install.sh` install boots into web-modern at `:4100` with legacy
-reachable at `/legacy`; rollback rehearsed.
+reachable at `/legacy`; navigating classic app tiles stays under `/legacy/app/...`; MFA-enabled
+login completes and stores `sid`; rollback rehearsed.
 
 ### Phase 10.2 — main.jsx remainder migration (the 8.12 unblocker; 3–5 sessions)
 Apply the proven 3-layer playbook to the legacy-only surface (§2.4), in this order:
@@ -328,11 +345,14 @@ weeks (Pilot cohort dominates); 10.3 ≈ 2 weeks; 10.4 ≈ 3 weeks; 8.12 lands ~
 
 ## 7. Process: how Phase 10 sessions are structured (per D5)
 
-Each session = `.orchestration/phase10-<name>/` with `plan.json` (baseRef **`ant/main`**,
-branchPrefix `wip/phase10-<name>-`, seedPaths for `schemas.ts`/`routeTree.gen.ts`/templates),
+Each session = `.orchestration/phase10-<name>/` with `plan.json` (baseRef set to the
+chosen topology's unambiguous remote ref: preferred **`refs/remotes/ant/ant/main`** or fallback
+**`refs/remotes/ant/main`**, never shorthand `ant/main`; branchPrefix `wip/phase10-<name>-`,
+seedPaths for `schemas.ts`/`routeTree.gen.ts`/templates),
 shared `design.md` or `contract.md`, 2–4 workers with territorial file ownership
 (schemas/helpers → routes/components → e2e/parity[/legacy-drop]), a **read-only verifier**
-worker, `merge-order.md`, no-ff merges + `phase10-<name>-v1` tag to remote `ant`.
+worker, `merge-order.md`, no-ff merges via the D5/R10 explicit-ref flow + `phase10-<name>-v1`
+tag to remote `ant`.
 Standing invariants carry over: append-only schemas.ts; `tsr generate` for route tree;
 Armenian-first (now: Lingui hy-source); push only to `ant`; 45–60 min worker budget;
 blockers >10 min → status.md and stop; **never merge from detached HEAD** (cabinet lesson);
@@ -346,14 +366,14 @@ serialize sessions that touch schemas.ts.
 |---|---|---|
 | R1 | **8.12 deletes legacy-only functionality** (Pilot pipeline, MFA enrollment, governance, integrations, webhooks) | 8.12 re-gated on 10.2 exit criteria; a grep-based "legacy-only inventory" check in CI (list of main.jsx panel names that must have modern counterparts) turns the gate mechanical. |
 | R2 | SPA-mode flip (D1) breaks SSR-era assumptions (server proxy, head tags, per-request router) | One session, one PR, full e2e before/after; fallback = eject to Vite+Router (route files unchanged); the client-only auth gate proves no screen depends on SSR data today. |
-| R3 | Deploy flip regresses real users (QuickBooks lesson) | `/legacy` escape hatch + visible switch link for the whole transition window; keystroke-parity notes in each 10.2 screen's DoD; rollback = repoint `build:ui`. |
+| R3 | Deploy flip regresses real users (QuickBooks lesson) | `/legacy` escape hatch + visible switch link for the whole transition window; keystroke-parity notes in each 10.2 screen's DoD; rollback restores the legacy root base/basename and static fallback per D4. |
 | R4 | Pilot-cohort migration (10.2a) under-models 85 panels' variance | Layer-0 discovery worker first: enumerate all 85 panels' props/endpoints and confirm the templated-cohort hypothesis before layer 1; if >15% are bespoke, split into template + bespoke tracks. |
 | R5 | i18n extraction debt explodes / English-first regression continues | Lint rule blocks new hardcoded strings from 10.3 layer 1 onward; extraction is per-screen DoD; ru-locale e2e run catches layout breaks. |
 | R6 | `schemas.ts` (2,391 lines) merge conflicts across parallel sessions | Existing serialization rule enforced in plan.json scheduling; mid-term: split schemas.ts per-module (append-only per file) as a 10.0 hygiene item if conflicts recur. |
 | R7 | No error boundaries today → any new component crash blanks a route | 10.0 ships root-level errorComponent/pendingComponent BEFORE feature tracks start. |
 | R8 | Parity contracts don't exist for main.jsx panels (unlike modules) | 10.2 layer 3 writes `test/<area>-modern-parity.test.js` per track exactly as phase 8 did for modules — the contract test remains the definition of done. |
 | R9 | Offline/bundle regression via new deps (AI SDK, recharts) | Bundle budget in CI from 10.1; lazy-load charts/AI routes; network-blocked Playwright job every release. |
-| R10 | **Branch confusion ships work to the wrong mainline** — repo default `main` is stale (f4ef8e7); a stale local branch literally named `ant/main` shadows the remote | Fix the GitHub default branch to `ant/main` (or fast-forward `main` and retire one); delete the stale local branch; orchestrator already pins baseRef — add a preflight assert that `baseRef` == `remotes/ant/ant/main` HEAD. |
+| R10 | **Branch confusion ships work to the wrong mainline** — GitHub default is the actual branch `refs/heads/ant/main`, legacy branch `refs/heads/main` still exists, CI filters still target `main`, scripts still checkout `ant/main` and push `git push ant main`, and a stale local branch literally named `ant/main` can shadow the remote | Pick one topology before relying on branch protection. Preferred: keep GitHub default on `refs/heads/ant/main`, update `.github/workflows/ci.yml` so `pull_request.branches` includes `ant/main` and e2e push refs include `refs/heads/ant/main`, update worker `plan.baseRef` values and merge preflights to the unambiguous `refs/remotes/ant/ant/main`, replace merge checkout/push code with an explicit remote ref flow (`git fetch ant refs/heads/ant/main:refs/remotes/ant/ant/main`, checkout/reset from `refs/remotes/ant/ant/main`, push `HEAD:refs/heads/ant/main`), delete/retire legacy `refs/heads/main`, and delete stale local shadow branches. Fallback: retarget GitHub default back to `refs/heads/main`, keep CI on `main`, keep scripts checking out and pushing `main`, and assert worker `baseRef` == `refs/remotes/ant/main` HEAD. Do not mix the two. |
 
 ---
 
