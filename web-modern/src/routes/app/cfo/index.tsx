@@ -31,6 +31,7 @@ import {
   Building2,
   ChevronLeft,
   CircleSlash,
+  FileText,
   Globe,
   Printer,
 } from "lucide-react";
@@ -162,6 +163,15 @@ function CfoWorkspace() {
           >
             <Building2 className="size-3.5" />
             Կառավարության ինտեգրացիաներ
+          </Link>
+          <Link
+            to="/app/cfo/export-docs"
+            data-testid="cfo-toolbar-export-docs"
+            data-entity="cfo-toolbar-export-docs"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2.5 py-1 text-[var(--text-sm)] text-[var(--color-ink)] hover:bg-[var(--color-line)]"
+          >
+            <FileText className="size-3.5" />
+            Արտահանման փաստաթղթեր
           </Link>
           <Link
             to="/app"
