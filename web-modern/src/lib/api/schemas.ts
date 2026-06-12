@@ -4447,3 +4447,83 @@ export const HrOrderResponseSchema = z.object({
 export type HrOrderResponse = z.infer<typeof HrOrderResponseSchema>;
 
 /* ─── block-hr-perf-end ─── */
+
+/* ────────── Phase 10.2d: integration hub schemas ────────── *
+ *
+ * Three surfaces under /app/flow/integrations:
+ *   1. Connectors  — health-checked third-party integrations
+ *   2. Webhooks    — registered outbound webhook endpoints
+ *   3. Deliveries  — delivery ledger (attemptedAt, status, response)
+ *
+ * Sources:
+ *   GET  /api/integrations/connectors
+ *   POST /api/integrations/connectors/:key/health-check
+ *   GET  /api/integrations/webhooks
+ *   GET  /api/integrations/webhook-deliveries
+ *   POST /api/integrations/webhook-deliveries/:id/retry
+ */
+
+/* Connector health probe (cached on each connector). */
+export const IntegrationConnectorHealthCheckSchema = z.object({
+  status: z.enum(["healthy", "degraded", "down", "unknown"]),
+  latencyMs: z.number().int().nonnegative().nullable().optional(),
+  checkedAt: z.string(),
+  message: z.string().optional(),
+});
+export type IntegrationConnectorHealthCheck = z.infer<typeof IntegrationConnectorHealthCheckSchema>;
+
+/* Single connector — the unit of "an integration the company has wired up". */
+export const IntegrationConnectorSchema = z.object({
+  key: z.string().min(1),
+  displayName: z.string().min(1),
+  description: z.string().optional().default(""),
+  status: z.enum(["planned", "configured", "healthy", "degraded", "down", "disabled"]),
+  enabled: z.boolean(),
+  config: z.record(z.string(), z.unknown()).optional().default({}),
+  lastHealthStatus: IntegrationConnectorHealthCheckSchema.optional().nullable(),
+  updatedAt: z.string().optional(),
+});
+export type IntegrationConnector = z.infer<typeof IntegrationConnectorSchema>;
+
+export const IntegrationConnectorsResponseSchema = z.object({
+  connectors: z.array(IntegrationConnectorSchema),
+});
+export type IntegrationConnectorsResponse = z.infer<typeof IntegrationConnectorsResponseSchema>;
+
+/* Webhook endpoint — URL we POST events to, with a per-endpoint secret. */
+export const WebhookEndpointSchema = z.object({
+  id: z.string().min(1),
+  url: z.string().url(),
+  events: z.array(z.string()).min(1),
+  enabled: z.boolean(),
+  secret: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+});
+export type WebhookEndpoint = z.infer<typeof WebhookEndpointSchema>;
+
+export const WebhookEndpointsResponseSchema = z.object({
+  endpoints: z.array(WebhookEndpointSchema),
+});
+export type WebhookEndpointsResponse = z.infer<typeof WebhookEndpointsResponseSchema>;
+
+/* One attempted delivery — the row in the webhook delivery ledger. */
+export const WebhookDeliverySchema = z.object({
+  id: z.string().min(1),
+  endpointId: z.string().min(1),
+  endpointUrl: z.string().url().optional(),
+  eventType: z.string().min(1),
+  status: z.enum(["pending", "succeeded", "failed", "retrying"]),
+  responseCode: z.number().int().nullable().optional(),
+  responseSnippet: z.string().nullable().optional(),
+  attemptedAt: z.string(),
+  retryCount: z.number().int().nonnegative().default(0),
+});
+export type WebhookDelivery = z.infer<typeof WebhookDeliverySchema>;
+
+export const WebhookDeliveriesResponseSchema = z.object({
+  deliveries: z.array(WebhookDeliverySchema),
+});
+export type WebhookDeliveriesResponse = z.infer<typeof WebhookDeliveriesResponseSchema>;
+
+/* ─── block-integration-hub-end ─── */
