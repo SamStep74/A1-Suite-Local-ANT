@@ -59,6 +59,7 @@ import { Route as AppCrmTubeContactsIndexRouteImport } from './routes/app/crm-tu
 import { Route as AppCopilotOnboardingIndexRouteImport } from './routes/app/copilot/onboarding/index'
 import { Route as AppCfoStateIntegrationsIndexRouteImport } from './routes/app/cfo/state-integrations/index'
 import { Route as AppCfoReportsIndexRouteImport } from './routes/app/cfo/reports/index'
+import { Route as AppCfoExportDocsIndexRouteImport } from './routes/app/cfo/export-docs/index'
 import { Route as AppCrmTubeSequencesSequenceIdRouteImport } from './routes/app/crm-tube/sequences/$sequenceId'
 import { Route as AppCrmTubeDealsDealIdRouteImport } from './routes/app/crm-tube/deals/$dealId'
 import { Route as AppCrmTubeContactsContactIdRouteImport } from './routes/app/crm-tube/contacts/$contactId'
@@ -319,6 +320,11 @@ const AppCfoReportsIndexRoute = AppCfoReportsIndexRouteImport.update({
   path: '/cfo/reports/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppCfoExportDocsIndexRoute = AppCfoExportDocsIndexRouteImport.update({
+  id: '/cfo/export-docs/',
+  path: '/cfo/export-docs/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppCrmTubeSequencesSequenceIdRoute =
   AppCrmTubeSequencesSequenceIdRouteImport.update({
     id: '/crm-tube/sequences/$sequenceId',
@@ -383,6 +389,7 @@ export interface FileRoutesByFullPath {
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
+  '/app/cfo/export-docs/': typeof AppCfoExportDocsIndexRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
   '/app/cfo/state-integrations/': typeof AppCfoStateIntegrationsIndexRoute
   '/app/copilot/onboarding/': typeof AppCopilotOnboardingIndexRoute
@@ -436,6 +443,7 @@ export interface FileRoutesByTo {
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
+  '/app/cfo/export-docs': typeof AppCfoExportDocsIndexRoute
   '/app/cfo/reports': typeof AppCfoReportsIndexRoute
   '/app/cfo/state-integrations': typeof AppCfoStateIntegrationsIndexRoute
   '/app/copilot/onboarding': typeof AppCopilotOnboardingIndexRoute
@@ -492,6 +500,7 @@ export interface FileRoutesById {
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
+  '/app/cfo/export-docs/': typeof AppCfoExportDocsIndexRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
   '/app/cfo/state-integrations/': typeof AppCfoStateIntegrationsIndexRoute
   '/app/copilot/onboarding/': typeof AppCopilotOnboardingIndexRoute
@@ -549,6 +558,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/contacts/$contactId'
     | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
+    | '/app/cfo/export-docs/'
     | '/app/cfo/reports/'
     | '/app/cfo/state-integrations/'
     | '/app/copilot/onboarding/'
@@ -602,6 +612,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/contacts/$contactId'
     | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
+    | '/app/cfo/export-docs'
     | '/app/cfo/reports'
     | '/app/cfo/state-integrations'
     | '/app/copilot/onboarding'
@@ -657,6 +668,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/contacts/$contactId'
     | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
+    | '/app/cfo/export-docs/'
     | '/app/cfo/reports/'
     | '/app/cfo/state-integrations/'
     | '/app/copilot/onboarding/'
@@ -1026,6 +1038,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCfoReportsIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/cfo/export-docs/': {
+      id: '/app/cfo/export-docs/'
+      path: '/cfo/export-docs'
+      fullPath: '/app/cfo/export-docs/'
+      preLoaderRoute: typeof AppCfoExportDocsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/crm-tube/sequences/$sequenceId': {
       id: '/app/crm-tube/sequences/$sequenceId'
       path: '/crm-tube/sequences/$sequenceId'
@@ -1105,6 +1124,7 @@ interface AppRouteRouteChildren {
   AppCrmTubeContactsContactIdRoute: typeof AppCrmTubeContactsContactIdRoute
   AppCrmTubeDealsDealIdRoute: typeof AppCrmTubeDealsDealIdRoute
   AppCrmTubeSequencesSequenceIdRoute: typeof AppCrmTubeSequencesSequenceIdRoute
+  AppCfoExportDocsIndexRoute: typeof AppCfoExportDocsIndexRoute
   AppCfoReportsIndexRoute: typeof AppCfoReportsIndexRoute
   AppCfoStateIntegrationsIndexRoute: typeof AppCfoStateIntegrationsIndexRoute
   AppCrmTubeContactsIndexRoute: typeof AppCrmTubeContactsIndexRoute
@@ -1153,6 +1173,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppCrmTubeContactsContactIdRoute: AppCrmTubeContactsContactIdRoute,
   AppCrmTubeDealsDealIdRoute: AppCrmTubeDealsDealIdRoute,
   AppCrmTubeSequencesSequenceIdRoute: AppCrmTubeSequencesSequenceIdRoute,
+  AppCfoExportDocsIndexRoute: AppCfoExportDocsIndexRoute,
   AppCfoReportsIndexRoute: AppCfoReportsIndexRoute,
   AppCfoStateIntegrationsIndexRoute: AppCfoStateIntegrationsIndexRoute,
   AppCrmTubeContactsIndexRoute: AppCrmTubeContactsIndexRoute,
