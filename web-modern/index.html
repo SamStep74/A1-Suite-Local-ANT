@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="hy">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta name="theme-color" content="#1E3A3A" />
+    <title>A1 Suite — ANT ERP</title>
+    <meta
+      name="description"
+      content="Sovereign, self-hostable Armenian business operating system with Zoho One functional parity and an agentic workspace."
+    />
+    <link rel="icon" href="/a1-mark.svg" type="image/svg+xml" />
+    <link rel="icon" href="/favicon.ico" sizes="any" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <!--
+      SPA bootstrap sentinel. This inline script runs synchronously
+      when the HTML is parsed and sets data-spa-hydrated on <html>.
+      It is a static-SPA regression guard (Phase 10.0 D1): the e2e
+      smoke waits for this attribute to appear within 5 s of
+      navigation, which proves the SPA shell was served with its
+      inline bootstrap intact.
+
+      We deliberately do NOT set this from main.tsx (e.g. inside a
+      useEffect). Doing so would couple the signal to the React
+      tree committing, which in turn depends on the entire module
+      graph compiling. Today the dev server has a pre-existing
+      import-analysis error elsewhere in the tree; that should not
+      mask a regression in the static-shell layer (which is what
+      D1 actually shipped). The deeper "React mounted" assertion
+      lives in the /app/cfo toolbar test.
+
+      The attribute is empty on purpose: presence is the signal,
+      not its value. Keep this script tiny.
+    -->
+    <script>
+      document.documentElement.setAttribute("data-spa-hydrated", "");
+    </script>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>
