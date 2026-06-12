@@ -81,7 +81,10 @@ test("owner login loads organization, app launcher, localization, and audit", as
     const body = response.json();
     assert.equal(body.organization.currency, "AMD");
     assert.equal(body.organization.locale, "hy-AM");
-    assert.equal(body.apps.length, 14);
+    // Phase 10 (M14.1–M14.4) adds the smb-crm app to the suite
+    // launcher, so the count is 15 (14 + smb-crm). The order of
+    // finance/copilot/inventory/purchase is unchanged.
+    assert.equal(body.apps.length, 15);
     assert.ok(body.apps.some(app => app.id === "finance"));
     assert.ok(body.apps.some(app => app.id === "copilot"));
     assert.ok(body.apps.some(app => app.id === "inventory"));

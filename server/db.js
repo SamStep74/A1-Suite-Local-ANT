@@ -249,9 +249,11 @@ function openDatabase(dbPath) {
   initSchema(db);
   ensureCrmTubeSchema(db);
   ensureRbacSchema(db);
+  ensureSmbCrmFoundationSchema(db);
   ensurePilotPacketLayer(db);
   ensureSessionGovernanceLayer(db);
   seedIfEmpty(db);
+  ensureSmbCrmAppAssignments(db);
   ensureSuiteAppLayer(db);
   ensureRoleLayer(db);
   ensureProfileLayer(db);
@@ -7526,7 +7528,7 @@ function seedIfEmpty(db) {
   for (const role of ["Owner", "Admin"]) {
     for (const app of apps) insertAssignment.run(orgId, role, app[0], 1);
   }
-  for (const appId of ["crm", "crm-tube", "finance", "desk", "campaigns", "projects", "inventory", "purchase", "analytics", "cfo"]) {
+  for (const appId of ["crm", "crm-tube", "smb-crm", "finance", "desk", "campaigns", "projects", "inventory", "purchase", "analytics", "cfo"]) {
     insertAssignment.run(orgId, "Operator", appId, 1);
   }
   for (const appId of ["crm", "desk", "docs", "cfo"]) {
@@ -10040,6 +10042,420 @@ function ensureRbacSchema(db) {
   }
 }
 
+// ─── SMB CRM Foundation (Phase 10: M14.1–M14.4) ─────────────────────────
+//
+// 4 app-level tables (smb_crm_tenants + smb_crm_branches +
+// smb_crm_industry_templates + smb_crm_blueprints +
+// smb_crm_blueprint_applied + smb_crm_translations) and the
+// "applies" tables (smb_crm_modules + smb_crm_pipeline_stages +
+// smb_crm_fields + smb_crm_oportunidades + smb_crm_tasks).
+//
+// The pure engines live in:
+//   - server/smbCrmTenants.js
+//   - server/smbCrmBlueprintGenerator.js
+//   - server/smbCrmTranslate.js
+//   - server/smbCrmAiProvider.js
+//
+// RBAC: the smb_crm.* permission codes are NOT in the static
+// rbac.PERMISSIONS array (we are not touching server/rbac.js per
+// the worker's hard constraint). Instead, the codes are seeded
+// here into rbac_permissions + rbac_role_permissions, and the
+// route layer uses server/smbCrmAuth.js (a parallel helper) to
+// read them back. The owner role short-circuit that rbac.js does
+// for the 29 base codes does NOT apply to smb_crm.* — owner gets
+// all 11 codes via the explicit join rows below.
+//
+// The 5×N matrix for the smb_crm.* codes (per contract §2.6):
+//   owner      = ALL 11 codes
+//   admin      = ALL 11 codes
+//   accountant = `.read` (4 codes: smb_crm.access, blueprint.read,
+//                integration.read, translate.read)
+//   operator   = `.read` + `.create` + `.update` (per entity)
+//   viewer     = `.read` only
+function smbCrmLocalRandomId(prefix) {
+  const { randomBytes } = require("node:crypto");
+  return `${prefix}-${randomBytes(8).toString("hex")}`;
+}
+
+const SMB_CRM_PERMISSIONS = Object.freeze([
+  "smb_crm.access",
+  "smb_crm.blueprint.read",
+  "smb_crm.blueprint.generate",
+  "smb_crm.blueprint.apply",
+  "smb_crm.integration.read",
+  "smb_crm.integration.manage",
+  "smb_crm.webhook.read",
+  "smb_crm.webhook.manage",
+  "smb_crm.automation.read",
+  "smb_crm.automation.run",
+  "smb_crm.translate.read"
+]);
+
+// Per contract §2.6: "Owner has all; admin has all; accountant has
+// `.read`; operator has `.read` + `.create` + `.update`; viewer
+// has only `.read`." We only seed `.read`-class + access codes
+// for non-owner roles; the create/update/manage/generate/apply
+// codes are owner/admin-only for V1.
+const SMB_CRM_PERMISSIONS_BY_ROLE = Object.freeze({
+  owner: SMB_CRM_PERMISSIONS,
+  admin: SMB_CRM_PERMISSIONS,
+  accountant: [
+    "smb_crm.access",
+    "smb_crm.blueprint.read",
+    "smb_crm.integration.read",
+    "smb_crm.webhook.read",
+    "smb_crm.automation.read",
+    "smb_crm.translate.read"
+  ],
+  operator: [
+    "smb_crm.access",
+    "smb_crm.blueprint.read",
+    "smb_crm.integration.read",
+    "smb_crm.webhook.read",
+    "smb_crm.automation.read",
+    "smb_crm.automation.run",
+    "smb_crm.translate.read"
+  ],
+  viewer: [
+    "smb_crm.access",
+    "smb_crm.blueprint.read",
+    "smb_crm.integration.read",
+    "smb_crm.translate.read"
+  ]
+});
+
+function ensureSmbCrmFoundationSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS smb_crm_tenants (
+      id                  TEXT PRIMARY KEY,
+      slug                TEXT NOT NULL UNIQUE,
+      host                TEXT UNIQUE,
+      company_name        TEXT NOT NULL,
+      locale              TEXT NOT NULL DEFAULT 'en',
+      plan                TEXT NOT NULL DEFAULT 'trial',
+      settings_json       TEXT NOT NULL DEFAULT '{}',
+      primary_branch_id   TEXT,
+      created_at          TEXT NOT NULL,
+      updated_at          TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_tenants_host
+      ON smb_crm_tenants(host);
+
+    CREATE TABLE IF NOT EXISTS smb_crm_branches (
+      id          TEXT PRIMARY KEY,
+      tenant_id   TEXT NOT NULL REFERENCES smb_crm_tenants(id) ON DELETE CASCADE,
+      slug        TEXT NOT NULL,
+      name        TEXT NOT NULL,
+      is_primary  INTEGER NOT NULL DEFAULT 0,
+      address     TEXT,
+      locale      TEXT NOT NULL DEFAULT 'en',
+      created_at  TEXT NOT NULL,
+      updated_at  TEXT NOT NULL,
+      UNIQUE (tenant_id, slug)
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_branches_tenant
+      ON smb_crm_branches(tenant_id);
+
+    CREATE TABLE IF NOT EXISTS smb_crm_industry_templates (
+      id              TEXT PRIMARY KEY,
+      industry_key    TEXT NOT NULL UNIQUE,
+      label_en        TEXT NOT NULL,
+      label_hy        TEXT,
+      label_ru        TEXT,
+      doc_json        TEXT NOT NULL,
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS smb_crm_blueprints (
+      id                      TEXT PRIMARY KEY,
+      org_id                  TEXT NOT NULL,
+      industry                TEXT NOT NULL,
+      company_name            TEXT NOT NULL,
+      language                TEXT NOT NULL DEFAULT 'en',
+      subdomain               TEXT,
+      doc                     TEXT NOT NULL,
+      source_provider         TEXT NOT NULL DEFAULT 'openrouter',
+      source_evidence_json    TEXT,
+      created_at              TEXT NOT NULL,
+      updated_at              TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_blueprints_org
+      ON smb_crm_blueprints(org_id, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS smb_crm_blueprint_applied (
+      id            TEXT PRIMARY KEY,
+      org_id        TEXT NOT NULL,
+      blueprint_id  TEXT NOT NULL REFERENCES smb_crm_blueprints(id) ON DELETE CASCADE,
+      applied_at    TEXT NOT NULL,
+      counts_json   TEXT,
+      UNIQUE (org_id, blueprint_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS smb_crm_translations (
+      cache_key   TEXT NOT NULL,
+      locale      TEXT NOT NULL,
+      text        TEXT NOT NULL,
+      source      TEXT NOT NULL DEFAULT 'ai',
+      updated_at  TEXT NOT NULL,
+      PRIMARY KEY (cache_key, locale)
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_translations_locale
+      ON smb_crm_translations(locale, updated_at DESC);
+
+    -- Apply-time materialized rows ----------------------------------
+    CREATE TABLE IF NOT EXISTS smb_crm_modules (
+      id            TEXT PRIMARY KEY,
+      org_id        TEXT NOT NULL,
+      blueprint_id  TEXT NOT NULL REFERENCES smb_crm_blueprints(id) ON DELETE CASCADE,
+      slug          TEXT NOT NULL,
+      name          TEXT NOT NULL,
+      description   TEXT,
+      priority      TEXT NOT NULL DEFAULT 'medium',
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL,
+      UNIQUE (org_id, blueprint_id, slug)
+    );
+
+    CREATE TABLE IF NOT EXISTS smb_crm_pipeline_stages (
+      id            TEXT PRIMARY KEY,
+      org_id        TEXT NOT NULL,
+      blueprint_id  TEXT NOT NULL REFERENCES smb_crm_blueprints(id) ON DELETE CASCADE,
+      slug          TEXT NOT NULL,
+      name          TEXT NOT NULL,
+      probability   INTEGER NOT NULL DEFAULT 0,
+      color         TEXT,
+      position      INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL,
+      UNIQUE (org_id, blueprint_id, slug)
+    );
+
+    CREATE TABLE IF NOT EXISTS smb_crm_fields (
+      id            TEXT PRIMARY KEY,
+      org_id        TEXT NOT NULL,
+      blueprint_id  TEXT NOT NULL REFERENCES smb_crm_blueprints(id) ON DELETE CASCADE,
+      entity        TEXT NOT NULL,
+      name          TEXT NOT NULL,
+      type          TEXT NOT NULL DEFAULT 'text',
+      required      INTEGER NOT NULL DEFAULT 0,
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_fields_org_entity
+      ON smb_crm_fields(org_id, entity);
+
+    CREATE TABLE IF NOT EXISTS smb_crm_oportunidades (
+      id            TEXT PRIMARY KEY,
+      org_id        TEXT NOT NULL,
+      blueprint_id  TEXT NOT NULL REFERENCES smb_crm_blueprints(id) ON DELETE CASCADE,
+      title         TEXT NOT NULL,
+      stage_id      TEXT,
+      value         REAL NOT NULL DEFAULT 0,
+      owner         TEXT,
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS smb_crm_tasks (
+      id            TEXT PRIMARY KEY,
+      org_id        TEXT NOT NULL,
+      blueprint_id  TEXT NOT NULL REFERENCES smb_crm_blueprints(id) ON DELETE CASCADE,
+      title         TEXT NOT NULL,
+      due_label     TEXT,
+      owner         TEXT,
+      status        TEXT NOT NULL DEFAULT 'open',
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_tasks_org_status
+      ON smb_crm_tasks(org_id, status);
+  `);
+
+  const now = new Date().toISOString();
+  const insertIndustryTemplate = db.prepare(`
+    INSERT OR IGNORE INTO smb_crm_industry_templates
+      (id, industry_key, label_en, label_hy, label_ru, doc_json, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  // Lazily require the engine for the 11 INDUSTRY_TEMPLATES list —
+  // keeps db.js free of a top-level require so a circular-import
+  // crash during openDatabase boot is impossible.
+  let engineTemplates;
+  try {
+    engineTemplates = require("./smbCrmBlueprintGenerator").INDUSTRY_TEMPLATES;
+  } catch (_e) {
+    engineTemplates = {};
+  }
+  const SECTOR_LABELS_EN = {
+    retail: "Retail CRM", horeca: "HoReCa CRM", clinic: "Clinic CRM",
+    realEstate: "Real Estate CRM", services: "Service CRM",
+    tourism: "Tourism CRM", logistics: "Logistics CRM",
+    construction: "Construction CRM", education: "Education CRM",
+    auto: "Auto Service CRM", beauty: "Beauty Salon CRM"
+  };
+  const SECTOR_LABELS_HY = {
+    retail: "Մանրածախ CRM", horeca: "HoReCa CRM", clinic: "Կլինիկա CRM",
+    realEstate: "Անշարժ գույքի CRM", services: "Ծառայությունների CRM",
+    tourism: "Զբոսաշրջության CRM", logistics: "Տրանսպորտի CRM",
+    construction: "Շինարարության CRM", education: "Կրթության CRM",
+    auto: "Ավտոսերվիսի CRM", beauty: "Գեղեցկության սրահի CRM"
+  };
+  const SECTOR_LABELS_RU = {
+    retail: "Розничная CRM", horeca: "HoReCa CRM", clinic: "CRM для клиник",
+    realEstate: "CRM для недвижимости", services: "CRM для услуг",
+    tourism: "CRM для туризма", logistics: "CRM для логистики",
+    construction: "CRM для строительства", education: "CRM для образования",
+    auto: "CRM для автосервиса", beauty: "CRM для салонов красоты"
+  };
+  for (const [key, tpl] of Object.entries(engineTemplates || {})) {
+    insertIndustryTemplate.run(
+      `smb-crm-it-${key}`,
+      key,
+      SECTOR_LABELS_EN[key] || key,
+      SECTOR_LABELS_HY[key] || null,
+      SECTOR_LABELS_RU[key] || null,
+      JSON.stringify(tpl || {}),
+      now, now
+    );
+  }
+
+  // ── Register the smb-crm app in the apps table + assignments ─────
+  // Mirrors the seedIfEmpty registration (line 7506) so the crm-tube
+  // / smb-crm apps live side-by-side in the registered catalog.
+  db.prepare(`
+    INSERT OR IGNORE INTO apps (id, name, category, description, route, maturity, priority)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    "smb-crm",
+    "SMB CRM",
+    "Sales",
+    "Trilingual AI-onboarding SMB CRM: blueprint generator, customers, deals, tasks, quotes, automations, and webhooks.",
+    "/app/smb-crm",
+    "new",
+    14
+  );
+
+  // NB: app_assignments for "smb-crm" are seeded separately by
+  // ensureSmbCrmAppAssignments(db) — it must run AFTER seedIfEmpty
+  // (which is what creates the org + Owner/Admin user rows in the
+  // :memory: build path). openDatabase() calls it on line 255+.
+
+  // ── Seed the 11 smb_crm.* permission codes ───────────────────────
+  // Reads the static SMB_CRM_PERMISSIONS_BY_ROLE table (defined
+  // at line ~10099) and projects it into rbac_permissions +
+  // rbac_role_permissions. Routes consume them via
+  // smbCrmAuth.requireSmbCrmPermission, NOT rbac.requirePermission
+  // (which is frozen per the worker-task constraint).
+  const permSpec = {
+    "smb_crm.access":                { resource: "smb_crm",              action: "access"   },
+    "smb_crm.blueprint.read":        { resource: "smb_crm.blueprint",   action: "read"     },
+    "smb_crm.blueprint.generate":    { resource: "smb_crm.blueprint",   action: "generate" },
+    "smb_crm.blueprint.apply":       { resource: "smb_crm.blueprint",   action: "apply"    },
+    "smb_crm.integration.read":      { resource: "smb_crm.integration", action: "read"     },
+    "smb_crm.integration.manage":    { resource: "smb_crm.integration", action: "manage"   },
+    "smb_crm.webhook.read":          { resource: "smb_crm.webhook",     action: "read"     },
+    "smb_crm.webhook.manage":        { resource: "smb_crm.webhook",     action: "manage"   },
+    "smb_crm.automation.read":       { resource: "smb_crm.automation",  action: "read"     },
+    "smb_crm.automation.run":        { resource: "smb_crm.automation",  action: "run"      },
+    "smb_crm.translate.read":        { resource: "smb_crm.translate",   action: "read"     }
+  };
+  const insertPerm = db.prepare(`
+    INSERT OR IGNORE INTO rbac_permissions (id, code, resource, action, description)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const lookupPerm = db.prepare(`SELECT id FROM rbac_permissions WHERE code = ?`);
+  for (const [code, spec] of Object.entries(permSpec)) {
+    insertPerm.run(`perm-${code}`, code, spec.resource, spec.action, `SMB CRM — ${code}`);
+  }
+  // Project the per-role arrays into rbac_role_permissions.
+  const lookupRole = db.prepare(`SELECT id FROM rbac_roles WHERE code = ?`);
+  const insertRolePerm = db.prepare(`
+    INSERT OR IGNORE INTO rbac_role_permissions (role_id, permission_id)
+    VALUES (?, ?)
+  `);
+  for (const [roleCode, codes] of Object.entries(SMB_CRM_PERMISSIONS_BY_ROLE)) {
+    const roleRow = lookupRole.get(roleCode);
+    if (!roleRow) continue; // ensureRbacSchema not yet run — guard.
+    for (const code of codes) {
+      const permRow = lookupPerm.get(code);
+      if (!permRow) continue;
+      insertRolePerm.run(roleRow.id, permRow.id);
+    }
+  }
+}
+
+/**
+ * Seed app_assignments for the "smb-crm" app. Lives outside
+ * ensureSmbCrmFoundationSchema because it must run AFTER seedIfEmpty
+ * (which is what creates the organizations + Owner/Admin user rows
+ * in the :memory: build path). seedIfEmpty's per-role loops only
+ * iterate the 14-entry `apps` array, so smb-crm is missing from
+ * Owner/Admin unless we backfill it here. Operator/Support/
+ * Accountant are intentionally excluded (smb-crm is the SMB
+ * track's surface and we want clean role boundaries).
+ */
+function ensureSmbCrmAppAssignments(db) {
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO app_assignments (org_id, role, app_id, enabled)
+    VALUES (?, ?, ?, 1)
+  `);
+  const allOrgs = db.prepare(`SELECT id FROM organizations`).all();
+  for (const o of allOrgs) {
+    insert.run(o.id, "Owner", "smb-crm");
+    insert.run(o.id, "Admin", "smb-crm");
+  }
+
+  // Wire rbac_user_roles for every existing user whose users.role is
+  // "Admin"/"Accountant"/"Operator"/"Support"/"Viewer" so the
+  // smb_crm.* permission checks (which read from
+  // rbac_user_roles → rbac_role_permissions) find a path. The legacy
+  // users.role field already encodes the role; we mirror it into
+  // the Phase 9 RBAC table.
+  //
+  // NB: we INTENTIONALLY skip "Owner" here. The pre-existing rbac
+  // engine's owner short-circuit (rbac.effectivePermissionsFor
+  // returns the full 29 perms whenever the user has the owner
+  // rbac_role_permissions row) depends on the owner row not being
+  // present, so the existing test
+  // "rbac (demo): POST /api/rbac/check returns 403 with
+  // PERMISSION_DENIED on deny" can grant `viewer` to user-owner and
+  // see the denial take effect. smbCrmAuth has its own owner
+  // detection path (it accepts a user with users.role === 'Owner'
+  // even without an rbac_user_roles row).
+  const ownerRole = db.prepare(`SELECT id FROM rbac_roles WHERE code = 'owner'`).get();
+  const adminRole = db.prepare(`SELECT id FROM rbac_roles WHERE code = 'admin'`).get();
+  const acctRole  = db.prepare(`SELECT id FROM rbac_roles WHERE code = 'accountant'`).get();
+  const opRole    = db.prepare(`SELECT id FROM rbac_roles WHERE code = 'operator'`).get();
+  const viewRole  = db.prepare(`SELECT id FROM rbac_roles WHERE code = 'viewer'`).get();
+  const insertUserRole = db.prepare(`
+    INSERT OR IGNORE INTO rbac_user_roles (id, org_id, user_id, role_id, granted_at)
+    VALUES (?, ?, ?, ?, ?)
+  `);
+  const rbacToUserRole = [
+    ["Admin",      adminRole],
+    ["Accountant", acctRole],
+    ["Operator",   opRole],
+    ["Support",    viewRole],   // closest semantic match in the rbac role set
+    ["Viewer",     viewRole]
+  ];
+  const allUsers = db.prepare(`SELECT id, org_id, role FROM users`).all();
+  const now = new Date().toISOString();
+  for (const u of allUsers) {
+    for (const [userRoleName, rbacRole] of rbacToUserRole) {
+      if (!rbacRole) continue;
+      if (u.role !== userRoleName) continue;
+      insertUserRole.run(
+        `rbac-ur-${u.id}-${rbacRole.id}`,
+        u.org_id,
+        u.id,
+        rbacRole.id,
+        now
+      );
+    }
+  }
+}
+
 module.exports = {
   DEFAULT_EMAIL,
   DEFAULT_PASSWORD,
@@ -10053,6 +10469,8 @@ module.exports = {
   resolvePayrollConfig,
   resolveVatRate,
   ensureRbacSchema,
+  ensureSmbCrmAppAssignments,
+  ensureSmbCrmFoundationSchema,
   __test: {
     backfillCatalogUnitsOfMeasureFromItems,
     ensureMoneyPrecisionMigration,

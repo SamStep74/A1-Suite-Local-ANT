@@ -3134,6 +3134,217 @@ function registerApi(app, db, options = {}) {
     return envelope;
   });
 
+  // ─── A1 SMB CRM (Phase 10: M14.1–M14.4) ────────────────────────────────
+  // Pattern A: thin routes over the pure engines in
+  // server/smbCrmTenants.js, server/smbCrmBlueprintGenerator.js,
+  // server/smbCrmAiProvider.js, and server/smbCrmTranslate.js.
+  // The 8 routes here cover the Foundation track (Track 1) only:
+  // tenants, industry templates, blueprint generate, fetch, and
+  // apply. The records/assist/automations workers add the rest.
+  //
+  // RBAC: the smb_crm.* codes are checked via
+  // requireSmbCrmPermission (server/smbCrmAuth.js), NOT
+  // rbac.requirePermission — see the helper for the rationale.
+
+  const smbCrmTenants = require("./smbCrmTenants");
+  const smbCrmBlueprint = require("./smbCrmBlueprintGenerator");
+  const smbCrmAiProvider = require("./smbCrmAiProvider");
+  const smbCrmTranslate = require("./smbCrmTranslate");
+  const smbCrmAuth = require("./smbCrmAuth");
+
+  // 1. POST /api/smb-crm/tenants — create a tenant
+  app.post("/api/smb-crm/tenants", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.access");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const input = {
+      slug: body.slug,
+      companyName: body.companyName,
+      locale: body.locale,
+      plan: body.plan,
+      host: body.host,
+      branch: body.branch,
+      settings: body.settings
+    };
+    const row = smbCrmTenants.createTenant(db, input);
+    const envelope = { ok: true, tenant: smbCrmTenants.toTenantView(row) };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "smb_crm.tenant.created", { tenantId: row.id, slug: row.slug, idempotencyKey: idem });
+    return envelope;
+  });
+
+  // 2. GET /api/smb-crm/tenants — list tenants
+  app.get("/api/smb-crm/tenants", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.access");
+    const limit = Number((request.query || {}).limit) || 100;
+    return { tenants: smbCrmTenants.listTenants(db, limit).map(smbCrmTenants.toTenantView) };
+  });
+
+  // 3. GET /api/smb-crm/tenants/current — resolve from ?slug= or Host:
+  app.get("/api/smb-crm/tenants/current", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.access");
+    const q = request.query || {};
+    const host = (request.headers && request.headers.host) || null;
+    const identifier = (q.slug || q.tenant)
+      ? { slug: String(q.slug || q.tenant).trim() }
+      : (host ? { host: String(host).trim().toLowerCase() } : null);
+    const row = identifier ? smbCrmTenants.resolveTenant(db, identifier) : null;
+    if (!row) { const err = new Error("Tenant not found"); err.statusCode = 404; throw err; }
+    return { tenant: smbCrmTenants.toTenantView(row), branches: smbCrmTenants.listBranches(db, row.id).map(smbCrmTenants.toBranchView) };
+  });
+
+  // 4. PATCH /api/smb-crm/tenants/current — update settings
+  app.patch("/api/smb-crm/tenants/current", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.access");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const q = request.query || {};
+    const host = (request.headers && request.headers.host) || null;
+    const identifier = (q.slug || q.tenant)
+      ? { slug: String(q.slug || q.tenant).trim() }
+      : (host ? { host: String(host).trim().toLowerCase() } : null);
+    const row = identifier ? smbCrmTenants.resolveTenant(db, identifier) : null;
+    if (!row) { const err = new Error("Tenant not found"); err.statusCode = 404; throw err; }
+    const updated = smbCrmTenants.updateTenantSettings(db, row.id, {
+      companyName: body.companyName,
+      host: body.host,
+      locale: body.locale,
+      plan: body.plan,
+      settings: body.settings
+    });
+    const envelope = { ok: true, tenant: smbCrmTenants.toTenantView(updated) };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "smb_crm.tenant.updated", { tenantId: row.id, idempotencyKey: idem });
+    return envelope;
+  });
+
+  // 5. GET /api/smb-crm/industry-templates — list 11 sector templates
+  app.get("/api/smb-crm/industry-templates", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.blueprint.read");
+    const locale = String((request.query || {}).locale || "en").toLowerCase();
+    const lc = ["hy", "en", "ru"].includes(locale) ? locale : "en";
+    const rows = db
+      .prepare("SELECT industry_key, label_en, label_hy, label_ru, doc_json FROM smb_crm_industry_templates ORDER BY industry_key")
+      .all();
+    const templates = rows.map(r => {
+      let doc = {};
+      try { doc = JSON.parse(r.doc_json || "{}"); } catch { doc = {}; }
+      return {
+        industryKey: r.industry_key,
+        label: lc === "hy" ? (r.label_hy || r.label_en) : lc === "ru" ? (r.label_ru || r.label_en) : r.label_en,
+        modules: doc.modules || [],
+        pipeline: doc.pipeline || [],
+        fields: doc.fields || [],
+        kpis: doc.kpis || []
+      };
+    });
+    return { industryTemplates: templates };
+  });
+
+  // 6. POST /api/smb-crm/generate-blueprint — call the AI provider
+  app.post("/api/smb-crm/generate-blueprint", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.blueprint.generate");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    if (!body.questionnaire || typeof body.questionnaire !== "object") {
+      const err = new Error("questionnaire is required");
+      err.statusCode = 400;
+      throw err;
+    }
+    const provider = smbCrmAiProvider.createDefaultProvider({});
+    const result = await smbCrmBlueprint.generateBlueprint(body.questionnaire, provider, {
+      templateOverride: body.templateOverride === true
+    });
+    let stored = null;
+    if (result && result.blueprint) {
+      stored = smbCrmBlueprint.saveBlueprint(db, user.org_id, result.blueprint, {
+        provider: provider.name,
+        evidence: result.evidence
+      });
+    }
+    const envelope = {
+      ok: true,
+      blueprint: result && result.blueprint,
+      blueprintId: stored ? stored.id : null,
+      evidence: result ? result.evidence : null,
+      warnings: result ? (result.warnings || []) : ["AI call failed"],
+      error: result && result.error ? result.error : null
+    };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "smb_crm.blueprint.generated", {
+      blueprintId: stored ? stored.id : null,
+      industry: result && result.blueprint ? result.blueprint.industry : null,
+      companyName: result && result.blueprint ? result.blueprint.companyName : null,
+      provider: provider.name,
+      evidence: result ? result.evidence : null,
+      idempotencyKey: idem
+    });
+    return envelope;
+  });
+
+  // 7. GET /api/smb-crm/blueprints/:id — fetch a stored blueprint
+  app.get("/api/smb-crm/blueprints/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.blueprint.read");
+    const id = String(request.params.id || "").trim();
+    const row = smbCrmBlueprint.getBlueprint(db, user.org_id, id);
+    if (!row) { const err = new Error("Blueprint not found"); err.statusCode = 404; throw err; }
+    return { blueprint: row };
+  });
+
+  // 8. POST /api/smb-crm/blueprints/:id/apply — materialize blueprint
+  app.post("/api/smb-crm/blueprints/:id/apply", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.blueprint.apply");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const id = String(request.params.id || "").trim();
+    const stored = smbCrmBlueprint.getBlueprint(db, user.org_id, id);
+    if (!stored) { const err = new Error("Blueprint not found"); err.statusCode = 404; throw err; }
+    const merged = { ...stored, ...stored.doc, id: stored.id };
+    const applyResult = smbCrmBlueprint.applyBlueprint(db, user.org_id, merged);
+    const envelope = { ok: true, applied: applyResult, blueprintId: stored.id };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "smb_crm.blueprint.applied", {
+      blueprintId: stored.id,
+      appliedAt: applyResult.appliedAt,
+      alreadyApplied: !!applyResult.alreadyApplied,
+      summary: applyResult.summary,
+      idempotencyKey: idem
+    });
+    return envelope;
+  });
+
   // ─── Inbox + bulk enrich (v0.5) ────────────────────────────────────────
   app.get("/api/crm/tube/inbox", async request => {
     const user = await app.auth(request);
