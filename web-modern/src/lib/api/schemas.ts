@@ -4083,3 +4083,99 @@ export const ExportDocAutoFillResponseSchema = z.object({
 export type ExportDocAutoFillResponse = z.infer<
   typeof ExportDocAutoFillResponseSchema
 >;
+
+/* ── compliance / production-readiness (Phase 8.10) ── */
+
+/** Closed enum of the production-readiness status the server reports.
+ *  Mirrors server/app.js getProductionReadiness (`status` is `"ready"`
+ *  when there are zero blockers, else `"blocked"`). Note: NOT `"review"` —
+ *  the plan.md v1 was wrong; the wire value is `ready | blocked` and
+ *  `reviewRequired` is a separate boolean. */
+export const ProductionReadinessStatusSchema = z.enum(["ready", "blocked"]);
+export type ProductionReadinessStatus = z.infer<
+  typeof ProductionReadinessStatusSchema
+>;
+
+/** Closed enum of gate domains the server emits.
+ *
+ *  IMPORTANT: the server uses `"tax-rate"` for the VAT rate gate
+ *  (server/app.js#buildVatRateReadinessGate, line ~49654) — NOT
+ *  `"vat-rate"` as the plan.md v1 said. The "payroll-rate" gate is
+ *  a separate domain. We model what the server actually emits, not
+ *  what the plan claimed, so the type contract does not reject
+ *  valid responses. */
+export const ProductionReadinessGateDomainSchema = z.enum([
+  "legal-source",
+  "tax-rate",
+  "payroll-rate",
+]);
+export type ProductionReadinessGateDomain = z.infer<
+  typeof ProductionReadinessGateDomainSchema
+>;
+
+/** Single gate row as the server returns it from
+ *  GET /api/compliance/production-readiness.
+ *
+ *  - `effectiveDate` and `sourceUrl` are non-null on the wire: the
+ *    server fills them with `""` when the underlying row is missing
+ *    (rather than `null`), so we accept the empty string instead of
+ *    `string | null` and let the UI helper render a localized
+ *    "առանց ամսաթվի" placeholder.
+ *  - `rate` is `number | null`: legal-source gates have no rate, so
+ *    the server emits `null` for them. */
+export const ProductionReadinessGateSchema = z.object({
+  key: z.string().min(1),
+  label: z.string().min(1),
+  domain: ProductionReadinessGateDomainSchema,
+  ownerRole: z.string().min(1),
+  reviewerRoles: z.array(z.string()),
+  pass: z.boolean(),
+  status: z.string(),
+  requiredStatus: z.string(),
+  effectiveDate: z.string(),
+  sourceUrl: z.string(),
+  rate: z.number().nullable(),
+  nextAction: z.string(),
+});
+export type ProductionReadinessGate = z.infer<typeof ProductionReadinessGateSchema>;
+
+/** Aggregate counts at the top of the readiness payload. */
+export const ProductionReadinessSummarySchema = z.object({
+  total: z.number().int().nonnegative(),
+  passed: z.number().int().nonnegative(),
+  blocked: z.number().int().nonnegative(),
+});
+export type ProductionReadinessSummary = z.infer<
+  typeof ProductionReadinessSummarySchema
+>;
+
+/** The readiness object as the server returns it.
+ *  - `asOf` is a strict YYYY-MM-DD; the server validates the query
+ *    param via `isExactIsoDate` (server/app.js), so anything else
+ *    on the wire is a bug, not a real value.
+ *  - `generatedAt` is an ISO datetime; we just require non-empty
+ *    since the exact format isn't load-bearing for the UI.
+ *  - `blockers` is a server-side filter (`!pass`) so it always
+ *    equals `gates.filter(g => !g.pass)`. We still validate the
+ *    shape — defensive against server regressions. */
+export const ProductionReadinessReadinessSchema = z.object({
+  status: ProductionReadinessStatusSchema,
+  reviewRequired: z.boolean(),
+  asOf: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "expected YYYY-MM-DD"),
+  generatedAt: z.string().min(1),
+  summary: ProductionReadinessSummarySchema,
+  gates: z.array(ProductionReadinessGateSchema),
+  blockers: z.array(ProductionReadinessGateSchema),
+});
+export type ProductionReadinessReadiness = z.infer<
+  typeof ProductionReadinessReadinessSchema
+>;
+
+/** Response body for
+ *  `GET /api/compliance/production-readiness?asOf=YYYY-MM-DD`. */
+export const ProductionReadinessResponseSchema = z.object({
+  readiness: ProductionReadinessReadinessSchema,
+});
+export type ProductionReadinessResponse = z.infer<
+  typeof ProductionReadinessResponseSchema
+>;
