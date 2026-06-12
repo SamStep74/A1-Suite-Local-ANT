@@ -20,7 +20,7 @@
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
-import { Workflow, ChevronLeft, CircleSlash } from "lucide-react";
+import { Workflow, ChevronLeft, CircleSlash, Plug } from "lucide-react";
 import { getJson } from "../../../lib/api/client";
 import {
   AutomationRulesResponseSchema,
@@ -200,13 +200,24 @@ function FlowWorkspace() {
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <ViewSwitcher options={VIEW_OPTIONS} value={view} onChange={setView} />
-        <Link
-          to="/app"
-          className="inline-flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
-        >
-          <ChevronLeft className="size-3.5" />
-          Today
-        </Link>
+        <div className="flex items-center gap-3">
+          <Link
+            to="/app/flow/integrations"
+            search={{ view: "connectors" }}
+            data-testid="flow-manage-integrations-link"
+            className="inline-flex items-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2.5 py-1 text-[var(--text-sm)] text-[var(--color-ink)] hover:bg-[var(--color-surface-soft)]"
+          >
+            <Plug className="size-3.5" />
+            Manage integrations
+          </Link>
+          <Link
+            to="/app"
+            className="inline-flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+          >
+            <ChevronLeft className="size-3.5" />
+            Today
+          </Link>
+        </div>
       </div>
 
       {view === "rules" && (

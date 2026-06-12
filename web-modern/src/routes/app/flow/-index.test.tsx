@@ -412,3 +412,15 @@ describe("Flow — back link", () => {
     expect(back.getAttribute("data-href")).toBe("/app");
   });
 });
+
+/* ────────── manage integrations link ────────── */
+
+describe("Flow — manage integrations link", () => {
+  it("renders a 'Manage integrations' deep link to /app/flow/integrations", () => {
+    renderRoute();
+    const link = screen.getByTestId("flow-manage-integrations-link");
+    expect(link).toBeInTheDocument();
+    expect(link.getAttribute("data-href")).toBe("/app/flow/integrations");
+    expect(link.textContent).toContain("Manage integrations");
+  });
+});
