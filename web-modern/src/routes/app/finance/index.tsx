@@ -1,8 +1,9 @@
 /**
- * /app/finance — Finance workspace: invoices | periods | payments.
+ * /app/finance — Finance workspace: invoices | periods | payments
+ *                       | reports | masterdata | workflow.
  *
  * Mirrors the inventory/crm pattern (Pattern A from the plan §3.4).
- * The home route is a ViewSwitcher over three surfaces:
+ * The home route is a ViewSwitcher over six surfaces:
  *
  *   - **Invoices** — every draft invoice with a status column that
  *     buckets each row as draft / posted / overdue / paid. Click a
@@ -15,15 +16,24 @@
  *   - **Payments** — every recorded payment, newest first. Read-only
  *     for now (record-payment lives on the invoice detail page,
  *     Phase 2.5 follow-up).
+ *   - **Reports** — read-only financial reports (Trial balance,
+ *     Financial statements, VAT report). Phase 10.2c W0.
+ *   - **Master data** — tax rates, chart of accounts, localization
+ *     tools, opening balances. Phase 10.2c W1.
+ *   - **Workflow** — expenses, bills, payables, payroll, legal search.
+ *     Phase 10.2c W2.
  *
  * URL state:
- *   ?view=invoices | periods | payments
+ *   ?view=invoices | periods | payments | reports | masterdata | workflow
  *   ?status=…   (per-view filter — see STATUS_TABS)
  *
  * Data:
  *   - /api/finance/draft-invoices
  *   - /api/finance/periods
  *   - /api/finance/payments
+ *   - /api/finance/{trial-balance,statements,vat-report,vat-returns,tax-rates,
+ *     chart-of-accounts,opening-balances,expenses,bills,payables,payroll/*,
+ *     legal-search}
  *
  * The same Fastify proxy as the rest of the workspace.
  */
@@ -66,21 +76,33 @@ import {
   type InvoiceStatusTone,
   type PeriodTone,
 } from "../../../lib/finance/status";
+import FinanceReportsPanel from "./panels/FinanceReportsPanel";
+import FinanceMasterDataPanel from "./panels/FinanceMasterDataPanel";
+import FinanceWorkflowPanel from "./panels/FinanceWorkflowPanel";
 
 /* ────────── typed URL search ────────── */
 
-type View = "invoices" | "periods" | "payments";
+type View = "invoices" | "periods" | "payments" | "reports" | "masterdata" | "workflow";
 type InvoiceFilter = "all" | "draft" | "posted" | "overdue" | "paid";
 type PeriodFilter = "all" | PeriodTone;
 type PaymentFilter = "all" | string; // payment has no enum-style states; placeholder
+const VIEW_VALUES: readonly View[] = [
+  "invoices",
+  "periods",
+  "payments",
+  "reports",
+  "masterdata",
+  "workflow",
+] as const;
 
 const INVOICE_TABS = ["all", "draft", "posted", "overdue", "paid"] as const;
 const PERIOD_TABS = ["all", "current", "open", "closed", "future"] as const;
 
 export const Route = createFileRoute("/app/finance/")({
   validateSearch: (raw) => {
-    const v: View =
-      raw.view === "periods" || raw.view === "payments" ? raw.view : "invoices";
+    const v: View = (VIEW_VALUES as readonly string[]).includes(raw.view as string)
+      ? (raw.view as View)
+      : "invoices";
     const s: InvoiceFilter | PeriodFilter | PaymentFilter =
       typeof raw.status === "string" ? raw.status : "all";
     return { view: v, status: s };
@@ -94,6 +116,9 @@ const VIEW_OPTIONS: { value: View; label: string }[] = [
   { value: "invoices", label: "Invoices" },
   { value: "periods", label: "Periods" },
   { value: "payments", label: "Payments" },
+  { value: "reports", label: "Reports" },
+  { value: "masterdata", label: "Master data" },
+  { value: "workflow", label: "Workflow" },
 ];
 
 const INVOICE_FILTER_TABS: { value: InvoiceFilter; label: string }[] = [
@@ -243,6 +268,9 @@ function FinanceWorkspace() {
               setFilter={setStatus}
             />
           )}
+          {view === "reports" && <FinanceReportsPanel />}
+          {view === "masterdata" && <FinanceMasterDataPanel />}
+          {view === "workflow" && <FinanceWorkflowPanel />}
         </div>
         <ForecastTotals />
       </div>

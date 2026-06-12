@@ -336,14 +336,17 @@ describe("FinanceWorkspace — page shell", () => {
     expect(todayLink?.getAttribute("data-href")).toBe("/app");
   });
 
-  it("renders the ViewSwitcher with three tabs", () => {
+  it("renders the ViewSwitcher with six tabs (Phase 10.2c: 3 original + 3 migrated)", () => {
     renderRoute();
     const tablist = screen.getByRole("tablist", { name: /View/ });
     const tabs = within(tablist).getAllByRole("tab");
-    expect(tabs).toHaveLength(3);
+    expect(tabs).toHaveLength(6);
     expect(tabs[0].textContent).toMatch(/Invoices/);
     expect(tabs[1].textContent).toMatch(/Periods/);
     expect(tabs[2].textContent).toMatch(/Payments/);
+    expect(tabs[3].textContent).toMatch(/Reports/);
+    expect(tabs[4].textContent).toMatch(/Master data/);
+    expect(tabs[5].textContent).toMatch(/Workflow/);
   });
 });
 
