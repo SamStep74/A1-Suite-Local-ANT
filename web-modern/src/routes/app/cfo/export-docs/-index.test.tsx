@@ -413,7 +413,6 @@ describe("ExportDocs — country-check GET", () => {
 
 describe("ExportDocs — finalize POSTs", () => {
   it("calls postJson on /api/export-docs then postVoid on /api/export-docs/{id}/finalize", async () => {
-    mocks.postJson.mockResolvedValueOnce({ exportDoc: FINALIZED });
     renderRoute();
     fireEvent.change(screen.getByTestId("export-docs-template-select"), {
       target: { value: "invoice" },
@@ -422,6 +421,8 @@ describe("ExportDocs — finalize POSTs", () => {
     await waitFor(() => {
       expect(screen.getByTestId("export-docs-draft")).toBeInTheDocument();
     });
+    // Queue the create response NOW (postJson defaults to { draft } for auto-fill).
+    mocks.postJson.mockResolvedValueOnce({ exportDoc: FINALIZED });
     fireEvent.click(screen.getByTestId("export-docs-validate-button"));
     await waitFor(() => {
       expect(screen.getByTestId("export-docs-validation")).toBeInTheDocument();
@@ -449,7 +450,6 @@ describe("ExportDocs — finalize POSTs", () => {
   });
 
   it("renders the 'Document finalized' card + export-doc id on step 4", async () => {
-    mocks.postJson.mockResolvedValueOnce({ exportDoc: FINALIZED });
     renderRoute();
     fireEvent.change(screen.getByTestId("export-docs-template-select"), {
       target: { value: "invoice" },
@@ -458,6 +458,8 @@ describe("ExportDocs — finalize POSTs", () => {
     await waitFor(() => {
       expect(screen.getByTestId("export-docs-draft")).toBeInTheDocument();
     });
+    // Queue the create response AFTER auto-fill resolves.
+    mocks.postJson.mockResolvedValueOnce({ exportDoc: FINALIZED });
     fireEvent.click(screen.getByTestId("export-docs-validate-button"));
     await waitFor(() => {
       expect(screen.getByTestId("export-docs-validation")).toBeInTheDocument();
@@ -475,7 +477,6 @@ describe("ExportDocs — finalize POSTs", () => {
   });
 
   it("'Start new' resets the wizard back to step 1", async () => {
-    mocks.postJson.mockResolvedValueOnce({ exportDoc: FINALIZED });
     renderRoute();
     fireEvent.change(screen.getByTestId("export-docs-template-select"), {
       target: { value: "invoice" },
@@ -484,6 +485,8 @@ describe("ExportDocs — finalize POSTs", () => {
     await waitFor(() => {
       expect(screen.getByTestId("export-docs-draft")).toBeInTheDocument();
     });
+    // Queue the create response AFTER auto-fill resolves.
+    mocks.postJson.mockResolvedValueOnce({ exportDoc: FINALIZED });
     fireEvent.click(screen.getByTestId("export-docs-validate-button"));
     await waitFor(() => {
       expect(screen.getByTestId("export-docs-validation")).toBeInTheDocument();
@@ -520,7 +523,7 @@ describe("ExportDocs — pure helpers", () => {
   it("isExportDocTemplateKind narrows correctly", () => {
     expect(isExportDocTemplateKind("invoice")).toBe(true);
     expect(isExportDocTemplateKind("garbage")).toBe(false);
-    expect(isExportDocTemplateKind(42)).toBe(false);
+    expect(isExportDocTemplateKind("declaration")).toBe(true);
   });
 
   it("buildExportDocSalesOrderDemo + buildExportDocProductMasterDemo produce the tomato demo", () => {
