@@ -3986,6 +3986,9 @@ export type ExportDocAutoFillDraftLine = z.infer<
 >;
 
 export const ExportDocAutoFillDraftSchema = z.object({
+  destinationCountry: ExportDocDestinationSchema,
+  incoterm: z.string().min(1),
+  currency: z.string().min(1),
   lines: z.array(ExportDocAutoFillDraftLineSchema),
 });
 export type ExportDocAutoFillDraft = z.infer<
@@ -3994,9 +3997,9 @@ export type ExportDocAutoFillDraft = z.infer<
 
 /** Request body for POST /api/export-docs/ai/auto-fill. */
 export const ExportDocAutoFillRequestSchema = z.object({
+  destinationCountry: ExportDocDestinationSchema,
   salesOrder: ExportDocSalesOrderSchema,
   productMaster: z.array(ExportDocProductMasterSchema).min(1),
-  idempotencyKey: z.string().min(1).max(200),
 });
 export type ExportDocAutoFillRequest = z.infer<
   typeof ExportDocAutoFillRequestSchema
@@ -4004,11 +4007,11 @@ export type ExportDocAutoFillRequest = z.infer<
 
 /** A single package the country-check returned. `requiredCertificates`
  *  is open-ended: the server returns arbitrary cert names, so we use
- *  `z.array(z.string())` rather than a closed enum. */
+ *  `z.array(z.string())` rather than a closed enum. `hsNote` is a
+ *  free-form Armenian note the server may attach. */
 export const ExportDocCountryCheckPackSchema = z.object({
-  kind: ExportDocTemplateKindSchema,
   requiredCertificates: z.array(z.string()),
-  notes: z.string().optional(),
+  hsNote: z.string().optional(),
 });
 export type ExportDocCountryCheckPack = z.infer<
   typeof ExportDocCountryCheckPackSchema
@@ -4016,8 +4019,8 @@ export type ExportDocCountryCheckPack = z.infer<
 
 /** Response body for GET /api/export-docs/ai/country-check?country=. */
 export const ExportDocCountryCheckResponseSchema = z.object({
-  country: ExportDocDestinationSchema,
-  packs: z.array(ExportDocCountryCheckPackSchema),
+  destinationCountry: ExportDocDestinationSchema,
+  pack: ExportDocCountryCheckPackSchema,
 });
 export type ExportDocCountryCheckResponse = z.infer<
   typeof ExportDocCountryCheckResponseSchema
@@ -4046,9 +4049,11 @@ export type ExportDoc = z.infer<typeof ExportDocSchema>;
 
 /** Request body for POST /api/export-docs (create). */
 export const ExportDocCreateRequestSchema = z.object({
-  template: ExportDocTemplateKindSchema,
+  kind: ExportDocTemplateKindSchema,
   destinationCountry: ExportDocDestinationSchema,
-  salesOrder: ExportDocSalesOrderSchema,
+  incoterm: z.string().min(1),
+  currency: z.string().min(1),
+  lines: z.array(ExportDocAutoFillDraftLineSchema).min(1),
   idempotencyKey: z.string().min(1).max(200),
 });
 export type ExportDocCreateRequest = z.infer<
