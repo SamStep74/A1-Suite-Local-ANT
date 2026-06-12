@@ -54,6 +54,9 @@ export const FLEET_TABS = [
 ] as const;
 export type FleetTab = (typeof FLEET_TABS)[number];
 
+/** Default tab shown when the route first mounts (and used as the fallback for unknown hash values). */
+export const FLEET_DEFAULT_TAB: FleetTab = FLEET_TABS[0];
+
 /* ────────── tab labels (Armenian-first) ────────── */
 
 const TAB_LABEL_AM: Record<FleetTab, string> = {
@@ -123,6 +126,13 @@ const TRIP_STATE_LABELS_AM: Record<FleetTripState, string> = {
 export function fleetTripStatusLabelAm(status: string): string {
   return TRIP_STATE_LABELS_AM[status as FleetTripState] ?? status;
 }
+
+/**
+ * Alias used by the fleet panels and the fleet route's co-located test.
+ * Kept as a named export (not a re-export) so the symbol is part of the
+ * module's surface area and re-exportable in turn.
+ */
+export const tripStateLabelArm = fleetTripStatusLabelAm;
 
 /* ────────── trip actions ────────── */
 
