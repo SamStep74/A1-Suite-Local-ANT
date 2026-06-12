@@ -95,7 +95,10 @@ export function fleetTabToHash(tab: FleetTab): string {
  * to `"vehicles"` (the first tab) so a deep-link with a stale tab name
  * still lands on a real tab rather than rendering nothing.
  */
-export function fleetTabFromHash(hash: string): FleetTab {
+export function fleetTabFromHash(hash: string | null): FleetTab {
+  if (hash === null || hash === undefined) {
+    return FLEET_DEFAULT_TAB;
+  }
   const cleaned = hash.replace(/^#/, "").trim();
   if ((FLEET_TABS as readonly string[]).includes(cleaned)) {
     return cleaned as FleetTab;
@@ -223,7 +226,10 @@ export function coldChainCategoryLabelAm(category: string): string {
  * Short-id for a fleet row. Mirrors the legacy `t.id.slice(-6)` used in
  * the data-table cells (last 6 characters of the id).
  */
-export function formatFleetIdShort(id: string): string {
+export function formatFleetIdShort(id: string | null): string {
+  if (id === null || id === undefined) {
+    return "—";
+  }
   return id.slice(-6);
 }
 
@@ -237,9 +243,12 @@ export function formatFleetIdShort(id: string): string {
  * or `"<L/100km> L/100 · —"` when `kmPerL` is null.
  */
 export function formatFleetFuelEfficiency(
-  lPer100km: number,
+  lPer100km: number | null,
   kmPerL: number | null,
 ): string {
+  if (lPer100km === null) {
+    return "—";
+  }
   const left = `${lPer100km.toFixed(2)} L/100`;
   if (kmPerL === null) {
     return `${left} · —`;
@@ -256,7 +265,14 @@ export type FleetIdempotencyKind =
   | "trip-status"
   | "fuel"
   | "repair"
-  | "tire";
+  | "tire"
+  | "vehicles-create"
+  | "drivers-create"
+  | "trips-create"
+  | "fuel-create"
+  | "repairs-create"
+  | "tires-install"
+  | "trips-status";
 
 /**
  * Generate a client-side idempotency key for a fleet write. The format

@@ -810,8 +810,8 @@ describe("Fleet — helpers", () => {
   });
 
   it("formatFleetFuelEfficiency handles kmPerL=null", () => {
-    expect(formatFleetFuelEfficiency(8.5, null)).toMatch(/8\.50L\/100km$/);
-    expect(formatFleetFuelEfficiency(8.5, 11.76)).toMatch(/8\.50L\/100km · 11\.76km\/L/);
+    expect(formatFleetFuelEfficiency(8.5, null)).toMatch(/8\.50 L\/100 · —/);
+    expect(formatFleetFuelEfficiency(8.5, 11.76)).toMatch(/8\.50 L\/100 · 11\.76 km\/L/);
     expect(formatFleetFuelEfficiency(null, null)).toBe("—");
   });
 });

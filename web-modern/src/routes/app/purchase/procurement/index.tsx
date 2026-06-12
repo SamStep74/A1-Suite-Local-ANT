@@ -87,7 +87,7 @@ export function ProcurementAccessDeniedCard({
       </p>
       <Link
         to="/app/purchase"
-        search={() => ({})}
+        search={{ view: "vendors" }}
         data-testid="procurement-403-back"
         className="mt-4 inline-flex items-center gap-1 text-sm text-[var(--color-link)] hover:underline"
       >
@@ -738,7 +738,7 @@ export function ProcurementHeader({
       </div>
       <Link
         to="/app/purchase"
-        search={() => ({})}
+        search={{ view: "vendors" }}
         data-testid="procurement-back-link"
         data-entity="procurement-back-link"
         className="inline-flex items-center gap-1 text-xs text-[var(--color-link)] hover:underline"

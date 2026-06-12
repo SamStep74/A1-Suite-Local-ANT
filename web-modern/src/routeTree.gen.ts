@@ -16,7 +16,6 @@ import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as LoginMfaRouteImport } from './routes/login.mfa'
 import { Route as AppCopilotRouteImport } from './routes/app/copilot'
 import { Route as AppAppIdRouteImport } from './routes/app/$appId'
-import { Route as ApiSplatRouteImport } from './routes/api/$'
 import { Route as AppPurchaseIndexRouteImport } from './routes/app/purchase/index'
 import { Route as AppProjectsIndexRouteImport } from './routes/app/projects/index'
 import { Route as AppPeopleIndexRouteImport } from './routes/app/people/index'
@@ -98,11 +97,6 @@ const AppAppIdRoute = AppAppIdRouteImport.update({
   id: '/$appId',
   path: '/$appId',
   getParentRoute: () => AppRouteRoute,
-} as any)
-const ApiSplatRoute = ApiSplatRouteImport.update({
-  id: '/api/$',
-  path: '/api/$',
-  getParentRoute: () => rootRouteImport,
 } as any)
 const AppPurchaseIndexRoute = AppPurchaseIndexRouteImport.update({
   id: '/purchase/',
@@ -347,7 +341,6 @@ export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
   '/app': typeof AppRouteRouteWithChildren
   '/login': typeof LoginRouteWithChildren
-  '/api/$': typeof ApiSplatRoute
   '/app/$appId': typeof AppAppIdRoute
   '/app/copilot': typeof AppCopilotRouteWithChildren
   '/login/mfa': typeof LoginMfaRoute
@@ -402,7 +395,6 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
   '/login': typeof LoginRouteWithChildren
-  '/api/$': typeof ApiSplatRoute
   '/app/$appId': typeof AppAppIdRoute
   '/login/mfa': typeof LoginMfaRoute
   '/app': typeof AppIndexRoute
@@ -458,7 +450,6 @@ export interface FileRoutesById {
   '/': typeof IndexRoute
   '/app': typeof AppRouteRouteWithChildren
   '/login': typeof LoginRouteWithChildren
-  '/api/$': typeof ApiSplatRoute
   '/app/$appId': typeof AppAppIdRoute
   '/app/copilot': typeof AppCopilotRouteWithChildren
   '/login/mfa': typeof LoginMfaRoute
@@ -516,7 +507,6 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/login'
-    | '/api/$'
     | '/app/$appId'
     | '/app/copilot'
     | '/login/mfa'
@@ -571,7 +561,6 @@ export interface FileRouteTypes {
   to:
     | '/'
     | '/login'
-    | '/api/$'
     | '/app/$appId'
     | '/login/mfa'
     | '/app'
@@ -626,7 +615,6 @@ export interface FileRouteTypes {
     | '/'
     | '/app'
     | '/login'
-    | '/api/$'
     | '/app/$appId'
     | '/app/copilot'
     | '/login/mfa'
@@ -683,7 +671,6 @@ export interface RootRouteChildren {
   IndexRoute: typeof IndexRoute
   AppRouteRoute: typeof AppRouteRouteWithChildren
   LoginRoute: typeof LoginRouteWithChildren
-  ApiSplatRoute: typeof ApiSplatRoute
 }
 
 declare module '@tanstack/react-router' {
@@ -736,13 +723,6 @@ declare module '@tanstack/react-router' {
       fullPath: '/app/$appId'
       preLoaderRoute: typeof AppAppIdRouteImport
       parentRoute: typeof AppRouteRoute
-    }
-    '/api/$': {
-      id: '/api/$'
-      path: '/api/$'
-      fullPath: '/api/$'
-      preLoaderRoute: typeof ApiSplatRouteImport
-      parentRoute: typeof rootRouteImport
     }
     '/app/purchase/': {
       id: '/app/purchase/'
@@ -1201,7 +1181,6 @@ const rootRouteChildren: RootRouteChildren = {
   IndexRoute: IndexRoute,
   AppRouteRoute: AppRouteRouteWithChildren,
   LoginRoute: LoginRouteWithChildren,
-  ApiSplatRoute: ApiSplatRoute,
 }
 export const routeTree = rootRouteImport
   ._addFileChildren(rootRouteChildren)
