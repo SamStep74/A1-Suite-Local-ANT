@@ -142,7 +142,7 @@ const AM_MONTHS = [
 ] as const;
 
 /** Convert YYYY-MM period key to a human-readable Armenian label.
- *  e.g. "2026-06" → "Հունիս 2026". Mirrors lib/finance/status.ts. */
+ *  e.g. CURRENT_PERIOD → "Հունիս 2026". Mirrors lib/finance/status.ts. */
 export function periodLabel(periodKey: string | null | undefined): string {
   if (!periodKey) return "—";
   const m = /^(\d{4})-(\d{2})$/.exec(periodKey);

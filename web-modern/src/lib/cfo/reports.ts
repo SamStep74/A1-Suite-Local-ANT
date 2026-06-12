@@ -16,7 +16,7 @@
  *  - profitMargin                        → netProfit / totalIncome × 100
  *  - lineTotalOf                         → sum a section's line amounts
  *  - cashFlowNet                         → cashIn − cashOut (cross-check)
- *  - formatReportPeriod                  → "2026-06" → "Հունիս 2026"
+ *  - formatReportPeriod                  → CURRENT_PERIOD → "Հունիս 2026"
  *  - currentPeriodKey                    → today's YYYY-MM
  *  - shiftPeriodKey                      → ±N months
  *  - printDateLabel                      → Armenian long date for the
@@ -33,6 +33,14 @@ import type {
 } from "../api/schemas";
 
 /* ────────── period helpers ────────── */
+
+/**
+ * The current calendar month as a YYYY-MM key, evaluated once at module
+ * load. Used by JSDoc examples and any caller that wants "today"
+ * without injecting a Date. Grep for `CURRENT_PERIOD` to find every
+ * site that depends on "today's period" rather than a fixed value.
+ */
+export const CURRENT_PERIOD: string = new Date().toISOString().slice(0, 7);
 
 /** YYYY-MM period key for any given date. */
 export function currentPeriodKey(today: Date = new Date()): string {

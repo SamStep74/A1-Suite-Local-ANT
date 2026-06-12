@@ -1,8 +1,11 @@
 /**
- * /app/$appId — per-app placeholder.
+ * /app/$appId — per-app catch-all.
  *
- * Phase 0 just renders a "this app lands in Phase N" stub for every app.
- * Phase 1+ replaces these with full module UIs (CRM list, Finance ledger, etc).
+ * Phase 8 done: most appId routes are thin wrappers around the migrated
+ * module UIs at /app/<module>/... See lib/<module>/ for the panel
+ * components. This file remains as the catch-all for any app whose
+ * dedicated subroute has not been migrated yet — the rendered body is
+ * a "this module is on the way" stub (see the placeholder below).
  */
 import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { ChevronLeft, Sparkles } from "lucide-react";

@@ -32,6 +32,14 @@ import type { CrmQuote, CrmQuoteLine } from "../../lib/api/schemas";
 
 export type MarginStatus = "green" | "amber" | "red" | "unknown";
 
+/**
+ * Canonical `PricingEvidence` props (pricing-evidence strip for CRM quotes).
+ *
+ * The duplicated sibling at `components/pricing/PricingEvidence.tsx` was a
+ * quote-line chip with a different prop shape; it was unused in source and
+ * removed in Phase 10.0 (audit wart fix). This file is now the only
+ * `PricingEvidence` component in the tree.
+ */
 export interface PricingEvidenceProps {
   /** The quote whose evidence we're rendering. */
   quote: CrmQuote;
