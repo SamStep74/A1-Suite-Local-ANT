@@ -16,11 +16,13 @@
  * The QueryClient IS a real provider — every page that uses `useQuery`
  * needs it above in the tree. See lib/api/queryClient.ts for the defaults.
  */
-import { Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import { Link, Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
 
 import { Toaster } from "../components/feedback/Toaster";
+import { ErrorBoundary } from "../components/feedback/ErrorBoundary";
+import { Skeleton } from "../components/feedback/Skeleton";
 import { queryClient } from "../lib/api/queryClient";
 import "../styles/globals.css";
 
@@ -39,7 +41,49 @@ export const Route = createRootRoute({
     ],
   }),
   component: RootComponent,
+  // R7 closure: a friendly fallback for any unhandled throw, suspended
+  // promise, or unmatched route. Per plan §6 — never let a route
+  // blank the page. The `error` is narrowed to `Error` in our wrapper
+  // so the boundary can render `error.message` without leaking the
+  // stack. `reset` is TanStack Router's retry function.
+  errorComponent: ErrorBoundaryRoot,
+  pendingComponent: Skeleton,
+  notFoundComponent: NotFoundRoot,
 });
+
+/** Root error boundary — wraps the shared `ErrorBoundary` so we keep
+ *  one source of truth for the error UI. */
+function ErrorBoundaryRoot(props: {
+  error: Error;
+  reset: () => void;
+}) {
+  return <ErrorBoundary error={props.error} reset={props.reset} />;
+}
+
+/** Root 404 — Armenian + en copy, link back to the app shell. */
+function NotFoundRoot() {
+  return (
+    <div
+      role="alert"
+      lang="hy"
+      className="min-h-[60vh] flex flex-col items-center justify-center p-8 text-center"
+    >
+      <h1 className="text-3xl font-semibold text-stone-900 dark:text-stone-100 mb-2">
+        Չի գտնվել
+      </h1>
+      <p className="text-stone-600 dark:text-stone-400 mb-6">
+        Page not found.
+      </p>
+      <Link
+        to="/"
+        className="px-4 py-2 rounded-[var(--radius-md)] bg-stone-900 text-white text-sm font-semibold hover:bg-stone-700 dark:bg-stone-100 dark:text-stone-900 dark:hover:bg-stone-300"
+      >
+        Գնալ գլխավոր
+        <span className="sr-only"> (Go to home)</span>
+      </Link>
+    </div>
+  );
+}
 
 function RootComponent() {
   return (
