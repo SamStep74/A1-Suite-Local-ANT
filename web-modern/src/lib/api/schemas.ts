@@ -3910,3 +3910,171 @@ export const StateIntAuditResponseSchema = z.object({
 export type StateIntAuditResponse = z.infer<
   typeof StateIntAuditResponseSchema
 >;
+
+/* ── export-docs (Phase 8.9) ── */
+
+/** Closed enum of template kinds the wizard exposes. Mirrors
+ *  server/app.js EXPORT_DOCS_SUPPORTED_KINDS and the legacy
+ *  web/src/exportDocs.jsx TEMPLATE_LABELS. */
+export const ExportDocTemplateKindSchema = z.enum([
+  "invoice",
+  "packing",
+  "cmr",
+  "tir",
+  "coo",
+  "phyto",
+  "vet",
+  "declaration",
+]);
+export type ExportDocTemplateKind = z.infer<typeof ExportDocTemplateKindSchema>;
+
+/** Closed enum of destination codes the wizard exposes in Step 1.
+ *  Matches web/src/exportDocs.jsx line 89 (`["RU","EAEU","EU","AE","HK","PH"]`). */
+export const ExportDocDestinationSchema = z.enum([
+  "RU",
+  "EAEU",
+  "EU",
+  "AE",
+  "HK",
+  "PH",
+]);
+export type ExportDocDestination = z.infer<typeof ExportDocDestinationSchema>;
+
+/** Single line in the hardcoded demo sales-order the wizard POSTs to
+ *  /api/export-docs/ai/auto-fill. Field shape mirrors server/app.js. */
+export const ExportDocSalesOrderLineSchema = z.object({
+  productId: z.string().min(1),
+  description: z.string().min(1),
+  quantity: z.number().int().positive(),
+  unitPrice: z.number().positive(),
+  uom: z.string().min(1),
+});
+export type ExportDocSalesOrderLine = z.infer<
+  typeof ExportDocSalesOrderLineSchema
+>;
+
+/** Sales-order envelope: destination + incoterm + currency + lines. */
+export const ExportDocSalesOrderSchema = z.object({
+  destinationCountry: ExportDocDestinationSchema,
+  incoterm: z.string().min(1),
+  currency: z.string().min(1),
+  lines: z.array(ExportDocSalesOrderLineSchema).min(1),
+});
+export type ExportDocSalesOrder = z.infer<typeof ExportDocSalesOrderSchema>;
+
+/** Product master entry — id + name + hsCode + uom. */
+export const ExportDocProductMasterSchema = z.object({
+  id: z.string().min(1),
+  name: z.string().min(1),
+  hsCode: z.string().min(1),
+  uom: z.string().min(1),
+});
+export type ExportDocProductMaster = z.infer<
+  typeof ExportDocProductMasterSchema
+>;
+
+/** One auto-filled line (server response). Same shape as a sales-order
+ *  line, but the wizard does not need `unitPrice` in the preview. */
+export const ExportDocAutoFillDraftLineSchema = z.object({
+  description: z.string().min(1),
+  hsCode: z.string().min(1),
+  quantity: z.number().int().positive(),
+  uom: z.string().min(1),
+});
+export type ExportDocAutoFillDraftLine = z.infer<
+  typeof ExportDocAutoFillDraftLineSchema
+>;
+
+export const ExportDocAutoFillDraftSchema = z.object({
+  lines: z.array(ExportDocAutoFillDraftLineSchema),
+});
+export type ExportDocAutoFillDraft = z.infer<
+  typeof ExportDocAutoFillDraftSchema
+>;
+
+/** Request body for POST /api/export-docs/ai/auto-fill. */
+export const ExportDocAutoFillRequestSchema = z.object({
+  salesOrder: ExportDocSalesOrderSchema,
+  productMaster: z.array(ExportDocProductMasterSchema).min(1),
+  idempotencyKey: z.string().min(1).max(200),
+});
+export type ExportDocAutoFillRequest = z.infer<
+  typeof ExportDocAutoFillRequestSchema
+>;
+
+/** A single package the country-check returned. `requiredCertificates`
+ *  is open-ended: the server returns arbitrary cert names, so we use
+ *  `z.array(z.string())` rather than a closed enum. */
+export const ExportDocCountryCheckPackSchema = z.object({
+  kind: ExportDocTemplateKindSchema,
+  requiredCertificates: z.array(z.string()),
+  notes: z.string().optional(),
+});
+export type ExportDocCountryCheckPack = z.infer<
+  typeof ExportDocCountryCheckPackSchema
+>;
+
+/** Response body for GET /api/export-docs/ai/country-check?country=. */
+export const ExportDocCountryCheckResponseSchema = z.object({
+  country: ExportDocDestinationSchema,
+  packs: z.array(ExportDocCountryCheckPackSchema),
+});
+export type ExportDocCountryCheckResponse = z.infer<
+  typeof ExportDocCountryCheckResponseSchema
+>;
+
+/** Status enum for an ExportDoc. The wizard only surfaces `draft` and
+ *  `finalized`; `void` is reserved for the future sign/void flow. */
+export const ExportDocStatusSchema = z.enum([
+  "draft",
+  "finalized",
+  "void",
+]);
+export type ExportDocStatus = z.infer<typeof ExportDocStatusSchema>;
+
+/** An export-doc as the server returns it. */
+export const ExportDocSchema = z.object({
+  id: z.string().min(1),
+  kind: ExportDocTemplateKindSchema,
+  destinationCountry: ExportDocDestinationSchema,
+  status: ExportDocStatusSchema,
+  salesOrder: ExportDocSalesOrderSchema,
+  createdAt: z.string().min(1),
+  finalizedAt: z.string().optional(),
+});
+export type ExportDoc = z.infer<typeof ExportDocSchema>;
+
+/** Request body for POST /api/export-docs (create). */
+export const ExportDocCreateRequestSchema = z.object({
+  template: ExportDocTemplateKindSchema,
+  destinationCountry: ExportDocDestinationSchema,
+  salesOrder: ExportDocSalesOrderSchema,
+  idempotencyKey: z.string().min(1).max(200),
+});
+export type ExportDocCreateRequest = z.infer<
+  typeof ExportDocCreateRequestSchema
+>;
+
+/** Request body for POST /api/export-docs/:id/finalize. */
+export const ExportDocFinalizeRequestSchema = z.object({
+  idempotencyKey: z.string().min(1).max(200),
+});
+export type ExportDocFinalizeRequest = z.infer<
+  typeof ExportDocFinalizeRequestSchema
+>;
+
+/** Common server envelope: `{ ok, exportDoc }`. */
+export const ExportDocEnvelopeSchema = z.object({
+  ok: z.boolean(),
+  exportDoc: ExportDocSchema,
+});
+export type ExportDocEnvelope = z.infer<typeof ExportDocEnvelopeSchema>;
+
+/** Response body for POST /api/export-docs/ai/auto-fill. */
+export const ExportDocAutoFillResponseSchema = z.object({
+  ok: z.boolean(),
+  draft: ExportDocAutoFillDraftSchema,
+});
+export type ExportDocAutoFillResponse = z.infer<
+  typeof ExportDocAutoFillResponseSchema
+>;
