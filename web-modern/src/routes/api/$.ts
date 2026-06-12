@@ -38,14 +38,8 @@ type HandlerCtx = {
 export const Route = createFileRoute("/api/$")({
   server: {
     handlers: {
-      GET: ({ request, params }: HandlerCtx) => {
-        console.log("[api/$] HIT GET", request.url, JSON.stringify(params));
-        return proxy(request, params);
-      },
-      POST: ({ request, params }: HandlerCtx) => {
-        console.log("[api/$] HIT POST", request.url, JSON.stringify(params));
-        return proxy(request, params);
-      },
+      GET: ({ request, params }: HandlerCtx) => proxy(request, params),
+      POST: ({ request, params }: HandlerCtx) => proxy(request, params),
       PUT: ({ request, params }: HandlerCtx) => proxy(request, params),
       PATCH: ({ request, params }: HandlerCtx) => proxy(request, params),
       DELETE: ({ request, params }: HandlerCtx) => proxy(request, params),
