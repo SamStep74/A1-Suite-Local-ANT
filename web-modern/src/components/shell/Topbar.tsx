@@ -8,6 +8,7 @@
  * the actual agent layer (notifications = agent events, help = AI assistant)
  * lands in Phase 1.
  */
+import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
 import {
   Sparkles,
@@ -28,6 +29,13 @@ import { useTheme } from "../../lib/theme/ThemeProvider";
 import { useDensity, DENSITIES, type Density } from "../../lib/density/DensityProvider";
 import { APPS, type AppId } from "../../lib/apps";
 import { cn } from "../../lib/utils/cn";
+import {
+  activateLocale,
+  getActiveLocale,
+  LOCALES,
+  localeLabel,
+  type Locale,
+} from "../../i18n/lingui";
 
 const DENSITY_ICON: Record<Density, LucideIcon> = {
   comfortable: Maximize2,
@@ -57,6 +65,31 @@ export function Topbar({
 }) {
   const { theme, setTheme } = useTheme();
   const { density, setDensity } = useDensity();
+  // Phase 10.3: locale switcher (dev-only). We hold the active
+  // locale in local state so the highlight updates synchronously
+  // when the user picks a new one. `activateLocale` is async
+  // (dynamic import of the compiled catalog), so we set the
+  // local state immediately and let Lingui re-render Trans
+  // children via its I18nProvider context once the new catalog
+  // is loaded.
+  const [activeLocale, setActiveLocale] = useState<Locale>(() =>
+    typeof window === "undefined" ? "hy" : getActiveLocale(),
+  );
+  useEffect(() => {
+    // Cross-tab consistency: if another tab flips the locale,
+    // mirror it here.
+    const onStorage = (e: StorageEvent) => {
+      if (e.key === "a1:locale" && e.newValue) {
+        setActiveLocale(e.newValue as Locale);
+      }
+    };
+    window.addEventListener("storage", onStorage);
+    return () => window.removeEventListener("storage", onStorage);
+  }, []);
+  const switchLocale = (l: Locale) => {
+    setActiveLocale(l);
+    void activateLocale(l);
+  };
 
   const appMeta = currentApp ? APPS[currentApp] : undefined;
   const densityIndex = DENSITIES.indexOf(density);
@@ -171,6 +204,42 @@ export function Topbar({
       >
         <HelpCircle className="size-4" />
       </Button>
+
+      {/* Phase 10.3: dev-only locale switcher (Հյ / РУ / EN).
+          Guarded by `import.meta.env.DEV` so the dev affordance
+          never ships in production. The e2e canary spec targets
+          this via `data-testid="locale-switcher"`. */}
+      {import.meta.env.DEV && (
+        <div
+          data-testid="locale-switcher"
+          role="group"
+          aria-label="Language (dev only)"
+          className="ml-1 flex items-center gap-0.5 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] p-0.5"
+        >
+          {LOCALES.map((l) => {
+            const isActive = l === activeLocale;
+            return (
+              <button
+                key={l}
+                type="button"
+                onClick={() => switchLocale(l)}
+                aria-pressed={isActive}
+                aria-label={`Switch language to ${l}`}
+                data-testid={`locale-switcher-${l}`}
+                className={cn(
+                  "min-w-[28px] rounded-[var(--radius-sm)] px-1.5 py-0.5",
+                  "text-[11px] font-semibold leading-none transition-colors",
+                  isActive
+                    ? "bg-[var(--color-brand)] text-white"
+                    : "text-[var(--color-muted)] hover:text-[var(--color-ink)]",
+                )}
+              >
+                {localeLabel(l)}
+              </button>
+            );
+          })}
+        </div>
+      )}
 
       {/* User avatar */}
       <button

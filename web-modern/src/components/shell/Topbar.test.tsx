@@ -25,6 +25,11 @@ const useDensity = vi.fn(() => ({
   density: "comfortable" as const,
   setDensity: vi.fn(),
 }));
+// Hoist the activateLocale spy so the lingui mock factory can
+// reference the same instance and tests can assert on .mock.calls.
+const mocks = vi.hoisted(() => ({
+  activateLocale: vi.fn(async (_l: string) => {}),
+}));
 
 vi.mock("@tanstack/react-router", () => ({
   Link: ({
@@ -48,6 +53,23 @@ vi.mock("../../lib/theme/ThemeProvider", () => ({
 vi.mock("../../lib/density/DensityProvider", () => ({
   useDensity: () => useDensity(),
   DENSITIES: ["comfortable", "compact", "spacious"],
+}));
+
+// Phase 10.3: keep the test environment free of the real i18n
+// module so the Topbar can import its helpers without dragging in
+// the dynamic catalog import chain. The companion
+// `I18nProvider.test.tsx` covers the real provider path.
+vi.mock("../../i18n/lingui", () => ({
+  LOCALES: ["hy", "ru", "en"],
+  localeLabel: (l: string) => ({ hy: "Հյ", ru: "РУ", en: "EN" })[l] ?? l,
+  getActiveLocale: () => "hy",
+  setStoredLocale: vi.fn(),
+  activateLocale: mocks.activateLocale,
+  i18n: {},
+}));
+vi.mock("@lingui/react/macro", () => ({
+  useLingui: () => ({ t: (s: string) => s, i18n: { _: (s: string) => s } }),
+  Trans: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
 
 import { Topbar } from "./Topbar";
@@ -261,5 +283,59 @@ describe("Topbar", () => {
       `a[href^="${LEGACY_PREFIX}"]`,
     );
     expect(legacyLinks.length).toBe(0);
+  });
+});
+
+/* ────────── Phase 10.3 — locale switcher (dev-only) ────────── */
+
+/**
+ * Vitest's `import.meta.env.DEV` is determined by the build
+ * target. In test mode, Vite sets DEV=true by default, so the
+ * switcher is rendered. The Topbar's render() will include the
+ * `data-testid="locale-switcher"` group when DEV is true.
+ */
+describe("Topbar — locale switcher (10.3)", () => {
+  it("renders the locale switcher in dev mode with all 3 locale buttons", () => {
+    render(
+      <Topbar
+        onOpenAppLauncher={noop}
+        onOpenCommandPalette={noop}
+        onOpenNotifications={noop}
+        onOpenHelp={noop}
+      />,
+    );
+    const switcher = screen.getByTestId("locale-switcher");
+    expect(switcher).toBeInTheDocument();
+    expect(screen.getByTestId("locale-switcher-hy")).toBeInTheDocument();
+    expect(screen.getByTestId("locale-switcher-ru")).toBeInTheDocument();
+    expect(screen.getByTestId("locale-switcher-en")).toBeInTheDocument();
+  });
+  it("calls activateLocale when a locale button is clicked", () => {
+    mocks.activateLocale.mockClear();
+    render(
+      <Topbar
+        onOpenAppLauncher={noop}
+        onOpenCommandPalette={noop}
+        onOpenNotifications={noop}
+        onOpenHelp={noop}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("locale-switcher-en"));
+    expect(mocks.activateLocale).toHaveBeenCalledWith("en");
+  });
+  it("marks the active locale as aria-pressed=true", () => {
+    render(
+      <Topbar
+        onOpenAppLauncher={noop}
+        onOpenCommandPalette={noop}
+        onOpenNotifications={noop}
+        onOpenHelp={noop}
+      />,
+    );
+    // The mock returns 'hy' as the active locale
+    const hy = screen.getByTestId("locale-switcher-hy");
+    const ru = screen.getByTestId("locale-switcher-ru");
+    expect(hy).toHaveAttribute("aria-pressed", "true");
+    expect(ru).toHaveAttribute("aria-pressed", "false");
   });
 });

@@ -16,11 +16,18 @@
  * The `getRouter` factory lives in `./router.tsx` (the canonical
  * router factory for both server and client) — we re-use it here
  * so the route tree and default options stay in one place.
+ *
+ * Phase 10.3: I18nProvider wraps the router. The provider must be
+ * ABOVE the RouterProvider (it sets the Lingui React context that
+ * <Trans> and useLingui() read from) but BELOW any other context
+ * providers so error boundaries / theme providers etc. can read
+ * the i18n locale if they ever need to.
  */
 import { StrictMode } from "react";
 import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
 import { getRouter } from "./router";
+import { I18nProvider } from "./i18n/I18nProvider";
 
 const rootEl = document.getElementById("root");
 if (!rootEl) {
@@ -34,6 +41,8 @@ const router = getRouter();
 
 createRoot(rootEl).render(
   <StrictMode>
-    <RouterProvider router={router} />
+    <I18nProvider>
+      <RouterProvider router={router} />
+    </I18nProvider>
   </StrictMode>,
 );

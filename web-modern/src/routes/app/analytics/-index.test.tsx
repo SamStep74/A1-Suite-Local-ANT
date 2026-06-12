@@ -14,6 +14,30 @@ import { cleanup, render, screen, within } from "@testing-library/react";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as React from "react";
 
+/* ────────── Lingui passthrough mocks ────────── */
+
+/**
+ * The route file (Phase 10.3) wraps every user-facing string in
+ * <Trans> / t`` so the production tree needs an I18nProvider. The
+ * test environment mocks the i18n module out instead, which:
+ *   - keeps the existing assertions stable (Trans renders children
+ *     verbatim, t`` returns its argument as a string),
+ *   - avoids having to dynamically import the compiled hy/messages
+ *     catalog from a test (which depends on `lingui compile` having
+ *     run; the canary unit test should not require build steps).
+ * The companion `I18nProvider.test.tsx` exercises the real
+ * provider shape (dynamic import, localStorage, ?lang=).
+ */
+vi.mock("@lingui/react/macro", () => ({
+  Trans: ({ children, id }: { children?: React.ReactNode; id?: string }) => (
+    <>{children ?? id ?? null}</>
+  ),
+  useLingui: () => ({
+    t: (s: string | TemplateStringsArray) => (Array.isArray(s) ? s[0] : s),
+    i18n: { _: (s: string) => s, locale: "hy" },
+  }),
+}));
+
 /* ────────── mock state ────────── */
 
 const mocks = vi.hoisted(() => ({
@@ -510,5 +534,56 @@ describe("Analytics — back link", () => {
     const back = screen.getByRole("link", { name: /Today/ });
     expect(back).toBeInTheDocument();
     expect(back.getAttribute("data-href")).toBe("/app");
+  });
+});
+
+/* ────────── i18n canary (Phase 10.3) ────────── */
+
+/**
+ * The Lingui mock at the top of this file makes <Trans> a
+ * passthrough, so the assertions below don't have to wrap with
+ * a real I18nProvider. The real provider path is exercised in
+ * `I18nProvider.test.tsx` and `web-modern/e2e/i18n-canary.spec.ts`.
+ * What we lock in here is the shape of the canary route: every
+ * tab label, the back link, and the page header render as text
+ * content (not as raw `{t\`Dashboard\`}` template-literal nodes
+ * or compiled `_()` calls leaking into the DOM).
+ */
+describe("Analytics — i18n canary (10.3)", () => {
+  it("renders the 5 tab labels as plain text (not raw t() templates)", () => {
+    renderRoute();
+    // The mock renders Trans children directly, so the tab text
+    // content is the source string. A regression that removes the
+    // Trans wrapper would still pass this — what catches the
+    // *opposite* bug (someone re-introduces a raw t() result
+    // outside Trans) is the absence of "[object Object]" / function
+    // text in the DOM.
+    const tablist = screen.getByRole("tablist", { name: "View" });
+    const tabs = within(tablist).getAllByRole("tab");
+    for (const tab of tabs) {
+      expect(tab.textContent).toBeTruthy();
+      expect(tab.textContent).not.toMatch(/^\[object /);
+    }
+  });
+  it("renders the back link text 'Today' as a plain text node", () => {
+    renderRoute();
+    const back = screen.getByRole("link", { name: /Today/ });
+    expect(back.textContent).toBe("Today");
+  });
+  it("the canary route uses the Lingui macro module (regression guard)", async () => {
+    // Read the file content and assert the @lingui/react/macro
+    // import survives future refactors. If a future worker
+    // removes the import in favour of plain strings, the
+    // lingui extract step would no longer pick this route up —
+    // and the next phase's i18n expansion would silently miss it.
+    const fs = await import("node:fs/promises");
+    const path = await import("node:path");
+    const file = await fs.readFile(
+      path.resolve(__dirname, "index.tsx"),
+      "utf8",
+    );
+    expect(file).toMatch(/from\s+["']@lingui\/react\/macro["']/);
+    // At least one Trans or t`` use site in the file
+    expect(file).toMatch(/<Trans>|t`/);
   });
 });

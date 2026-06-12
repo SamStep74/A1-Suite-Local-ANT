@@ -41,6 +41,7 @@
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
+import { Trans, useLingui } from "@lingui/react/macro";
 import { ChevronLeft } from "lucide-react";
 import { getJson } from "../../../lib/api/client";
 import {
@@ -77,14 +78,6 @@ export {
 
 type View = "dashboard" | "receivables" | "metrics" | "snapshots" | "reports";
 
-const VIEW_OPTIONS: { value: View; label: string }[] = [
-  { value: "dashboard", label: "Dashboard" },
-  { value: "receivables", label: "Receivables" },
-  { value: "metrics", label: "Metrics" },
-  { value: "snapshots", label: "Snapshots" },
-  { value: "reports", label: "Reports" },
-];
-
 export const Route = createFileRoute("/app/analytics/")({
   validateSearch: (raw) => {
     const v: View =
@@ -102,10 +95,23 @@ export const Route = createFileRoute("/app/analytics/")({
 /* ────────── root component ────────── */
 
 function AnalyticsWorkspace() {
+  const { t } = useLingui();
   const search = Route.useSearch();
   const navigate = Route.useNavigate();
   const view: View = search.view;
   const setView = (next: View) => navigate({ search: { view: next }, replace: true });
+
+  // Tab labels are extracted as message ids; the source string (hy)
+  // is the source of truth, and the en/ru catalogs can fill them in
+  // later. ViewSwitcher is label-agnostic — it just renders the
+  // string we hand it, so wrapping here is enough.
+  const VIEW_OPTIONS: { value: View; label: string }[] = [
+    { value: "dashboard", label: t`Dashboard` },
+    { value: "receivables", label: t`Receivables` },
+    { value: "metrics", label: t`Metrics` },
+    { value: "snapshots", label: t`Snapshots` },
+    { value: "reports", label: t`Reports` },
+  ];
 
   const dashboardQ = useQuery({
     queryKey: ["analytics-role-dashboard"],
@@ -154,7 +160,7 @@ function AnalyticsWorkspace() {
           className="inline-flex items-center gap-1.5 text-[var(--text-sm)] text-[var(--color-muted)] hover:text-[var(--color-ink)]"
         >
           <ChevronLeft className="size-3.5" />
-          Today
+          <Trans>Today</Trans>
         </Link>
       </div>
 

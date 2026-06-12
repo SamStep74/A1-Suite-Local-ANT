@@ -152,7 +152,11 @@ export default defineConfig({
     // The API proxy MUST be registered before Vite's own middlewares
     // (SPA fallback, CORS, HMR, etc.) so /api/* hits our handler first.
     apiProxy(),
-    react(),
+    // Lingui v5 macros (Trans, t``) require babel-plugin-macros. By
+    // default @vitejs/plugin-react does NOT enable macros, so we
+    // pass it explicitly. Without this, the JSX would throw at
+    // build time with "ReferenceError: _ Trans is not defined".
+    react({ babel: { plugins: ["babel-plugin-macros"] } }),
     tsConfigPaths(),
   ],
 });
