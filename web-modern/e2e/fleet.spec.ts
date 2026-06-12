@@ -549,12 +549,13 @@ test.describe("Fleet — Trips POST + PATCH status", () => {
       if (postBody === null) {
         throw new Error("expected the trips POST mock to have captured a body");
       }
-      expect(postBody.vehicleId).toBe(VEHICLE_ID);
-      expect(postBody.driverId).toBe(DRIVER_ID);
-      expect(postBody.origin).toBe("Yerevan");
-      expect(postBody.destination).toBe("Gyumri");
-      expect(postBody.scheduledDeparture).toBe("2026-06-13T08:00");
-      expect(postBody.idempotencyKey).toMatch(/^trip-/);
+      const body: TripPostBody = postBody;
+      expect(body.vehicleId).toBe(VEHICLE_ID);
+      expect(body.driverId).toBe(DRIVER_ID);
+      expect(body.origin).toBe("Yerevan");
+      expect(body.destination).toBe("Gyumri");
+      expect(body.scheduledDeparture).toBe("2026-06-13T08:00");
+      expect(body.idempotencyKey).toMatch(/^trip-/);
 
       // Click the "Departed" PATCH button on the new row. The
       // row's button only appears for status="planned" trips
@@ -567,9 +568,10 @@ test.describe("Fleet — Trips POST + PATCH status", () => {
       if (patchBody === null) {
         throw new Error("expected the trips PATCH mock to have captured a body");
       }
+      const patchBodyTyped: TripPatchBody = patchBody;
       expect(patchPath).toBe(`/api/fleet/trips/${TRIP_ID}/status`);
-      expect(patchBody.action).toBe("departed");
-      expect(patchBody.idempotencyKey).toMatch(/^trip-status-/);
+      expect(patchBodyTyped.action).toBe("departed");
+      expect(patchBodyTyped.idempotencyKey).toMatch(/^trip-status-/);
     } finally {
       await ctx.page.context().close();
     }
@@ -659,11 +661,12 @@ test.describe("Fleet — Fuel POST + efficiency analytics", () => {
       if (postBody === null) {
         throw new Error("expected the fuel POST mock to have captured a body");
       }
-      expect(postBody.vehicleId).toBe(VEHICLE_ID);
-      expect(postBody.liters).toBe(60.5);
-      expect(postBody.odometerKm).toBe(75000);
-      expect(postBody.fuelCostPerL).toBe(510);
-      expect(postBody.idempotencyKey).toMatch(/^fuel-/);
+      const body: FuelPostBody = postBody;
+      expect(body.vehicleId).toBe(VEHICLE_ID);
+      expect(body.liters).toBe(60.5);
+      expect(body.odometerKm).toBe(75000);
+      expect(body.fuelCostPerL).toBe(510);
+      expect(body.idempotencyKey).toMatch(/^fuel-/);
 
       // The efficiency rollup table renders the {vehicleId,
       // lPer100km} rows from the analytics GET.
@@ -763,12 +766,13 @@ test.describe("Fleet — Repairs POST + maintenance-backlog analytics", () => {
       if (postBody === null) {
         throw new Error("expected the repairs POST mock to have captured a body");
       }
-      expect(postBody.vehicleId).toBe(VEHICLE_ID);
-      expect(postBody.kind).toBe("oil-change");
-      expect(postBody.odometerKm).toBe(75500);
-      expect(postBody.cost).toBe(45000);
-      expect(postBody.nextDueAt).toBe("2026-09-01");
-      expect(postBody.idempotencyKey).toMatch(/^repair-/);
+      const body: RepairPostBody = postBody;
+      expect(body.vehicleId).toBe(VEHICLE_ID);
+      expect(body.kind).toBe("oil-change");
+      expect(body.odometerKm).toBe(75500);
+      expect(body.cost).toBe(45000);
+      expect(body.nextDueAt).toBe("2026-09-01");
+      expect(body.idempotencyKey).toMatch(/^repair-/);
 
       // The backlog rollup table renders the {vehicleId, kind,
       // overdueDays} rows from the analytics GET.
