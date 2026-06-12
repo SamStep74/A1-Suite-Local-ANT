@@ -7175,13 +7175,22 @@ ${controls}
 function registerStatic(app) {
   const publicDir = path.join(__dirname, "..", "public");
   if (fs.existsSync(path.join(publicDir, "index.html"))) {
-    app.register(fastifyStatic, { root: publicDir });
+    // 10.1: Mount the legacy build at /legacy/* (escape hatch for unmigrated modules).
+    // The Fastify backend no longer hosts the SPA at / — the new SPA is on a
+    // separate port (web-modern/scripts/serve-spa.mjs, env-configurable).
+    // 8.12 will remove this mount once every legacy module has a web-modern equivalent.
+    app.register(fastifyStatic, { root: publicDir, prefix: "/legacy/", decorateReply: false });
     app.setNotFoundHandler((request, reply) => {
       if (request.raw.url.startsWith("/api/")) {
         reply.code(404).send({ ok: false, error: "NOT_FOUND" });
         return;
       }
-      reply.sendFile("index.html");
+      if (request.raw.url.startsWith("/legacy/")) {
+        reply.sendFile("index.html");  // legacy SPA shell fallback
+        return;
+      }
+      // / mount is no longer the SPA — return a clear 404, not a stale index.html.
+      reply.code(404).send({ ok: false, error: "NOT_FOUND" });
     });
   }
 }

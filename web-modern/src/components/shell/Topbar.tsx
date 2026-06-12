@@ -27,6 +27,7 @@ import { Kbd } from "../ui/Kbd";
 import { useTheme } from "../../lib/theme/ThemeProvider";
 import { useDensity, DENSITIES, type Density } from "../../lib/density/DensityProvider";
 import { APPS, type AppId } from "../../lib/apps";
+import { LegacyLink } from "../../lib/deploy";
 import { cn } from "../../lib/utils/cn";
 
 const DENSITY_ICON: Record<Density, LucideIcon> = {
@@ -101,6 +102,11 @@ export function Topbar({
           </span>
         </>
       )}
+
+      {/* 10.1: escape hatch to the legacy web/ build (mounted at /legacy/*
+          by the Fastify backend). Sits right after the brand so it's the
+          first thing an operator sees when a module isn't migrated yet. */}
+      <LegacyLink to="/" className="ml-1">Open legacy UI</LegacyLink>
 
       {/* Spacer */}
       <div className="flex-1" />
