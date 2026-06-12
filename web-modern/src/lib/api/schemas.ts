@@ -4292,5 +4292,158 @@ export type HrEquipmentAssignment = z.infer<typeof HrEquipmentAssignmentSchema>;
 /* ─── block-hr-ops-end ─── */
 
 /* ─── block-hr-perf-begin ─── */
-/* (W2 inserts HrTimesheetEntry + HrTimesheetReport + HrKpiTarget + HrKpiActual + HrKpiScore + HrRecruitmentPipeline + HrRecruitmentCandidate + HrOrder here) */
+
+/** A single timesheet entry. Source: POST /api/hr/timesheets/bulk. */
+export const HrTimesheetEntrySchema = z.object({
+  employeeId: z.string(),
+  workDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  hours: z.number().min(0),
+  projectId: z.string(),
+});
+export type HrTimesheetEntry = z.infer<typeof HrTimesheetEntrySchema>;
+
+export const HrTimesheetBulkRequestSchema = z.object({
+  employeeId: z.string(),
+  entries: z.array(HrTimesheetEntrySchema).min(1),
+  idempotencyKey: z.string().min(1),
+});
+export type HrTimesheetBulkRequest = z.infer<typeof HrTimesheetBulkRequestSchema>;
+
+export const HrTimesheetReportSchema = z.object({
+  totalHours: z.number().min(0),
+  byProject: z.record(z.string(), z.number()).optional(),
+  rangeStart: z.string().optional(),
+  rangeEnd: z.string().optional(),
+});
+export type HrTimesheetReport = z.infer<typeof HrTimesheetReportSchema>;
+
+export const HrTimesheetBulkResponseSchema = z.object({
+  inserted: z.number().int().min(0),
+  report: HrTimesheetReportSchema,
+});
+export type HrTimesheetBulkResponse = z.infer<typeof HrTimesheetBulkResponseSchema>;
+
+/** KPI target — one metric per employee per period. Source: POST /api/hr/kpis/targets. */
+export const HrKpiTargetSchema = z.object({
+  employeeId: z.string(),
+  periodKey: z.string().regex(/^\d{4}-\d{2}$/),
+  metric: z.string(),
+  target: z.number(),
+  weight: z.number(),
+});
+export type HrKpiTarget = z.infer<typeof HrKpiTargetSchema>;
+
+export const HrKpiTargetsRequestSchema = z.object({
+  employeeId: z.string(),
+  periodKey: z.string().regex(/^\d{4}-\d{2}$/),
+  targets: z.array(HrKpiTargetSchema.omit({ employeeId: true, periodKey: true })).min(1),
+  idempotencyKey: z.string().min(1),
+});
+export type HrKpiTargetsRequest = z.infer<typeof HrKpiTargetsRequestSchema>;
+
+export const HrKpiActualSchema = z.object({
+  employeeId: z.string(),
+  periodKey: z.string().regex(/^\d{4}-\d{2}$/),
+  metric: z.string(),
+  actual: z.number(),
+});
+export type HrKpiActual = z.infer<typeof HrKpiActualSchema>;
+
+export const HrKpiActualsRequestSchema = z.object({
+  employeeId: z.string(),
+  periodKey: z.string().regex(/^\d{4}-\d{2}$/),
+  actuals: z.array(HrKpiActualSchema.omit({ employeeId: true, periodKey: true })).min(1),
+  idempotencyKey: z.string().min(1),
+});
+export type HrKpiActualsRequest = z.infer<typeof HrKpiActualsRequestSchema>;
+
+export const HrKpiScoreSchema = z.object({
+  weighted: z.number(),
+  breakdown: z
+    .array(
+      z.object({
+        metric: z.string(),
+        target: z.number(),
+        actual: z.number(),
+        achievement: z.number(),
+        weight: z.number(),
+        contribution: z.number(),
+      }),
+    )
+    .optional(),
+});
+export type HrKpiScore = z.infer<typeof HrKpiScoreSchema>;
+
+export const HrKpiScoreResponseSchema = z.object({
+  score: HrKpiScoreSchema,
+});
+export type HrKpiScoreResponse = z.infer<typeof HrKpiScoreResponseSchema>;
+
+/** Recruitment pipeline — a sequence of stage names. Source: POST /api/hr/recruitment/pipelines. */
+export const HrRecruitmentPipelineSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  stages: z.array(z.string()).min(1),
+});
+export type HrRecruitmentPipeline = z.infer<typeof HrRecruitmentPipelineSchema>;
+
+export const HrRecruitmentPipelineRequestSchema = z.object({
+  name: z.string().min(1),
+  stages: z.array(z.string()).min(1),
+  idempotencyKey: z.string().min(1),
+});
+export type HrRecruitmentPipelineRequest = z.infer<typeof HrRecruitmentPipelineRequestSchema>;
+
+export const HrRecruitmentPipelineResponseSchema = z.object({
+  pipeline: HrRecruitmentPipelineSchema,
+});
+export type HrRecruitmentPipelineResponse = z.infer<typeof HrRecruitmentPipelineResponseSchema>;
+
+/** Recruitment candidate — a person in a pipeline at a particular stage. Source: POST /api/hr/recruitment/candidates. */
+export const HrRecruitmentCandidateSchema = z.object({
+  id: z.string(),
+  pipelineId: z.string(),
+  fullName: z.string(),
+  email: z.string().optional(),
+  stage: z.string(),
+});
+export type HrRecruitmentCandidate = z.infer<typeof HrRecruitmentCandidateSchema>;
+
+export const HrRecruitmentCandidateRequestSchema = z.object({
+  pipelineId: z.string(),
+  fullName: z.string().min(1),
+  email: z.string().optional(),
+  stage: z.string(),
+  idempotencyKey: z.string().min(1),
+});
+export type HrRecruitmentCandidateRequest = z.infer<typeof HrRecruitmentCandidateRequestSchema>;
+
+export const HrRecruitmentCandidateResponseSchema = z.object({
+  candidate: HrRecruitmentCandidateSchema,
+});
+export type HrRecruitmentCandidateResponse = z.infer<typeof HrRecruitmentCandidateResponseSchema>;
+
+/** HR order — typed document created against an employee. Source: POST /api/hr/orders. */
+export const HrOrderSchema = z.object({
+  id: z.string(),
+  type: z.string(),
+  employeeId: z.string(),
+  body: z.string(),
+  createdAt: z.string(),
+});
+export type HrOrder = z.infer<typeof HrOrderSchema>;
+
+export const HrOrderRequestSchema = z.object({
+  type: z.string().min(1),
+  employeeId: z.string(),
+  body: z.string(),
+  idempotencyKey: z.string().min(1),
+});
+export type HrOrderRequest = z.infer<typeof HrOrderRequestSchema>;
+
+export const HrOrderResponseSchema = z.object({
+  order: HrOrderSchema,
+});
+export type HrOrderResponse = z.infer<typeof HrOrderResponseSchema>;
+
 /* ─── block-hr-perf-end ─── */
