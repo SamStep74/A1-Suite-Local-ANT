@@ -1,8 +1,8 @@
 # Phase 10 orchestration — state snapshot
 
-**Last update:** 2026-06-12 14:00 UTC (18:00 local)
+**Last update:** 2026-06-12 14:01 UTC (18:01 local)
 **Session:** 2026-06-12 (Phase 10.0 TYPECHECK CLEANUP CLOSED, Phase 10.0 D1 CLOSED, Phase 10.1 CLOSED, Phase 10.0 CLOSED, Phase 10.2c CLOSED, Phase 10.2b CLOSED, Phase 10.2d CLOSED, Phase 10.2e CLOSED, **Phase 10.3 CLOSED + torn down**)
-**Current ref:** `ant/main @ c61c976` (10.3 — Lingui v5 i18n infra + analytics canary converted; worktree + tmux torn down; tag + remote branch preserved)
+**Current ref:** `ant/main @ bc8b159` (10.3 integration commit — the Lingui v5 + analytics canary; the +3 docs commits that follow sit on top of it and are reflected in `Last update` / `Session` lines above)
 **Tag:** `phase10-0-typecheck-cleanup-v1` → d6d4c44 ✅ + `phase10-0-d1-spa-shell-v1` → 5fd4dfb ✅ + `phase10-1-deploy-v1` → 57c60eb ✅ + `phase10-hygiene-v1` → 98c72a6 ✅ + `phase10-2-finance-v1` → 0902b38 ✅ + `phase10-2-people-v1` → 4795251 ✅ + `phase10-2-flow-integrations-v1` → 37f7732 ✅ + `phase10-2e-login-shell-retirement-v1` → 463089d ✅ + **`phase10-3-i18n-infra-v1` → bc8b159 ✅**
 
 ## Phase 10.2c Finance (phase10-2-finance) — ✅ CLOSED
