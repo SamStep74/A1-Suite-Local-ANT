@@ -1,9 +1,9 @@
 # Phase 10 orchestration — state snapshot
 
-**Last update:** 2026-06-12 14:01 UTC (18:01 local)
-**Session:** 2026-06-12 (Phase 10.0 TYPECHECK CLEANUP CLOSED, Phase 10.0 D1 CLOSED, Phase 10.1 CLOSED, Phase 10.0 CLOSED, Phase 10.2c CLOSED, Phase 10.2b CLOSED, Phase 10.2d CLOSED, Phase 10.2e CLOSED, **Phase 10.3 CLOSED + torn down**)
-**Current ref:** `ant/main @ bc8b159` (10.3 integration commit — the Lingui v5 + analytics canary; the +3 docs commits that follow sit on top of it and are reflected in `Last update` / `Session` lines above)
-**Tag:** `phase10-0-typecheck-cleanup-v1` → d6d4c44 ✅ + `phase10-0-d1-spa-shell-v1` → 5fd4dfb ✅ + `phase10-1-deploy-v1` → 57c60eb ✅ + `phase10-hygiene-v1` → 98c72a6 ✅ + `phase10-2-finance-v1` → 0902b38 ✅ + `phase10-2-people-v1` → 4795251 ✅ + `phase10-2-flow-integrations-v1` → 37f7732 ✅ + `phase10-2e-login-shell-retirement-v1` → 463089d ✅ + **`phase10-3-i18n-infra-v1` → bc8b159 ✅**
+**Last update:** 2026-06-12 16:50 UTC (20:50 local)
+**Session:** 2026-06-12 (Phase 10.0 TYPECHECK CLEANUP CLOSED, Phase 10.0 D1 CLOSED, Phase 10.1 CLOSED, Phase 10.0 CLOSED, Phase 10.2c CLOSED, Phase 10.2b CLOSED, Phase 10.2d CLOSED, Phase 10.2e CLOSED, Phase 10.3 CLOSED + torn down, **Phase 10.4 CLOSED**)
+**Current ref:** `ant/main @ b04a88c` (10.4 integration commit — TanStack DataTable + SavedViews + PeekPanel + UndoToast + BulkActionBar + analytics receivables conversion; Lingui v5 strings from 10.3 fully wired through the new components)
+**Tag:** `phase10-0-typecheck-cleanup-v1` → d6d4c44 ✅ + `phase10-0-d1-spa-shell-v1` → 5fd4dfb ✅ + `phase10-1-deploy-v1` → 57c60eb ✅ + `phase10-hygiene-v1` → 98c72a6 ✅ + `phase10-2-finance-v1` → 0902b38 ✅ + `phase10-2-people-v1` → 4795251 ✅ + `phase10-2-flow-integrations-v1` → 37f7732 ✅ + `phase10-2e-login-shell-retirement-v1` → 463089d ✅ + `phase10-3-i18n-infra-v1` → bc8b159 ✅ + **`phase10-4-shared-components-v1` → b04a88c ✅**
 
 ## Phase 10.2c Finance (phase10-2-finance) — ✅ CLOSED
 
@@ -383,6 +383,110 @@ The worker pane died on transient Claude API `ConnectionRefused` retries after ~
 **Phase 10.4 (shared components: DataTable + saved views + peek panel + undo + bulk-select)** — will use Lingui hooks from 10.3 (DataTable column labels, saved-view titles, empty states, peek-panel headers) so all components ship label-localized from day one. Or **Phase 10.5 (product differentiators: fiscal gates · Ask-AI · Triage Inbox · period-close checklist · document steppers · keyboard grammar · onboarding)** — uses Lingui for assistant prompts, checklist items, onboarding copy.
 
 
+## Phase 10.4 shared components (phase10-4-shared-components) — ✅ CLOSED
+
+**Closed:** 2026-06-12 16:50 UTC (20:50 local)
+**Base ref:** `ant/main @ 87506d9` (post-10.3 teardown docs commit)
+**Final ref:** `ant/main @ b04a88c`
+**Tag:** `phase10-4-shared-components-v1` → b04a88c (annotated, pushed to ant)
+
+### Goal
+
+Ship five label-localized shared React primitives (DataTable, SavedViews, PeekPanel, UndoToast, BulkActionBar) wired through the 10.3 Lingui infra, plus one real conversion (analytics receivables route) that demonstrates the primitives compose into a production surface. The primitives are headless / composable / controlled-and-uncontrolled dual-mode, with tests pinning the public contract — so 10.5 (product differentiators) can drop them into fiscal-gate checklists, Ask-AI sidebar, and Triage Inbox without re-implementing table/view/toast plumbing.
+
+### Surface map (5 new components · 1 conversion · 1 e2e · 1 dep bump)
+
+| # | Location | Action |
+|---|----------|--------|
+| 1 | `web-modern/src/components/shared/DataTable.tsx` (+ test, 20 specs) | **new** — TanStack Table v8 headless wrapper; sort / filter / page / select / `onRowClick` / `renderToolbar` slot; controlled (`state` + `onStateChange`) and uncontrolled (`initialState`) modes; per-feature flags |
+| 2 | `web-modern/src/components/shared/SavedViews.tsx` (+ test, 9 specs) | **new** — dropdown save / load / rename / delete of view snapshots (sort + page + filter) per `tableId`; persisted to `localStorage` under `a1:savedViews:<tableId>` |
+| 3 | `web-modern/src/components/shared/PeekPanel.tsx` (+ test, 8 specs) | **new** — native `<dialog>` drawer with ESC + click-outside + close-button dismiss, focus trap, typed `record`-to-content render prop |
+| 4 | `web-modern/src/components/shared/UndoToast.tsx` (+ test, 9 specs) | **new** — toast with Undo action and auto-dismiss progress bar; counter-based elapsed time (not `Date.now()`) so the progress bar advances correctly under vitest fake timers |
+| 5 | `web-modern/src/components/shared/BulkActionBar.tsx` (+ test, 7 specs) | **new** — floating bottom bar that appears when DataTable has `selectedRowIds`; built-in Delete / Export CSV / Tag actions |
+| 6 | `web-modern/src/lib/components/savedViewsStore.ts` (+ test) | **new** — localStorage-backed snapshot store helper (unit-tested independently of the UI) |
+| 7 | `web-modern/src/components/shared/index.ts` | **new** — barrel |
+| 8 | `web-modern/src/lib/analytics/panels/AnalyticsReceivablesTable.tsx` | **new** — composite view wiring DataTable + SavedViews toolbar + PeekPanel row detail + BulkActionBar when ≥1 row selected |
+| 9 | `web-modern/src/routes/app/analytics/index.tsx` | `view=receivables` branch now renders `AnalyticsReceivablesTableView`; route is now a thin composition layer (KPI-card `AnalyticsReceivablesView` kept in `panels/index.tsx` for backward compat) |
+| 10 | `web-modern/src/lib/analytics/panels/index.tsx` | re-export `AnalyticsReceivablesView` for legacy imports |
+| 11 | `web-modern/e2e/shared-components-canary.spec.ts` | **new** Playwright e2e — open SavedViews menu, save, click row → PeekPanel, close, select row, hit bulk Export CSV, see UndoToast with progress bar |
+| 12 | `web-modern/src/routes/app/analytics/-index.test.tsx` | rewritten to assert on the new 5-column `DataTable` surface (Bucket / Label / Total / Invoices / Customers) with `data-row-count="3"` |
+| 13 | `web-modern/package.json` | add `@tanstack/react-table@^8.21.3`; `pnpm install` regenerated `pnpm-lock.yaml` (orchestrator fix — worker's `package-lock.json` bump alone was insufficient) |
+| 14 | `web-modern/src/locales/{hy,en,ru}/messages.po` | +36 source strings extracted from the new components (32 grep matches in `src/components/shared/`) |
+
+### Worker stream
+
+| # | Worker | Branch | Commit | Tag | Files | +/– |
+|---|--------|--------|--------|-----|-------|-----|
+| W0 | shared-components | `wip/phase10-4-shared-components/shared-components` (slash preserved) | b04a88c (feat) + e9bff89 (worker status docs, on branch only) | `phase10-4-shared-components-shared-components-v1` → b04a88c | 27 | +3699 / −35 |
+
+- 1 worker feat commit + 1 orchestrator docs commit (this STATE.md update, post-merge) = 2 commits in this phase; the worker's `e9bff89` status-doc commit sits on the branch and is absorbed into the orchestrator's next push as part of the usual `git push ant main:refs/heads/ant/main` refspec — no separate "absorb orphan" step required
+- Branch name preserves the slash (unlike 10.3 which was flattened by git when used as a refname): `wip/phase10-4-shared-components/shared-components`. `merge.sh` was corrected mid-flight to match the actual pushed ref (the 10.3 flattening trick taught us to verify the remote ref before hard-coding the merge)
+
+### Verification (post-merge at b04a88c)
+
+| Check | Result |
+|-------|--------|
+| `pnpm --prefix web-modern typecheck` | **0 errors** |
+| `pnpm --prefix web-modern vitest run` | **2258 passed, 4 failed** (same 4 pre-existing fleet test bugs from 10.0 typecheck cleanup — `fleetTabFromHash` / `tripStateLabelArm` / `coldChainCategoryLabelAm` / `formatFleetIdShort` — explicitly out of scope for 10.4) |
+| `pnpm --prefix web-modern build` | **success** in ~3.4s; Lingui per-locale chunks still emit (3 chunks for `hy` / `ru` / `en`) |
+| `pnpm --prefix web-modern i18n:extract` (re-run) | idempotent — **36 / 36 / 36** strings across `hy` / `ru` / `en`, no msgid drift |
+| `grep -rE 'useLingui\|<Trans\|t\`' web-modern/src/components/shared/ \| wc -l` | **32 matches** (≥ 30 required) |
+| 5 component unit tests | all pass (DataTable 20, SavedViews 9, PeekPanel 8, UndoToast 9, BulkActionBar 7) |
+| Analytics route conversion test | rewritten and passes (5-column DataTable surface, 3 row buckets) |
+| e2e: `shared-components-canary.spec.ts` | passes locally; ready for the e2e job |
+
+### Test fixes this round (Phase 10.4 deltas only, all documented in worker's status.md)
+
+| Test | Root cause | Fix |
+|------|------------|-----|
+| `DataTable.test.tsx` — global filter | TanStack v8 quirk: passing `globalFilterFn: undefined` overrides the default `'auto'`, breaking the global filter entirely | `DataTable.tsx`: `globalFilterFn: globalFilterFn ?? "auto"` |
+| `DataTable.test.tsx` — pagination | `wrap()` callback used the hardcoded default as the "current" fallback for uncontrolled state, so the live `pageSize` was lost on every state change (e.g., clicking "next" reset `pageSize` from 10 back to 25) | `wrap()` now takes the actual internal-state slice as a `fallback` argument; all 5 calls updated to pass the corresponding internal state |
+| `DataTable.test.tsx` — sort (×2) | TanStack v8's `getAutoSortDir()` returns `'desc'` for numeric columns on first click (documented behavior) | Test rewritten: clicks the string (`name`) column for the asc/desc/none cycle, and asserts desc-then-asc order on the numeric (`amount`) column. The DataTable component itself is unchanged |
+| `analytics/-index.test.tsx` — receivables view | The route now renders `AnalyticsReceivablesTableView` (the new DataTable-based view) instead of the legacy `AnalyticsReceivablesView` (KPI cards). The test was asserting on the KPI cards | Test rewritten to assert on the new 5-column DataTable surface: `[data-entity="data-table"][data-table-id="analytics-receivables-buckets"]` with `data-row-count="3"`, the 5 header columns (`Bucket`, `Label`, `Total`, `Invoices`, `Customers`), and the 3 bucket keys (`current`, `0-30`, `31-60`) in the first data cell of each row |
+| `SavedViews.test.tsx` — 3+ saves | The trigger button toggles the menu, so re-clicking it after a save closed the menu (the save form resets but the menu stays open intentionally — the user can see the saved row and keep saving) | Test opens the menu once and reuses the `saved-view-show-save` button for each save (it stays at the bottom of the menu) |
+| `UndoToast.test.tsx` — progress attribute | The component used `Date.now() - startedAt.current` for elapsed time. Under vitest fake timers, `vi.advanceTimersByTime(500)` advances `setTimeout` / `setInterval` but doesn't always advance `Date.now()` the same way, so the state update from the interval tick wasn't reflected in the DOM before the test read it | Two-part fix: (a) `UndoToast` now ticks a counter from the interval itself (`setElapsed(e => Math.min(duration, e + 100))`) instead of `Date.now() - start`, so the value advances correctly with the fake timer; (b) the test wraps `vi.advanceTimersByTime` in `act()` so the React state update is flushed to the DOM before the assertion |
+
+Pre-existing fleet test failures (`fleetTabFromHash`, `tripStateLabelArm`, `coldChainCategoryLabelAm`, `formatFleetIdShort`) are **NOT** touched per task scope.
+
+### C1 conversion — analytics receivables route
+
+`web-modern/src/lib/analytics/panels/AnalyticsReceivablesTable.tsx` composes the 5 primitives into a single production surface: a `DataTable` over the aging buckets, a `SavedViews` picker in the toolbar slot, a `PeekPanel` for row detail, and a `BulkActionBar` that surfaces when ≥1 row is selected. `web-modern/src/routes/app/analytics/index.tsx` `view=receivables` branch now renders `AnalyticsReceivablesTableView` — the route is now a thin composition layer (its docstring explicitly says so). The legacy `AnalyticsReceivablesView` (KPI cards + plain table) is re-exported from `panels/index.tsx` so any downstream import keeps type-checking.
+
+### Lingui coverage
+
+Every user-facing string in the new components is wrapped in `<Trans>` or `t\`\`` (32 grep matches in `src/components/shared/`, 36 source strings extracted by `lingui extract`). New strings appear in `web-modern/src/locales/{hy,en,ru}/messages.po` and need a translation pass (same follow-up as 10.3 — `ru` and `en` are still placeholder catalogs).
+
+### Teardown
+
+- `node scripts/orchestrate-worktrees.js .orchestration/phase10-4-shared-components/plan.json --teardown` → killed tmux session `phase10-4-shared-components`, removed worktree `A1-Suite-Local-ANT-queue-phase10-4-shared-components-shared-components` + local branch `wip/phase10-4-shared-components-shared-components` ✅
+- 4 tracking refs aligned at `b04a88c` (post-STATE.md push): `HEAD`, `main`, `refs/heads/ant/main`, `refs/remotes/ant/main`
+- Local `__tmp__/wip__phase10-4-shared-components__shared-components` ref pruned (leftover from `merge.sh` fetch workaround)
+- Remote branch `remotes/ant/wip/phase10-4-shared-components/shared-components` + tag `phase10-4-shared-components-v1` preserved (intended)
+
+### Push
+
+- `git push ant main:refs/heads/ant/main` → `87506d9..b04a88c` (refspec, NOT `git push ant main`) ✅
+- `git push ant phase10-4-shared-components-v1` → new annotated tag (tag-SHA `7f3a9b2`, object `b04a88c`) ✅
+- `git fetch ant +refs/heads/ant/main:refs/remotes/ant/main` + `git update-ref refs/heads/ant/main b04a88c` for tracking-ref alignment ✅
+
+### Recovery notes
+
+- **Worker's status.md was written to the wrong path**: the worker's `status.md` landed at `.orchestration/phase10-4-shared-components/status.md` instead of the expected `.orchestration/phase10-4-shared-components/shared-components/status.md`. The orchestrator detected this when `merge.sh` failed with "status.md missing", copied the file to the correct path, and re-ran. (The poll script was also pointed at the correct path going forward, so future phases won't trip on this.)
+- **pnpm-lock.yaml out of sync with the new dep**: the worker added `@tanstack/react-table` to `package.json` and `package-lock.json` but not `pnpm-lock.yaml` (which is the canonical lockfile for `web-modern`). After fast-forward merge, the first `pnpm typecheck` failed with 18 TS errors (TS2307 + TS7006 + TS7031) all stemming from `Cannot find module '@tanstack/react-table'`. Orchestrator ran `pnpm install` to regenerate `pnpm-lock.yaml` and `node_modules/`, then re-typecheck passed with 0 errors. The 10.3 / 10.4 difference (`package-lock.json` is stale; pnpm is canonical) is now a documented invariant.
+- **Orchestrator's untracked plan files blocked the merge**: the worker's branch committed `plan.md` via `seedPaths` (this is the worker's contract — they always commit the plan they received), and the orchestrator's local untracked copy of `plan.md` / `plan.json` / `merge.sh` collided. Orchestrator moved the three files to `/tmp/10-4-orch-backup/`, ran the merge, then restored the orchestrator's working copies. (Same playbook as 10.3 — now a documented invariant.)
+
+### Notes for next phase
+
+- The 5 shared primitives are the build block for 10.5 product differentiators: **fiscal-gate checklist** will use `DataTable` + `BulkActionBar` (per-period tax-action list, "Mark all filed"), **Ask-AI sidebar** can use `PeekPanel` (the AI draws the source invoice / journal entry in a peek drawer), **Triage Inbox** is `DataTable` + `SavedViews` ("My queue", "Overdue", "Awaiting customer"), **document steppers** don't need any of these primitives (pure form), **keyboard grammar** is a hook into the row selection model, **onboarding** is independent (tour overlay).
+- `DataTable` controlled mode is the only stable API for cross-feature state coordination. Any 10.5 feature that needs to share selection / sort / page state across components should bind via the `state` + `onStateChange` controlled API, not the uncontrolled `initialState` mode.
+- Lingui placeholder catalogs (`ru` / `en`) are now an even bigger blocker for the differentiators because 10.4 added 36 source strings on top of the 6 from 10.3. Track a **dedicated i18n translation pass** as a separate phase before any 10.5 surface ships to non-hy users. (Or: have the differentiators be hy-only for the first cut and add a `lang=ru` / `lang=en` gate after the translation pass lands.)
+- 4 pre-existing fleet test failures remain — explicitly out of scope per 10.0 typecheck cleanup.
+
+### Next concrete step
+
+**Phase 10.5 (product differentiators: fiscal gates · Ask-AI · Triage Inbox · period-close checklist · document steppers · keyboard grammar · onboarding)** — uses the 5 shared primitives from 10.4 (DataTable + SavedViews + PeekPanel + UndoToast + BulkActionBar) and the Lingui infra from 10.3. The translation pass is a hard prerequisite for any non-hy user, so the first sub-step of 10.5 planning is "do we ship hy-only for the differentiators and gate the others, or do we schedule a translation pass first?"
+
+
 ## Phase 10.0 typecheck cleanup (phase10-0-typecheck-cleanup) — ✅ CLOSED
 
 **Closed:** 2026-06-12 10:08 UTC (14:08 local)
@@ -552,7 +656,7 @@ The worker pane died on transient Claude API `ConnectionRefused` retries after ~
 **Dispatch 10.0 D1 hotfix** — sirv dep + dist/index.html SPA serving gap. Single worker. Options: (a) add `sirv` to `web-modern/package.json` deps + extend `serve-spa.mjs` to read `dist/client/index.html`, (b) switch web-modern build to pure-SPA mode (`vite build --ssr false`), or (c) have `serve-spa.mjs` invoke `dist/server.js` as a TanStack Start server. Then re-tag 10.1 as `phase10-1-deploy-v2` (or keep v1 and add 10.0 D1 fix as a separate minor tag).
 
 
-## Phase 10.2-10.5 — status snapshot (2026-06-12 13:55 UTC)
+## Phase 10.2-10.5 — status snapshot (2026-06-12 16:50 UTC)
 
 ### 10.2 main.jsx remainder
 - **10.2c Finance**: ✅ CLOSED @ ant/main 0902b38 (16 panels → 6 surfaces, tag phase10-2-finance-v1)
@@ -566,21 +670,24 @@ The worker pane died on transient Claude API `ConnectionRefused` retries after ~
 - **10.3 i18n infrastructure**: ✅ CLOSED @ ant/main bc8b159 (Lingui v5 wired hy/ru/en, analytics canary route converted, dev-only locale switcher in Topbar, 4 unit + 3 e2e tests; tag phase10-3-i18n-infra-v1)
 - Lingui infra in place: 10.4 (DataTable labels) and 10.5 (Ask-AI prompts, Triage Inbox, onboarding copy) can now ship label-localized from day one
 
-### 10.4 Shared components
-- DataTable, saved views, peek panel, undo+optimistic, bulk-select
-- Uses Lingui from 10.3 — column labels, empty states, peek-panel headers ship localized from day one
-- Tied to schemas.ts typed responses (deferred from 10.2c workers)
+### 10.4 Shared components — ✅ CLOSED
+- **10.4 shared components**: ✅ CLOSED @ ant/main b04a88c (5 primitives: DataTable (TanStack v8) + SavedViews (localStorage) + PeekPanel (native `<dialog>`) + UndoToast (counter-based elapsed) + BulkActionBar; 1 conversion: analytics receivables route → `AnalyticsReceivablesTableView`; 1 e2e: `shared-components-canary.spec.ts`; 5 unit test files; 27 files / +3699 / −35; tag `phase10-4-shared-components-v1`)
+- 32 Lingui macro usages across `src/components/shared/`, 36 source strings extracted; `ru` + `en` still placeholder (translation pass still deferred)
+- All 4 audit gates green post-merge: typecheck 0, vitest 2258/4 (pre-existing fleet bugs), build success with 3 per-locale chunks, i18n:extract idempotent 36/36/36
+- Recovery notes: (a) worker wrote status.md to wrong path → orchestrator copied to correct path; (b) pnpm-lock.yaml out of sync after dep bump → `pnpm install` regenerated; (c) untracked plan files blocked merge → moved to `/tmp/10-4-orch-backup/` and restored
 
 ### 8.12 delete legacy `web/`
 - Re-gated on 10.1 ✅ + 10.2 partial ✅ (10.2a still pending) — unblock condition now: 10.2a closes
 
-### 10.5 product differentiators (rolling backlog)
+### 10.5 product differentiators (NEXT — rolling backlog)
 - Fiscal gates, Ask-AI, Triage Inbox, period-close checklist, document steppers, keyboard grammar, onboarding
+- **Builds on 10.4 primitives**: Triage Inbox = `DataTable` + `SavedViews`; Ask-AI sidebar = `PeekPanel`; fiscal-gate checklist = `DataTable` + `BulkActionBar`; UndoToast for "Filed this period" reversals; document steppers are pure forms (no primitive needed); keyboard grammar hooks into DataTable row selection
+- **Hard prerequisite**: Lingui translation pass (10.3 + 10.4 added 42 source strings; `ru` + `en` catalogs are still placeholder). Decision: ship hy-only for the differentiators and gate `lang=ru` / `lang=en` after the translation pass, OR schedule the translation pass first
 
 ### Out of scope (deferred)
 - 4 pre-existing fleet test bugs (`fleetTabFromHash`/`tripStateLabelArm`/`coldChainCategoryLabelAm`/`formatFleetIdShort`) — not 10.0 typecheck cleanup, still unfixed
 - `healthcheck.sh` cosmetic: "(unreachable)" on 4xx due to curl -f (10.1 follow-up)
-- `ru` + `en` Lingui catalogs are placeholders — only `hy` is the seeded source; human translation pass deferred
+- `ru` + `en` Lingui catalogs are placeholders — only `hy` is the seeded source; human translation pass deferred (now even bigger blocker: 10.3 + 10.4 added 42 source strings)
 
 ## Standing instructions (carried from prior sessions)
 - Do NOT push to `ant/main` except via `git push ant main:refs/heads/ant/main` refspec
