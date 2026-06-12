@@ -1,8 +1,8 @@
 /**
- * /app/people — People workspace: employees | payroll-runs.
+ * /app/people — People workspace: employees | payroll-runs | HR surfaces.
  *
  * Mirrors the finance/ inventory/ pattern (Pattern A from the plan
- * §3.4). The home route is a ViewSwitcher over two surfaces:
+ * §3.4). The home route is a ViewSwitcher over five surfaces:
  *
  *   - **Employees** — the registry of every employee in the org.
  *     Each row shows name · position · department · employment-status
@@ -11,9 +11,14 @@
  *   - **Payroll runs** — every payroll run the current user is
  *     allowed to see, newest first. Read-only for now (running a
  *     payroll lives on the employee detail page).
+ *   - **HR Contracts / Leave / Trips** — the paperwork panel
+ *     (HR-ops). Owner/Admin only in practice. Surfaces a sub-tab
+ *     switcher inside the panel for the 3 sub-surfaces.
+ *   - **HR Performance** — timesheets, KPI, recruitment. Owner/Admin
+ *     only in practice.
  *
  * URL state:
- *   ?view=employees | runs
+ *   ?view=employees | runs | hr-ops | hr-performance
  *   ?status=…   (per-view filter — see STATUS_TABS)
  *
  * Data:
@@ -46,22 +51,36 @@ import {
   sumGrossSalary,
   type EmploymentTone,
 } from "../../../lib/people/status";
+import PeopleHrOpsPanel from "./panels/PeopleHrOpsPanel";
+import PeopleHrPerformancePanel from "./panels/PeopleHrPerformancePanel";
 
 /* ────────── typed URL search ────────── */
 
-type View = "employees" | "runs";
+type View = "employees" | "runs" | "hr-ops" | "hr-performance";
 type Status = "all" | EmploymentTone;
+
+const VALID_VIEWS: ReadonlySet<View> = new Set([
+  "employees",
+  "runs",
+  "hr-ops",
+  "hr-performance",
+]);
 
 const VIEW_OPTIONS: { value: View; label: string }[] = [
   { value: "employees", label: "Employees" },
   { value: "runs", label: "Payroll runs" },
+  { value: "hr-ops", label: "HR ops" },
+  { value: "hr-performance", label: "HR performance" },
 ];
 
 const STATUS_TABS = ["all", "active", "on-leave", "terminated"] as const;
 
 export const Route = createFileRoute("/app/people/")({
   validateSearch: (raw) => {
-    const v: View = raw.view === "runs" ? "runs" : "employees";
+    const v: View =
+      typeof raw.view === "string" && VALID_VIEWS.has(raw.view as View)
+        ? (raw.view as View)
+        : "employees";
     const s: Status =
       typeof raw.status === "string" && (STATUS_TABS as readonly string[]).includes(raw.status)
         ? (raw.status as Status)
@@ -143,6 +162,8 @@ function PeopleWorkspace() {
         />
       )}
       {view === "runs" && <RunsView />}
+      {view === "hr-ops" && <PeopleHrOpsPanel />}
+      {view === "hr-performance" && <PeopleHrPerformancePanel />}
     </div>
   );
 }

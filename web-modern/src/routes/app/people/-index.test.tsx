@@ -9,7 +9,7 @@
  * Coverage targets:
  *  - validateSearch (defaulting + view/status coercion)
  *  - Page header (People title, Armenian subtitle)
- *  - ViewSwitcher tabs (Employees | Payroll runs)
+ *  - ViewSwitcher tabs (Employees | Payroll runs | HR ops | HR performance)
  *  - Employees view: table rows, status filter, status pills
  *  - Status filter (URL state narrows the table)
  *  - Right rail: Workforce + Monthly payroll totals
@@ -243,13 +243,29 @@ describe("PeopleWorkspace — page shell", () => {
     expect(todayLink?.getAttribute("data-href")).toBe("/app");
   });
 
-  it("renders the ViewSwitcher with two tabs", () => {
+  it("renders the ViewSwitcher with four tabs", () => {
     renderRoute();
     const tablist = screen.getByRole("tablist", { name: /View/ });
     const tabs = within(tablist).getAllByRole("tab");
-    expect(tabs).toHaveLength(2);
+    expect(tabs).toHaveLength(4);
     expect(tabs[0].textContent).toMatch(/Employees/);
     expect(tabs[1].textContent).toMatch(/Payroll runs/);
+    expect(tabs[2].textContent).toMatch(/HR ops/);
+    expect(tabs[3].textContent).toMatch(/HR performance/);
+  });
+
+  it("accepts 'hr-ops' as a view", () => {
+    const r = (
+      Route.options.validateSearch as (raw: Record<string, unknown>) => unknown
+    )({ view: "hr-ops" });
+    expect(r).toMatchObject({ view: "hr-ops" });
+  });
+
+  it("accepts 'hr-performance' as a view", () => {
+    const r = (
+      Route.options.validateSearch as (raw: Record<string, unknown>) => unknown
+    )({ view: "hr-performance" });
+    expect(r).toMatchObject({ view: "hr-performance" });
   });
 });
 

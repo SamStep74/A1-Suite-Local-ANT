@@ -282,7 +282,7 @@ describe("PeopleEmployeesPanel", () => {
       );
       mockUseMutation.mockImplementation(makeMutationMock([makeMutationState()]));
 
-      const { getByTestId, getByText, getAllByText } = renderWithQueryClient(<PeopleEmployeesPanel />);
+      const { getByTestId, getAllByText } = renderWithQueryClient(<PeopleEmployeesPanel />);
       const registry = getByTestId("people-registry");
       expect(registry).toBeTruthy();
 
