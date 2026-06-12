@@ -5,12 +5,16 @@
   "description": "A1 Suite — sovereign, self-hostable Armenian business operating system with Zoho One functional parity. Local-first, offline-capable, opt-in AI.",
   "type": "commonjs",
   "main": "server/index.js",
+  "//comment-scripts": "10.1 deployment flip: build:ui = web-modern SPA (default); build:ui:legacy = legacy web/ build (rollback); start:spa = SPA server on PORT; start:all = both via concurrently",
   "scripts": {
     "start": "node server/index.js",
     "start:lan": "HOST=0.0.0.0 node server/index.js",
+    "start:spa": "node web-modern/scripts/serve-spa.mjs",
+    "start:all": "concurrently --kill-others-on-fail --names backend,spa --prefix-colors auto 'node server/index.js' 'node web-modern/scripts/serve-spa.mjs'",
     "dev": "NODE_ENV=development node --watch server/index.js",
     "dev:lan": "HOST=0.0.0.0 NODE_ENV=development node --watch server/index.js",
-    "build:ui": "npm --prefix web install && npm --prefix web run build",
+    "build:ui": "npm --prefix web-modern install && npm --prefix web-modern run build",
+    "build:ui:legacy": "npm --prefix web install && npm --prefix web run build",
     "test": "node --test --test-concurrency=4 --test-timeout=180000",
     "smoke": "node scripts/smoke.js",
     "install:server": "bash deploy/install.sh",
@@ -25,6 +29,7 @@
     "fastify": "^5.0.0"
   },
   "devDependencies": {
-    "@playwright/test": "^1.60.0"
+    "@playwright/test": "^1.60.0",
+    "concurrently": "^9.0.0"
   }
 }
