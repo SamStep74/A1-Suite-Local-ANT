@@ -50,10 +50,7 @@ function buildReadiness(
         requiredStatus: "configured",
         effectiveDate: "2026-01-01",
         sourceUrl: "",
-        latestReview: null,
-        reviewedByRole: "",
         rate: 0.2,
-        summary: "20.00% VAT",
         nextAction: "configured",
       },
       {
@@ -67,10 +64,7 @@ function buildReadiness(
         requiredStatus: "configured",
         effectiveDate: "2026-01-01",
         sourceUrl: "",
-        latestReview: null,
-        reviewedByRole: "",
         rate: 0.1,
-        summary: "10.00% income tax",
         nextAction: "configured",
       },
     ],
@@ -199,10 +193,7 @@ describe("ProductionReadinessPanel — blocked payload", () => {
     requiredStatus: "active",
     effectiveDate: "",
     sourceUrl: "",
-    latestReview: null,
-    reviewedByRole: "",
     rate: null,
-    summary: "missing",
     nextAction: "Lawyer review required before production use",
   };
 
@@ -249,8 +240,9 @@ describe("ProductionReadinessPanel — blocked payload", () => {
     expect(gateRow.getAttribute("data-pass")).toBe("false");
     // The failing gate has no rate; we should NOT see a percent string.
     expect(gateRow.textContent).not.toContain("%");
-    // Effective date is empty → em-dash fallback
-    expect(gateRow.textContent).toContain("—");
+    // Effective date is empty → Armenian placeholder fallback
+    // ("առանց ամսաթվի" = "without a date") from status.ts#formatProductionEffectiveDate
+    expect(gateRow.textContent).toContain("առանց ամսաթվի");
     // The pass badge
     const badge = screen.getByTestId(
       "compliance-readiness-gate-pass-law-personal-data",

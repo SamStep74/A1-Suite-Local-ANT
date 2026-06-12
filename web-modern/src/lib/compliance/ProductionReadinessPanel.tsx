@@ -25,11 +25,13 @@ import {
   formatProductionEffectiveDate,
   formatProductionPassBadge,
   formatProductionRate,
-  formatProductionReviewFlag,
   formatProductionStatusBadgeClass,
   formatProductionStatusLabel,
-  formatProductionStatusLabelHy,
 } from "./status";
+import {
+  formatProductionReviewFlagArm,
+  formatProductionStatusLabelHy,
+} from "./panel-helpers";
 import type {
   ProductionReadinessGate,
   ProductionReadinessReadiness,
@@ -85,7 +87,7 @@ export function ProductionReadinessPanel({
         >
           <span lang="hy">{formatProductionStatusLabelHy(readiness)}</span>{" "}
           <span className="opacity-75">
-            ({formatProductionStatusLabel(readiness)})
+            ({formatProductionStatusLabel(readiness.status)})
           </span>
         </span>
       </header>
@@ -145,7 +147,7 @@ export function ProductionReadinessPanel({
           as of {readiness.asOf}
         </span>
         <span data-testid="compliance-readiness-review-flag">
-          {formatProductionReviewFlag(readiness)}
+          {formatProductionReviewFlagArm(readiness)}
         </span>
       </footer>
     </article>
@@ -189,8 +191,8 @@ function SummaryMetric({
 }
 
 function GateRow({ gate }: { gate: ProductionReadinessGate }) {
-  const pass = formatProductionPassBadge(gate);
-  const effective = formatProductionEffectiveDate(gate);
+  const pass = formatProductionPassBadge(gate.pass);
+  const effective = formatProductionEffectiveDate(gate.effectiveDate);
   const rate = formatProductionRate(gate.rate);
   const hasRate = typeof gate.rate === "number" && Number.isFinite(gate.rate);
   return (
@@ -228,7 +230,7 @@ function GateRow({ gate }: { gate: ProductionReadinessGate }) {
 /* ────────── tone classes (top-level constants, not strings) ────────── */
 
 function statusBadgeClass(status: ProductionReadinessReadiness["status"]): string {
-  const tone = formatProductionStatusBadgeClass({ status });
+  const tone = formatProductionStatusBadgeClass(status);
   return tone === "ok"
     ? "inline-flex items-center gap-1 rounded-[var(--radius-md)] bg-[color-mix(in_srgb,var(--color-tag-green)_15%,transparent)] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-tag-green)]"
     : "inline-flex items-center gap-1 rounded-[var(--radius-md)] bg-[color-mix(in_srgb,var(--color-tag-red)_15%,transparent)] px-2 py-1 text-[11px] font-semibold uppercase tracking-wide text-[var(--color-tag-red)]";
