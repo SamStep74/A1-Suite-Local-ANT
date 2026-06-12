@@ -6,17 +6,21 @@
   <key>ProgramArguments</key>
   <array>
     <string>__NODE__</string>
-    <string>__ROOT__/server/index.js</string>
+    <string>__ROOT__/deploy/scripts/start-all.sh</string>
   </array>
   <key>EnvironmentVariables</key>
   <dict>
-    <key>PORT</key><string>__PORT__</string>
+    <key>DEPLOY_DEFAULT</key><string>__DEPLOY_DEFAULT__</string>
+    <key>SPA_PORT</key><string>__SPA_PORT__</string>
+    <key>BACKEND_PORT</key><string>__PORT__</string>
+    <key>HOST</key><string>127.0.0.1</string>
     <key>NODE_ENV</key><string>production</string>
+    <key>PATH</key><string>/usr/local/bin:/usr/bin:/bin</string>
   </dict>
   <key>WorkingDirectory</key><string>__ROOT__</string>
   <key>RunAtLoad</key><true/>
   <key>KeepAlive</key><true/>
-  <key>StandardOutPath</key><string>__ROOT__/deploy/armosphera-one.out.log</string>
-  <key>StandardErrorPath</key><string>__ROOT__/deploy/armosphera-one.err.log</string>
+  <key>StandardOutPath</key><string>__ROOT__/logs/launchd.out.log</string>
+  <key>StandardErrorPath</key><string>__ROOT__/logs/launchd.err.log</string>
 </dict>
 </plist>
