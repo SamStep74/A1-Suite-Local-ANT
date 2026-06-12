@@ -8,7 +8,6 @@ import { CreateTicketForm, DeskTicketList } from "./desk.jsx";
 import { PeopleEmployeeForm, PeopleRegistryPanel, HrContractsPanel, HrLeavePanel, HrTripsPanel, HrTimesheetPanel, HrKpiPanel, HrRecruitmentPanel } from "./people.jsx";
 import { DocsCreateForm, DocsRegistryPanel } from "./docs.jsx";
 import { CabinetPanel } from "./cabinet.jsx";
-import { ExportDocsPanel } from "./exportDocs.jsx";
 import { CopilotPanel } from "./copilot.jsx";
 import { ProductionReadinessPanel } from "./compliance.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
@@ -4345,9 +4344,6 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
                   onSearch={cabinetSearch}
                   actionState={actionState}
                 />
-              )}
-              {["Owner", "Admin", "Operator", "Salesperson", "Service Manager"].includes(suite.user.role) && (
-                <ExportDocsPanel api={api} actionState={actionState} />
               )}
             </>
           )}
