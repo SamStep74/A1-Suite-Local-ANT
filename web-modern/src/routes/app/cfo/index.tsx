@@ -41,6 +41,7 @@ import {
   CfoFxExposureResponseSchema,
   CfoPaymentCalendarResponseSchema,
   CfoTreasuryResponseSchema,
+  ProductionReadinessResponseSchema,
   type CfoCashFlow,
   type CfoFxExposure,
   type CfoPaymentCalendar,
@@ -60,6 +61,13 @@ import {
   fxHedgeSuggestion,
   type FxHedgeClass,
 } from "../../../lib/cfo/status";
+import { ProductionReadinessPanel } from "../../../lib/compliance/ProductionReadinessPanel";
+// canReadProductionReadiness would short-circuit the query for users
+// whose role would 403 from the server. Auth isn't wired in 8.10 (see
+// Phase 8.4 roadmap), so we always fire the GET; the server is the
+// source of truth for the 5-role RBAC. When it 403s, React Query
+// marks the query as errored, `complianceQ.data` stays undefined,
+// and the panel renders as null — same UX as the legacy null-return.
 
 /* ────────── typed URL search ────────── */
 
@@ -139,6 +147,20 @@ function CfoWorkspace() {
       return CfoFxExposureResponseSchema.parse(raw);
     },
   });
+  // Compliance co-panel: production-readiness roll-up. The 5-role
+  // RBAC gate on the server (server/app.js#requireProductionReadinessReader)
+  // mirrors canReadProductionReadiness(). We always fire the GET;
+  // a non-allowlisted user will see the panel render as null and
+  // the server's 403 will be swallowed by React Query (the panel
+  // is best-effort UX, not a gate).
+  const complianceQ = useQuery({
+    queryKey: ["cfo-compliance-production-readiness"],
+    queryFn: async () => {
+      const raw = await getJson("/api/compliance/production-readiness");
+      return ProductionReadinessResponseSchema.parse(raw);
+    },
+    retry: false,
+  });
 
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-6 [data-density=compact]:p-4 [data-density=spacious]:p-8">
@@ -182,6 +204,16 @@ function CfoWorkspace() {
           </Link>
         </div>
       </div>
+
+      {/*
+        Compliance co-panel — production-readiness roll-up. Visible
+        across all CFO sub-views (cash-flow / treasury / calendar /
+        fx) so a blocker doesn't get hidden behind a tab. The server
+        enforces the 5-role RBAC allowlist; if the current user's
+        role is outside it, the GET 403s, the query stays data-less,
+        and the panel renders as null (the legacy behavior).
+      */}
+      <ProductionReadinessPanel data={complianceQ.data?.readiness ?? null} />
 
       {view === "cash-flow" && (
         <CashFlowView data={cashFlowQ.data} loading={cashFlowQ.isLoading} error={cashFlowQ.isError} />

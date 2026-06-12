@@ -9,7 +9,6 @@ import { PeopleEmployeeForm, PeopleRegistryPanel, HrContractsPanel, HrLeavePanel
 import { DocsCreateForm, DocsRegistryPanel } from "./docs.jsx";
 import { CabinetPanel } from "./cabinet.jsx";
 import { CopilotPanel } from "./copilot.jsx";
-import { ProductionReadinessPanel } from "./compliance.jsx";
 import { ProjectCreateForm, ProjectsBoardPanel } from "./projects.jsx";
 import { FormCreateForm, FormsRegistryPanel } from "./forms.jsx";
 import { InventoryWorkspacePanel } from "./inventory.jsx";
@@ -238,7 +237,6 @@ function App() {
   const [adminAccessReviews, setAdminAccessReviews] = useState([]);
   const [adminSessions, setAdminSessions] = useState(null);
   const [adminAuditExports, setAdminAuditExports] = useState([]);
-  const [productionReadiness, setProductionReadiness] = useState(null);
   const [assignedAppIds, setAssignedAppIds] = useState([]);
   const [selectedApp, setSelectedApp] = useState(() => appIdFromLocation());
   const [loading, setLoading] = useState(true);
@@ -409,12 +407,6 @@ function App() {
         setAdminSessions(null);
         setAdminAuditExports([]);
         setIntegrationConnectors([]);
-      }
-      if (["Owner", "Admin", "Accountant", "Lawyer", "Auditor"].includes(data.user.role)) {
-        const readinessData = await loadOr(null, () => api("/api/compliance/production-readiness"));
-        setProductionReadiness(readinessData);
-      } else {
-        setProductionReadiness(null);
       }
       if (["Owner", "Admin", "Salesperson", "Operator", "Accountant", "Auditor"].includes(data.user.role)) {
         const pilotData = await loadOr(null, () => api("/api/pilots/templates/clinic-wellness"));
@@ -932,7 +924,6 @@ function App() {
       adminAccessReviews={adminAccessReviews}
       adminSessions={adminSessions}
       adminAuditExports={adminAuditExports}
-      productionReadiness={productionReadiness}
       selectedApp={selectedApp}
       onSelectApp={selectApp}
       onSuiteEvents={events => setSuite(current => current ? { ...current, events } : current)}
@@ -1003,7 +994,7 @@ function Login({ onDone }) {
   );
 }
 
-function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, cabinet, projects, inventory, purchase, forms, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, productionReadiness, selectedApp, onSelectApp, onSuiteEvents, onAuditEvents, onReload }) {
+function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, roleDashboard, crmLeadData, crmForecastData, crmQuotes, crmActivities, campaignPerformance, receivablesAging, finance, people, docs, cabinet, projects, inventory, purchase, forms, semanticMetrics, semanticSnapshots, analyticsReports, webhookDeliveries, integrationConnectors, pilot, adminBackups, adminAccessReviews, adminSessions, adminAuditExports, selectedApp, onSelectApp, onSuiteEvents, onAuditEvents, onReload }) {
   const {
     pilotTemplateData,
     pilotOwnerBriefs,
@@ -4198,7 +4189,6 @@ function Workspace({ suite, audit, customer360, serviceConsole, securityMfa, rol
             onRevokeSession={revokeSession}
           />
         )}
-        <ProductionReadinessPanel data={productionReadiness} />
 
         <section className="content-grid">
           <div id="suite-app-crm" className="suite-app-anchor">
