@@ -4199,7 +4199,96 @@ export type ProductionReadinessResponse = z.infer<
 /* ─── block-hr-people-end ─── */
 
 /* ─── block-hr-ops-begin ─── */
-/* (W1 inserts HrContract + HrLeaveBalance + HrBusinessTrip + HrEquipmentAssign here) */
+
+/** `POST /api/hr/contracts` request body. */
+export const HrContractRequestSchema = z.object({
+  employeeId: z.string().min(1),
+  templateCode: z.enum(["permanent", "fixed-term", "part-time", "intern", "remote", "secondment"]),
+  position: z.string().min(1),
+  startDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  endDate: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  grossSalary: z.number().int().min(0),
+  idempotencyKey: z.string().min(1),
+});
+export type HrContractRequest = z.infer<typeof HrContractRequestSchema>;
+
+export const HrContractSchema = z.object({
+  id: z.string(),
+  bodyMd: z.string(),
+  status: z.string(),
+  templateCode: z.string(),
+  employeeId: z.string(),
+  startDate: z.string(),
+  endDate: z.string().nullable().optional(),
+});
+export type HrContract = z.infer<typeof HrContractSchema>;
+
+export const HrContractResponseSchema = z.object({
+  contract: HrContractSchema,
+});
+export type HrContractResponse = z.infer<typeof HrContractResponseSchema>;
+
+export const HrLeaveRequestSchema = z.object({
+  id: z.string(),
+  employeeId: z.string(),
+  kind: z.enum(["annual", "sick", "unpaid"]),
+  startDate: z.string(),
+  endDate: z.string(),
+  days: z.number().int().min(0),
+  reason: z.string().optional(),
+  status: z.enum(["pending", "approved", "rejected"]),
+  approverId: z.string().nullable().optional(),
+});
+export type HrLeaveRequest = z.infer<typeof HrLeaveRequestSchema>;
+
+export const HrLeaveRequestResponseSchema = z.object({
+  leaveRequest: HrLeaveRequestSchema,
+});
+export type HrLeaveRequestResponse = z.infer<typeof HrLeaveRequestResponseSchema>;
+
+export const HrLeaveBalanceSchema = z.object({
+  employeeId: z.string(),
+  entitled: z.number().int().min(0),
+  carriedOver: z.number().int(),
+  used: z.number().int().min(0),
+  remaining: z.number().int(),
+});
+export type HrLeaveBalance = z.infer<typeof HrLeaveBalanceSchema>;
+
+export const HrLeaveBalancesResponseSchema = z.object({
+  balances: z.array(HrLeaveBalanceSchema),
+});
+export type HrLeaveBalancesResponse = z.infer<typeof HrLeaveBalancesResponseSchema>;
+
+export const HrBusinessTripSchema = z.object({
+  id: z.string(),
+  employeeId: z.string(),
+  destination: z.string(),
+  startDate: z.string(),
+  endDate: z.string(),
+  allowance: z.object({
+    perDiem: z.number().int().min(0),
+    days: z.number().int().min(0),
+    transportation: z.number().int().min(0),
+    total: z.number().int().min(0),
+  }),
+});
+export type HrBusinessTrip = z.infer<typeof HrBusinessTripSchema>;
+
+export const HrBusinessTripResponseSchema = z.object({
+  trip: HrBusinessTripSchema,
+});
+export type HrBusinessTripResponse = z.infer<typeof HrBusinessTripResponseSchema>;
+
+export const HrEquipmentAssignmentSchema = z.object({
+  employeeId: z.string(),
+  assetId: z.string(),
+  assignedAt: z.string(),
+  returnedAt: z.string().nullable().optional(),
+  signatureDocId: z.string().nullable().optional(),
+});
+export type HrEquipmentAssignment = z.infer<typeof HrEquipmentAssignmentSchema>;
+
 /* ─── block-hr-ops-end ─── */
 
 /* ─── block-hr-perf-begin ─── */
