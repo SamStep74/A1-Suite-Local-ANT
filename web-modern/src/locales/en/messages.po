@@ -151,6 +151,10 @@ msgstr ""
 msgid "Total"
 msgstr ""
 
+#: src/i18n/I18nProvider.tsx:92
+msgid "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
+msgstr ""
+
 #: src/components/shared/UndoToast.tsx:120
 msgid "Undo"
 msgstr ""

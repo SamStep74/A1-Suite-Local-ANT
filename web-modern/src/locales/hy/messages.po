@@ -151,6 +151,10 @@ msgstr "Today"
 msgid "Total"
 msgstr "Total"
 
+#: src/i18n/I18nProvider.tsx:92
+msgid "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
+msgstr "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
+
 #: src/components/shared/UndoToast.tsx:120
 msgid "Undo"
 msgstr "Undo"
