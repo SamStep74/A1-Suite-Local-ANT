@@ -26,6 +26,7 @@ import { Route as AppGreenhouseIndexRouteImport } from './routes/app/greenhouse/
 import { Route as AppFormsIndexRouteImport } from './routes/app/forms/index'
 import { Route as AppFlowIndexRouteImport } from './routes/app/flow/index'
 import { Route as AppFleetIndexRouteImport } from './routes/app/fleet/index'
+import { Route as AppFiscalGatesIndexRouteImport } from './routes/app/fiscal-gates/index'
 import { Route as AppFinanceIndexRouteImport } from './routes/app/finance/index'
 import { Route as AppDocsIndexRouteImport } from './routes/app/docs/index'
 import { Route as AppDeskIndexRouteImport } from './routes/app/desk/index'
@@ -154,6 +155,11 @@ const AppFlowIndexRoute = AppFlowIndexRouteImport.update({
 const AppFleetIndexRoute = AppFleetIndexRouteImport.update({
   id: '/fleet/',
   path: '/fleet/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppFiscalGatesIndexRoute = AppFiscalGatesIndexRouteImport.update({
+  id: '/fiscal-gates/',
+  path: '/fiscal-gates/',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppFinanceIndexRoute = AppFinanceIndexRouteImport.update({
@@ -423,6 +429,7 @@ export interface FileRoutesByFullPath {
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
   '/app/finance/': typeof AppFinanceIndexRoute
+  '/app/fiscal-gates/': typeof AppFiscalGatesIndexRoute
   '/app/fleet/': typeof AppFleetIndexRoute
   '/app/flow/': typeof AppFlowIndexRoute
   '/app/forms/': typeof AppFormsIndexRoute
@@ -484,6 +491,7 @@ export interface FileRoutesByTo {
   '/app/desk': typeof AppDeskIndexRoute
   '/app/docs': typeof AppDocsIndexRoute
   '/app/finance': typeof AppFinanceIndexRoute
+  '/app/fiscal-gates': typeof AppFiscalGatesIndexRoute
   '/app/fleet': typeof AppFleetIndexRoute
   '/app/flow': typeof AppFlowIndexRoute
   '/app/forms': typeof AppFormsIndexRoute
@@ -548,6 +556,7 @@ export interface FileRoutesById {
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
   '/app/finance/': typeof AppFinanceIndexRoute
+  '/app/fiscal-gates/': typeof AppFiscalGatesIndexRoute
   '/app/fleet/': typeof AppFleetIndexRoute
   '/app/flow/': typeof AppFlowIndexRoute
   '/app/forms/': typeof AppFormsIndexRoute
@@ -613,6 +622,7 @@ export interface FileRouteTypes {
     | '/app/desk/'
     | '/app/docs/'
     | '/app/finance/'
+    | '/app/fiscal-gates/'
     | '/app/fleet/'
     | '/app/flow/'
     | '/app/forms/'
@@ -674,6 +684,7 @@ export interface FileRouteTypes {
     | '/app/desk'
     | '/app/docs'
     | '/app/finance'
+    | '/app/fiscal-gates'
     | '/app/fleet'
     | '/app/flow'
     | '/app/forms'
@@ -737,6 +748,7 @@ export interface FileRouteTypes {
     | '/app/desk/'
     | '/app/docs/'
     | '/app/finance/'
+    | '/app/fiscal-gates/'
     | '/app/fleet/'
     | '/app/flow/'
     | '/app/forms/'
@@ -893,6 +905,13 @@ declare module '@tanstack/react-router' {
       path: '/fleet'
       fullPath: '/app/fleet/'
       preLoaderRoute: typeof AppFleetIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/fiscal-gates/': {
+      id: '/app/fiscal-gates/'
+      path: '/fiscal-gates'
+      fullPath: '/app/fiscal-gates/'
+      preLoaderRoute: typeof AppFiscalGatesIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/finance/': {
@@ -1249,6 +1268,7 @@ interface AppRouteRouteChildren {
   AppDeskIndexRoute: typeof AppDeskIndexRoute
   AppDocsIndexRoute: typeof AppDocsIndexRoute
   AppFinanceIndexRoute: typeof AppFinanceIndexRoute
+  AppFiscalGatesIndexRoute: typeof AppFiscalGatesIndexRoute
   AppFleetIndexRoute: typeof AppFleetIndexRoute
   AppFlowIndexRoute: typeof AppFlowIndexRoute
   AppFormsIndexRoute: typeof AppFormsIndexRoute
@@ -1306,6 +1326,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppDeskIndexRoute: AppDeskIndexRoute,
   AppDocsIndexRoute: AppDocsIndexRoute,
   AppFinanceIndexRoute: AppFinanceIndexRoute,
+  AppFiscalGatesIndexRoute: AppFiscalGatesIndexRoute,
   AppFleetIndexRoute: AppFleetIndexRoute,
   AppFlowIndexRoute: AppFlowIndexRoute,
   AppFormsIndexRoute: AppFormsIndexRoute,
