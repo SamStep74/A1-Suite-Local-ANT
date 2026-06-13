@@ -36,6 +36,10 @@ msgstr "Acknowledge"
 msgid "Acknowledged"
 msgstr "Acknowledged"
 
+#: src/components/keyboard/ShortcutCheatsheet.tsx:174
+msgid "Actions"
+msgstr "Actions"
+
 #: src/routes/app/ask-ai/index.tsx:258
 msgid "AI"
 msgstr "AI"
@@ -239,6 +243,10 @@ msgstr "Gate details"
 msgid "Go back"
 msgstr "Go back"
 
+#: src/components/keyboard/ShortcutCheatsheet.tsx:166
+msgid "Help"
+msgstr "Help"
+
 #: src/routes/app/ask-ai/index.tsx:130
 msgid "id"
 msgstr "id"
@@ -252,9 +260,17 @@ msgstr "Income tax (annual)"
 msgid "Invoices"
 msgstr "Invoices"
 
+#: src/components/keyboard/ShortcutCheatsheet.tsx:89
+msgid "Keyboard shortcuts"
+msgstr "Keyboard shortcuts"
+
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:97
 msgid "Label"
 msgstr "Label"
+
+#: src/components/keyboard/ShortcutCheatsheet.tsx:172
+msgid "Lists"
+msgstr "Lists"
 
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:177
 msgid "Loading receivables…"
@@ -283,6 +299,10 @@ msgstr "Metrics"
 #: src/components/shared/SavedViews.tsx:235
 msgid "Name this view"
 msgstr "Name this view"
+
+#: src/components/keyboard/ShortcutCheatsheet.tsx:170
+msgid "Navigation"
+msgstr "Navigation"
 
 #: src/components/shared/DataTable.tsx:420
 msgid "Next"
@@ -326,6 +346,7 @@ msgstr "Open the Ask AI assistant sidebar"
 msgid "Open the full page"
 msgstr "Open the full page"
 
+#: src/components/keyboard/ShortcutCheatsheet.tsx:178
 #: src/lib/fiscal/labels.tsx:43
 #: src/lib/fiscal/labels.tsx:68
 #: src/lib/fiscal/labels.tsx:139
@@ -350,6 +371,10 @@ msgstr "Owner"
 #: src/components/shared/DataTable.tsx:410
 msgid "Page {0} of {1}"
 msgstr "Page {0} of {1}"
+
+#: src/components/keyboard/ShortcutCheatsheet.tsx:168
+msgid "Panels"
+msgstr "Panels"
 
 #: src/lib/fiscal/labels.tsx:86
 msgid "Pay mandatory pension contributions for the quarter."
@@ -395,6 +420,10 @@ msgstr "Period"
 #: src/routes/app/period-close/index.tsx:40
 msgid "Period close"
 msgstr "Period close"
+
+#: src/components/keyboard/KeyHandler.tsx:257
+msgid "Press ? to show keyboard shortcuts"
+msgstr "Press ? to show keyboard shortcuts"
 
 #: src/components/ai/AskAiPanel.tsx:292
 msgid "Press Enter to ask · Shift+Enter for newline"
@@ -508,6 +537,10 @@ msgstr "Tag"
 msgid "The answer is a UI-only stub in Phase 10.5 — no data leaves your browser."
 msgstr "The answer is a UI-only stub in Phase 10.5 — no data leaves your browser."
 
+#: src/components/keyboard/ShortcutCheatsheet.tsx:111
+msgid "Tip: shortcuts are disabled while a text field is focused, so you can type ? in search without opening this dialog."
+msgstr "Tip: shortcuts are disabled while a text field is focused, so you can type ? in search without opening this dialog."
+
 #: src/routes/app/triage-inbox/index.tsx:188
 msgid "Title"
 msgstr "Title"
@@ -541,6 +574,10 @@ msgstr "Unassigned"
 msgid "Undo"
 msgstr "Undo"
 
+#: src/components/keyboard/ShortcutCheatsheet.tsx:95
+msgid "Use these shortcuts to move around the app without touching the mouse."
+msgstr "Use these shortcuts to move around the app without touching the mouse."
+
 #: src/lib/fiscal/labels.tsx:121
 #: src/lib/fiscal/labels.tsx:179
 msgid "VAT"
@@ -568,6 +605,10 @@ msgstr "Withholding"
 #: src/lib/fiscal/labels.tsx:219
 msgid "Withholding tax (monthly)"
 msgstr "Withholding tax (monthly)"
+
+#: src/components/keyboard/ShortcutCheatsheet.tsx:176
+msgid "Wizard"
+msgstr "Wizard"
 
 #: src/routes/app/ask-ai/index.tsx:252
 msgid "You"
