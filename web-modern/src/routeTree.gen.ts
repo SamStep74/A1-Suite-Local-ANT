@@ -16,6 +16,7 @@ import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as LoginMfaRouteImport } from './routes/login.mfa'
 import { Route as AppCopilotRouteImport } from './routes/app/copilot'
 import { Route as AppAppIdRouteImport } from './routes/app/$appId'
+import { Route as AppSmbCrmIndexRouteImport } from './routes/app/smb-crm/index'
 import { Route as AppPurchaseIndexRouteImport } from './routes/app/purchase/index'
 import { Route as AppProjectsIndexRouteImport } from './routes/app/projects/index'
 import { Route as AppPeopleIndexRouteImport } from './routes/app/people/index'
@@ -50,6 +51,10 @@ import { Route as AppCrmTubeInboxRouteImport } from './routes/app/crm-tube/inbox
 import { Route as AppCopilotChatIdRouteImport } from './routes/app/copilot/$chatId'
 import { Route as AppCfoLoanIdRouteImport } from './routes/app/cfo/$loanId'
 import { Route as AppAnalyticsMetricIdRouteImport } from './routes/app/analytics/$metricId'
+import { Route as AppSmbCrmIntegrationsIndexRouteImport } from './routes/app/smb-crm/integrations/index'
+import { Route as AppSmbCrmDealsIndexRouteImport } from './routes/app/smb-crm/deals/index'
+import { Route as AppSmbCrmCustomersIndexRouteImport } from './routes/app/smb-crm/customers/index'
+import { Route as AppSmbCrmAutomationsIndexRouteImport } from './routes/app/smb-crm/automations/index'
 import { Route as AppPurchaseProcurementIndexRouteImport } from './routes/app/purchase/procurement/index'
 import { Route as AppInventoryWarehouseIndexRouteImport } from './routes/app/inventory/warehouse/index'
 import { Route as AppFlowIntegrationsIndexRouteImport } from './routes/app/flow/integrations/index'
@@ -60,6 +65,8 @@ import { Route as AppCopilotOnboardingIndexRouteImport } from './routes/app/copi
 import { Route as AppCfoStateIntegrationsIndexRouteImport } from './routes/app/cfo/state-integrations/index'
 import { Route as AppCfoReportsIndexRouteImport } from './routes/app/cfo/reports/index'
 import { Route as AppCfoExportDocsIndexRouteImport } from './routes/app/cfo/export-docs/index'
+import { Route as AppSmbCrmCustomersCustomerIdRouteImport } from './routes/app/smb-crm/customers/$customerId'
+import { Route as AppSmbCrmBlueprintBlueprintIdRouteImport } from './routes/app/smb-crm/blueprint/$blueprintId'
 import { Route as AppCrmTubeSequencesSequenceIdRouteImport } from './routes/app/crm-tube/sequences/$sequenceId'
 import { Route as AppCrmTubeDealsDealIdRouteImport } from './routes/app/crm-tube/deals/$dealId'
 import { Route as AppCrmTubeContactsContactIdRouteImport } from './routes/app/crm-tube/contacts/$contactId'
@@ -97,6 +104,11 @@ const AppCopilotRoute = AppCopilotRouteImport.update({
 const AppAppIdRoute = AppAppIdRouteImport.update({
   id: '/$appId',
   path: '/$appId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppSmbCrmIndexRoute = AppSmbCrmIndexRouteImport.update({
+  id: '/smb-crm/',
+  path: '/smb-crm/',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppPurchaseIndexRoute = AppPurchaseIndexRouteImport.update({
@@ -269,6 +281,28 @@ const AppAnalyticsMetricIdRoute = AppAnalyticsMetricIdRouteImport.update({
   path: '/analytics/$metricId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppSmbCrmIntegrationsIndexRoute =
+  AppSmbCrmIntegrationsIndexRouteImport.update({
+    id: '/smb-crm/integrations/',
+    path: '/smb-crm/integrations/',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
+const AppSmbCrmDealsIndexRoute = AppSmbCrmDealsIndexRouteImport.update({
+  id: '/smb-crm/deals/',
+  path: '/smb-crm/deals/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppSmbCrmCustomersIndexRoute = AppSmbCrmCustomersIndexRouteImport.update({
+  id: '/smb-crm/customers/',
+  path: '/smb-crm/customers/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppSmbCrmAutomationsIndexRoute =
+  AppSmbCrmAutomationsIndexRouteImport.update({
+    id: '/smb-crm/automations/',
+    path: '/smb-crm/automations/',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
 const AppPurchaseProcurementIndexRoute =
   AppPurchaseProcurementIndexRouteImport.update({
     id: '/purchase/procurement/',
@@ -326,6 +360,18 @@ const AppCfoExportDocsIndexRoute = AppCfoExportDocsIndexRouteImport.update({
   path: '/cfo/export-docs/',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppSmbCrmCustomersCustomerIdRoute =
+  AppSmbCrmCustomersCustomerIdRouteImport.update({
+    id: '/smb-crm/customers/$customerId',
+    path: '/smb-crm/customers/$customerId',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
+const AppSmbCrmBlueprintBlueprintIdRoute =
+  AppSmbCrmBlueprintBlueprintIdRouteImport.update({
+    id: '/smb-crm/blueprint/$blueprintId',
+    path: '/smb-crm/blueprint/$blueprintId',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
 const AppCrmTubeSequencesSequenceIdRoute =
   AppCrmTubeSequencesSequenceIdRouteImport.update({
     id: '/crm-tube/sequences/$sequenceId',
@@ -386,9 +432,12 @@ export interface FileRoutesByFullPath {
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
+  '/app/smb-crm/': typeof AppSmbCrmIndexRoute
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
+  '/app/smb-crm/blueprint/$blueprintId': typeof AppSmbCrmBlueprintBlueprintIdRoute
+  '/app/smb-crm/customers/$customerId': typeof AppSmbCrmCustomersCustomerIdRoute
   '/app/cfo/export-docs/': typeof AppCfoExportDocsIndexRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
   '/app/cfo/state-integrations/': typeof AppCfoStateIntegrationsIndexRoute
@@ -399,6 +448,10 @@ export interface FileRoutesByFullPath {
   '/app/flow/integrations/': typeof AppFlowIntegrationsIndexRoute
   '/app/inventory/warehouse/': typeof AppInventoryWarehouseIndexRoute
   '/app/purchase/procurement/': typeof AppPurchaseProcurementIndexRoute
+  '/app/smb-crm/automations/': typeof AppSmbCrmAutomationsIndexRoute
+  '/app/smb-crm/customers/': typeof AppSmbCrmCustomersIndexRoute
+  '/app/smb-crm/deals/': typeof AppSmbCrmDealsIndexRoute
+  '/app/smb-crm/integrations/': typeof AppSmbCrmIntegrationsIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -440,9 +493,12 @@ export interface FileRoutesByTo {
   '/app/people': typeof AppPeopleIndexRoute
   '/app/projects': typeof AppProjectsIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
+  '/app/smb-crm': typeof AppSmbCrmIndexRoute
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
+  '/app/smb-crm/blueprint/$blueprintId': typeof AppSmbCrmBlueprintBlueprintIdRoute
+  '/app/smb-crm/customers/$customerId': typeof AppSmbCrmCustomersCustomerIdRoute
   '/app/cfo/export-docs': typeof AppCfoExportDocsIndexRoute
   '/app/cfo/reports': typeof AppCfoReportsIndexRoute
   '/app/cfo/state-integrations': typeof AppCfoStateIntegrationsIndexRoute
@@ -453,6 +509,10 @@ export interface FileRoutesByTo {
   '/app/flow/integrations': typeof AppFlowIntegrationsIndexRoute
   '/app/inventory/warehouse': typeof AppInventoryWarehouseIndexRoute
   '/app/purchase/procurement': typeof AppPurchaseProcurementIndexRoute
+  '/app/smb-crm/automations': typeof AppSmbCrmAutomationsIndexRoute
+  '/app/smb-crm/customers': typeof AppSmbCrmCustomersIndexRoute
+  '/app/smb-crm/deals': typeof AppSmbCrmDealsIndexRoute
+  '/app/smb-crm/integrations': typeof AppSmbCrmIntegrationsIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -497,9 +557,12 @@ export interface FileRoutesById {
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
+  '/app/smb-crm/': typeof AppSmbCrmIndexRoute
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
+  '/app/smb-crm/blueprint/$blueprintId': typeof AppSmbCrmBlueprintBlueprintIdRoute
+  '/app/smb-crm/customers/$customerId': typeof AppSmbCrmCustomersCustomerIdRoute
   '/app/cfo/export-docs/': typeof AppCfoExportDocsIndexRoute
   '/app/cfo/reports/': typeof AppCfoReportsIndexRoute
   '/app/cfo/state-integrations/': typeof AppCfoStateIntegrationsIndexRoute
@@ -510,6 +573,10 @@ export interface FileRoutesById {
   '/app/flow/integrations/': typeof AppFlowIntegrationsIndexRoute
   '/app/inventory/warehouse/': typeof AppInventoryWarehouseIndexRoute
   '/app/purchase/procurement/': typeof AppPurchaseProcurementIndexRoute
+  '/app/smb-crm/automations/': typeof AppSmbCrmAutomationsIndexRoute
+  '/app/smb-crm/customers/': typeof AppSmbCrmCustomersIndexRoute
+  '/app/smb-crm/deals/': typeof AppSmbCrmDealsIndexRoute
+  '/app/smb-crm/integrations/': typeof AppSmbCrmIntegrationsIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -555,9 +622,12 @@ export interface FileRouteTypes {
     | '/app/people/'
     | '/app/projects/'
     | '/app/purchase/'
+    | '/app/smb-crm/'
     | '/app/crm-tube/contacts/$contactId'
     | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
+    | '/app/smb-crm/blueprint/$blueprintId'
+    | '/app/smb-crm/customers/$customerId'
     | '/app/cfo/export-docs/'
     | '/app/cfo/reports/'
     | '/app/cfo/state-integrations/'
@@ -568,6 +638,10 @@ export interface FileRouteTypes {
     | '/app/flow/integrations/'
     | '/app/inventory/warehouse/'
     | '/app/purchase/procurement/'
+    | '/app/smb-crm/automations/'
+    | '/app/smb-crm/customers/'
+    | '/app/smb-crm/deals/'
+    | '/app/smb-crm/integrations/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -609,9 +683,12 @@ export interface FileRouteTypes {
     | '/app/people'
     | '/app/projects'
     | '/app/purchase'
+    | '/app/smb-crm'
     | '/app/crm-tube/contacts/$contactId'
     | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
+    | '/app/smb-crm/blueprint/$blueprintId'
+    | '/app/smb-crm/customers/$customerId'
     | '/app/cfo/export-docs'
     | '/app/cfo/reports'
     | '/app/cfo/state-integrations'
@@ -622,6 +699,10 @@ export interface FileRouteTypes {
     | '/app/flow/integrations'
     | '/app/inventory/warehouse'
     | '/app/purchase/procurement'
+    | '/app/smb-crm/automations'
+    | '/app/smb-crm/customers'
+    | '/app/smb-crm/deals'
+    | '/app/smb-crm/integrations'
   id:
     | '__root__'
     | '/'
@@ -665,9 +746,12 @@ export interface FileRouteTypes {
     | '/app/people/'
     | '/app/projects/'
     | '/app/purchase/'
+    | '/app/smb-crm/'
     | '/app/crm-tube/contacts/$contactId'
     | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
+    | '/app/smb-crm/blueprint/$blueprintId'
+    | '/app/smb-crm/customers/$customerId'
     | '/app/cfo/export-docs/'
     | '/app/cfo/reports/'
     | '/app/cfo/state-integrations/'
@@ -678,6 +762,10 @@ export interface FileRouteTypes {
     | '/app/flow/integrations/'
     | '/app/inventory/warehouse/'
     | '/app/purchase/procurement/'
+    | '/app/smb-crm/automations/'
+    | '/app/smb-crm/customers/'
+    | '/app/smb-crm/deals/'
+    | '/app/smb-crm/integrations/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -735,6 +823,13 @@ declare module '@tanstack/react-router' {
       path: '/$appId'
       fullPath: '/app/$appId'
       preLoaderRoute: typeof AppAppIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/smb-crm/': {
+      id: '/app/smb-crm/'
+      path: '/smb-crm'
+      fullPath: '/app/smb-crm/'
+      preLoaderRoute: typeof AppSmbCrmIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/purchase/': {
@@ -975,6 +1070,34 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAnalyticsMetricIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/smb-crm/integrations/': {
+      id: '/app/smb-crm/integrations/'
+      path: '/smb-crm/integrations'
+      fullPath: '/app/smb-crm/integrations/'
+      preLoaderRoute: typeof AppSmbCrmIntegrationsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/smb-crm/deals/': {
+      id: '/app/smb-crm/deals/'
+      path: '/smb-crm/deals'
+      fullPath: '/app/smb-crm/deals/'
+      preLoaderRoute: typeof AppSmbCrmDealsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/smb-crm/customers/': {
+      id: '/app/smb-crm/customers/'
+      path: '/smb-crm/customers'
+      fullPath: '/app/smb-crm/customers/'
+      preLoaderRoute: typeof AppSmbCrmCustomersIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/smb-crm/automations/': {
+      id: '/app/smb-crm/automations/'
+      path: '/smb-crm/automations'
+      fullPath: '/app/smb-crm/automations/'
+      preLoaderRoute: typeof AppSmbCrmAutomationsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/purchase/procurement/': {
       id: '/app/purchase/procurement/'
       path: '/purchase/procurement'
@@ -1043,6 +1166,20 @@ declare module '@tanstack/react-router' {
       path: '/cfo/export-docs'
       fullPath: '/app/cfo/export-docs/'
       preLoaderRoute: typeof AppCfoExportDocsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/smb-crm/customers/$customerId': {
+      id: '/app/smb-crm/customers/$customerId'
+      path: '/smb-crm/customers/$customerId'
+      fullPath: '/app/smb-crm/customers/$customerId'
+      preLoaderRoute: typeof AppSmbCrmCustomersCustomerIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/smb-crm/blueprint/$blueprintId': {
+      id: '/app/smb-crm/blueprint/$blueprintId'
+      path: '/smb-crm/blueprint/$blueprintId'
+      fullPath: '/app/smb-crm/blueprint/$blueprintId'
+      preLoaderRoute: typeof AppSmbCrmBlueprintBlueprintIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/crm-tube/sequences/$sequenceId': {
@@ -1121,9 +1258,12 @@ interface AppRouteRouteChildren {
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppProjectsIndexRoute: typeof AppProjectsIndexRoute
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
+  AppSmbCrmIndexRoute: typeof AppSmbCrmIndexRoute
   AppCrmTubeContactsContactIdRoute: typeof AppCrmTubeContactsContactIdRoute
   AppCrmTubeDealsDealIdRoute: typeof AppCrmTubeDealsDealIdRoute
   AppCrmTubeSequencesSequenceIdRoute: typeof AppCrmTubeSequencesSequenceIdRoute
+  AppSmbCrmBlueprintBlueprintIdRoute: typeof AppSmbCrmBlueprintBlueprintIdRoute
+  AppSmbCrmCustomersCustomerIdRoute: typeof AppSmbCrmCustomersCustomerIdRoute
   AppCfoExportDocsIndexRoute: typeof AppCfoExportDocsIndexRoute
   AppCfoReportsIndexRoute: typeof AppCfoReportsIndexRoute
   AppCfoStateIntegrationsIndexRoute: typeof AppCfoStateIntegrationsIndexRoute
@@ -1133,6 +1273,10 @@ interface AppRouteRouteChildren {
   AppFlowIntegrationsIndexRoute: typeof AppFlowIntegrationsIndexRoute
   AppInventoryWarehouseIndexRoute: typeof AppInventoryWarehouseIndexRoute
   AppPurchaseProcurementIndexRoute: typeof AppPurchaseProcurementIndexRoute
+  AppSmbCrmAutomationsIndexRoute: typeof AppSmbCrmAutomationsIndexRoute
+  AppSmbCrmCustomersIndexRoute: typeof AppSmbCrmCustomersIndexRoute
+  AppSmbCrmDealsIndexRoute: typeof AppSmbCrmDealsIndexRoute
+  AppSmbCrmIntegrationsIndexRoute: typeof AppSmbCrmIntegrationsIndexRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
@@ -1171,9 +1315,12 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppProjectsIndexRoute: AppProjectsIndexRoute,
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,
+  AppSmbCrmIndexRoute: AppSmbCrmIndexRoute,
   AppCrmTubeContactsContactIdRoute: AppCrmTubeContactsContactIdRoute,
   AppCrmTubeDealsDealIdRoute: AppCrmTubeDealsDealIdRoute,
   AppCrmTubeSequencesSequenceIdRoute: AppCrmTubeSequencesSequenceIdRoute,
+  AppSmbCrmBlueprintBlueprintIdRoute: AppSmbCrmBlueprintBlueprintIdRoute,
+  AppSmbCrmCustomersCustomerIdRoute: AppSmbCrmCustomersCustomerIdRoute,
   AppCfoExportDocsIndexRoute: AppCfoExportDocsIndexRoute,
   AppCfoReportsIndexRoute: AppCfoReportsIndexRoute,
   AppCfoStateIntegrationsIndexRoute: AppCfoStateIntegrationsIndexRoute,
@@ -1183,6 +1330,10 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppFlowIntegrationsIndexRoute: AppFlowIntegrationsIndexRoute,
   AppInventoryWarehouseIndexRoute: AppInventoryWarehouseIndexRoute,
   AppPurchaseProcurementIndexRoute: AppPurchaseProcurementIndexRoute,
+  AppSmbCrmAutomationsIndexRoute: AppSmbCrmAutomationsIndexRoute,
+  AppSmbCrmCustomersIndexRoute: AppSmbCrmCustomersIndexRoute,
+  AppSmbCrmDealsIndexRoute: AppSmbCrmDealsIndexRoute,
+  AppSmbCrmIntegrationsIndexRoute: AppSmbCrmIntegrationsIndexRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
