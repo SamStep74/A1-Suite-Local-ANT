@@ -5773,5 +5773,401 @@ export type SmbCrmListAssistRunsQuery = z.infer<
   typeof SmbCrmListAssistRunsQuerySchema
 >;
 /* ─── block-smb-crm-assist-end ─── */
+/* ─── block-smb-crm-automations-begin ─── */
+
+// ─── Enums ──────────────────────────────────────────────────────────────
+export const SmbCrmAutomationTriggerEvent = z.enum([
+  "customer.created",
+  "customer.updated",
+  "customer.deleted",
+  "deal.created",
+  "deal.updated",
+  "deal.stage_changed",
+  "deal.won",
+  "deal.lost",
+  "task.created",
+  "task.completed",
+  "quote.created",
+  "quote.sent",
+  "quote.accepted",
+  "activity.created",
+  "automation.run",
+  "webhook.received",
+  "outbound.failed"
+]);
+export type SmbCrmAutomationTriggerEvent = z.infer<
+  typeof SmbCrmAutomationTriggerEvent
+>;
+
+export const SmbCrmAutomationAction = z.enum([
+  "send_outbound_message",
+  "fire_webhook",
+  "create_activity",
+  "create_task",
+  "update_deal_stage",
+  "noop"
+]);
+export type SmbCrmAutomationAction = z.infer<typeof SmbCrmAutomationAction>;
+
+export const SmbCrmAutomationStatus = z.enum([
+  "pending",
+  "running",
+  "ok",
+  "failed"
+]);
+export type SmbCrmAutomationStatus = z.infer<typeof SmbCrmAutomationStatus>;
+
+export const SmbCrmOutboundChannel = z.enum([
+  "whatsapp",
+  "sms",
+  "email",
+  "webhook"
+]);
+export type SmbCrmOutboundChannel = z.infer<typeof SmbCrmOutboundChannel>;
+
+export const SmbCrmOutboundStatus = z.enum([
+  "queued",
+  "sending",
+  "sent",
+  "failed",
+  "cancelled"
+]);
+export type SmbCrmOutboundStatus = z.infer<typeof SmbCrmOutboundStatus>;
+
+export const SmbCrmWebhookChannel = z.enum([
+  "whatsapp",
+  "meta-leads",
+  "telephony",
+  "calendar",
+  "sheets",
+  "email",
+  "payment"
+]);
+export type SmbCrmWebhookChannel = z.infer<typeof SmbCrmWebhookChannel>;
+
+export const SmbCrmWebhookEventStatus = z.enum([
+  "received",
+  "processed",
+  "failed"
+]);
+export type SmbCrmWebhookEventStatus = z.infer<
+  typeof SmbCrmWebhookEventStatus
+>;
+
+export const SmbCrmIntegrationStatus = z.enum([
+  "connected",
+  "disconnected",
+  "error",
+  "pending"
+]);
+export type SmbCrmIntegrationStatus = z.infer<
+  typeof SmbCrmIntegrationStatus
+>;
+
+export const SmbCrmIntegrationEnvironment = z.enum([
+  "production",
+  "sandbox"
+]);
+export type SmbCrmIntegrationEnvironment = z.infer<
+  typeof SmbCrmIntegrationEnvironment
+>;
+
+export const SmbCrmIntegrationAuthType = z.enum([
+  "api_key",
+  "oauth2",
+  "bearer_token",
+  "webhook_secret",
+  "none"
+]);
+export type SmbCrmIntegrationAuthType = z.infer<
+  typeof SmbCrmIntegrationAuthType
+>;
+
+export const SmbCrmImportEntityType = z.enum([
+  "customer",
+  "deal",
+  "task",
+  "quote",
+  "activity",
+  "goal"
+]);
+export type SmbCrmImportEntityType = z.infer<
+  typeof SmbCrmImportEntityType
+>;
+
+export const SmbCrmAccountingEntityType = z.enum(["deal", "quote"]);
+export type SmbCrmAccountingEntityType = z.infer<
+  typeof SmbCrmAccountingEntityType
+>;
+
+export const SmbCrmAccountingFormat = z.enum(["csv", "json"]);
+export type SmbCrmAccountingFormat = z.infer<
+  typeof SmbCrmAccountingFormat
+>;
+
+// ─── View schemas ──────────────────────────────────────────────────────
+export const SmbCrmAutomationViewSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  name: z.string(),
+  triggerEvent: SmbCrmAutomationTriggerEvent,
+  action: SmbCrmAutomationAction,
+  actionJson: z.record(z.string(), z.unknown()).default({}),
+  enabled: z.boolean(),
+  createdBy: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export type SmbCrmAutomationView = z.infer<
+  typeof SmbCrmAutomationViewSchema
+>;
+
+export const SmbCrmAutomationRunViewSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  automationId: z.string().nullable(),
+  triggerEvent: z.string(),
+  status: SmbCrmAutomationStatus,
+  startedAt: z.string(),
+  finishedAt: z.string().nullable().optional(),
+  log: z.record(z.string(), z.unknown()),
+  errorText: z.string().nullable().optional()
+});
+export type SmbCrmAutomationRunView = z.infer<
+  typeof SmbCrmAutomationRunViewSchema
+>;
+
+export const SmbCrmOutboundMessageViewSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  channel: SmbCrmOutboundChannel,
+  contactId: z.string().nullable().optional(),
+  toAddress: z.string().nullable().optional(),
+  body: z.string(),
+  status: SmbCrmOutboundStatus,
+  scheduledAt: z.string().nullable().optional(),
+  sentAt: z.string().nullable().optional(),
+  provider: z.string().nullable().optional(),
+  response: z.record(z.string(), z.unknown()).nullable().optional(),
+  errorText: z.string().nullable().optional(),
+  createdAt: z.string()
+});
+export type SmbCrmOutboundMessageView = z.infer<
+  typeof SmbCrmOutboundMessageViewSchema
+>;
+
+export const SmbCrmWebhookEventViewSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  channel: SmbCrmWebhookChannel,
+  payload: z.record(z.string(), z.unknown()),
+  status: SmbCrmWebhookEventStatus,
+  idempotencyKey: z.string().nullable().optional(),
+  receivedAt: z.string(),
+  processedAt: z.string().nullable().optional(),
+  errorText: z.string().nullable().optional()
+});
+export type SmbCrmWebhookEventView = z.infer<
+  typeof SmbCrmWebhookEventViewSchema
+>;
+
+export const SmbCrmIntegrationViewSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  integrationKey: z.string(),
+  displayName: z.string(),
+  status: SmbCrmIntegrationStatus,
+  environment: SmbCrmIntegrationEnvironment,
+  authType: SmbCrmIntegrationAuthType,
+  config: z.record(z.string(), z.unknown()).default({}),
+  lastHealthAt: z.string().nullable().optional(),
+  lastHealth: z.record(z.string(), z.unknown()).nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export type SmbCrmIntegrationView = z.infer<
+  typeof SmbCrmIntegrationViewSchema
+>;
+
+export const SmbCrmActionTriggerViewSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  integrationId: z.string(),
+  actionKey: z.string(),
+  enabled: z.boolean(),
+  config: z.record(z.string(), z.unknown()).default({}),
+  createdAt: z.string(),
+  updatedAt: z.string()
+});
+export type SmbCrmActionTriggerView = z.infer<
+  typeof SmbCrmActionTriggerViewSchema
+>;
+
+export const SmbCrmImportRunViewSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  entityType: SmbCrmImportEntityType,
+  totalRows: z.number().int().nonnegative(),
+  importedRows: z.number().int().nonnegative(),
+  dedupedRows: z.number().int().nonnegative(),
+  erroredRows: z.number().int().nonnegative(),
+  errors: z.array(z.record(z.string(), z.unknown())),
+  dedupKey: z.string().nullable().optional(),
+  createdBy: z.string().nullable().optional(),
+  createdAt: z.string()
+});
+export type SmbCrmImportRunView = z.infer<
+  typeof SmbCrmImportRunViewSchema
+>;
+
+// ─── Request schemas ───────────────────────────────────────────────────
+export const IdempotencyKeySchema = z.object({
+  idempotencyKey: z.string().min(1)
+});
+export type IdempotencyKey = z.infer<typeof IdempotencyKeySchema>;
+
+export const SmbCrmCreateAutomationRequestSchema = IdempotencyKeySchema.extend({
+  name: z.string().min(1),
+  triggerEvent: SmbCrmAutomationTriggerEvent,
+  action: SmbCrmAutomationAction,
+  actionJson: z.record(z.string(), z.unknown()).optional(),
+  enabled: z.boolean().optional()
+});
+export type SmbCrmCreateAutomationRequest = z.infer<
+  typeof SmbCrmCreateAutomationRequestSchema
+>;
+
+export const SmbCrmUpdateAutomationRequestSchema = IdempotencyKeySchema.extend({
+  name: z.string().min(1).optional(),
+  triggerEvent: SmbCrmAutomationTriggerEvent.optional(),
+  action: SmbCrmAutomationAction.optional(),
+  actionJson: z.record(z.string(), z.unknown()).optional(),
+  enabled: z.boolean().optional()
+});
+export type SmbCrmUpdateAutomationRequest = z.infer<
+  typeof SmbCrmUpdateAutomationRequestSchema
+>;
+
+export const SmbCrmRunAutomationRequestSchema = z.object({
+  context: z.record(z.string(), z.unknown()).default({})
+});
+export type SmbCrmRunAutomationRequest = z.infer<
+  typeof SmbCrmRunAutomationRequestSchema
+>;
+
+export const SmbCrmCreateIntegrationRequestSchema =
+  IdempotencyKeySchema.extend({
+    integrationKey: z.string().min(1),
+    displayName: z.string().min(1),
+    status: SmbCrmIntegrationStatus.optional(),
+    environment: SmbCrmIntegrationEnvironment.optional(),
+    authType: SmbCrmIntegrationAuthType.optional(),
+    config: z.record(z.string(), z.unknown()).optional()
+  });
+export type SmbCrmCreateIntegrationRequest = z.infer<
+  typeof SmbCrmCreateIntegrationRequestSchema
+>;
+
+export const SmbCrmRotateSecretRequestSchema = IdempotencyKeySchema.extend({
+  secret: z.string().min(1)
+});
+export type SmbCrmRotateSecretRequest = z.infer<
+  typeof SmbCrmRotateSecretRequestSchema
+>;
+
+export const SmbCrmQueueOutboundRequestSchema = IdempotencyKeySchema.extend({
+  channel: SmbCrmOutboundChannel,
+  contactId: z.string().optional(),
+  toAddress: z.string().optional(),
+  body: z.string().min(1),
+  scheduledAt: z.string().optional()
+});
+export type SmbCrmQueueOutboundRequest = z.infer<
+  typeof SmbCrmQueueOutboundRequestSchema
+>;
+
+export const SmbCrmImportRequestSchema = IdempotencyKeySchema.extend({
+  entityType: SmbCrmImportEntityType,
+  csv: z.string().min(1),
+  dedupKey: z.string().optional()
+});
+export type SmbCrmImportRequest = z.infer<
+  typeof SmbCrmImportRequestSchema
+>;
+
+export const SmbCrmAccountingExportRequestSchema = z.object({
+  entityType: SmbCrmAccountingEntityType.default("deal"),
+  format: SmbCrmAccountingFormat.default("csv"),
+  period: z.string().optional()
+});
+export type SmbCrmAccountingExportRequest = z.infer<
+  typeof SmbCrmAccountingExportRequestSchema
+>;
+
+// ─── Response envelopes ────────────────────────────────────────────────
+export const SmbCrmAutomationListResponseSchema = z.object({
+  automations: z.array(SmbCrmAutomationViewSchema)
+});
+export const SmbCrmAutomationResponseSchema = z.object({
+  ok: z.literal(true),
+  automation: SmbCrmAutomationViewSchema
+});
+export const SmbCrmAutomationRunListResponseSchema = z.object({
+  automationRuns: z.array(SmbCrmAutomationRunViewSchema)
+});
+export const SmbCrmAutomationRunResponseSchema = z.object({
+  ok: z.literal(true),
+  run: SmbCrmAutomationRunViewSchema
+});
+export const SmbCrmOutboundListResponseSchema = z.object({
+  messages: z.array(SmbCrmOutboundMessageViewSchema)
+});
+export const SmbCrmOutboundResponseSchema = z.object({
+  ok: z.literal(true),
+  message: SmbCrmOutboundMessageViewSchema
+});
+export const SmbCrmIntegrationListResponseSchema = z.object({
+  integrations: z.array(SmbCrmIntegrationViewSchema)
+});
+export const SmbCrmIntegrationResponseSchema = z.object({
+  ok: z.literal(true),
+  integration: SmbCrmIntegrationViewSchema
+});
+export const SmbCrmRotateSecretResponseSchema = z.object({
+  ok: z.literal(true),
+  integration: SmbCrmIntegrationViewSchema,
+  fingerprint: z.string(),
+  secretEcho: z.string()
+});
+export const SmbCrmActionTriggerListResponseSchema = z.object({
+  actionTriggers: z.array(SmbCrmActionTriggerViewSchema)
+});
+export const SmbCrmWebhookEventResponseSchema = z.object({
+  ok: z.literal(true),
+  event: SmbCrmWebhookEventViewSchema
+});
+export const SmbCrmImportResponseSchema = z.object({
+  ok: z.literal(true),
+  run: SmbCrmImportRunViewSchema,
+  importedRows: z.number().int().nonnegative(),
+  dedupedRows: z.number().int().nonnegative(),
+  erroredRows: z.number().int().nonnegative(),
+  totalRows: z.number().int().nonnegative(),
+  errors: z.array(z.record(z.string(), z.unknown()))
+});
+export const SmbCrmImportRunListResponseSchema = z.object({
+  importRuns: z.array(SmbCrmImportRunViewSchema)
+});
+export const SmbCrmAccountingExportResponseSchema = z.object({
+  ok: z.literal(true),
+  format: SmbCrmAccountingFormat,
+  entityType: SmbCrmAccountingEntityType,
+  period: z.string().nullable(),
+  columns: z.array(z.string()),
+  rows: z.array(z.record(z.string(), z.unknown())),
+  csv: z.string().optional()
+});
+
+/* ─── block-smb-crm-automations-end ─── */
 
 

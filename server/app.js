@@ -3763,7 +3763,7 @@ function registerApi(app, db, options = {}) {
   app.post("/api/smb-crm/automations", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "smb-crm");
-    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.automation.create");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.blueprint.apply");
     const body = request.body || {};
     const idem = String(body.idempotencyKey || "").trim();
     if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
@@ -3794,7 +3794,7 @@ function registerApi(app, db, options = {}) {
   app.patch("/api/smb-crm/automations/:id", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "smb-crm");
-    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.automation.update");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.blueprint.apply");
     const id = String(request.params.id || "").trim();
     const body = request.body || {};
     const idem = String(body.idempotencyKey || "").trim();
@@ -3816,7 +3816,7 @@ function registerApi(app, db, options = {}) {
   app.delete("/api/smb-crm/automations/:id", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "smb-crm");
-    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.automation.delete");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.blueprint.apply");
     const id = String(request.params.id || "").trim();
     const body = request.body || {};
     const idem = String(body.idempotencyKey || "").trim();
