@@ -3700,6 +3700,401 @@ function registerApi(app, db, options = {}) {
   });
 
 
+  // ─── SMB CRM — Automations + webhooks + outbound + integrations +
+  //     import + accounting export (Track 4) ─────────────────────────────
+  // The pure engines live in:
+  //   server/smbCrmAutomations.js
+  //   server/smbCrmOutbound.js
+  //   server/smbCrmWebhooks.js
+  //   server/smbCrmImport.js
+  //   server/smbCrmAccounting.js
+  //   server/smbCrmIntegration.js
+  //
+  // All routes follow the Pattern A spine (auth → requireAppAccess
+  // → smbCrmAuth.requireSmbCrmPermission → input validation →
+  // idempotency_keys cache → engine call → audit row → respond).
+  // Webhook inbound routes are an exception: they DON'T require
+  // smbCrmPermission (the caller is a 3rd-party provider) and they
+  // don't go through idempotency_keys (the engine has its own
+  // idempotency_key dedup). The org_id comes from a `?org=...` query
+  // or a header (X-SMB-CRM-Org) so the provider can target the
+  // correct tenant.
+  const autoEngines = {
+    automations: require("./smbCrmAutomations"),
+    outbound:    require("./smbCrmOutbound"),
+    webhooks:    require("./smbCrmWebhooks"),
+    importer:    require("./smbCrmImport"),
+    accounting:  require("./smbCrmAccounting"),
+    integration: require("./smbCrmIntegration")
+  };
+
+  // Helper: cached idempotency-key lookup for routes that opt into it.
+  function _smbCrmIdemHit(orgId, key) {
+    if (!key) return null;
+    const row = db
+      .prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?")
+      .get(orgId, key);
+    return row ? JSON.parse(row.response_json) : null;
+  }
+  function _smbCrmIdemStore(orgId, key, envelope) {
+    if (!key) return;
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), orgId, key, JSON.stringify(envelope), new Date().toISOString());
+  }
+
+  // ── Automations ────────────────────────────────────────────────────
+  // GET /api/smb-crm/automations
+  app.get("/api/smb-crm/automations", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.automation.read");
+    const q = request.query || {};
+    const filters = {
+      triggerEvent: q.triggerEvent,
+      enabled: q.enabled,
+      search: q.search,
+      limit: q.limit
+    };
+    const rows = autoEngines.automations.listAutomations(db, user.org_id, filters);
+    return { automations: rows.map(autoEngines.automations.toAutomationView) };
+  });
+
+  // POST /api/smb-crm/automations
+  app.post("/api/smb-crm/automations", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.automation.create");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const hit = _smbCrmIdemHit(user.org_id, idem);
+    if (hit) return hit;
+    const { idempotencyKey, ...input } = body;
+    const row = autoEngines.automations.createAutomation(db, user.org_id, input, { createdBy: user.id });
+    const envelope = { ok: true, automation: autoEngines.automations.toAutomationView(row) };
+    _smbCrmIdemStore(user.org_id, idem, envelope);
+    audit(db, user.org_id, user.id, "smb_crm.automation.created", {
+      automationId: row.id, idempotencyKey: idem
+    });
+    return envelope;
+  });
+
+  // GET /api/smb-crm/automations/:id
+  app.get("/api/smb-crm/automations/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.automation.read");
+    const id = String(request.params.id || "").trim();
+    const row = autoEngines.automations.getAutomation(db, user.org_id, id);
+    if (!row) { const err = new Error("automation not found"); err.statusCode = 404; throw err; }
+    return { automation: autoEngines.automations.toAutomationView(row) };
+  });
+
+  // PATCH /api/smb-crm/automations/:id
+  app.patch("/api/smb-crm/automations/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.automation.update");
+    const id = String(request.params.id || "").trim();
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const hit = _smbCrmIdemHit(user.org_id, idem);
+    if (hit) return hit;
+    const { idempotencyKey, ...patch } = body;
+    const row = autoEngines.automations.updateAutomation(db, user.org_id, id, patch);
+    if (!row) { const err = new Error("automation not found"); err.statusCode = 404; throw err; }
+    const envelope = { ok: true, automation: autoEngines.automations.toAutomationView(row) };
+    _smbCrmIdemStore(user.org_id, idem, envelope);
+    audit(db, user.org_id, user.id, "smb_crm.automation.updated", {
+      automationId: row.id, idempotencyKey: idem
+    });
+    return envelope;
+  });
+
+  // DELETE /api/smb-crm/automations/:id
+  app.delete("/api/smb-crm/automations/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.automation.delete");
+    const id = String(request.params.id || "").trim();
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const hit = _smbCrmIdemHit(user.org_id, idem);
+    if (hit) return hit;
+    const ok = autoEngines.automations.deleteAutomation(db, user.org_id, id);
+    if (!ok) { const err = new Error("automation not found"); err.statusCode = 404; throw err; }
+    const envelope = { ok: true, deleted: true, id };
+    _smbCrmIdemStore(user.org_id, idem, envelope);
+    audit(db, user.org_id, user.id, "smb_crm.automation.deleted", {
+      automationId: id, idempotencyKey: idem
+    });
+    return envelope;
+  });
+
+  // POST /api/smb-crm/automations/:id/run
+  app.post("/api/smb-crm/automations/:id/run", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.automation.run");
+    const id = String(request.params.id || "").trim();
+    const body = request.body || {};
+    const context = body.context || {};
+    const run = autoEngines.automations.runAutomation(db, user.org_id, id, context);
+    if (!run) { const err = new Error("automation not found"); err.statusCode = 404; throw err; }
+    audit(db, user.org_id, user.id, "smb_crm.automation.run", { automationId: id, runId: run.id });
+    return { ok: true, run: autoEngines.automations.toAutomationRunView(run) };
+  });
+
+  // GET /api/smb-crm/automation-runs (audit log, read-class)
+  app.get("/api/smb-crm/automation-runs", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.automation.read");
+    const q = request.query || {};
+    const filters = {
+      automationId: q.automationId,
+      triggerEvent: q.triggerEvent,
+      status: q.status,
+      limit: q.limit
+    };
+    const rows = autoEngines.automations.listAutomationRuns(db, user.org_id, filters);
+    return { automationRuns: rows.map(autoEngines.automations.toAutomationRunView) };
+  });
+
+  // ── Integrations ───────────────────────────────────────────────────
+  // GET /api/smb-crm/integrations
+  app.get("/api/smb-crm/integrations", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.integration.read");
+    const q = request.query || {};
+    const filters = { status: q.status, environment: q.environment, search: q.search, limit: q.limit };
+    const rows = autoEngines.integration.listIntegrations(db, user.org_id, filters);
+    return { integrations: rows.map(autoEngines.integration.toIntegrationView) };
+  });
+
+  // POST /api/smb-crm/integrations (create / upsert)
+  app.post("/api/smb-crm/integrations", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.integration.manage");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const hit = _smbCrmIdemHit(user.org_id, idem);
+    if (hit) return hit;
+    const { idempotencyKey, ...input } = body;
+    const row = autoEngines.integration.upsertIntegration(db, user.org_id, input);
+    const envelope = { ok: true, integration: autoEngines.integration.toIntegrationView(row) };
+    _smbCrmIdemStore(user.org_id, idem, envelope);
+    audit(db, user.org_id, user.id, "smb_crm.integration.upserted", {
+      integrationKey: row.integration_key, idempotencyKey: idem
+    });
+    return envelope;
+  });
+
+  // POST /api/smb-crm/integrations/:key/secret (rotate)
+  app.post("/api/smb-crm/integrations/:key/secret", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.integration.manage");
+    const key = String(request.params.key || "").trim().toLowerCase();
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const hit = _smbCrmIdemHit(user.org_id, idem);
+    if (hit) return hit;
+    const secret = body.secret;
+    if (secret === undefined || secret === null || String(secret) === "") {
+      const err = new Error("secret is required"); err.statusCode = 400; throw err;
+    }
+    const result = autoEngines.integration.rotateSecret(db, user.org_id, key, secret, user.id);
+    // The secretEcho is returned ONCE; the audit row MUST redact it
+    // (we never write the plaintext anywhere).
+    const envelope = {
+      ok: true,
+      integration: result.view,
+      fingerprint: result.fingerprint,
+      secretEcho: result.secretEcho
+    };
+    _smbCrmIdemStore(user.org_id, idem, envelope);
+    audit(db, user.org_id, user.id, "smb_crm.integration.secret_rotated", {
+      integrationKey: key,
+      fingerprint: result.fingerprint,
+      idempotencyKey: idem,
+      secretEchoRedacted: true
+    });
+    return envelope;
+  });
+
+  // POST /api/smb-crm/integrations/:key/health-check
+  app.post("/api/smb-crm/integrations/:key/health-check", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.integration.manage");
+    const key = String(request.params.key || "").trim().toLowerCase();
+    const row = autoEngines.integration.healthCheck(db, user.org_id, key);
+    if (!row) { const err = new Error("integration not found"); err.statusCode = 404; throw err; }
+    audit(db, user.org_id, user.id, "smb_crm.integration.health_check", { integrationKey: key });
+    return { ok: true, integration: autoEngines.integration.toIntegrationView(row) };
+  });
+
+  // GET /api/smb-crm/integrations/:key/action-triggers
+  app.get("/api/smb-crm/integrations/:key/action-triggers", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.integration.read");
+    const key = String(request.params.key || "").trim().toLowerCase();
+    const integration = autoEngines.integration.getIntegration(db, user.org_id, key);
+    if (!integration) { const err = new Error("integration not found"); err.statusCode = 404; throw err; }
+    const rows = autoEngines.integration.getActionTriggers(db, user.org_id, integration.id);
+    return { actionTriggers: rows.map(autoEngines.integration.toActionTriggerView) };
+  });
+
+  // ── 7 inbound webhook routes (one per channel) ──────────────────────
+  // Contract: the provider posts to /api/smb-crm/webhooks/{channel}
+  // with the org_id resolved from `?org=...` query param or
+  // `X-SMB-CRM-Org` header. The engine handles idempotency.
+  const WEBHOOK_CHANNELS = [
+    "whatsapp", "meta-leads", "telephony", "calendar",
+    "sheets", "email", "payment"
+  ];
+  function _resolveWebhookOrg(request) {
+    const q = request.query || {};
+    const headerOrg = (request.headers && (request.headers["x-smb-crm-org"] || request.headers["X-SMB-CRM-Org"])) || null;
+    const orgId = String(q.org || headerOrg || "").trim();
+    if (!orgId) return null;
+    return orgId;
+  }
+  for (const ch of WEBHOOK_CHANNELS) {
+    app.post(`/api/smb-crm/webhooks/${ch}`, async request => {
+      const orgId = _resolveWebhookOrg(request);
+      if (!orgId) {
+        const err = new Error("org is required (X-SMB-CRM-Org header or ?org query)"); err.statusCode = 400; throw err;
+      }
+      // The org_id is from the caller; we still verify the org
+      // exists (defense in depth).
+      const org = db.prepare("SELECT id FROM organizations WHERE id = ?").get(orgId);
+      if (!org) {
+        const err = new Error("org not found"); err.statusCode = 404; throw err;
+      }
+      const body = request.body || {};
+      const idempotencyKey = body.idempotencyKey || body.event_id || null;
+      const row = autoEngines.webhooks.handleInboundWebhook(db, orgId, ch, body, { idempotencyKey });
+      // No audit row for inbound webhooks (V1: the webhook_events
+      // table is the audit). The idempotency-key dedup at the
+      // engine layer prevents duplicate processing.
+      return { ok: true, event: autoEngines.webhooks.toWebhookEventView(row) };
+    });
+  }
+
+  // ── Outbound (sending) ─────────────────────────────────────────────
+  // POST /api/smb-crm/outbound (queue)
+  app.post("/api/smb-crm/outbound", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.automation.run");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const hit = _smbCrmIdemHit(user.org_id, idem);
+    if (hit) return hit;
+    const { idempotencyKey, ...input } = body;
+    const row = autoEngines.outbound.queueOutbound(db, user.org_id, input);
+    const envelope = { ok: true, message: autoEngines.outbound.toOutboundView(row) };
+    _smbCrmIdemStore(user.org_id, idem, envelope);
+    audit(db, user.org_id, user.id, "smb_crm.outbound.queued", {
+      messageId: row.id, channel: row.channel, idempotencyKey: idem
+    });
+    return envelope;
+  });
+
+  // GET /api/smb-crm/outbound (list)
+  app.get("/api/smb-crm/outbound", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.automation.read");
+    const q = request.query || {};
+    const filters = { channel: q.channel, status: q.status, contactId: q.contactId, limit: q.limit };
+    const rows = autoEngines.outbound.listOutbound(db, user.org_id, filters);
+    return { messages: rows.map(autoEngines.outbound.toOutboundView) };
+  });
+
+  // ── Import ─────────────────────────────────────────────────────────
+  // POST /api/smb-crm/import (CSV upload)
+  app.post("/api/smb-crm/import", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.blueprint.apply");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const hit = _smbCrmIdemHit(user.org_id, idem);
+    if (hit) return hit;
+    const { idempotencyKey, ...input } = body;
+    const result = autoEngines.importer.importCsv(db, user.org_id, input, { createdBy: user.id });
+    const envelope = {
+      ok: true,
+      run: autoEngines.importer.toImportRunView(result.run),
+      importedRows: result.importedRows,
+      dedupedRows: result.dedupedRows,
+      erroredRows: result.erroredRows,
+      totalRows: result.totalRows,
+      errors: result.errors
+    };
+    _smbCrmIdemStore(user.org_id, idem, envelope);
+    audit(db, user.org_id, user.id, "smb_crm.import.completed", {
+      runId: result.run.id,
+      entityType: result.run.entity_type,
+      importedRows: result.importedRows,
+      dedupedRows: result.dedupedRows,
+      erroredRows: result.erroredRows,
+      idempotencyKey: idem
+    });
+    return envelope;
+  });
+
+  // GET /api/smb-crm/import-runs (audit log)
+  app.get("/api/smb-crm/import-runs", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.access");
+    const q = request.query || {};
+    const filters = { entityType: q.entityType, limit: q.limit };
+    const rows = autoEngines.importer.listImportRuns(db, user.org_id, filters);
+    return { importRuns: rows.map(autoEngines.importer.toImportRunView) };
+  });
+
+  // ── Accounting export ─────────────────────────────────────────────
+  // POST /api/smb-crm/accounting-export
+  app.post("/api/smb-crm/accounting-export", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.access");
+    const body = request.body || {};
+    const input = {
+      entityType: body.entityType || "deal",
+      format: body.format || "csv",
+      period: body.period || null
+    };
+    const result = autoEngines.accounting.exportAccounting(db, user.org_id, input);
+    audit(db, user.org_id, user.id, "smb_crm.accounting_export.completed", {
+      entityType: input.entityType, format: input.format, period: input.period, rowCount: result.rows.length
+    });
+    return {
+      ok: true,
+      format: result.format,
+      entityType: result.entityType,
+      period: result.period,
+      columns: result.columns,
+      rows: result.rows,
+      csv: result.csv
+    };
+  });
+
+
   // ─── Inbox + bulk enrich (v0.5) ────────────────────────────────────────
   app.get("/api/crm/tube/inbox", async request => {
     const user = await app.auth(request);
