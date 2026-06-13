@@ -14,6 +14,7 @@ msgstr ""
 "Plural-Forms: \n"
 
 #: src/components/shared/BulkActionBar.tsx:98
+#: src/routes/app/fiscal-gates/index.tsx:390
 msgid "{count} selected"
 msgstr "{count} selected"
 
@@ -21,9 +22,26 @@ msgstr "{count} selected"
 msgid "A1 Suite"
 msgstr "A1 Suite"
 
+#: src/lib/fiscal/labels.tsx:146
+#: src/lib/fiscal/labels.tsx:203
+msgid "Acknowledge"
+msgstr "Acknowledge"
+
+#: src/lib/fiscal/labels.tsx:108
+#: src/lib/fiscal/labels.tsx:167
+msgid "Acknowledged"
+msgstr "Acknowledged"
+
 #: src/routes/app/ask-ai/index.tsx:258
 msgid "AI"
 msgstr "AI"
+
+#: src/routes/app/fiscal-gates/index.tsx:188
+#: src/routes/app/fiscal-gates/index.tsx:310
+#: src/routes/app/triage-inbox/index.tsx:208
+#: src/routes/app/triage-inbox/index.tsx:419
+msgid "Amount"
+msgstr "Amount"
 
 #: src/components/ai/AskAiPanel.tsx:301
 #: src/routes/app/ask-ai/index.tsx:218
@@ -65,6 +83,15 @@ msgstr "Bucket"
 msgid "Cancel"
 msgstr "Cancel"
 
+#: src/routes/app/fiscal-gates/index.tsx:167
+#: src/routes/app/fiscal-gates/index.tsx:288
+msgid "Category"
+msgstr "Category"
+
+#: src/routes/app/fiscal-gates/index.tsx:410
+msgid "Clear"
+msgstr "Clear"
+
 #: src/components/shared/PeekPanel.tsx:119
 msgid "Close"
 msgstr "Close"
@@ -85,9 +112,23 @@ msgstr "Context:"
 msgid "Couldn't reach the AI. Showing a stub answer instead."
 msgstr "Couldn't reach the AI. Showing a stub answer instead."
 
+#: src/routes/app/fiscal-gates/index.tsx:213
+msgid "Current period"
+msgstr "Current period"
+
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:129
 msgid "Customers"
 msgstr "Customers"
+
+#: src/lib/fiscal/labels.tsx:137
+#: src/lib/fiscal/labels.tsx:195
+msgid "Customs"
+msgstr "Customs"
+
+#: src/lib/fiscal/labels.tsx:64
+#: src/lib/fiscal/labels.tsx:231
+msgid "Customs declaration (monthly)"
+msgstr "Customs declaration (monthly)"
 
 #: src/routes/app/analytics/index.tsx:110
 msgid "Dashboard"
@@ -101,9 +142,19 @@ msgstr "Delete"
 msgid "Delete view"
 msgstr "Delete view"
 
+#: src/routes/app/triage-inbox/index.tsx:198
+msgid "Detail"
+msgstr "Detail"
+
 #: src/components/shared/PeekPanel.tsx:114
+#: src/routes/app/triage-inbox/index.tsx:383
 msgid "Details"
 msgstr "Details"
+
+#: src/routes/app/fiscal-gates/index.tsx:174
+#: src/routes/app/fiscal-gates/index.tsx:304
+msgid "Due"
+msgstr "Due"
 
 #: src/routes/app/ask-ai/index.tsx:205
 msgid "Enter to ask · Shift+Enter for newline"
@@ -113,6 +164,36 @@ msgstr "Enter to ask · Shift+Enter for newline"
 msgid "entity"
 msgstr "entity"
 
+#: src/lib/fiscal/labels.tsx:135
+#: src/lib/fiscal/labels.tsx:193
+msgid "Environmental"
+msgstr "Environmental"
+
+#: src/lib/fiscal/labels.tsx:62
+#: src/lib/fiscal/labels.tsx:229
+msgid "Environmental fee (annual)"
+msgstr "Environmental fee (annual)"
+
+#: src/lib/fiscal/labels.tsx:150
+#: src/lib/fiscal/labels.tsx:207
+msgid "Escalate"
+msgstr "Escalate"
+
+#: src/lib/fiscal/labels.tsx:114
+#: src/lib/fiscal/labels.tsx:173
+msgid "Escalated"
+msgstr "Escalated"
+
+#: src/lib/fiscal/labels.tsx:133
+#: src/lib/fiscal/labels.tsx:191
+msgid "Excise"
+msgstr "Excise"
+
+#: src/lib/fiscal/labels.tsx:60
+#: src/lib/fiscal/labels.tsx:227
+msgid "Excise (quarterly)"
+msgstr "Excise (quarterly)"
+
 #: src/components/shared/BulkActionBar.tsx:45
 msgid "Export CSV"
 msgstr "Export CSV"
@@ -121,6 +202,35 @@ msgstr "Export CSV"
 msgid "Failed to load receivables aging."
 msgstr "Failed to load receivables aging."
 
+#: src/lib/fiscal/labels.tsx:96
+msgid "File the annual corporate income-tax return."
+msgstr "File the annual corporate income-tax return."
+
+#: src/lib/fiscal/labels.tsx:78
+msgid "File the monthly VAT return with the tax authority."
+msgstr "File the monthly VAT return with the tax authority."
+
+#: src/lib/fiscal/labels.tsx:90
+msgid "File the quarterly excise return and remit the tax owed."
+msgstr "File the quarterly excise return and remit the tax owed."
+
+#: src/lib/fiscal/labels.tsx:110
+#: src/lib/fiscal/labels.tsx:169
+msgid "Filed"
+msgstr "Filed"
+
+#: src/routes/app/fiscal-gates/index.tsx:207
+msgid "Fiscal gates"
+msgstr "Fiscal gates"
+
+#: src/routes/app/fiscal-gates/index.tsx:160
+msgid "Gate"
+msgstr "Gate"
+
+#: src/routes/app/fiscal-gates/index.tsx:277
+msgid "Gate details"
+msgstr "Gate details"
+
 #: src/routes/app/ask-ai/index.tsx:142
 msgid "Go back"
 msgstr "Go back"
@@ -128,6 +238,11 @@ msgstr "Go back"
 #: src/routes/app/ask-ai/index.tsx:130
 msgid "id"
 msgstr "id"
+
+#: src/lib/fiscal/labels.tsx:66
+#: src/lib/fiscal/labels.tsx:233
+msgid "Income tax (annual)"
+msgstr "Income tax (annual)"
 
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:118
 msgid "Invoices"
@@ -140,6 +255,22 @@ msgstr "Label"
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:177
 msgid "Loading receivables…"
 msgstr "Loading receivables…"
+
+#: src/lib/fiscal/labels.tsx:148
+#: src/lib/fiscal/labels.tsx:205
+msgid "Mark filed"
+msgstr "Mark filed"
+
+#. placeholder {0}: ids.length
+#: src/routes/app/fiscal-gates/index.tsx:133
+msgid "Marked {0} gate(s) as filed"
+msgstr "Marked {0} gate(s) as filed"
+
+#. placeholder {0}: ids.length
+#. placeholder {1}: ids.length === 1 ? "" : "s"
+#: src/routes/app/triage-inbox/index.tsx:298
+msgid "Marked {0} item{1} as resolved"
+msgstr "Marked {0} item{1} as resolved"
 
 #: src/routes/app/analytics/index.tsx:112
 msgid "Metrics"
@@ -157,6 +288,15 @@ msgstr "Next"
 msgid "No buckets in this period"
 msgstr "No buckets in this period"
 
+#: src/lib/fiscal/labels.tsx:75
+#: src/lib/fiscal/labels.tsx:98
+msgid "No description"
+msgstr "No description"
+
+#: src/routes/app/triage-inbox/index.tsx:370
+msgid "No items match this view"
+msgstr "No items match this view"
+
 #: src/routes/app/ask-ai/index.tsx:151
 msgid "No questions yet. Ask one below to see the stub answer and citation chips."
 msgstr "No questions yet. Ask one below to see the stub answer and citation chips."
@@ -169,6 +309,10 @@ msgstr "No results"
 msgid "No saved views yet"
 msgstr "No saved views yet"
 
+#: src/routes/app/triage-inbox/index.tsx:325
+msgid "One queue for every \"needs your attention\" item across invoices, tax gates, approvals, customer replies, fleet, and purchase orders."
+msgstr "One queue for every \"needs your attention\" item across invoices, tax gates, approvals, customer replies, fleet, and purchase orders."
+
 #: src/components/shell/Topbar.tsx:223
 #: src/components/shell/Topbar.tsx:226
 msgid "Open the Ask AI assistant sidebar"
@@ -178,11 +322,71 @@ msgstr "Open the Ask AI assistant sidebar"
 msgid "Open the full page"
 msgstr "Open the full page"
 
+#: src/lib/fiscal/labels.tsx:43
+#: src/lib/fiscal/labels.tsx:68
+#: src/lib/fiscal/labels.tsx:139
+#: src/lib/fiscal/labels.tsx:197
+#: src/lib/fiscal/labels.tsx:212
+#: src/lib/fiscal/labels.tsx:235
+msgid "Other"
+msgstr "Other"
+
+#: src/lib/fiscal/labels.tsx:112
+#: src/lib/fiscal/labels.tsx:171
+msgid "Overdue"
+msgstr "Overdue"
+
+#: src/routes/app/triage-inbox/index.tsx:234
+#: src/routes/app/triage-inbox/index.tsx:401
+msgid "Owner"
+msgstr "Owner"
+
 #. placeholder {0}: pageIndex + 1
 #. placeholder {1}: Math.max(1, pageCount)
 #: src/components/shared/DataTable.tsx:410
 msgid "Page {0} of {1}"
 msgstr "Page {0} of {1}"
+
+#: src/lib/fiscal/labels.tsx:86
+msgid "Pay mandatory pension contributions for the quarter."
+msgstr "Pay mandatory pension contributions for the quarter."
+
+#: src/lib/fiscal/labels.tsx:84
+msgid "Pay social-security contributions for the period."
+msgstr "Pay social-security contributions for the period."
+
+#: src/lib/fiscal/labels.tsx:92
+msgid "Pay the annual environmental-protection fee."
+msgstr "Pay the annual environmental-protection fee."
+
+#: src/lib/fiscal/labels.tsx:123
+#: src/lib/fiscal/labels.tsx:181
+msgid "Payroll tax"
+msgstr "Payroll tax"
+
+#: src/lib/fiscal/labels.tsx:50
+#: src/lib/fiscal/labels.tsx:217
+msgid "Payroll tax (monthly)"
+msgstr "Payroll tax (monthly)"
+
+#: src/lib/fiscal/labels.tsx:106
+#: src/lib/fiscal/labels.tsx:165
+msgid "Pending"
+msgstr "Pending"
+
+#: src/lib/fiscal/labels.tsx:129
+#: src/lib/fiscal/labels.tsx:187
+msgid "Pension"
+msgstr "Pension"
+
+#: src/lib/fiscal/labels.tsx:56
+#: src/lib/fiscal/labels.tsx:223
+msgid "Pension contribution (quarterly)"
+msgstr "Pension contribution (quarterly)"
+
+#: src/routes/app/fiscal-gates/index.tsx:342
+msgid "Period"
+msgstr "Period"
 
 #: src/components/ai/AskAiPanel.tsx:292
 msgid "Press Enter to ask · Shift+Enter for newline"
@@ -192,9 +396,22 @@ msgstr "Press Enter to ask · Shift+Enter for newline"
 msgid "Prev"
 msgstr "Prev"
 
+#: src/routes/app/triage-inbox/index.tsx:221
+#: src/routes/app/triage-inbox/index.tsx:411
+msgid "Raised"
+msgstr "Raised"
+
 #: src/routes/app/analytics/index.tsx:111
 msgid "Receivables"
 msgstr "Receivables"
+
+#: src/lib/fiscal/labels.tsx:80
+msgid "Remit income tax withheld from employee salaries."
+msgstr "Remit income tax withheld from employee salaries."
+
+#: src/lib/fiscal/labels.tsx:82
+msgid "Remit tax withheld on payments to non-resident contractors."
+msgstr "Remit tax withheld on payments to non-resident contractors."
 
 #: src/components/shared/SavedViews.tsx:178
 #: src/components/shared/SavedViews.tsx:205
@@ -204,6 +421,10 @@ msgstr "Rename view"
 #: src/routes/app/analytics/index.tsx:114
 msgid "Reports"
 msgstr "Reports"
+
+#: src/routes/app/triage-inbox/index.tsx:365
+msgid "Reset"
+msgstr "Reset"
 
 #: src/components/shared/SavedViews.tsx:186
 #: src/components/shared/SavedViews.tsx:245
@@ -228,9 +449,48 @@ msgstr "Showing {0}–{1} of {totalRows}"
 msgid "Snapshots"
 msgstr "Snapshots"
 
+#: src/lib/fiscal/labels.tsx:127
+#: src/lib/fiscal/labels.tsx:185
+msgid "Social contribution"
+msgstr "Social contribution"
+
+#: src/lib/fiscal/labels.tsx:54
+#: src/lib/fiscal/labels.tsx:221
+msgid "Social contribution (monthly)"
+msgstr "Social contribution (monthly)"
+
+#: src/routes/app/triage-inbox/index.tsx:169
+msgid "Source"
+msgstr "Source"
+
+#: src/lib/fiscal/labels.tsx:131
+#: src/lib/fiscal/labels.tsx:189
+msgid "Statistical"
+msgstr "Statistical"
+
+#: src/lib/fiscal/labels.tsx:58
+#: src/lib/fiscal/labels.tsx:225
+msgid "Statistical return (monthly)"
+msgstr "Statistical return (monthly)"
+
+#: src/routes/app/fiscal-gates/index.tsx:181
+#: src/routes/app/fiscal-gates/index.tsx:296
+#: src/routes/app/triage-inbox/index.tsx:244
+#: src/routes/app/triage-inbox/index.tsx:407
+msgid "Status"
+msgstr "Status"
+
 #: src/components/ai/AskAiPanel.tsx:300
 msgid "Stop generating"
 msgstr "Stop generating"
+
+#: src/lib/fiscal/labels.tsx:94
+msgid "Submit the consolidated customs declaration for the month."
+msgstr "Submit the consolidated customs declaration for the month."
+
+#: src/lib/fiscal/labels.tsx:88
+msgid "Submit the monthly statistical report to the statistical office."
+msgstr "Submit the monthly statistical report to the statistical office."
 
 #: src/components/shared/BulkActionBar.tsx:51
 msgid "Tag"
@@ -239,6 +499,10 @@ msgstr "Tag"
 #: src/components/ai/AskAiPanel.tsx:392
 msgid "The answer is a UI-only stub in Phase 10.5 — no data leaves your browser."
 msgstr "The answer is a UI-only stub in Phase 10.5 — no data leaves your browser."
+
+#: src/routes/app/triage-inbox/index.tsx:188
+msgid "Title"
+msgstr "Title"
 
 #: src/routes/app/analytics/index.tsx:164
 msgid "Today"
@@ -252,13 +516,32 @@ msgstr "Total"
 msgid "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
 msgstr "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
 
+#: src/routes/app/triage-inbox/index.tsx:322
+msgid "Triage inbox"
+msgstr "Triage inbox"
+
 #: src/routes/app/ask-ai/index.tsx:189
 msgid "Type a question — the stub echoes a canned answer with citation chips for the current context."
 msgstr "Type a question — the stub echoes a canned answer with citation chips for the current context."
 
+#: src/routes/app/triage-inbox/index.tsx:238
+#: src/routes/app/triage-inbox/index.tsx:404
+msgid "Unassigned"
+msgstr "Unassigned"
+
 #: src/components/shared/UndoToast.tsx:120
 msgid "Undo"
 msgstr "Undo"
+
+#: src/lib/fiscal/labels.tsx:121
+#: src/lib/fiscal/labels.tsx:179
+msgid "VAT"
+msgstr "VAT"
+
+#: src/lib/fiscal/labels.tsx:48
+#: src/lib/fiscal/labels.tsx:215
+msgid "VAT return (monthly)"
+msgstr "VAT return (monthly)"
 
 #: src/components/shared/SavedViews.tsx:236
 msgid "View name"
@@ -267,6 +550,16 @@ msgstr "View name"
 #: src/components/shared/SavedViews.tsx:137
 msgid "Views"
 msgstr "Views"
+
+#: src/lib/fiscal/labels.tsx:125
+#: src/lib/fiscal/labels.tsx:183
+msgid "Withholding"
+msgstr "Withholding"
+
+#: src/lib/fiscal/labels.tsx:52
+#: src/lib/fiscal/labels.tsx:219
+msgid "Withholding tax (monthly)"
+msgstr "Withholding tax (monthly)"
 
 #: src/routes/app/ask-ai/index.tsx:252
 msgid "You"
