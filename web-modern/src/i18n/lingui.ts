@@ -113,17 +113,14 @@ export const activateLocale = async (l: Locale): Promise<void> => {
  *   source of truth for "was this actually translated?", and we
  *   don't want the runtime to read .po files. So: explicit allowlist,
  *   one entry per locale, flipped by the worker.
- *
- * Once both `ru` and `en` are flipped to `true`, this constant and
- * the banner condition in `I18nProvider.tsx` can be deleted in a
- * follow-up commit.
  */
 const TRANSLATED_LOCALES: Record<Locale, boolean> = {
   hy: true,
-  ru: false,
-  en: false,
+  ru: true,
+  en: true,
 };
 
 export const hasTranslation = (l: Locale): boolean => TRANSLATED_LOCALES[l];
 
 export { i18n };
+
