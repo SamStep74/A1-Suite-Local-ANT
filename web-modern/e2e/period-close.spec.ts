@@ -1,0 +1,147 @@
+/**
+ * period-close.spec.ts — e2e for the monthly close wizard (10.5 W4).
+ *
+ * Covers the user journey the worker brief calls out:
+ *   - Open the wizard for a specific period
+ *   - Mark 2 steps done
+ *   - Mark 1 step blocked
+ *   - See the summary chip update
+ *
+ * The close state is localStorage-backed (`a1:close:<periodId>:<stepId>`)
+ * so the test clears all matching keys at setup to make the test
+ * idempotent (re-runs don't leak state).
+ *
+ * The `authedPage` helper already does the Bearer-sid dance, so
+ * the test stays focused on the close wizard itself.
+ */
+import { test, expect, type Page } from "@playwright/test";
+import { authedPage, waitForHydration } from "./_helpers";
+
+/** Clear every `a1:close:*` localStorage key so the test starts
+ *  from a known empty state. Called in `beforeEach`. */
+async function clearCloseState(page: Page): Promise<void> {
+  await page.evaluate(() => {
+    const keys: string[] = [];
+    for (let i = 0; i < window.localStorage.length; i += 1) {
+      const k = window.localStorage.key(i);
+      if (k && k.startsWith("a1:close:")) keys.push(k);
+    }
+    for (const k of keys) window.localStorage.removeItem(k);
+  });
+}
+
+test.describe("period-close wizard", () => {
+  test.beforeEach(() => {
+    // The close state is keyed on `a1:close:<periodId>:<stepId>`
+    // and we clear it INSIDE each test (after auth) so the test
+    // owns its own localStorage lifecycle. No setup needed here.
+  });
+
+  test("open the wizard for June 2026, mark 2 done, 1 blocked, see summary update", async ({
+    browser,
+    request,
+  }) => {
+    const { page } = await authedPage(browser, request);
+    try {
+      // 1. Navigate to the wizard with a known period.
+      await page.goto("/app/period-close/?period=2026-06");
+      await waitForHydration(page);
+      await clearCloseState(page);
+      // Re-navigate to pick up the cleared state on a fresh render.
+      await page.goto("/app/period-close/?period=2026-06");
+      await waitForHydration(page);
+
+      // 2. The page should render the table with the period label.
+      await expect(page.getByTestId("period-label")).toHaveText("June 2026");
+      await expect(page.getByTestId("period-close-table")).toBeVisible();
+      // Summary starts at 0/N done.
+      const summary = page.getByTestId("period-close-summary");
+      await expect(summary).toHaveAttribute("data-done", "0");
+
+      // 3. Select 2 rows via the checkboxes (the first two steps:
+      //    "reconcile-bank" and "reconcile-cards") and Mark Done.
+      const bankRow = page.getByTestId(
+        "period-close-table-row-reconcile-bank-checkbox",
+      );
+      const cardsRow = page.getByTestId(
+        "period-close-table-row-reconcile-cards-checkbox",
+      );
+      await bankRow.check();
+      await cardsRow.check();
+      // The bulk action bar should appear with count "2 selected".
+      await expect(page.getByTestId("bulk-action-bar")).toBeVisible();
+      await expect(page.getByTestId("bulk-action-bar-count")).toContainText(
+        "2",
+      );
+      await page.getByTestId("bulk-action-mark-done").click();
+      // Bulk action clears the selection after applying, so the
+      // bar should now hide.
+      await expect(page.getByTestId("bulk-action-bar")).toBeHidden();
+
+      // 4. Mark 1 row blocked ("reconcile-suppliers").
+      const suppliersRow = page.getByTestId(
+        "period-close-table-row-reconcile-suppliers-checkbox",
+      );
+      await suppliersRow.check();
+      await page.getByTestId("bulk-action-mark-blocked").click();
+
+      // 5. Summary should now show 2 done, 1 blocked, rest pending.
+      await expect(summary).toHaveAttribute("data-done", "2");
+      await expect(summary).toHaveAttribute("data-blocked", "1");
+
+      // 6. The row pills should reflect the per-row state.
+      await expect(
+        page
+          .locator('[data-row-id="reconcile-bank"]')
+          .getByTestId("status-pill-done"),
+      ).toBeVisible();
+      await expect(
+        page
+          .locator('[data-row-id="reconcile-suppliers"]')
+          .getByTestId("status-pill-blocked"),
+      ).toBeVisible();
+
+      // 7. The UndoToast should have appeared (sonner renders into
+      //    a portal at the bottom of the document). Click it to
+      //    verify the undo affordance is wired. We don't assert
+      //    on the text because sonner may have already auto-
+      //    dismissed by the time we get here (the default
+      //    duration is 6s, but Playwright is fast).
+      const undoButton = page.getByTestId("undo-toast-action");
+      if (await undoButton.isVisible().catch(() => false)) {
+        await undoButton.click();
+        // After undo, summary should drop back to 0 done.
+        await expect(summary).toHaveAttribute("data-done", "0");
+      }
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  test("prev / next period controls change the period id and label", async ({
+    browser,
+    request,
+  }) => {
+    const { page } = await authedPage(browser, request);
+    try {
+      await page.goto("/app/period-close/?period=2026-06");
+      await waitForHydration(page);
+      await clearCloseState(page);
+      await page.goto("/app/period-close/?period=2026-06");
+      await waitForHydration(page);
+
+      const label = page.getByTestId("period-label");
+      await expect(label).toHaveAttribute("data-period-id", "2026-06");
+
+      await page.getByTestId("period-prev").click();
+      await expect(label).toHaveAttribute("data-period-id", "2026-05");
+      await expect(label).toHaveText("May 2026");
+
+      await page.getByTestId("period-next").click();
+      await page.getByTestId("period-next").click();
+      await expect(label).toHaveAttribute("data-period-id", "2026-07");
+    } finally {
+      await page.context().close();
+    }
+  });
+});

@@ -18,6 +18,7 @@ import { Route as AppCopilotRouteImport } from './routes/app/copilot'
 import { Route as AppAppIdRouteImport } from './routes/app/$appId'
 import { Route as AppPurchaseIndexRouteImport } from './routes/app/purchase/index'
 import { Route as AppProjectsIndexRouteImport } from './routes/app/projects/index'
+import { Route as AppPeriodCloseIndexRouteImport } from './routes/app/period-close/index'
 import { Route as AppPeopleIndexRouteImport } from './routes/app/people/index'
 import { Route as AppInventoryIndexRouteImport } from './routes/app/inventory/index'
 import { Route as AppHealthcheckIndexRouteImport } from './routes/app/healthcheck/index'
@@ -107,6 +108,11 @@ const AppPurchaseIndexRoute = AppPurchaseIndexRouteImport.update({
 const AppProjectsIndexRoute = AppProjectsIndexRouteImport.update({
   id: '/projects/',
   path: '/projects/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppPeriodCloseIndexRoute = AppPeriodCloseIndexRouteImport.update({
+  id: '/period-close/',
+  path: '/period-close/',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppPeopleIndexRoute = AppPeopleIndexRouteImport.update({
@@ -384,6 +390,7 @@ export interface FileRoutesByFullPath {
   '/app/healthcheck/': typeof AppHealthcheckIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
+  '/app/period-close/': typeof AppPeriodCloseIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
@@ -438,6 +445,7 @@ export interface FileRoutesByTo {
   '/app/healthcheck': typeof AppHealthcheckIndexRoute
   '/app/inventory': typeof AppInventoryIndexRoute
   '/app/people': typeof AppPeopleIndexRoute
+  '/app/period-close': typeof AppPeriodCloseIndexRoute
   '/app/projects': typeof AppProjectsIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
@@ -495,6 +503,7 @@ export interface FileRoutesById {
   '/app/healthcheck/': typeof AppHealthcheckIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
+  '/app/period-close/': typeof AppPeriodCloseIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
@@ -553,6 +562,7 @@ export interface FileRouteTypes {
     | '/app/healthcheck/'
     | '/app/inventory/'
     | '/app/people/'
+    | '/app/period-close/'
     | '/app/projects/'
     | '/app/purchase/'
     | '/app/crm-tube/contacts/$contactId'
@@ -607,6 +617,7 @@ export interface FileRouteTypes {
     | '/app/healthcheck'
     | '/app/inventory'
     | '/app/people'
+    | '/app/period-close'
     | '/app/projects'
     | '/app/purchase'
     | '/app/crm-tube/contacts/$contactId'
@@ -663,6 +674,7 @@ export interface FileRouteTypes {
     | '/app/healthcheck/'
     | '/app/inventory/'
     | '/app/people/'
+    | '/app/period-close/'
     | '/app/projects/'
     | '/app/purchase/'
     | '/app/crm-tube/contacts/$contactId'
@@ -749,6 +761,13 @@ declare module '@tanstack/react-router' {
       path: '/projects'
       fullPath: '/app/projects/'
       preLoaderRoute: typeof AppProjectsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/period-close/': {
+      id: '/app/period-close/'
+      path: '/period-close'
+      fullPath: '/app/period-close/'
+      preLoaderRoute: typeof AppPeriodCloseIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/people/': {
@@ -1119,6 +1138,7 @@ interface AppRouteRouteChildren {
   AppHealthcheckIndexRoute: typeof AppHealthcheckIndexRoute
   AppInventoryIndexRoute: typeof AppInventoryIndexRoute
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
+  AppPeriodCloseIndexRoute: typeof AppPeriodCloseIndexRoute
   AppProjectsIndexRoute: typeof AppProjectsIndexRoute
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
   AppCrmTubeContactsContactIdRoute: typeof AppCrmTubeContactsContactIdRoute
@@ -1169,6 +1189,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppHealthcheckIndexRoute: AppHealthcheckIndexRoute,
   AppInventoryIndexRoute: AppInventoryIndexRoute,
   AppPeopleIndexRoute: AppPeopleIndexRoute,
+  AppPeriodCloseIndexRoute: AppPeriodCloseIndexRoute,
   AppProjectsIndexRoute: AppProjectsIndexRoute,
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,
   AppCrmTubeContactsContactIdRoute: AppCrmTubeContactsContactIdRoute,

@@ -13,12 +13,92 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: src/routes/app/period-close/index.tsx:407
+msgid "{blocked} blocked"
+msgstr ""
+
+#: src/components/shared/BulkActionBar.tsx:82
+msgid "{count} selected"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:386
+msgid "{done} of {total} done"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:404
+msgid "{pending} pending"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:410
+msgid "{skipped} skipped"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:305
+msgid "Back"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:438
+msgid "Blocked"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:197
+msgid "Category"
+msgstr ""
+
+#: src/components/shared/BulkActionBar.tsx:107
+msgid "Clear"
+msgstr ""
+
 #: src/routes/app/analytics/index.tsx:109
 msgid "Dashboard"
 msgstr ""
 
+#: src/routes/app/period-close/index.tsx:427
+msgid "Done"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:160
+msgid "Mark blocked"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:149
+msgid "Mark done"
+msgstr ""
+
 #: src/routes/app/analytics/index.tsx:111
 msgid "Metrics"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:333
+msgid "Next month"
+msgstr ""
+
+#: src/components/shared/DataTable.tsx:151
+msgid "No rows"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:269
+msgid "No steps in this checklist."
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:234
+msgid "Owner"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:459
+msgid "Pending"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:308
+msgid "Period close"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:268
+msgid "Period close checklist"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:317
+msgid "Previous month"
 msgstr ""
 
 #: src/routes/app/analytics/index.tsx:110
@@ -29,10 +109,34 @@ msgstr ""
 msgid "Reports"
 msgstr ""
 
+#: src/routes/app/period-close/index.tsx:171
+msgid "Skip"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:449
+msgid "Skipped"
+msgstr ""
+
 #: src/routes/app/analytics/index.tsx:112
 msgid "Snapshots"
 msgstr ""
 
+#: src/routes/app/period-close/index.tsx:191
+msgid "Status"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:212
+msgid "Step"
+msgstr ""
+
 #: src/routes/app/analytics/index.tsx:163
 msgid "Today"
+msgstr ""
+
+#: src/i18n/I18nProvider.tsx:92
+msgid "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
+msgstr ""
+
+#: src/components/shared/UndoToast.tsx:73
+msgid "Undo"
 msgstr ""
