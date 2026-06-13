@@ -3345,6 +3345,209 @@ function registerApi(app, db, options = {}) {
     return envelope;
   });
 
+  // ─── Records (M14.5–M14.10) ────────────────────────────────────────
+  // 30 thin routes + 1 merge route for the 6 runtime entities
+  // (customers / deals / todo_tasks / quotes / activities / goals).
+  // Pattern A spine: auth → requireAppAccess("smb-crm") →
+  // smbCrmAuth.requireSmbCrmPermission (smb_crm.access for reads,
+  // smb_crm.blueprint.apply for writes — the foundation's
+  // permission set is reused; no new smb_crm.* codes are added
+  // in the records track) → idempotency_keys check → validate →
+  // engine call → audit_events.
+  //
+  // The pure engine lives in `server/smbCrmRecords.js`. Mirrors
+  // `server/smbCrmTenants.js` shape: every function takes `db`
+  // first, throws typed errors with `statusCode`, and never
+  // imports `fastify` or `node:sqlite`.
+  const records = require("./smbCrmRecords");
+
+  // Helper: wrap a records-engine mutation in the standard
+  // idempotency + audit spine. Returns the JSON envelope.
+  async function recordsCreateRoute(request, entity, auditType) {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.blueprint.apply");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const { idempotencyKey, ...input } = body;
+    const view = entity.toView(entity.create(db, user.org_id, input));
+    const envelope = { ok: true, [entity.viewKey]: view };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, auditType, { [entity.viewKey + "Id"]: view.id, idempotencyKey: idem });
+    return envelope;
+  }
+
+  async function recordsUpdateRoute(request, entity, idParam, auditType) {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.blueprint.apply");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const id = String(idParam || "").trim();
+    const { idempotencyKey, ...patch } = body;
+    const updated = entity.update(db, user.org_id, id, patch);
+    if (!updated) { const err = new Error(`${entity.viewKey} not found`); err.statusCode = 404; throw err; }
+    const view = entity.toView(updated);
+    const envelope = { ok: true, [entity.viewKey]: view };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, auditType, { [entity.viewKey + "Id"]: view.id, idempotencyKey: idem });
+    return envelope;
+  }
+
+  async function recordsDeleteRoute(request, entity, idParam, auditType) {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.blueprint.apply");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const id = String(idParam || "").trim();
+    const ok = entity.delete(db, user.org_id, id);
+    if (!ok) { const err = new Error(`${entity.viewKey} not found`); err.statusCode = 404; throw err; }
+    const envelope = { ok: true, deleted: true, id };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, auditType, { [entity.viewKey + "Id"]: id, idempotencyKey: idem });
+    return envelope;
+  }
+
+  async function recordsListRoute(request, entity) {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.access");
+    const q = request.query || {};
+    const rows = entity.list(db, user.org_id, q);
+    return { [entity.listKey]: rows.map(entity.toView) };
+  }
+
+  async function recordsGetRoute(request, entity, idParam) {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.access");
+    const id = String(idParam || "").trim();
+    const row = entity.get(db, user.org_id, id);
+    if (!row) { const err = new Error(`${entity.viewKey} not found`); err.statusCode = 404; throw err; }
+    return { [entity.viewKey]: entity.toView(row) };
+  }
+
+  // ── Entity descriptors. The descriptor wires the entity to its
+  // pure engine functions so the helpers above can be reused for
+  // all 6 entities without copy-paste.
+  const customerEntity = {
+    viewKey: "customer", listKey: "customers",
+    create: records.createCustomer, get: records.getCustomer,
+    list: records.listCustomers, update: records.updateCustomer,
+    delete: records.deleteCustomer, toView: records.toCustomerView
+  };
+  const dealEntity = {
+    viewKey: "deal", listKey: "deals",
+    create: records.createDeal, get: records.getDeal,
+    list: records.listDeals, update: records.updateDeal,
+    delete: records.deleteDeal, toView: records.toDealView
+  };
+  const taskEntity = {
+    viewKey: "task", listKey: "tasks",
+    create: records.createTask, get: records.getTask,
+    list: records.listTasks, update: records.updateTask,
+    delete: records.deleteTask, toView: records.toTaskView
+  };
+  const quoteEntity = {
+    viewKey: "quote", listKey: "quotes",
+    create: records.createQuote, get: records.getQuote,
+    list: records.listQuotes, update: records.updateQuote,
+    delete: records.deleteQuote, toView: records.toQuoteView
+  };
+  const activityEntity = {
+    viewKey: "activity", listKey: "activities",
+    create: records.createActivity, get: records.getActivity,
+    list: records.listActivities, update: records.updateActivity,
+    delete: records.deleteActivity, toView: records.toActivityView
+  };
+  const goalEntity = {
+    viewKey: "goal", listKey: "goals",
+    create: records.createGoal, get: records.getGoal,
+    list: records.listGoals, update: records.updateGoal,
+    delete: records.deleteGoal, toView: records.toGoalView
+  };
+
+  // ── Customers (6 routes) ───────────────────────────────────────
+  app.get("/api/smb-crm/customers", request => recordsListRoute(request, customerEntity));
+  app.post("/api/smb-crm/customers", request => recordsCreateRoute(request, customerEntity, "smb_crm.customer.created"));
+  app.get("/api/smb-crm/customers/:id", request => recordsGetRoute(request, customerEntity, request.params.id));
+  app.patch("/api/smb-crm/customers/:id", request => recordsUpdateRoute(request, customerEntity, request.params.id, "smb_crm.customer.updated"));
+  app.delete("/api/smb-crm/customers/:id", request => recordsDeleteRoute(request, customerEntity, request.params.id, "smb_crm.customer.deleted"));
+  app.post("/api/smb-crm/customers/merge", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.blueprint.apply");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const { idempotencyKey, ...input } = body;
+    const result = records.mergeCustomers(db, user.org_id, input);
+    const envelope = { ok: true, merge: {
+      survivorId: result.survivorId,
+      loserId: result.loserId,
+      survivor: records.toCustomerView(result.survivor),
+      loser: records.toCustomerView(result.loser)
+    }};
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "smb_crm.customer.merged", {
+      survivorId: result.survivorId, loserId: result.loserId, idempotencyKey: idem
+    });
+    return envelope;
+  });
+
+  // ── Deals (5 routes) ───────────────────────────────────────────
+  app.get("/api/smb-crm/deals", request => recordsListRoute(request, dealEntity));
+  app.post("/api/smb-crm/deals", request => recordsCreateRoute(request, dealEntity, "smb_crm.deal.created"));
+  app.get("/api/smb-crm/deals/:id", request => recordsGetRoute(request, dealEntity, request.params.id));
+  app.patch("/api/smb-crm/deals/:id", request => recordsUpdateRoute(request, dealEntity, request.params.id, "smb_crm.deal.updated"));
+  app.delete("/api/smb-crm/deals/:id", request => recordsDeleteRoute(request, dealEntity, request.params.id, "smb_crm.deal.deleted"));
+
+  // ── Tasks (5 routes; the table slug is smb_crm_todo_tasks because
+  // the foundation reserved smb_crm_tasks for blueprint materialization)
+  app.get("/api/smb-crm/tasks", request => recordsListRoute(request, taskEntity));
+  app.post("/api/smb-crm/tasks", request => recordsCreateRoute(request, taskEntity, "smb_crm.task.created"));
+  app.get("/api/smb-crm/tasks/:id", request => recordsGetRoute(request, taskEntity, request.params.id));
+  app.patch("/api/smb-crm/tasks/:id", request => recordsUpdateRoute(request, taskEntity, request.params.id, "smb_crm.task.updated"));
+  app.delete("/api/smb-crm/tasks/:id", request => recordsDeleteRoute(request, taskEntity, request.params.id, "smb_crm.task.deleted"));
+
+  // ── Quotes (5 routes) ──────────────────────────────────────────
+  app.get("/api/smb-crm/quotes", request => recordsListRoute(request, quoteEntity));
+  app.post("/api/smb-crm/quotes", request => recordsCreateRoute(request, quoteEntity, "smb_crm.quote.created"));
+  app.get("/api/smb-crm/quotes/:id", request => recordsGetRoute(request, quoteEntity, request.params.id));
+  app.patch("/api/smb-crm/quotes/:id", request => recordsUpdateRoute(request, quoteEntity, request.params.id, "smb_crm.quote.updated"));
+  app.delete("/api/smb-crm/quotes/:id", request => recordsDeleteRoute(request, quoteEntity, request.params.id, "smb_crm.quote.deleted"));
+
+  // ── Activities (5 routes) ──────────────────────────────────────
+  app.get("/api/smb-crm/activities", request => recordsListRoute(request, activityEntity));
+  app.post("/api/smb-crm/activities", request => recordsCreateRoute(request, activityEntity, "smb_crm.activity.created"));
+  app.get("/api/smb-crm/activities/:id", request => recordsGetRoute(request, activityEntity, request.params.id));
+  app.patch("/api/smb-crm/activities/:id", request => recordsUpdateRoute(request, activityEntity, request.params.id, "smb_crm.activity.updated"));
+  app.delete("/api/smb-crm/activities/:id", request => recordsDeleteRoute(request, activityEntity, request.params.id, "smb_crm.activity.deleted"));
+
+  // ── Goals (5 routes) ───────────────────────────────────────────
+  app.get("/api/smb-crm/goals", request => recordsListRoute(request, goalEntity));
+  app.post("/api/smb-crm/goals", request => recordsCreateRoute(request, goalEntity, "smb_crm.goal.created"));
+  app.get("/api/smb-crm/goals/:id", request => recordsGetRoute(request, goalEntity, request.params.id));
+  app.patch("/api/smb-crm/goals/:id", request => recordsUpdateRoute(request, goalEntity, request.params.id, "smb_crm.goal.updated"));
+  app.delete("/api/smb-crm/goals/:id", request => recordsDeleteRoute(request, goalEntity, request.params.id, "smb_crm.goal.deleted"));
+
+
   // ─── Inbox + bulk enrich (v0.5) ────────────────────────────────────────
   app.get("/api/crm/tube/inbox", async request => {
     const user = await app.auth(request);

@@ -1,2 +1,17 @@
 # Status: phase10-smb-records
-- State: pending
+- State: **done**
+- Completed: M14.5, M14.6, M14.7, M14.8, M14.9, M14.10, and the 12 contract tests
+- Completed at: 2026-06-13T04:17:49Z
+- Worktree: `/Users/samvelstepanyan/dev/A1-Suite-Local-ANT-phase10-smb-records`
+- Branch: `wip/phase10-smb-records` (pushed)
+- Tag: `phase10-smb-crm-v1` (pushed, points at `20549da`)
+- Head commit: `20549da` (pushed to `ant/wip/phase10-smb-records`)
+- Tests: `find test -name "*.test.js" -type f -print0 | xargs -0 node --test` → 1000 total: 988 pass, 12 fail (= pre-existing baseline failures on `ant/ant/main`; zero new regressions from this commit)
+- Records contract tests: `node --test test/smb-crm/records.test.js` → 12/12 pass
+- Typecheck: `npx tsc --noEmit` (web-modern) → exit 0
+- Files changed:
+  - `server/db.js` (added `ensureSmbCrmRecordsSchema` and wired into `openDatabase` boot)
+  - `server/app.js` (added 31 records routes + 5 route helpers + 6 entity descriptors)
+  - `web-modern/src/lib/api/schemas.ts` (appended records block, 60+ Zod shapes)
+  - `server/smbCrmRecords.js` (new engine, 30 CRUD functions + `mergeCustomers` + 6 view adapters)
+  - `test/smb-crm/records.test.js` (new, 12 contract tests)
