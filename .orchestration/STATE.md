@@ -740,13 +740,59 @@ Every user-facing string in the new components is wrapped in `<Trans>` or `t\`\`
 ### 8.12 delete legacy `web/`
 - Re-gated on 10.1 ✅ + 10.2 partial ✅ (10.2a still pending) — unblock condition now: 10.2a closes
 
-### 10.5 product differentiators — ✅ CLOSED @ ant/main c7b94f8 (tag phase10-5-product-differentiators-v1)
-- See full close section above. r1 W1–W4 (fiscal-gates, triage-inbox, ask-ai, period-close-checklist) + r2 W5–W7 (document-steppers, keyboard-grammar, onboarding) + translation pass (ru/en catalogs GA, banner removed). All merged into `ant/main @ c7b94f8`.
+### 10.5 product differentiators — ✅ CLOSED @ ant/main 6041c2c (tag phase10-5-product-differentiators-v1 at c7b94f8)
 
-### Out of scope (deferred)
+#### r1 — ✅ CLOSED @ tag f5cac35 → moved to c7b94f8
+- **W1 fiscal-gates**: ✅ MERGED. `lib/fiscal/{gates,labels,schemas}.ts` + `routes/app/fiscal-gates/` + `e2e/fiscal-gates.spec.ts`
+- **W2 triage-inbox**: ✅ MERGED. `lib/triage/{feed,savedViews,schemas}.ts` + `routes/app/triage-inbox/` + `e2e/triage-inbox.spec.ts`
+- **W3 ask-ai**: ✅ MERGED. Topbar toggle (`data-testid=topbar-ask-ai-toggle`) wires existing `AskAiPanel` into `AppLayout` shell + `AskAiPanel.test.tsx` (6 tests) + `Topbar.test.tsx` +4 tests + `e2e/ask-ai.spec.ts`
+- **W4 period-close-checklist**: ✅ MERGED (route stubbed). `lib/close/{checklist,index,schemas,state}.ts` + `lib/close/__tests__/close.test.ts` (full coverage) + `e2e/period-close.spec.ts`. Route file replaced with a minimal stub that renders the period header and "0 of N done" — the W4 branch shipped a non-trivial DataTable API (uncontrolled `selectedRowIds` / per-action callbacks) that doesn't match the 10.4 controlled-state DataTable. Full port deferred to 10.5 r2 follow-up.
+- Lingui catalogs at 125 source messages (was 22 pre-10.5); `ru` + `en` remain empty placeholders pending the 10.5 translation pass
+- Audit gates green post-merge: typecheck 0, vitest 2379/2384 (5 pre-existing fleet fails), build success with 3 per-locale chunks, i18n:extract idempotent
+
+#### r2 (W5/W6/W7) — ✅ CLOSED
+- **W5 document-steppers**: ✅ MERGED @ 666a563. Multi-step form wizard for invoices + POs. Pure form, no 10.4 primitive dep
+- **W6 keyboard-grammar**: ✅ MERGED @ b1dc379. Cross-feature keymap (cmd-K, esc-to-close, etc). Default keymap owns global keydown listener; handlers lifted out of `routes/app/route.tsx`. Tests against 2 r1 surfaces (fiscal-gates + triage-inbox) + W5 wizard
+- **W7 onboarding**: ✅ MERGED @ 0393115 (+ i18n regen f72dd28 + W7 follow-up bbb0fd0). First-run tour overlay + launcher button. 5 default tours (fiscal-gates, triage-inbox, ask-ai, documents, settings) — documents + settings tours were deferred in initial W7 commit and flipped to live in the W7 follow-up commit once W5/W6 were on ant/main
+- W7 follow-up `chore(onboarding): flip documents + settings tours to live (W5 + W6 merged)` at bbb0fd0 — without this, only 3 of 5 default tours would have been active
+- Lingui catalogs at 224 source messages post-r2 (was 125 post-r1, 175 after W6, 224 after W7)
+- All audit gates green post-merge: typecheck 0, vitest 2458/2463 (same 5 pre-existing fails), build success, i18n:extract idempotent
+
+#### translation-pass — ✅ CLOSED @ tag c7b94f8
+- Worker `bca7c19 feat(translation-pass): Phase 10.5 fill ru/en catalogs, remove dev banner`
+- Filled 224 msgstrs in `web-modern/src/locales/ru/messages.po` (Russian) and 224 in `web-modern/src/locales/en/messages.po` (idiomatic US English)
+- Flipped `TRANSLATED_LOCALES` to `{hy:true, ru:true, en:true}` in `web-modern/src/i18n/lingui.ts`; removed the "Once both are flipped, this can be deleted" TODO comment
+- Removed dev-only "translations in progress" banner from `web-modern/src/i18n/I18nProvider.tsx`; cleaned up dead `locale` state + `Trans`/`hasTranslation` imports
+- Updated 3 banner-related tests in `web-modern/src/i18n/I18nProvider.test.tsx` to assert the new contract (no banner, `hasTranslation('ru')` and `hasTranslation('en')` return true)
+- Lingui catalogs at 225 source messages (224 + the gate test string) — 0 missing in en+ru
+- All audit gates green post-merge: typecheck 0, vitest 2458/2463, build success with 3 per-locale chunks (`messages-B-BACCoC.js` en, `messages-Cturqmxl.js` hy, `messages-CachUkx4.js` ru — ru larger because Cyrillic + longer msgstrs), i18n:extract idempotent
+- **Pre-condition pattern (worker protocol)**: first dispatch (2026-06-14 01:04 UTC) self-terminated as BLOCKED when r2 had not landed. Re-dispatched at 01:55 UTC after `git log ant/main` showed all 3 r2 merges + W7 follow-up at bbb0fd0. Worker self-flip to `STATUS: PASS` was clean.
+
+#### Final stats (6041c2c)
+- **ant/main** = `6041c2c docs(state): record Phase 10.5 close + header bump to c7b94f8`
+- **Tag** `phase10-5-product-differentiators-v1` → `c7b94f8` (the translation-pass merge commit; covers r1+r2+translation-pass)
+- **Worker tag** `phase10-5-translation-pass-v1` → `bca7c19` (pushed to ant for traceability)
+- **r2 worker tags** all on ant: `phase10-5-product-differentiators-r2-keyboard-grammar-v1` (ad59413), `phase10-5-product-differentiators-r2-onboarding-v1` (d859a58), `phase10-5-product-differentiators-period-close-checklist-v1` (7b708ba)
+- Lingui: 22 source messages pre-10.5 → 125 post-r1 → 224 post-r2 → 225 GA. `ru` + `en` are no longer placeholders.
+- i18n strategy status: **B → GA** (shipped hy-only first, translation in parallel; r2 added ~100 new strings, translation-pass filled all of them)
+
+#### Teardown
+- 4 worktree refs pruned (r2 W5/W6/W7 + translation-pass)
+- Plan dirs preserved in `.orchestration/phase10-5-product-differentiators-r2/` and `.orchestration/phase10-5-translation-pass/` for reference
+- Worker panes (3 r2 + 1 translation-pass) all idle; ready to kill per `kill-idle-workers` rule
+
+#### Out of scope (deferred)
 - 4 pre-existing fleet test bugs (`fleetTabFromHash`/`tripStateLabelArm`/`coldChainCategoryLabelAm`/`formatFleetIdShort`) — not 10.0 typecheck cleanup, still unfixed
 - `healthcheck.sh` cosmetic: "(unreachable)" on 4xx due to curl -f (10.1 follow-up)
-- `ru` + `en` Lingui catalogs are placeholders — only `hy` is the seeded source; human translation pass deferred (now even bigger blocker: 10.3 + 10.4 added 42 source strings)
+- W4 period-close-checklist full route port (DataTable API mismatch between W4's `selectedRowIds` and 10.4's controlled-state DataTable) — see handoff for retry plan
+
+### Next concrete step
+**Phase 10.6 production hardening** is the natural next phase. Candidates from the deferred list:
+- W4 period-close-checklist full route port (DataTable API alignment)
+- Fleet test bug fixes (4 pre-existing failures)
+- 10.0 D1 hotfix (sirv + dist/index.html SPA serving)
+- `healthcheck.sh` cosmetic 4xx handling
+- 10.2a pilot pipeline (still gated on 8.13 CRM Tube unblock)
 
 ## Standing instructions (carried from prior sessions)
 - Do NOT push to `ant/main` except via `git push ant main:refs/heads/ant/main` refspec
