@@ -252,6 +252,7 @@ function openDatabase(dbPath) {
   ensureSmbCrmFoundationSchema(db);
   ensureSmbCrmRecordsSchema(db);
   ensureSmbCrmAssistSchema(db);
+  ensureSmbCrmAutomationSchema(db);
   ensurePilotPacketLayer(db);
   ensureSessionGovernanceLayer(db);
   seedIfEmpty(db);
@@ -10608,6 +10609,191 @@ function ensureSmbCrmAssistSchema(db) {
 }
 
 /**
+ * A1 SMB CRM — Automations + webhooks + outbound + integrations +
+ * import + accounting export schema (Track 4: M14.11–M14.18).
+ *
+ * 8 tables (id-prefixed with the entity name; all org-scoped; all
+ * with created_at; some with updated_at). Cross-table FKs are
+ * informational only — engines use them for join queries but the
+ * route layer always re-checks org_id. The action_json /
+ * payload_json / config_json columns are JSON-as-TEXT to keep the
+ * engine pure (no JSON1 dependency at the engine layer; engines
+ * serialize with JSON.parse + JSON.stringify).
+ */
+function ensureSmbCrmAutomationSchema(db) {
+  db.exec(`
+    -- 1. Automations: declarative rules that fire on a trigger_event
+    --    (e.g. "customer.created") and execute an action (e.g.
+    --    "send_whatsapp").
+    CREATE TABLE IF NOT EXISTS smb_crm_automations (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      name            TEXT NOT NULL,
+      trigger_event   TEXT NOT NULL,
+      action          TEXT NOT NULL,
+      action_json     TEXT NOT NULL DEFAULT '{}',
+      enabled         INTEGER NOT NULL DEFAULT 1,
+      created_by      TEXT,
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_automations_org
+      ON smb_crm_automations(org_id, trigger_event, enabled);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_automations_org_updated
+      ON smb_crm_automations(org_id, updated_at DESC);
+
+    -- 2. Automation runs: one row per (automation, trigger) execution.
+    --    Holds the full log_json envelope for replay/debug.
+    CREATE TABLE IF NOT EXISTS smb_crm_automation_runs (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      automation_id   TEXT,
+      trigger_event   TEXT NOT NULL,
+      status          TEXT NOT NULL DEFAULT 'pending',
+      started_at      TEXT NOT NULL,
+      finished_at     TEXT,
+      log_json        TEXT NOT NULL DEFAULT '{}',
+      error_text      TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_automation_runs_org
+      ON smb_crm_automation_runs(org_id, started_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_automation_runs_org_automation
+      ON smb_crm_automation_runs(org_id, automation_id);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_automation_runs_org_status
+      ON smb_crm_automation_runs(org_id, status);
+
+    -- 3. Outbound messages: queued + sent (whatsapp / sms / email /
+    --    webhook). status lifecycle: queued → sending → sent / failed.
+    CREATE TABLE IF NOT EXISTS smb_crm_outbound_messages (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      channel         TEXT NOT NULL,
+      contact_id      TEXT,
+      to_address      TEXT,
+      body            TEXT NOT NULL,
+      status          TEXT NOT NULL DEFAULT 'queued',
+      scheduled_at    TEXT,
+      sent_at         TEXT,
+      provider        TEXT,
+      response_json   TEXT,
+      error_text      TEXT,
+      created_at      TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_outbound_org
+      ON smb_crm_outbound_messages(org_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_outbound_org_status
+      ON smb_crm_outbound_messages(org_id, status);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_outbound_org_channel
+      ON smb_crm_outbound_messages(org_id, channel);
+
+    -- 4. Inbound webhook events: one row per received webhook across
+    --    7 channels. idempotency_key is unique-per-channel to dedup
+    --    retries from upstream providers.
+    CREATE TABLE IF NOT EXISTS smb_crm_webhook_events (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      channel         TEXT NOT NULL,
+      payload_json    TEXT NOT NULL DEFAULT '{}',
+      status          TEXT NOT NULL DEFAULT 'received',
+      idempotency_key TEXT,
+      received_at     TEXT NOT NULL,
+      processed_at    TEXT,
+      error_text      TEXT
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_webhook_events_org
+      ON smb_crm_webhook_events(org_id, received_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_webhook_events_org_channel
+      ON smb_crm_webhook_events(org_id, channel);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_smb_crm_webhook_events_idem
+      ON smb_crm_webhook_events(org_id, channel, idempotency_key)
+      WHERE idempotency_key IS NOT NULL;
+
+    -- 5. Integrations catalog: per-tenant installed integrations
+    --    (e.g. "whatsapp-cloud", "stripe", "telegram-bot"). This is
+    --    the SMB-CRM integration catalog, NOT the crm-tube one.
+    CREATE TABLE IF NOT EXISTS smb_crm_integrations (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      integration_key TEXT NOT NULL,
+      display_name    TEXT NOT NULL,
+      status          TEXT NOT NULL DEFAULT 'disconnected',
+      environment     TEXT NOT NULL DEFAULT 'production',
+      auth_type       TEXT NOT NULL DEFAULT 'api_key',
+      config_json     TEXT NOT NULL DEFAULT '{}',
+      last_health_at  TEXT,
+      last_health_json TEXT,
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_integrations_org
+      ON smb_crm_integrations(org_id, updated_at DESC);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_smb_crm_integrations_org_key
+      ON smb_crm_integrations(org_id, integration_key);
+
+    -- 6. Integration credentials: secret store. The secret itself is
+    --    NEVER stored; only sha256(secret) hash + first-8-char
+    --    fingerprint (for display in the SPA). rotated_by_user_id is
+    --    the user that triggered the last rotation.
+    CREATE TABLE IF NOT EXISTS smb_crm_integration_credentials (
+      id                  TEXT PRIMARY KEY,
+      org_id              TEXT NOT NULL,
+      integration_id      TEXT NOT NULL,
+      secret_hash         TEXT NOT NULL,
+      secret_fingerprint  TEXT NOT NULL,
+      rotated_at          TEXT NOT NULL,
+      rotated_by_user_id  TEXT,
+      FOREIGN KEY (integration_id) REFERENCES smb_crm_integrations(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_creds_org
+      ON smb_crm_integration_credentials(org_id, rotated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_creds_org_integration
+      ON smb_crm_integration_credentials(org_id, integration_id);
+
+    -- 7. Integration action triggers: per-integration, per-action
+    --    automation hooks (e.g. "on stripe.charge_succeeded → fire
+    --    automation X"). The listIntegrations endpoint joins this
+    --    into the integration view.
+    CREATE TABLE IF NOT EXISTS smb_crm_integration_action_triggers (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      integration_id  TEXT NOT NULL,
+      action_key      TEXT NOT NULL,
+      enabled         INTEGER NOT NULL DEFAULT 1,
+      config_json     TEXT NOT NULL DEFAULT '{}',
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL,
+      FOREIGN KEY (integration_id) REFERENCES smb_crm_integrations(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_triggers_org
+      ON smb_crm_integration_action_triggers(org_id, integration_id);
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_smb_crm_triggers_unique
+      ON smb_crm_integration_action_triggers(org_id, integration_id, action_key);
+
+    -- 8. Import runs: one row per CSV import attempt. The full
+    --    errors_json envelope (per-row error list) is persisted so
+    --    the SPA can show a "X of Y imported, Z errors" toast and
+    --    let the user re-download the error rows.
+    CREATE TABLE IF NOT EXISTS smb_crm_import_runs (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      entity_type     TEXT NOT NULL,
+      total_rows      INTEGER NOT NULL DEFAULT 0,
+      imported_rows   INTEGER NOT NULL DEFAULT 0,
+      deduped_rows    INTEGER NOT NULL DEFAULT 0,
+      errored_rows    INTEGER NOT NULL DEFAULT 0,
+      errors_json     TEXT NOT NULL DEFAULT '[]',
+      dedup_key       TEXT,
+      created_by      TEXT,
+      created_at      TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_import_runs_org
+      ON smb_crm_import_runs(org_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_import_runs_org_entity
+      ON smb_crm_import_runs(org_id, entity_type);
+  `);
+}
+
+/**
  * Seed app_assignments for the "smb-crm" app. Lives outside
  * ensureSmbCrmFoundationSchema because it must run AFTER seedIfEmpty
  * (which is what creates the organizations + Owner/Admin user rows
@@ -10695,6 +10881,7 @@ module.exports = {
   ensureSmbCrmFoundationSchema,
   ensureSmbCrmRecordsSchema,
   ensureSmbCrmAssistSchema,
+  ensureSmbCrmAutomationSchema,
   __test: {
     backfillCatalogUnitsOfMeasureFromItems,
     ensureMoneyPrecisionMigration,
