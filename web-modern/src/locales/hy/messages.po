@@ -17,10 +17,45 @@ msgstr ""
 msgid "{count} selected"
 msgstr "{count} selected"
 
-#: src/routes/app/triage-inbox/index.tsx:208
-#: src/routes/app/triage-inbox/index.tsx:419
-msgid "Amount"
-msgstr "Amount"
+#: src/components/shell/Topbar.tsx:132
+msgid "A1 Suite"
+msgstr "A1 Suite"
+
+#: src/routes/app/ask-ai/index.tsx:258
+msgid "AI"
+msgstr "AI"
+
+#: src/components/ai/AskAiPanel.tsx:301
+#: src/routes/app/ask-ai/index.tsx:218
+msgid "Ask"
+msgstr "Ask"
+
+#: src/components/ai/AskAiPanel.tsx:277
+msgid "Ask about this page, the data, or what to do next…"
+msgstr "Ask about this page, the data, or what to do next…"
+
+#: src/components/ai/AskAiPanel.tsx:196
+#: src/components/shell/Topbar.tsx:234
+#: src/routes/app/ask-ai/index.tsx:98
+msgid "Ask AI"
+msgstr "Ask AI"
+
+#: src/components/ai/AskAiPanel.tsx:389
+msgid "Ask anything about this page."
+msgstr "Ask anything about this page."
+
+#: src/routes/app/ask-ai/index.tsx:101
+msgid "Ask anything about your business. Phase 10.5 ships a UI-only stub — answers come from your browser, no LLM is contacted."
+msgstr "Ask anything about your business. Phase 10.5 ships a UI-only stub — answers come from your browser, no LLM is contacted."
+
+#: src/components/ai/AskAiPanel.tsx:263
+#: src/routes/app/ask-ai/index.tsx:183
+msgid "Ask the AI a question"
+msgstr "Ask the AI a question"
+
+#: src/routes/app/ask-ai/index.tsx:229
+msgid "Back to today"
+msgstr "Back to today"
 
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:88
 msgid "Bucket"
@@ -33,6 +68,22 @@ msgstr "Cancel"
 #: src/components/shared/PeekPanel.tsx:119
 msgid "Close"
 msgstr "Close"
+
+#: src/components/ai/AskAiPanel.tsx:205
+msgid "Close Ask AI panel"
+msgstr "Close Ask AI panel"
+
+#: src/routes/app/ask-ai/index.tsx:115
+msgid "Context anchor"
+msgstr "Context anchor"
+
+#: src/components/ai/AskAiPanel.tsx:413
+msgid "Context:"
+msgstr "Context:"
+
+#: src/components/ai/AskAiPanel.tsx:247
+msgid "Couldn't reach the AI. Showing a stub answer instead."
+msgstr "Couldn't reach the AI. Showing a stub answer instead."
 
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:129
 msgid "Customers"
@@ -50,14 +101,17 @@ msgstr "Delete"
 msgid "Delete view"
 msgstr "Delete view"
 
-#: src/routes/app/triage-inbox/index.tsx:198
-msgid "Detail"
-msgstr "Detail"
-
 #: src/components/shared/PeekPanel.tsx:114
-#: src/routes/app/triage-inbox/index.tsx:383
 msgid "Details"
 msgstr "Details"
+
+#: src/routes/app/ask-ai/index.tsx:205
+msgid "Enter to ask · Shift+Enter for newline"
+msgstr "Enter to ask · Shift+Enter for newline"
+
+#: src/routes/app/ask-ai/index.tsx:122
+msgid "entity"
+msgstr "entity"
 
 #: src/components/shared/BulkActionBar.tsx:45
 msgid "Export CSV"
@@ -66,6 +120,14 @@ msgstr "Export CSV"
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:182
 msgid "Failed to load receivables aging."
 msgstr "Failed to load receivables aging."
+
+#: src/routes/app/ask-ai/index.tsx:142
+msgid "Go back"
+msgstr "Go back"
+
+#: src/routes/app/ask-ai/index.tsx:130
+msgid "id"
+msgstr "id"
 
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:118
 msgid "Invoices"
@@ -78,12 +140,6 @@ msgstr "Label"
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:177
 msgid "Loading receivables…"
 msgstr "Loading receivables…"
-
-#. placeholder {0}: ids.length
-#. placeholder {1}: ids.length === 1 ? "" : "s"
-#: src/routes/app/triage-inbox/index.tsx:298
-msgid "Marked {0} item{1} as resolved"
-msgstr "Marked {0} item{1} as resolved"
 
 #: src/routes/app/analytics/index.tsx:112
 msgid "Metrics"
@@ -101,9 +157,9 @@ msgstr "Next"
 msgid "No buckets in this period"
 msgstr "No buckets in this period"
 
-#: src/routes/app/triage-inbox/index.tsx:370
-msgid "No items match this view"
-msgstr "No items match this view"
+#: src/routes/app/ask-ai/index.tsx:151
+msgid "No questions yet. Ask one below to see the stub answer and citation chips."
+msgstr "No questions yet. Ask one below to see the stub answer and citation chips."
 
 #: src/components/shared/DataTable.tsx:373
 msgid "No results"
@@ -113,14 +169,14 @@ msgstr "No results"
 msgid "No saved views yet"
 msgstr "No saved views yet"
 
-#: src/routes/app/triage-inbox/index.tsx:325
-msgid "One queue for every \"needs your attention\" item across invoices, tax gates, approvals, customer replies, fleet, and purchase orders."
-msgstr "One queue for every \"needs your attention\" item across invoices, tax gates, approvals, customer replies, fleet, and purchase orders."
+#: src/components/shell/Topbar.tsx:223
+#: src/components/shell/Topbar.tsx:226
+msgid "Open the Ask AI assistant sidebar"
+msgstr "Open the Ask AI assistant sidebar"
 
-#: src/routes/app/triage-inbox/index.tsx:234
-#: src/routes/app/triage-inbox/index.tsx:401
-msgid "Owner"
-msgstr "Owner"
+#: src/components/ai/AskAiPanel.tsx:326
+msgid "Open the full page"
+msgstr "Open the full page"
 
 #. placeholder {0}: pageIndex + 1
 #. placeholder {1}: Math.max(1, pageCount)
@@ -128,14 +184,13 @@ msgstr "Owner"
 msgid "Page {0} of {1}"
 msgstr "Page {0} of {1}"
 
+#: src/components/ai/AskAiPanel.tsx:292
+msgid "Press Enter to ask · Shift+Enter for newline"
+msgstr "Press Enter to ask · Shift+Enter for newline"
+
 #: src/components/shared/DataTable.tsx:407
 msgid "Prev"
 msgstr "Prev"
-
-#: src/routes/app/triage-inbox/index.tsx:221
-#: src/routes/app/triage-inbox/index.tsx:411
-msgid "Raised"
-msgstr "Raised"
 
 #: src/routes/app/analytics/index.tsx:111
 msgid "Receivables"
@@ -149,10 +204,6 @@ msgstr "Rename view"
 #: src/routes/app/analytics/index.tsx:114
 msgid "Reports"
 msgstr "Reports"
-
-#: src/routes/app/triage-inbox/index.tsx:365
-msgid "Reset"
-msgstr "Reset"
 
 #: src/components/shared/SavedViews.tsx:186
 #: src/components/shared/SavedViews.tsx:245
@@ -177,22 +228,17 @@ msgstr "Showing {0}–{1} of {totalRows}"
 msgid "Snapshots"
 msgstr "Snapshots"
 
-#: src/routes/app/triage-inbox/index.tsx:169
-msgid "Source"
-msgstr "Source"
-
-#: src/routes/app/triage-inbox/index.tsx:244
-#: src/routes/app/triage-inbox/index.tsx:407
-msgid "Status"
-msgstr "Status"
+#: src/components/ai/AskAiPanel.tsx:300
+msgid "Stop generating"
+msgstr "Stop generating"
 
 #: src/components/shared/BulkActionBar.tsx:51
 msgid "Tag"
 msgstr "Tag"
 
-#: src/routes/app/triage-inbox/index.tsx:188
-msgid "Title"
-msgstr "Title"
+#: src/components/ai/AskAiPanel.tsx:392
+msgid "The answer is a UI-only stub in Phase 10.5 — no data leaves your browser."
+msgstr "The answer is a UI-only stub in Phase 10.5 — no data leaves your browser."
 
 #: src/routes/app/analytics/index.tsx:164
 msgid "Today"
@@ -206,14 +252,9 @@ msgstr "Total"
 msgid "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
 msgstr "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
 
-#: src/routes/app/triage-inbox/index.tsx:322
-msgid "Triage inbox"
-msgstr "Triage inbox"
-
-#: src/routes/app/triage-inbox/index.tsx:238
-#: src/routes/app/triage-inbox/index.tsx:404
-msgid "Unassigned"
-msgstr "Unassigned"
+#: src/routes/app/ask-ai/index.tsx:189
+msgid "Type a question — the stub echoes a canned answer with citation chips for the current context."
+msgstr "Type a question — the stub echoes a canned answer with citation chips for the current context."
 
 #: src/components/shared/UndoToast.tsx:120
 msgid "Undo"
@@ -226,3 +267,7 @@ msgstr "View name"
 #: src/components/shared/SavedViews.tsx:137
 msgid "Views"
 msgstr "Views"
+
+#: src/routes/app/ask-ai/index.tsx:252
+msgid "You"
+msgstr "You"
