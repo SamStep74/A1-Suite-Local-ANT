@@ -4768,4 +4768,789 @@ export type SmbCrmApplyBlueprintResponse = z.infer<
   typeof SmbCrmApplyBlueprintResponseSchema
 >;
 /* ─── block-smb-crm-foundation-end ─── */
+/* ─── block-smb-crm-records-begin ─── */
+/* A1 SMB CRM (Phase 10: M14.5–M14.10) — Records track.
+ *
+ * Mirrors the 31 routes under /api/smb-crm/<entity>/* in server/app.js
+ * (added by the records worker). Six runtime entities
+ * (customers / deals / tasks / quotes / activities / goals) plus
+ * the dedup /merge endpoint, and the list-filter shapes for
+ * branches, modules, fields, and pipeline_stages (foundation
+ * materialization tables). Zod shapes MUST match the engine view
+ * adapters (toCustomerView, toDealView, ...) and the route envelope
+ * exactly. Pure data, no HTTP.
+ */
+
+/* ─── Enums shared across entities ─── */
+
+export const SmbCrmCustomerStatus = z.enum(["active", "lead", "inactive"]);
+export type SmbCrmCustomerStatus = z.infer<typeof SmbCrmCustomerStatus>;
+
+export const SmbCrmDealStatus = z.enum(["open", "won", "lost"]);
+export type SmbCrmDealStatus = z.infer<typeof SmbCrmDealStatus>;
+
+export const SmbCrmTaskStatus = z.enum(["open", "done", "cancelled"]);
+export type SmbCrmTaskStatus = z.infer<typeof SmbCrmTaskStatus>;
+
+export const SmbCrmTaskPriority = z.enum(["low", "normal", "high", "urgent"]);
+export type SmbCrmTaskPriority = z.infer<typeof SmbCrmTaskPriority>;
+
+export const SmbCrmQuoteStatus = z.enum([
+  "draft", "sent", "accepted", "declined", "expired"
+]);
+export type SmbCrmQuoteStatus = z.infer<typeof SmbCrmQuoteStatus>;
+
+export const SmbCrmActivityType = z.enum([
+  "note", "call", "email", "meeting", "sms", "task"
+]);
+export type SmbCrmActivityType = z.infer<typeof SmbCrmActivityType>;
+
+/* ─── Customer (6 routes: list/get/create/update/delete/merge) ─── */
+
+/** A single customer row, as returned by toCustomerView. */
+export const SmbCrmCustomerSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  fullName: z.string(),
+  email: z.string().nullable(),
+  phone: z.string().nullable(),
+  companyName: z.string().nullable(),
+  address: z.string().nullable(),
+  locale: SmbCrmLocale,
+  status: SmbCrmCustomerStatus,
+  branchId: z.string().nullable(),
+  tags: z.array(z.string()),
+  custom: z.record(z.string(), z.unknown()),
+  mergedIntoId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+});
+export type SmbCrmCustomer = z.infer<typeof SmbCrmCustomerSchema>;
+
+/** Request body for POST /api/smb-crm/customers. */
+export const SmbCrmCreateCustomerRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  fullName: z.string().min(1).max(200),
+  email: z.string().email().optional(),
+  phone: z.string().optional(),
+  companyName: z.string().max(200).optional(),
+  address: z.string().optional(),
+  locale: SmbCrmLocale.default("en"),
+  status: SmbCrmCustomerStatus.default("active"),
+  branchId: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+  custom: z.record(z.string(), z.unknown()).default({}),
+});
+export type SmbCrmCreateCustomerRequest = z.infer<
+  typeof SmbCrmCreateCustomerRequestSchema
+>;
+
+/** Response body for POST /api/smb-crm/customers. */
+export const SmbCrmCreateCustomerResponseSchema = z.object({
+  ok: z.literal(true),
+  customer: SmbCrmCustomerSchema,
+});
+export type SmbCrmCreateCustomerResponse = z.infer<
+  typeof SmbCrmCreateCustomerResponseSchema
+>;
+
+/** Request body for PATCH /api/smb-crm/customers/:id. */
+export const SmbCrmUpdateCustomerRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  fullName: z.string().min(1).max(200).optional(),
+  email: z.string().email().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  companyName: z.string().max(200).nullable().optional(),
+  address: z.string().nullable().optional(),
+  locale: SmbCrmLocale.optional(),
+  status: SmbCrmCustomerStatus.optional(),
+  branchId: z.string().nullable().optional(),
+  tags: z.array(z.string()).optional(),
+  custom: z.record(z.string(), z.unknown()).optional(),
+});
+export type SmbCrmUpdateCustomerRequest = z.infer<
+  typeof SmbCrmUpdateCustomerRequestSchema
+>;
+
+/** Response body for PATCH /api/smb-crm/customers/:id. */
+export const SmbCrmUpdateCustomerResponseSchema = z.object({
+  ok: z.literal(true),
+  customer: SmbCrmCustomerSchema,
+});
+export type SmbCrmUpdateCustomerResponse = z.infer<
+  typeof SmbCrmUpdateCustomerResponseSchema
+>;
+
+/** Query string for GET /api/smb-crm/customers. */
+export const SmbCrmListCustomersQuerySchema = z.object({
+  status: SmbCrmCustomerStatus.optional(),
+  search: z.string().optional(),
+  branchId: z.string().optional(),
+  includeMerged: z.enum(["true", "false"]).optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type SmbCrmListCustomersQuery = z.infer<
+  typeof SmbCrmListCustomersQuerySchema
+>;
+
+/** Response body for GET /api/smb-crm/customers. */
+export const SmbCrmListCustomersResponseSchema = z.object({
+  customers: z.array(SmbCrmCustomerSchema),
+});
+export type SmbCrmListCustomersResponse = z.infer<
+  typeof SmbCrmListCustomersResponseSchema
+>;
+
+/** Response body for GET /api/smb-crm/customers/:id. */
+export const SmbCrmGetCustomerResponseSchema = z.object({
+  customer: SmbCrmCustomerSchema,
+});
+export type SmbCrmGetCustomerResponse = z.infer<
+  typeof SmbCrmGetCustomerResponseSchema
+>;
+
+/** Response body for DELETE /api/smb-crm/customers/:id. */
+export const SmbCrmDeleteCustomerResponseSchema = z.object({
+  ok: z.literal(true),
+  deleted: z.literal(true),
+  id: z.string(),
+});
+export type SmbCrmDeleteCustomerResponse = z.infer<
+  typeof SmbCrmDeleteCustomerResponseSchema
+>;
+
+/** Request body for POST /api/smb-crm/customers/merge. */
+export const SmbCrmMergeCustomersRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  survivorId: z.string().min(1),
+  loserId: z.string().min(1),
+});
+export type SmbCrmMergeCustomersRequest = z.infer<
+  typeof SmbCrmMergeCustomersRequestSchema
+>;
+
+/** Response body for POST /api/smb-crm/customers/merge. */
+export const SmbCrmMergeCustomersResponseSchema = z.object({
+  ok: z.literal(true),
+  merge: z.object({
+    survivorId: z.string(),
+    loserId: z.string(),
+    survivor: SmbCrmCustomerSchema,
+    loser: SmbCrmCustomerSchema,
+  }),
+});
+export type SmbCrmMergeCustomersResponse = z.infer<
+  typeof SmbCrmMergeCustomersResponseSchema
+>;
+
+/* ─── Deal (5 routes) ─── */
+
+/** A single deal row, as returned by toDealView. */
+export const SmbCrmDealSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  title: z.string(),
+  customerId: z.string().nullable(),
+  value: z.number(),
+  currency: z.string(),
+  stageId: z.string().nullable(),
+  probability: z.number(),
+  expectedCloseDate: z.string().nullable(),
+  status: SmbCrmDealStatus,
+  ownerUserId: z.string().nullable(),
+  branchId: z.string().nullable(),
+  tags: z.array(z.string()),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+});
+export type SmbCrmDeal = z.infer<typeof SmbCrmDealSchema>;
+
+export const SmbCrmCreateDealRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  title: z.string().min(1).max(200),
+  customerId: z.string().optional(),
+  value: z.number().default(0),
+  currency: z.string().default("AMD"),
+  stageId: z.string().optional(),
+  probability: z.number().min(0).max(100).default(0),
+  expectedCloseDate: z.string().optional(),
+  status: SmbCrmDealStatus.default("open"),
+  ownerUserId: z.string().optional(),
+  branchId: z.string().optional(),
+  tags: z.array(z.string()).default([]),
+});
+export type SmbCrmCreateDealRequest = z.infer<
+  typeof SmbCrmCreateDealRequestSchema
+>;
+
+export const SmbCrmCreateDealResponseSchema = z.object({
+  ok: z.literal(true),
+  deal: SmbCrmDealSchema,
+});
+export type SmbCrmCreateDealResponse = z.infer<
+  typeof SmbCrmCreateDealResponseSchema
+>;
+
+export const SmbCrmUpdateDealRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  title: z.string().min(1).max(200).optional(),
+  customerId: z.string().nullable().optional(),
+  value: z.number().optional(),
+  currency: z.string().optional(),
+  stageId: z.string().nullable().optional(),
+  probability: z.number().min(0).max(100).optional(),
+  expectedCloseDate: z.string().nullable().optional(),
+  status: SmbCrmDealStatus.optional(),
+  ownerUserId: z.string().nullable().optional(),
+  branchId: z.string().nullable().optional(),
+  tags: z.array(z.string()).optional(),
+});
+export type SmbCrmUpdateDealRequest = z.infer<
+  typeof SmbCrmUpdateDealRequestSchema
+>;
+
+export const SmbCrmUpdateDealResponseSchema = z.object({
+  ok: z.literal(true),
+  deal: SmbCrmDealSchema,
+});
+export type SmbCrmUpdateDealResponse = z.infer<
+  typeof SmbCrmUpdateDealResponseSchema
+>;
+
+export const SmbCrmListDealsQuerySchema = z.object({
+  status: SmbCrmDealStatus.optional(),
+  customerId: z.string().optional(),
+  stageId: z.string().optional(),
+  ownerUserId: z.string().optional(),
+  branchId: z.string().optional(),
+  search: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type SmbCrmListDealsQuery = z.infer<typeof SmbCrmListDealsQuerySchema>;
+
+export const SmbCrmListDealsResponseSchema = z.object({
+  deals: z.array(SmbCrmDealSchema),
+});
+export type SmbCrmListDealsResponse = z.infer<
+  typeof SmbCrmListDealsResponseSchema
+>;
+
+export const SmbCrmGetDealResponseSchema = z.object({
+  deal: SmbCrmDealSchema,
+});
+export type SmbCrmGetDealResponse = z.infer<typeof SmbCrmGetDealResponseSchema>;
+
+export const SmbCrmDeleteDealResponseSchema = z.object({
+  ok: z.literal(true),
+  deleted: z.literal(true),
+  id: z.string(),
+});
+export type SmbCrmDeleteDealResponse = z.infer<
+  typeof SmbCrmDeleteDealResponseSchema
+>;
+
+/* ─── Task (5 routes; table slug is smb_crm_todo_tasks) ─── */
+
+/** A single task row, as returned by toTaskView. */
+export const SmbCrmTaskSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  title: z.string(),
+  description: z.string().nullable(),
+  customerId: z.string().nullable(),
+  dealId: z.string().nullable(),
+  dueAt: z.string().nullable(),
+  status: SmbCrmTaskStatus,
+  priority: SmbCrmTaskPriority,
+  assignedUserId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+});
+export type SmbCrmTask = z.infer<typeof SmbCrmTaskSchema>;
+
+export const SmbCrmCreateTaskRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  title: z.string().min(1).max(200),
+  description: z.string().optional(),
+  customerId: z.string().optional(),
+  dealId: z.string().optional(),
+  dueAt: z.string().optional(),
+  status: SmbCrmTaskStatus.default("open"),
+  priority: SmbCrmTaskPriority.default("normal"),
+  assignedUserId: z.string().optional(),
+});
+export type SmbCrmCreateTaskRequest = z.infer<
+  typeof SmbCrmCreateTaskRequestSchema
+>;
+
+export const SmbCrmCreateTaskResponseSchema = z.object({
+  ok: z.literal(true),
+  task: SmbCrmTaskSchema,
+});
+export type SmbCrmCreateTaskResponse = z.infer<
+  typeof SmbCrmCreateTaskResponseSchema
+>;
+
+export const SmbCrmUpdateTaskRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  title: z.string().min(1).max(200).optional(),
+  description: z.string().nullable().optional(),
+  customerId: z.string().nullable().optional(),
+  dealId: z.string().nullable().optional(),
+  dueAt: z.string().nullable().optional(),
+  status: SmbCrmTaskStatus.optional(),
+  priority: SmbCrmTaskPriority.optional(),
+  assignedUserId: z.string().nullable().optional(),
+});
+export type SmbCrmUpdateTaskRequest = z.infer<
+  typeof SmbCrmUpdateTaskRequestSchema
+>;
+
+export const SmbCrmUpdateTaskResponseSchema = z.object({
+  ok: z.literal(true),
+  task: SmbCrmTaskSchema,
+});
+export type SmbCrmUpdateTaskResponse = z.infer<
+  typeof SmbCrmUpdateTaskResponseSchema
+>;
+
+export const SmbCrmListTasksQuerySchema = z.object({
+  status: SmbCrmTaskStatus.optional(),
+  priority: SmbCrmTaskPriority.optional(),
+  customerId: z.string().optional(),
+  dealId: z.string().optional(),
+  assignedUserId: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type SmbCrmListTasksQuery = z.infer<typeof SmbCrmListTasksQuerySchema>;
+
+export const SmbCrmListTasksResponseSchema = z.object({
+  tasks: z.array(SmbCrmTaskSchema),
+});
+export type SmbCrmListTasksResponse = z.infer<
+  typeof SmbCrmListTasksResponseSchema
+>;
+
+export const SmbCrmGetTaskResponseSchema = z.object({
+  task: SmbCrmTaskSchema,
+});
+export type SmbCrmGetTaskResponse = z.infer<typeof SmbCrmGetTaskResponseSchema>;
+
+export const SmbCrmDeleteTaskResponseSchema = z.object({
+  ok: z.literal(true),
+  deleted: z.literal(true),
+  id: z.string(),
+});
+export type SmbCrmDeleteTaskResponse = z.infer<
+  typeof SmbCrmDeleteTaskResponseSchema
+>;
+
+/* ─── Quote (5 routes) ─── */
+
+/** A single quote row, as returned by toQuoteView. */
+export const SmbCrmQuoteSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  number: z.string(),
+  customerId: z.string().nullable(),
+  dealId: z.string().nullable(),
+  issueDate: z.string().nullable(),
+  expiryDate: z.string().nullable(),
+  status: SmbCrmQuoteStatus,
+  totalAmount: z.number(),
+  currency: z.string(),
+  lineItems: z.array(z.record(z.string(), z.unknown())),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+});
+export type SmbCrmQuote = z.infer<typeof SmbCrmQuoteSchema>;
+
+export const SmbCrmCreateQuoteRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  number: z.string().min(1).max(64),
+  customerId: z.string().optional(),
+  dealId: z.string().optional(),
+  issueDate: z.string().optional(),
+  expiryDate: z.string().optional(),
+  status: SmbCrmQuoteStatus.default("draft"),
+  totalAmount: z.number().default(0),
+  currency: z.string().default("AMD"),
+  lineItems: z.array(z.record(z.string(), z.unknown())).default([]),
+});
+export type SmbCrmCreateQuoteRequest = z.infer<
+  typeof SmbCrmCreateQuoteRequestSchema
+>;
+
+export const SmbCrmCreateQuoteResponseSchema = z.object({
+  ok: z.literal(true),
+  quote: SmbCrmQuoteSchema,
+});
+export type SmbCrmCreateQuoteResponse = z.infer<
+  typeof SmbCrmCreateQuoteResponseSchema
+>;
+
+export const SmbCrmUpdateQuoteRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  number: z.string().min(1).max(64).optional(),
+  customerId: z.string().nullable().optional(),
+  dealId: z.string().nullable().optional(),
+  issueDate: z.string().nullable().optional(),
+  expiryDate: z.string().nullable().optional(),
+  status: SmbCrmQuoteStatus.optional(),
+  totalAmount: z.number().optional(),
+  currency: z.string().optional(),
+  lineItems: z.array(z.record(z.string(), z.unknown())).optional(),
+});
+export type SmbCrmUpdateQuoteRequest = z.infer<
+  typeof SmbCrmUpdateQuoteRequestSchema
+>;
+
+export const SmbCrmUpdateQuoteResponseSchema = z.object({
+  ok: z.literal(true),
+  quote: SmbCrmQuoteSchema,
+});
+export type SmbCrmUpdateQuoteResponse = z.infer<
+  typeof SmbCrmUpdateQuoteResponseSchema
+>;
+
+export const SmbCrmListQuotesQuerySchema = z.object({
+  status: SmbCrmQuoteStatus.optional(),
+  customerId: z.string().optional(),
+  dealId: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type SmbCrmListQuotesQuery = z.infer<typeof SmbCrmListQuotesQuerySchema>;
+
+export const SmbCrmListQuotesResponseSchema = z.object({
+  quotes: z.array(SmbCrmQuoteSchema),
+});
+export type SmbCrmListQuotesResponse = z.infer<
+  typeof SmbCrmListQuotesResponseSchema
+>;
+
+export const SmbCrmGetQuoteResponseSchema = z.object({
+  quote: SmbCrmQuoteSchema,
+});
+export type SmbCrmGetQuoteResponse = z.infer<
+  typeof SmbCrmGetQuoteResponseSchema
+>;
+
+export const SmbCrmDeleteQuoteResponseSchema = z.object({
+  ok: z.literal(true),
+  deleted: z.literal(true),
+  id: z.string(),
+});
+export type SmbCrmDeleteQuoteResponse = z.infer<
+  typeof SmbCrmDeleteQuoteResponseSchema
+>;
+
+/* ─── Activity (5 routes) ─── */
+
+/** A single activity row, as returned by toActivityView. */
+export const SmbCrmActivitySchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  type: SmbCrmActivityType,
+  subject: z.string().nullable(),
+  body: z.string().nullable(),
+  customerId: z.string().nullable(),
+  dealId: z.string().nullable(),
+  quoteId: z.string().nullable(),
+  activityAt: z.string(),
+  createdBy: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+});
+export type SmbCrmActivity = z.infer<typeof SmbCrmActivitySchema>;
+
+export const SmbCrmCreateActivityRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  type: SmbCrmActivityType,
+  subject: z.string().max(200).optional(),
+  body: z.string().optional(),
+  customerId: z.string().optional(),
+  dealId: z.string().optional(),
+  quoteId: z.string().optional(),
+  activityAt: z.string().optional(),
+});
+export type SmbCrmCreateActivityRequest = z.infer<
+  typeof SmbCrmCreateActivityRequestSchema
+>;
+
+export const SmbCrmCreateActivityResponseSchema = z.object({
+  ok: z.literal(true),
+  activity: SmbCrmActivitySchema,
+});
+export type SmbCrmCreateActivityResponse = z.infer<
+  typeof SmbCrmCreateActivityResponseSchema
+>;
+
+export const SmbCrmUpdateActivityRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  type: SmbCrmActivityType.optional(),
+  subject: z.string().max(200).nullable().optional(),
+  body: z.string().nullable().optional(),
+  customerId: z.string().nullable().optional(),
+  dealId: z.string().nullable().optional(),
+  quoteId: z.string().nullable().optional(),
+  activityAt: z.string().optional(),
+});
+export type SmbCrmUpdateActivityRequest = z.infer<
+  typeof SmbCrmUpdateActivityRequestSchema
+>;
+
+export const SmbCrmUpdateActivityResponseSchema = z.object({
+  ok: z.literal(true),
+  activity: SmbCrmActivitySchema,
+});
+export type SmbCrmUpdateActivityResponse = z.infer<
+  typeof SmbCrmUpdateActivityResponseSchema
+>;
+
+export const SmbCrmListActivitiesQuerySchema = z.object({
+  type: SmbCrmActivityType.optional(),
+  customerId: z.string().optional(),
+  dealId: z.string().optional(),
+  quoteId: z.string().optional(),
+  createdBy: z.string().optional(),
+  since: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type SmbCrmListActivitiesQuery = z.infer<
+  typeof SmbCrmListActivitiesQuerySchema
+>;
+
+export const SmbCrmListActivitiesResponseSchema = z.object({
+  activities: z.array(SmbCrmActivitySchema),
+});
+export type SmbCrmListActivitiesResponse = z.infer<
+  typeof SmbCrmListActivitiesResponseSchema
+>;
+
+export const SmbCrmGetActivityResponseSchema = z.object({
+  activity: SmbCrmActivitySchema,
+});
+export type SmbCrmGetActivityResponse = z.infer<
+  typeof SmbCrmGetActivityResponseSchema
+>;
+
+export const SmbCrmDeleteActivityResponseSchema = z.object({
+  ok: z.literal(true),
+  deleted: z.literal(true),
+  id: z.string(),
+});
+export type SmbCrmDeleteActivityResponse = z.infer<
+  typeof SmbCrmDeleteActivityResponseSchema
+>;
+
+/* ─── Goal (5 routes) ─── */
+
+/** A single goal row, as returned by toGoalView. */
+export const SmbCrmGoalSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  name: z.string(),
+  metric: z.string(),
+  targetValue: z.number(),
+  currentValue: z.number(),
+  periodStart: z.string().nullable(),
+  periodEnd: z.string().nullable(),
+  ownerUserId: z.string().nullable(),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+});
+export type SmbCrmGoal = z.infer<typeof SmbCrmGoalSchema>;
+
+export const SmbCrmCreateGoalRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  name: z.string().min(1).max(200),
+  metric: z.string().min(1).max(64),
+  targetValue: z.number().default(0),
+  currentValue: z.number().default(0),
+  periodStart: z.string().optional(),
+  periodEnd: z.string().optional(),
+  ownerUserId: z.string().optional(),
+});
+export type SmbCrmCreateGoalRequest = z.infer<
+  typeof SmbCrmCreateGoalRequestSchema
+>;
+
+export const SmbCrmCreateGoalResponseSchema = z.object({
+  ok: z.literal(true),
+  goal: SmbCrmGoalSchema,
+});
+export type SmbCrmCreateGoalResponse = z.infer<
+  typeof SmbCrmCreateGoalResponseSchema
+>;
+
+export const SmbCrmUpdateGoalRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  name: z.string().min(1).max(200).optional(),
+  metric: z.string().min(1).max(64).optional(),
+  targetValue: z.number().optional(),
+  currentValue: z.number().optional(),
+  periodStart: z.string().nullable().optional(),
+  periodEnd: z.string().nullable().optional(),
+  ownerUserId: z.string().nullable().optional(),
+});
+export type SmbCrmUpdateGoalRequest = z.infer<
+  typeof SmbCrmUpdateGoalRequestSchema
+>;
+
+export const SmbCrmUpdateGoalResponseSchema = z.object({
+  ok: z.literal(true),
+  goal: SmbCrmGoalSchema,
+});
+export type SmbCrmUpdateGoalResponse = z.infer<
+  typeof SmbCrmUpdateGoalResponseSchema
+>;
+
+export const SmbCrmListGoalsQuerySchema = z.object({
+  metric: z.string().optional(),
+  ownerUserId: z.string().optional(),
+  periodStart: z.string().optional(),
+  periodEnd: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type SmbCrmListGoalsQuery = z.infer<typeof SmbCrmListGoalsQuerySchema>;
+
+export const SmbCrmListGoalsResponseSchema = z.object({
+  goals: z.array(SmbCrmGoalSchema),
+});
+export type SmbCrmListGoalsResponse = z.infer<
+  typeof SmbCrmListGoalsResponseSchema
+>;
+
+export const SmbCrmGetGoalResponseSchema = z.object({
+  goal: SmbCrmGoalSchema,
+});
+export type SmbCrmGetGoalResponse = z.infer<typeof SmbCrmGetGoalResponseSchema>;
+
+export const SmbCrmDeleteGoalResponseSchema = z.object({
+  ok: z.literal(true),
+  deleted: z.literal(true),
+  id: z.string(),
+});
+export type SmbCrmDeleteGoalResponse = z.infer<
+  typeof SmbCrmDeleteGoalResponseSchema
+>;
+
+/* ─── List-filter shapes for foundation materialization tables ───
+ *
+ * Branches, modules, fields, and pipeline_stages live in
+ * foundation-owned tables (see ensureSmbCrmFoundationSchema in
+ * server/db.js). The records worker reuses the foundation routes
+ * to read them; these Zod shapes pin the query contract for the
+ * SPA list UIs that surface them on the records surfaces (e.g. the
+ * deal form's stageId picker reads pipeline_stages).
+ */
+
+export const SmbCrmListBranchesQuerySchema = z.object({
+  tenantId: z.string().optional(),
+  includePrimary: z.enum(["true", "false"]).optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type SmbCrmListBranchesQuery = z.infer<
+  typeof SmbCrmListBranchesQuerySchema
+>;
+
+export const SmbCrmListBranchesResponseSchema = z.object({
+  branches: z.array(SmbCrmBranchSchema),
+});
+export type SmbCrmListBranchesResponse = z.infer<
+  typeof SmbCrmListBranchesResponseSchema
+>;
+
+export const SmbCrmListModulesQuerySchema = z.object({
+  blueprintId: z.string().optional(),
+  key: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type SmbCrmListModulesQuery = z.infer<
+  typeof SmbCrmListModulesQuerySchema
+>;
+
+export const SmbCrmModuleSchema = z.object({
+  id: z.string(),
+  blueprintId: z.string(),
+  key: z.string(),
+  label: z.string().nullable(),
+  enabled: z.boolean(),
+  config: z.record(z.string(), z.unknown()).default({}),
+});
+export type SmbCrmModule = z.infer<typeof SmbCrmModuleSchema>;
+
+export const SmbCrmListModulesResponseSchema = z.object({
+  modules: z.array(SmbCrmModuleSchema),
+});
+export type SmbCrmListModulesResponse = z.infer<
+  typeof SmbCrmListModulesResponseSchema
+>;
+
+export const SmbCrmListFieldsQuerySchema = z.object({
+  blueprintId: z.string().optional(),
+  moduleKey: z.string().optional(),
+  entity: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type SmbCrmListFieldsQuery = z.infer<typeof SmbCrmListFieldsQuerySchema>;
+
+export const SmbCrmFieldSchema = z.object({
+  id: z.string(),
+  blueprintId: z.string(),
+  entity: z.string(),
+  key: z.string(),
+  label: z.string().nullable(),
+  type: z.string(),
+  required: z.boolean().default(false),
+  config: z.record(z.string(), z.unknown()).default({}),
+});
+export type SmbCrmField = z.infer<typeof SmbCrmFieldSchema>;
+
+export const SmbCrmListFieldsResponseSchema = z.object({
+  fields: z.array(SmbCrmFieldSchema),
+});
+export type SmbCrmListFieldsResponse = z.infer<
+  typeof SmbCrmListFieldsResponseSchema
+>;
+
+export const SmbCrmListPipelineStagesQuerySchema = z.object({
+  blueprintId: z.string().optional(),
+  pipelineKey: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(500).default(100),
+  offset: z.coerce.number().int().min(0).default(0),
+});
+export type SmbCrmListPipelineStagesQuery = z.infer<
+  typeof SmbCrmListPipelineStagesQuerySchema
+>;
+
+export const SmbCrmPipelineStageSchema = z.object({
+  id: z.string(),
+  blueprintId: z.string(),
+  pipelineKey: z.string(),
+  key: z.string(),
+  label: z.string().nullable(),
+  order: z.number().default(0),
+  isWon: z.boolean().default(false),
+  isLost: z.boolean().default(false),
+});
+export type SmbCrmPipelineStage = z.infer<typeof SmbCrmPipelineStageSchema>;
+
+export const SmbCrmListPipelineStagesResponseSchema = z.object({
+  pipelineStages: z.array(SmbCrmPipelineStageSchema),
+});
+export type SmbCrmListPipelineStagesResponse = z.infer<
+  typeof SmbCrmListPipelineStagesResponseSchema
+>;
+/* ─── block-smb-crm-records-end ─── */
+
 

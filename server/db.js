@@ -250,6 +250,7 @@ function openDatabase(dbPath) {
   ensureCrmTubeSchema(db);
   ensureRbacSchema(db);
   ensureSmbCrmFoundationSchema(db);
+  ensureSmbCrmRecordsSchema(db);
   ensurePilotPacketLayer(db);
   ensureSessionGovernanceLayer(db);
   seedIfEmpty(db);
@@ -10385,6 +10386,168 @@ function ensureSmbCrmFoundationSchema(db) {
   }
 }
 
+
+// ─── SMB CRM Records (Phase 10: Track 2 — M14.5–M14.10) ─────────────────
+//
+// The 6 runtime entity tables that the records worker (Track 2) owns:
+//   smb_crm_customers  — customer/contact rows
+//   smb_crm_deals      — opportunity/deal rows
+//   smb_crm_todo_tasks — task rows (the slug is "todo_tasks" because
+//                        the foundation already claimed "smb_crm_tasks"
+//                        for apply-time blueprint materialization; see
+//                        handoff §"File map for downstream workers")
+//   smb_crm_quotes     — quote/estimate rows
+//   smb_crm_activities — activity (call/email/meeting/note) rows
+//   smb_crm_goals      — KPI / target rows
+//
+// Cross-entity links (deal→customer, task→customer+deal, etc.) are
+// enforced via org_id-scoped foreign keys with ON DELETE SET NULL so
+// deleting a customer does not cascade-wipe the deal history. Audit
+// rows in audit_events carry the deletion trail.
+//
+// All tables carry a `branch_id` column (nullable) for multi-branch
+// tenants — the records worker does not yet filter by branch; that
+// filter is added in V1.1 when the branch picker lands in the SPA.
+function ensureSmbCrmRecordsSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS smb_crm_customers (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      full_name       TEXT NOT NULL,
+      email           TEXT,
+      phone           TEXT,
+      company_name    TEXT,
+      address         TEXT,
+      locale          TEXT NOT NULL DEFAULT 'en',
+      status          TEXT NOT NULL DEFAULT 'active',
+      branch_id       TEXT,
+      tags_json       TEXT NOT NULL DEFAULT '[]',
+      custom_json     TEXT NOT NULL DEFAULT '{}',
+      merged_into_id  TEXT,
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_customers_org
+      ON smb_crm_customers(org_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_customers_org_status
+      ON smb_crm_customers(org_id, status);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_customers_org_email
+      ON smb_crm_customers(org_id, email);
+
+    CREATE TABLE IF NOT EXISTS smb_crm_deals (
+      id                   TEXT PRIMARY KEY,
+      org_id               TEXT NOT NULL,
+      title                TEXT NOT NULL,
+      customer_id          TEXT,
+      value                REAL NOT NULL DEFAULT 0,
+      currency             TEXT NOT NULL DEFAULT 'AMD',
+      stage_id             TEXT,
+      probability          INTEGER NOT NULL DEFAULT 0,
+      expected_close_date  TEXT,
+      status               TEXT NOT NULL DEFAULT 'open',
+      owner_user_id        TEXT,
+      branch_id            TEXT,
+      tags_json            TEXT NOT NULL DEFAULT '[]',
+      created_at           TEXT NOT NULL,
+      updated_at           TEXT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES smb_crm_customers(id) ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_deals_org
+      ON smb_crm_deals(org_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_deals_org_status
+      ON smb_crm_deals(org_id, status);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_deals_org_customer
+      ON smb_crm_deals(org_id, customer_id);
+
+    CREATE TABLE IF NOT EXISTS smb_crm_todo_tasks (
+      id                TEXT PRIMARY KEY,
+      org_id            TEXT NOT NULL,
+      title             TEXT NOT NULL,
+      description       TEXT,
+      customer_id       TEXT,
+      deal_id           TEXT,
+      due_at            TEXT,
+      status            TEXT NOT NULL DEFAULT 'open',
+      priority          TEXT NOT NULL DEFAULT 'normal',
+      assigned_user_id  TEXT,
+      created_at        TEXT NOT NULL,
+      updated_at        TEXT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES smb_crm_customers(id) ON DELETE SET NULL,
+      FOREIGN KEY (deal_id)     REFERENCES smb_crm_deals(id)     ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_todo_tasks_org
+      ON smb_crm_todo_tasks(org_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_todo_tasks_org_status
+      ON smb_crm_todo_tasks(org_id, status);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_todo_tasks_org_due
+      ON smb_crm_todo_tasks(org_id, due_at);
+
+    CREATE TABLE IF NOT EXISTS smb_crm_quotes (
+      id            TEXT PRIMARY KEY,
+      org_id        TEXT NOT NULL,
+      number        TEXT NOT NULL,
+      customer_id   TEXT,
+      deal_id       TEXT,
+      issue_date    TEXT,
+      expiry_date   TEXT,
+      status        TEXT NOT NULL DEFAULT 'draft',
+      total_amount  REAL NOT NULL DEFAULT 0,
+      currency      TEXT NOT NULL DEFAULT 'AMD',
+      line_items_json TEXT NOT NULL DEFAULT '[]',
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES smb_crm_customers(id) ON DELETE SET NULL,
+      FOREIGN KEY (deal_id)     REFERENCES smb_crm_deals(id)     ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_quotes_org
+      ON smb_crm_quotes(org_id, updated_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_quotes_org_status
+      ON smb_crm_quotes(org_id, status);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_quotes_org_customer
+      ON smb_crm_quotes(org_id, customer_id);
+
+    CREATE TABLE IF NOT EXISTS smb_crm_activities (
+      id            TEXT PRIMARY KEY,
+      org_id        TEXT NOT NULL,
+      type          TEXT NOT NULL DEFAULT 'note',
+      subject       TEXT,
+      body          TEXT,
+      customer_id   TEXT,
+      deal_id       TEXT,
+      quote_id      TEXT,
+      activity_at   TEXT NOT NULL,
+      created_by    TEXT,
+      created_at    TEXT NOT NULL,
+      updated_at    TEXT NOT NULL,
+      FOREIGN KEY (customer_id) REFERENCES smb_crm_customers(id) ON DELETE SET NULL,
+      FOREIGN KEY (deal_id)     REFERENCES smb_crm_deals(id)     ON DELETE SET NULL,
+      FOREIGN KEY (quote_id)    REFERENCES smb_crm_quotes(id)    ON DELETE SET NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_activities_org
+      ON smb_crm_activities(org_id, activity_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_activities_org_customer
+      ON smb_crm_activities(org_id, customer_id);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_activities_org_deal
+      ON smb_crm_activities(org_id, deal_id);
+
+    CREATE TABLE IF NOT EXISTS smb_crm_goals (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      name            TEXT NOT NULL,
+      metric          TEXT NOT NULL,
+      target_value    REAL NOT NULL DEFAULT 0,
+      current_value   REAL NOT NULL DEFAULT 0,
+      period_start    TEXT,
+      period_end      TEXT,
+      owner_user_id   TEXT,
+      created_at      TEXT NOT NULL,
+      updated_at      TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_goals_org
+      ON smb_crm_goals(org_id, period_end);
+  `);
+}
+
 /**
  * Seed app_assignments for the "smb-crm" app. Lives outside
  * ensureSmbCrmFoundationSchema because it must run AFTER seedIfEmpty
@@ -10471,6 +10634,7 @@ module.exports = {
   ensureRbacSchema,
   ensureSmbCrmAppAssignments,
   ensureSmbCrmFoundationSchema,
+  ensureSmbCrmRecordsSchema,
   __test: {
     backfillCatalogUnitsOfMeasureFromItems,
     ensureMoneyPrecisionMigration,
