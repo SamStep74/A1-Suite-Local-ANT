@@ -18,6 +18,10 @@ msgstr ""
 msgid "{count} selected"
 msgstr ""
 
+#: src/routes/app/period-close/index.tsx:43
+msgid "0 of {total} done for {period}. The full wizard ships in Phase 10.5 r2."
+msgstr ""
+
 #: src/components/shell/Topbar.tsx:132
 msgid "A1 Suite"
 msgstr ""
@@ -386,6 +390,10 @@ msgstr ""
 
 #: src/routes/app/fiscal-gates/index.tsx:342
 msgid "Period"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:40
+msgid "Period close"
 msgstr ""
 
 #: src/components/ai/AskAiPanel.tsx:292

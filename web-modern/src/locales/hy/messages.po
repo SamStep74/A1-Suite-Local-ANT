@@ -18,6 +18,10 @@ msgstr ""
 msgid "{count} selected"
 msgstr "{count} selected"
 
+#: src/routes/app/period-close/index.tsx:43
+msgid "0 of {total} done for {period}. The full wizard ships in Phase 10.5 r2."
+msgstr "0 of {total} done for {period}. The full wizard ships in Phase 10.5 r2."
+
 #: src/components/shell/Topbar.tsx:132
 msgid "A1 Suite"
 msgstr "A1 Suite"
@@ -387,6 +391,10 @@ msgstr "Pension contribution (quarterly)"
 #: src/routes/app/fiscal-gates/index.tsx:342
 msgid "Period"
 msgstr "Period"
+
+#: src/routes/app/period-close/index.tsx:40
+msgid "Period close"
+msgstr "Period close"
 
 #: src/components/ai/AskAiPanel.tsx:292
 msgid "Press Enter to ask · Shift+Enter for newline"
