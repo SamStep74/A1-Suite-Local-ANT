@@ -13,6 +13,7 @@ import { LeftRail } from "../../components/shell/LeftRail";
 import { BottomBar } from "../../components/shell/BottomBar";
 import { AppLauncher } from "../../components/shell/AppLauncher";
 import { AskCommandPalette } from "../../components/command/AskCommandPalette";
+import { AskAiPanel } from "../../components/ai/AskAiPanel";
 import { postVoid } from "../../lib/api/client";
 import { getToken, clearToken } from "../../lib/api/auth-token";
 import { APP_IDS, type AppId } from "../../lib/apps";
@@ -38,6 +39,10 @@ function AppLayout() {
   const { location } = useRouterState();
   const [appLauncherOpen, setAppLauncherOpen] = useState(false);
   const [paletteOpen, setPaletteOpen] = useState(false);
+  // Phase 10.5 ask-ai: drawer state. The trigger button lives in
+  // the Topbar; the panel mounts at the AppLayout level so its
+  // z-index/positioning are independent of any sub-route chrome.
+  const [askAiOpen, setAskAiOpen] = useState(false);
 
   // ⌘K / Ctrl+K toggles the Ask/Command palette globally.
   useEffect(() => {
@@ -66,7 +71,7 @@ function AppLayout() {
   }, [navigate]);
 
   return (
-    <div className="flex h-screen flex-col">
+    <div className="flex h-screen flex-col" data-testid="app-shell">
       <Topbar
         currentApp={currentApp ?? undefined}
         userName={userName}
@@ -78,6 +83,7 @@ function AppLayout() {
         onOpenHelp={() => {
           // Phase 1: AI help panel
         }}
+        onOpenAskAi={() => setAskAiOpen(true)}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -101,6 +107,7 @@ function AppLayout() {
         onOpenChange={setPaletteOpen}
         onSignOut={onSignOut}
       />
+      <AskAiPanel open={askAiOpen} onOpenChange={setAskAiOpen} />
     </div>
   );
 }

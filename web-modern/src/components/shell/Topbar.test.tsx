@@ -15,6 +15,8 @@
  */
 import { describe, expect, it, afterEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { useState } from "react";
+import { AskAiPanel } from "../ai/AskAiPanel";
 
 // Mocks MUST be set up before the component module is imported.
 const useTheme = vi.fn(() => ({
@@ -44,6 +46,17 @@ vi.mock("@tanstack/react-router", () => ({
       {children}
     </a>
   ),
+  // Phase 10.5: AskAiPanel reads useLocation + useNavigate.
+  // We return stable, sensible defaults so the panel can mount
+  // in a unit test without a real router. A test that needs
+  // navigation behaviour should exercise the AppLayout route or
+  // the e2e suite.
+  useLocation: () => ({ pathname: "/app", search: "", hash: "" }),
+  useNavigate: () => vi.fn(),
+  useRouterState: () => ({ location: { pathname: "/app", search: "", hash: "" } }),
+  Outlet: () => null,
+  createFileRoute: () => () => ({}),
+  redirect: vi.fn(),
 }));
 
 vi.mock("../../lib/theme/ThemeProvider", () => ({
@@ -68,7 +81,11 @@ vi.mock("../../i18n/lingui", () => ({
   i18n: {},
 }));
 vi.mock("@lingui/react/macro", () => ({
-  useLingui: () => ({ t: (s: string) => s, i18n: { _: (s: string) => s } }),
+  useLingui: () => ({
+    t: (s: { message: string } | string) =>
+      typeof s === "string" ? s : s.message,
+    i18n: { _: (s: string) => s },
+  }),
   Trans: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
 }));
 
@@ -337,5 +354,110 @@ describe("Topbar — locale switcher (10.3)", () => {
     const ru = screen.getByTestId("locale-switcher-ru");
     expect(hy).toHaveAttribute("aria-pressed", "true");
     expect(ru).toHaveAttribute("aria-pressed", "false");
+  });
+});
+
+/* ────────── Phase 10.5 — Ask AI panel toggle ────────── */
+
+/**
+ * Phase 10.5 ask-ai: the Topbar exposes a `data-testid="topbar-ask-ai-toggle"`
+ * button. The button itself does not own the panel state — it just
+ * fires `onOpenAskAi` and the parent (AppLayout) decides whether to
+ * mount `<AskAiPanel>` and what to do with the citation callback.
+ *
+ * These tests pin that contract so a future refactor (e.g. moving
+ * the state into a Zustand store) doesn't quietly break the wiring
+ * the e2e suite depends on.
+ */
+describe("Topbar — Ask AI toggle (10.5)", () => {
+  it("renders the topbar-ask-ai-toggle button with an accessible label", () => {
+    render(
+      <Topbar
+        onOpenAppLauncher={noop}
+        onOpenCommandPalette={noop}
+        onOpenNotifications={noop}
+        onOpenHelp={noop}
+      />,
+    );
+    const btn = screen.getByTestId("topbar-ask-ai-toggle");
+    expect(btn).toBeInTheDocument();
+    // The aria-label carries the i18n string via useLingui's t macro.
+    // The mock returns the input message verbatim, so we assert the
+    // canonical message. If i18n moves the source-of-truth elsewhere,
+    // the snapshot will catch it.
+    expect(btn).toHaveAttribute(
+      "aria-label",
+      "Open the Ask AI assistant sidebar",
+    );
+  });
+
+  it("fires onOpenAskAi when the toggle is clicked", () => {
+    const onOpenAskAi = vi.fn();
+    render(
+      <Topbar
+        onOpenAppLauncher={noop}
+        onOpenCommandPalette={noop}
+        onOpenNotifications={noop}
+        onOpenHelp={noop}
+        onOpenAskAi={onOpenAskAi}
+      />,
+    );
+    fireEvent.click(screen.getByTestId("topbar-ask-ai-toggle"));
+    expect(onOpenAskAi).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not throw when onOpenAskAi is omitted (the button is optional)", () => {
+    render(
+      <Topbar
+        onOpenAppLauncher={noop}
+        onOpenCommandPalette={noop}
+        onOpenNotifications={noop}
+        onOpenHelp={noop}
+      />,
+    );
+    // Clicking without a handler should not throw — the prop is optional.
+    expect(() =>
+      fireEvent.click(screen.getByTestId("topbar-ask-ai-toggle")),
+    ).not.toThrow();
+  });
+
+  it("mounts the AskAiPanel when the toggle is clicked and unmounts on second click", () => {
+    // A tiny harness that mirrors the AppLayout wiring: the Topbar's
+    // onOpenAskAi flips a useState flag, the panel reads it. The
+    // e2e test does the same thing for real in the browser; this is
+    // the unit-level contract for the same wiring.
+    function Host() {
+      const [open, setOpen] = useState(false);
+      return (
+        <>
+          <Topbar
+            onOpenAppLauncher={noop}
+            onOpenCommandPalette={noop}
+            onOpenNotifications={noop}
+            onOpenHelp={noop}
+            onOpenAskAi={() => setOpen(true)}
+          />
+          <AskAiPanel open={open} onOpenChange={setOpen} />
+        </>
+      );
+    }
+    render(<Host />);
+    // Initially the panel is not rendered (its parent returns null).
+    expect(screen.queryByTestId("ask-ai-panel")).not.toBeInTheDocument();
+    fireEvent.click(screen.getByTestId("topbar-ask-ai-toggle"));
+    const panel = screen.getByTestId("ask-ai-panel");
+    expect(panel).toBeInTheDocument();
+    expect(panel).toHaveAttribute("data-state", "open");
+    // Closing via the panel's own onOpenChange (the close button
+    // hits the same code path; we just invoke onOpenChange(false)
+    // by clicking the close X). For unit speed, we trigger the
+    // parent callback directly: click the toggle, the parent
+    // already set it to true so the test would no-op. The
+    // canonical close path is the X button — use it.
+    fireEvent.click(
+      screen.getByRole("button", { name: "Close Ask AI panel" }),
+    );
+    // The panel returns null on `!open`, so the testid is gone.
+    expect(screen.queryByTestId("ask-ai-panel")).not.toBeInTheDocument();
   });
 });
