@@ -36,6 +36,10 @@ msgstr ""
 msgid "Acknowledged"
 msgstr ""
 
+#: src/components/keyboard/ShortcutCheatsheet.tsx:174
+msgid "Actions"
+msgstr ""
+
 #: src/routes/app/ask-ai/index.tsx:258
 msgid "AI"
 msgstr ""
@@ -239,6 +243,10 @@ msgstr ""
 msgid "Go back"
 msgstr ""
 
+#: src/components/keyboard/ShortcutCheatsheet.tsx:166
+msgid "Help"
+msgstr ""
+
 #: src/routes/app/ask-ai/index.tsx:130
 msgid "id"
 msgstr ""
@@ -252,8 +260,16 @@ msgstr ""
 msgid "Invoices"
 msgstr ""
 
+#: src/components/keyboard/ShortcutCheatsheet.tsx:89
+msgid "Keyboard shortcuts"
+msgstr ""
+
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:97
 msgid "Label"
+msgstr ""
+
+#: src/components/keyboard/ShortcutCheatsheet.tsx:172
+msgid "Lists"
 msgstr ""
 
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:177
@@ -282,6 +298,10 @@ msgstr ""
 
 #: src/components/shared/SavedViews.tsx:235
 msgid "Name this view"
+msgstr ""
+
+#: src/components/keyboard/ShortcutCheatsheet.tsx:170
+msgid "Navigation"
 msgstr ""
 
 #: src/components/shared/DataTable.tsx:420
@@ -326,6 +346,7 @@ msgstr ""
 msgid "Open the full page"
 msgstr ""
 
+#: src/components/keyboard/ShortcutCheatsheet.tsx:178
 #: src/lib/fiscal/labels.tsx:43
 #: src/lib/fiscal/labels.tsx:68
 #: src/lib/fiscal/labels.tsx:139
@@ -349,6 +370,10 @@ msgstr ""
 #. placeholder {1}: Math.max(1, pageCount)
 #: src/components/shared/DataTable.tsx:410
 msgid "Page {0} of {1}"
+msgstr ""
+
+#: src/components/keyboard/ShortcutCheatsheet.tsx:168
+msgid "Panels"
 msgstr ""
 
 #: src/lib/fiscal/labels.tsx:86
@@ -394,6 +419,10 @@ msgstr ""
 
 #: src/routes/app/period-close/index.tsx:40
 msgid "Period close"
+msgstr ""
+
+#: src/components/keyboard/KeyHandler.tsx:257
+msgid "Press ? to show keyboard shortcuts"
 msgstr ""
 
 #: src/components/ai/AskAiPanel.tsx:292
@@ -508,6 +537,10 @@ msgstr ""
 msgid "The answer is a UI-only stub in Phase 10.5 — no data leaves your browser."
 msgstr ""
 
+#: src/components/keyboard/ShortcutCheatsheet.tsx:111
+msgid "Tip: shortcuts are disabled while a text field is focused, so you can type ? in search without opening this dialog."
+msgstr ""
+
 #: src/routes/app/triage-inbox/index.tsx:188
 msgid "Title"
 msgstr ""
@@ -541,6 +574,10 @@ msgstr ""
 msgid "Undo"
 msgstr ""
 
+#: src/components/keyboard/ShortcutCheatsheet.tsx:95
+msgid "Use these shortcuts to move around the app without touching the mouse."
+msgstr ""
+
 #: src/lib/fiscal/labels.tsx:121
 #: src/lib/fiscal/labels.tsx:179
 msgid "VAT"
@@ -567,6 +604,10 @@ msgstr ""
 #: src/lib/fiscal/labels.tsx:52
 #: src/lib/fiscal/labels.tsx:219
 msgid "Withholding tax (monthly)"
+msgstr ""
+
+#: src/components/keyboard/ShortcutCheatsheet.tsx:176
+msgid "Wizard"
 msgstr ""
 
 #: src/routes/app/ask-ai/index.tsx:252
