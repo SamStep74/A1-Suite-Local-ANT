@@ -5,8 +5,14 @@ After all 5 workers ship, merge branches in this order:
 1. `wip/phase10-smb-foundation`     (tables, AI provider, blueprint)
 2. `wip/phase10-smb-records`        (customer/deal/task/quote/activity/goal CRUD)
 3. `wip/phase10-smb-assist`         (sales-assist, message-assist, customer-summary, feedback)
-4. `wip/phase10-smb-automations`    (automations, webhooks, integrations, import, accounting)
+4. `wip/phase10-smb-automations`    (automations + webhooks + integrations + import + accounting — Track 4 is split into 4a engine-layer + 4b route-layer on the SAME branch, layered commits)
 5. `wip/phase10-smb-spa`            (React SPA: onboarding, blueprint, kanban, etc.)
+
+## Track 4 sub-tasks (same branch `wip/phase10-smb-automations`)
+
+- **4a `worker-automations-engines`** — pure Pattern A engines (4 missing: Webhooks, Import, Accounting, Integration) + 5 contract tests. Layered as commits ON TOP of the existing 2/5 engines (Automations, Outbound).
+- **4b `worker-automations-routes`** — ~22 thin routes in `server/app.js` + Zod shapes + RBAC wiring + 2 route tests. Layered after 4a.
+- The orchestrator merges the full branch into `ant/ant/main` ONCE after 4b lands. No partial merges for 4a.
 
 ## Per-branch steps
 
