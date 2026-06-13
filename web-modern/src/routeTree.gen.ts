@@ -62,6 +62,7 @@ import { Route as AppSmbCrmAutomationsIndexRouteImport } from './routes/app/smb-
 import { Route as AppPurchaseProcurementIndexRouteImport } from './routes/app/purchase/procurement/index'
 import { Route as AppInventoryWarehouseIndexRouteImport } from './routes/app/inventory/warehouse/index'
 import { Route as AppFlowIntegrationsIndexRouteImport } from './routes/app/flow/integrations/index'
+import { Route as AppDocumentsInvoiceCreateIndexRouteImport } from './routes/app/documents/invoice-create/index'
 import { Route as AppCrmTubeSequencesIndexRouteImport } from './routes/app/crm-tube/sequences/index'
 import { Route as AppCrmTubeIntegrationsIndexRouteImport } from './routes/app/crm-tube/integrations/index'
 import { Route as AppCrmTubeContactsIndexRouteImport } from './routes/app/crm-tube/contacts/index'
@@ -345,6 +346,12 @@ const AppFlowIntegrationsIndexRoute =
     path: '/flow/integrations/',
     getParentRoute: () => AppRouteRoute,
   } as any)
+const AppDocumentsInvoiceCreateIndexRoute =
+  AppDocumentsInvoiceCreateIndexRouteImport.update({
+    id: '/documents/invoice-create/',
+    path: '/documents/invoice-create/',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
 const AppCrmTubeSequencesIndexRoute =
   AppCrmTubeSequencesIndexRouteImport.update({
     id: '/crm-tube/sequences/',
@@ -473,6 +480,7 @@ export interface FileRoutesByFullPath {
   '/app/crm-tube/contacts/': typeof AppCrmTubeContactsIndexRoute
   '/app/crm-tube/integrations/': typeof AppCrmTubeIntegrationsIndexRoute
   '/app/crm-tube/sequences/': typeof AppCrmTubeSequencesIndexRoute
+  '/app/documents/invoice-create/': typeof AppDocumentsInvoiceCreateIndexRoute
   '/app/flow/integrations/': typeof AppFlowIntegrationsIndexRoute
   '/app/inventory/warehouse/': typeof AppInventoryWarehouseIndexRoute
   '/app/purchase/procurement/': typeof AppPurchaseProcurementIndexRoute
@@ -538,6 +546,7 @@ export interface FileRoutesByTo {
   '/app/crm-tube/contacts': typeof AppCrmTubeContactsIndexRoute
   '/app/crm-tube/integrations': typeof AppCrmTubeIntegrationsIndexRoute
   '/app/crm-tube/sequences': typeof AppCrmTubeSequencesIndexRoute
+  '/app/documents/invoice-create': typeof AppDocumentsInvoiceCreateIndexRoute
   '/app/flow/integrations': typeof AppFlowIntegrationsIndexRoute
   '/app/inventory/warehouse': typeof AppInventoryWarehouseIndexRoute
   '/app/purchase/procurement': typeof AppPurchaseProcurementIndexRoute
@@ -606,6 +615,7 @@ export interface FileRoutesById {
   '/app/crm-tube/contacts/': typeof AppCrmTubeContactsIndexRoute
   '/app/crm-tube/integrations/': typeof AppCrmTubeIntegrationsIndexRoute
   '/app/crm-tube/sequences/': typeof AppCrmTubeSequencesIndexRoute
+  '/app/documents/invoice-create/': typeof AppDocumentsInvoiceCreateIndexRoute
   '/app/flow/integrations/': typeof AppFlowIntegrationsIndexRoute
   '/app/inventory/warehouse/': typeof AppInventoryWarehouseIndexRoute
   '/app/purchase/procurement/': typeof AppPurchaseProcurementIndexRoute
@@ -675,6 +685,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/contacts/'
     | '/app/crm-tube/integrations/'
     | '/app/crm-tube/sequences/'
+    | '/app/documents/invoice-create/'
     | '/app/flow/integrations/'
     | '/app/inventory/warehouse/'
     | '/app/purchase/procurement/'
@@ -740,6 +751,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/contacts'
     | '/app/crm-tube/integrations'
     | '/app/crm-tube/sequences'
+    | '/app/documents/invoice-create'
     | '/app/flow/integrations'
     | '/app/inventory/warehouse'
     | '/app/purchase/procurement'
@@ -807,6 +819,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/contacts/'
     | '/app/crm-tube/integrations/'
     | '/app/crm-tube/sequences/'
+    | '/app/documents/invoice-create/'
     | '/app/flow/integrations/'
     | '/app/inventory/warehouse/'
     | '/app/purchase/procurement/'
@@ -1195,6 +1208,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFlowIntegrationsIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/documents/invoice-create/': {
+      id: '/app/documents/invoice-create/'
+      path: '/documents/invoice-create'
+      fullPath: '/app/documents/invoice-create/'
+      preLoaderRoute: typeof AppDocumentsInvoiceCreateIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/crm-tube/sequences/': {
       id: '/app/crm-tube/sequences/'
       path: '/crm-tube/sequences'
@@ -1350,6 +1370,7 @@ interface AppRouteRouteChildren {
   AppCrmTubeContactsIndexRoute: typeof AppCrmTubeContactsIndexRoute
   AppCrmTubeIntegrationsIndexRoute: typeof AppCrmTubeIntegrationsIndexRoute
   AppCrmTubeSequencesIndexRoute: typeof AppCrmTubeSequencesIndexRoute
+  AppDocumentsInvoiceCreateIndexRoute: typeof AppDocumentsInvoiceCreateIndexRoute
   AppFlowIntegrationsIndexRoute: typeof AppFlowIntegrationsIndexRoute
   AppInventoryWarehouseIndexRoute: typeof AppInventoryWarehouseIndexRoute
   AppPurchaseProcurementIndexRoute: typeof AppPurchaseProcurementIndexRoute
@@ -1411,6 +1432,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppCrmTubeContactsIndexRoute: AppCrmTubeContactsIndexRoute,
   AppCrmTubeIntegrationsIndexRoute: AppCrmTubeIntegrationsIndexRoute,
   AppCrmTubeSequencesIndexRoute: AppCrmTubeSequencesIndexRoute,
+  AppDocumentsInvoiceCreateIndexRoute: AppDocumentsInvoiceCreateIndexRoute,
   AppFlowIntegrationsIndexRoute: AppFlowIntegrationsIndexRoute,
   AppInventoryWarehouseIndexRoute: AppInventoryWarehouseIndexRoute,
   AppPurchaseProcurementIndexRoute: AppPurchaseProcurementIndexRoute,
