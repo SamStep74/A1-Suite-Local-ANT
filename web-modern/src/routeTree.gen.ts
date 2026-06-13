@@ -16,6 +16,7 @@ import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as LoginMfaRouteImport } from './routes/login.mfa'
 import { Route as AppCopilotRouteImport } from './routes/app/copilot'
 import { Route as AppAppIdRouteImport } from './routes/app/$appId'
+import { Route as AppTriageInboxIndexRouteImport } from './routes/app/triage-inbox/index'
 import { Route as AppSmbCrmIndexRouteImport } from './routes/app/smb-crm/index'
 import { Route as AppPurchaseIndexRouteImport } from './routes/app/purchase/index'
 import { Route as AppProjectsIndexRouteImport } from './routes/app/projects/index'
@@ -104,6 +105,11 @@ const AppCopilotRoute = AppCopilotRouteImport.update({
 const AppAppIdRoute = AppAppIdRouteImport.update({
   id: '/$appId',
   path: '/$appId',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppTriageInboxIndexRoute = AppTriageInboxIndexRouteImport.update({
+  id: '/triage-inbox/',
+  path: '/triage-inbox/',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppSmbCrmIndexRoute = AppSmbCrmIndexRouteImport.update({
@@ -433,6 +439,7 @@ export interface FileRoutesByFullPath {
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/smb-crm/': typeof AppSmbCrmIndexRoute
+  '/app/triage-inbox/': typeof AppTriageInboxIndexRoute
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
@@ -494,6 +501,7 @@ export interface FileRoutesByTo {
   '/app/projects': typeof AppProjectsIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
   '/app/smb-crm': typeof AppSmbCrmIndexRoute
+  '/app/triage-inbox': typeof AppTriageInboxIndexRoute
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
@@ -558,6 +566,7 @@ export interface FileRoutesById {
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/smb-crm/': typeof AppSmbCrmIndexRoute
+  '/app/triage-inbox/': typeof AppTriageInboxIndexRoute
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
@@ -623,6 +632,7 @@ export interface FileRouteTypes {
     | '/app/projects/'
     | '/app/purchase/'
     | '/app/smb-crm/'
+    | '/app/triage-inbox/'
     | '/app/crm-tube/contacts/$contactId'
     | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
@@ -684,6 +694,7 @@ export interface FileRouteTypes {
     | '/app/projects'
     | '/app/purchase'
     | '/app/smb-crm'
+    | '/app/triage-inbox'
     | '/app/crm-tube/contacts/$contactId'
     | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
@@ -747,6 +758,7 @@ export interface FileRouteTypes {
     | '/app/projects/'
     | '/app/purchase/'
     | '/app/smb-crm/'
+    | '/app/triage-inbox/'
     | '/app/crm-tube/contacts/$contactId'
     | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
@@ -823,6 +835,13 @@ declare module '@tanstack/react-router' {
       path: '/$appId'
       fullPath: '/app/$appId'
       preLoaderRoute: typeof AppAppIdRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/triage-inbox/': {
+      id: '/app/triage-inbox/'
+      path: '/triage-inbox'
+      fullPath: '/app/triage-inbox/'
+      preLoaderRoute: typeof AppTriageInboxIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/smb-crm/': {
@@ -1259,6 +1278,7 @@ interface AppRouteRouteChildren {
   AppProjectsIndexRoute: typeof AppProjectsIndexRoute
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
   AppSmbCrmIndexRoute: typeof AppSmbCrmIndexRoute
+  AppTriageInboxIndexRoute: typeof AppTriageInboxIndexRoute
   AppCrmTubeContactsContactIdRoute: typeof AppCrmTubeContactsContactIdRoute
   AppCrmTubeDealsDealIdRoute: typeof AppCrmTubeDealsDealIdRoute
   AppCrmTubeSequencesSequenceIdRoute: typeof AppCrmTubeSequencesSequenceIdRoute
@@ -1316,6 +1336,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppProjectsIndexRoute: AppProjectsIndexRoute,
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,
   AppSmbCrmIndexRoute: AppSmbCrmIndexRoute,
+  AppTriageInboxIndexRoute: AppTriageInboxIndexRoute,
   AppCrmTubeContactsContactIdRoute: AppCrmTubeContactsContactIdRoute,
   AppCrmTubeDealsDealIdRoute: AppCrmTubeDealsDealIdRoute,
   AppCrmTubeSequencesSequenceIdRoute: AppCrmTubeSequencesSequenceIdRoute,

@@ -17,6 +17,11 @@ msgstr ""
 msgid "{count} selected"
 msgstr "{count} selected"
 
+#: src/routes/app/triage-inbox/index.tsx:208
+#: src/routes/app/triage-inbox/index.tsx:419
+msgid "Amount"
+msgstr "Amount"
+
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:88
 msgid "Bucket"
 msgstr "Bucket"
@@ -45,7 +50,12 @@ msgstr "Delete"
 msgid "Delete view"
 msgstr "Delete view"
 
+#: src/routes/app/triage-inbox/index.tsx:198
+msgid "Detail"
+msgstr "Detail"
+
 #: src/components/shared/PeekPanel.tsx:114
+#: src/routes/app/triage-inbox/index.tsx:383
 msgid "Details"
 msgstr "Details"
 
@@ -69,6 +79,12 @@ msgstr "Label"
 msgid "Loading receivables…"
 msgstr "Loading receivables…"
 
+#. placeholder {0}: ids.length
+#. placeholder {1}: ids.length === 1 ? "" : "s"
+#: src/routes/app/triage-inbox/index.tsx:298
+msgid "Marked {0} item{1} as resolved"
+msgstr "Marked {0} item{1} as resolved"
+
 #: src/routes/app/analytics/index.tsx:112
 msgid "Metrics"
 msgstr "Metrics"
@@ -85,6 +101,10 @@ msgstr "Next"
 msgid "No buckets in this period"
 msgstr "No buckets in this period"
 
+#: src/routes/app/triage-inbox/index.tsx:370
+msgid "No items match this view"
+msgstr "No items match this view"
+
 #: src/components/shared/DataTable.tsx:373
 msgid "No results"
 msgstr "No results"
@@ -92,6 +112,15 @@ msgstr "No results"
 #: src/components/shared/SavedViews.tsx:153
 msgid "No saved views yet"
 msgstr "No saved views yet"
+
+#: src/routes/app/triage-inbox/index.tsx:325
+msgid "One queue for every \"needs your attention\" item across invoices, tax gates, approvals, customer replies, fleet, and purchase orders."
+msgstr "One queue for every \"needs your attention\" item across invoices, tax gates, approvals, customer replies, fleet, and purchase orders."
+
+#: src/routes/app/triage-inbox/index.tsx:234
+#: src/routes/app/triage-inbox/index.tsx:401
+msgid "Owner"
+msgstr "Owner"
 
 #. placeholder {0}: pageIndex + 1
 #. placeholder {1}: Math.max(1, pageCount)
@@ -102,6 +131,11 @@ msgstr "Page {0} of {1}"
 #: src/components/shared/DataTable.tsx:407
 msgid "Prev"
 msgstr "Prev"
+
+#: src/routes/app/triage-inbox/index.tsx:221
+#: src/routes/app/triage-inbox/index.tsx:411
+msgid "Raised"
+msgstr "Raised"
 
 #: src/routes/app/analytics/index.tsx:111
 msgid "Receivables"
@@ -115,6 +149,10 @@ msgstr "Rename view"
 #: src/routes/app/analytics/index.tsx:114
 msgid "Reports"
 msgstr "Reports"
+
+#: src/routes/app/triage-inbox/index.tsx:365
+msgid "Reset"
+msgstr "Reset"
 
 #: src/components/shared/SavedViews.tsx:186
 #: src/components/shared/SavedViews.tsx:245
@@ -139,9 +177,22 @@ msgstr "Showing {0}–{1} of {totalRows}"
 msgid "Snapshots"
 msgstr "Snapshots"
 
+#: src/routes/app/triage-inbox/index.tsx:169
+msgid "Source"
+msgstr "Source"
+
+#: src/routes/app/triage-inbox/index.tsx:244
+#: src/routes/app/triage-inbox/index.tsx:407
+msgid "Status"
+msgstr "Status"
+
 #: src/components/shared/BulkActionBar.tsx:51
 msgid "Tag"
 msgstr "Tag"
+
+#: src/routes/app/triage-inbox/index.tsx:188
+msgid "Title"
+msgstr "Title"
 
 #: src/routes/app/analytics/index.tsx:164
 msgid "Today"
@@ -154,6 +205,15 @@ msgstr "Total"
 #: src/i18n/I18nProvider.tsx:92
 msgid "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
 msgstr "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
+
+#: src/routes/app/triage-inbox/index.tsx:322
+msgid "Triage inbox"
+msgstr "Triage inbox"
+
+#: src/routes/app/triage-inbox/index.tsx:238
+#: src/routes/app/triage-inbox/index.tsx:404
+msgid "Unassigned"
+msgstr "Unassigned"
 
 #: src/components/shared/UndoToast.tsx:120
 msgid "Undo"
