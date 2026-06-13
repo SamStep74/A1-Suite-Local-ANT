@@ -1,9 +1,9 @@
 # Phase 10 orchestration — state snapshot
 
-**Last update:** 2026-06-12 16:50 UTC (20:50 local)
-**Session:** 2026-06-12 (Phase 10.0 TYPECHECK CLEANUP CLOSED, Phase 10.0 D1 CLOSED, Phase 10.1 CLOSED, Phase 10.0 CLOSED, Phase 10.2c CLOSED, Phase 10.2b CLOSED, Phase 10.2d CLOSED, Phase 10.2e CLOSED, Phase 10.3 CLOSED + torn down, **Phase 10.4 CLOSED**)
-**Current ref:** `ant/main @ b04a88c` (10.4 integration commit — TanStack DataTable + SavedViews + PeekPanel + UndoToast + BulkActionBar + analytics receivables conversion; Lingui v5 strings from 10.3 fully wired through the new components)
-**Tag:** `phase10-0-typecheck-cleanup-v1` → d6d4c44 ✅ + `phase10-0-d1-spa-shell-v1` → 5fd4dfb ✅ + `phase10-1-deploy-v1` → 57c60eb ✅ + `phase10-hygiene-v1` → 98c72a6 ✅ + `phase10-2-finance-v1` → 0902b38 ✅ + `phase10-2-people-v1` → 4795251 ✅ + `phase10-2-flow-integrations-v1` → 37f7732 ✅ + `phase10-2e-login-shell-retirement-v1` → 463089d ✅ + `phase10-3-i18n-infra-v1` → bc8b159 ✅ + **`phase10-4-shared-components-v1` → b04a88c ✅**
+**Last update:** 2026-06-14 02:14 UTC (06:14 local)
+**Session:** 2026-06-14 (Phase 10.5 product differentiators CLOSED + torn down: r1 W1–W4 + r2 W5–W7 + translation pass; all merged into `ant/main @ c7b94f8`; tag `phase10-5-product-differentiators-v1` force-pushed)
+**Current ref:** `ant/main @ c7b94f8` (10.5 translation-pass merge — 4 r1 surfaces + 3 r2 surfaces + ru/en catalogs GA + dev-only translations banner removed; tag `phase10-5-product-differentiators-v1` ✅)
+**Tag:** `phase10-0-typecheck-cleanup-v1` → d6d4c44 ✅ + `phase10-0-d1-spa-shell-v1` → 5fd4dfb ✅ + `phase10-1-deploy-v1` → 57c60eb ✅ + `phase10-hygiene-v1` → 98c72a6 ✅ + `phase10-2-finance-v1` → 0902b38 ✅ + `phase10-2-people-v1` → 4795251 ✅ + `phase10-2-flow-integrations-v1` → 37f7732 ✅ + `phase10-2e-login-shell-retirement-v1` → 463089d ✅ + `phase10-3-i18n-infra-v1` → bc8b159 ✅ + `phase10-4-shared-components-v1` → b04a88c ✅ + **`phase10-5-product-differentiators-v1` → c7b94f8 ✅**
 
 ## Phase 10.2c Finance (phase10-2-finance) — ✅ CLOSED
 
@@ -487,6 +487,67 @@ Every user-facing string in the new components is wrapped in `<Trans>` or `t\`\`
 **Phase 10.5 (product differentiators: fiscal gates · Ask-AI · Triage Inbox · period-close checklist · document steppers · keyboard grammar · onboarding)** — uses the 5 shared primitives from 10.4 (DataTable + SavedViews + PeekPanel + UndoToast + BulkActionBar) and the Lingui infra from 10.3. The translation pass is a hard prerequisite for any non-hy user, so the first sub-step of 10.5 planning is "do we ship hy-only for the differentiators and gate the others, or do we schedule a translation pass first?"
 
 
+## Phase 10.5 product differentiators (phase10-5-product-differentiators) — ✅ CLOSED
+
+**Closed:** 2026-06-14 02:14 UTC (06:14 local)
+**Base ref:** `ant/main @ 30ef2ca` (post-10.5-pre, on top of SMB CRM rebuild b774600)
+**Final ref:** `ant/main @ c7b94f8` (post-translation-pass merge)
+**Tag:** `phase10-5-product-differentiators-v1` → `c7b94f8` ✅ (pushed to ant, force-updated from 2e69f54)
+
+### Surface map
+
+**Round 1 (4 workers, parallel — pre-step):**
+- `fiscal-gates` — Per-period tax-action list. New route `routes/app/fiscal-gates/`, lib `lib/fiscal/{gates,schemas}.ts`. Composes DataTable + SavedViews + BulkActionBar + UndoToast.
+- `triage-inbox` — Cross-feature work queue. New route `routes/app/triage-inbox/`, lib `lib/triage/{feed,savedViews,schemas}.ts`. Composes DataTable + SavedViews + PeekPanel + BulkActionBar.
+- `ask-ai` — In-app AI assistant panel. New component `components/ai/AskAiPanel.tsx`, routes `routes/app/ask-ai/`, lib `lib/ai/{client,citations,schemas}.ts`. Uses PeekPanel as drawer chrome.
+- `period-close-checklist` — Monthly close wizard. New route `routes/app/period-close/`, lib `lib/close/{checklist,state,schemas}.ts`. Composes DataTable + BulkActionBar + UndoToast.
+
+**Round 2 (3 workers, sequenced):**
+- `document-steppers` — Multi-step form wizard. New component `components/wizard/{Stepper,StepperShell}.tsx`, route `routes/app/documents/invoice-create/`, lib `lib/wizard/{state,schemas}.ts`.
+- `keyboard-grammar` — Cross-feature keymap. New lib `lib/keyboard/{registry,grammar,shortcuts,schemas}.ts`, components `components/keyboard/{KeyHandler,ShortcutCheatsheet}.tsx`. Mounts KeyHandler in app shell.
+- `onboarding` — First-run tour overlay. New components `components/onboarding/{TourOverlay,useTour,OnboardingLauncher}.{tsx,hook}`, lib `lib/onboarding/{tours,state,schemas}.ts`. 5 default tours.
+
+**Translation pass (1 worker, parallel with r2):**
+- `translation-pass` — Filled `ru` + `en` catalogs (225 msgids each), flipped `TRANSLATED_LOCALES` to all-`true`, removed dev-only "translations in progress" banner. 3 per-locale chunks emitted by Vite/Rollup, all 11 i18n unit tests pass.
+
+### Lingui surface
+
+- 10.3 + 10.4 + 10.5-pre: 38 strings
+- After r1 (W1–W4): ~70 strings
+- After r2 (W5–W7): 224 source msgids
+- After translation pass: all 225 msgids (224 source + 1 re-extract delta) have real `ru` + `en` translations, `TRANSLATED_LOCALES = { hy: true, ru: true, en: true }`, banner removed.
+
+### Audit gates (final)
+
+- `pnpm typecheck`: 0 errors
+- `pnpm vitest run`: 2458/2463 (5 pre-existing: 1 AppLauncher + 4 fleet, out of scope since 10.0)
+- `pnpm build`: success, 3 per-locale chunks
+- `pnpm i18n:extract`: idempotent at 225 keys
+- `pnpm i18n:compile`: success, no errors
+- `grep -rE 'locale-switcher|i18n-translations-in-progress' web-modern/dist/assets/`: 0 (prod-stripped)
+- `grep -rE 'translations-in-progress' web-modern/src/`: 0 (banner fully removed post-translation-pass)
+
+### Hazards hit (and how they were resolved)
+
+- **Lingui compile-fills-source quirk** — a runtime key-count heuristic can't distinguish a translated catalog from a placeholder one (the compile step fills the source text as fallback). Fixed with a static `TRANSLATED_LOCALES = { hy: true, ru: false, en: false }` allowlist, flipped to all-`true` by the translation-pass worker.
+- **Ref ambiguity hazard** — stray `refs/heads/ant/main` and `refs/remotes/ant/ant/main` from a prior session caused `fatal: ambiguous object name: 'ant/main'`. Cleaned with `git update-ref -d`.
+- **Rebase-on-remote-fast-forward race** — parallel SMB CRM orchestrator agent pushed `b774600` to `ant/main` mid-session, blocking the pre-step push. Fixed with `git rebase refs/remotes/ant/main` + new SHA `30ef2ca` + clean re-audit + push.
+- **Branch name flattening** — `git worktree add -b wip/foo/bar` creates `wip/foo-bar` (the second slash gets flattened). The plan files note this; the merge scripts use the FLATTENED branch name when fetching from ant.
+- **block-no-verify@1.1.2 hook** — all commit messages avoid the literal "verify" substring (caught and rewritten during pre-step).
+- **W7 onboarding catalog re-extract** — merging W7 (onboarding) after the W5/W6 catalogs existed caused Lingui to re-extract 224 source msgids (100 new from onboarding strings), wiping the translation-pass worker's prior fill. Re-ran the translation-fill step against the expanded catalog and re-compiled.
+
+### Recovery notes (for the next 10.5-style orchestrator run)
+
+- The `coordinationRoot` in plan.json must be the PARENT `.orchestration/` (not the session dir) because the orchestrator script appends `<sessionName>/<workerName>/` to the coord root.
+- `hasTranslation()` was a temporary gate — once the translation pass flips it, the next refactor (10.6+) can delete the export and the test block.
+- The translation-pass worker has the highest-copier-density work in 10.5; consider a longer timeout (6-8h) than the default 4h.
+- After r2 W5/W6/W7 lands, run `pnpm i18n:extract` ONCE before the translation pass fills the catalogs — subsequent re-extracts (e.g. on W7 merge) will wipe filled msgstrs and force a re-fill. Order: extract → fill → compile, never re-extract after fill.
+
+### Next concrete step
+
+10.6 — pick from: (a) add e2e flows to wire all 10.4+10.5 surfaces together; (b) refactor `hasTranslation` away now that all locales are translated; (c) add a real LLM backend to the ask-ai stub. The user will pick.
+
+
 ## Phase 10.0 typecheck cleanup (phase10-0-typecheck-cleanup) — ✅ CLOSED
 
 **Closed:** 2026-06-12 10:08 UTC (14:08 local)
@@ -679,10 +740,8 @@ Every user-facing string in the new components is wrapped in `<Trans>` or `t\`\`
 ### 8.12 delete legacy `web/`
 - Re-gated on 10.1 ✅ + 10.2 partial ✅ (10.2a still pending) — unblock condition now: 10.2a closes
 
-### 10.5 product differentiators (NEXT — rolling backlog)
-- Fiscal gates, Ask-AI, Triage Inbox, period-close checklist, document steppers, keyboard grammar, onboarding
-- **Builds on 10.4 primitives**: Triage Inbox = `DataTable` + `SavedViews`; Ask-AI sidebar = `PeekPanel`; fiscal-gate checklist = `DataTable` + `BulkActionBar`; UndoToast for "Filed this period" reversals; document steppers are pure forms (no primitive needed); keyboard grammar hooks into DataTable row selection
-- **Hard prerequisite**: Lingui translation pass (10.3 + 10.4 added 42 source strings; `ru` + `en` catalogs are still placeholder). Decision: ship hy-only for the differentiators and gate `lang=ru` / `lang=en` after the translation pass, OR schedule the translation pass first
+### 10.5 product differentiators — ✅ CLOSED @ ant/main c7b94f8 (tag phase10-5-product-differentiators-v1)
+- See full close section above. r1 W1–W4 (fiscal-gates, triage-inbox, ask-ai, period-close-checklist) + r2 W5–W7 (document-steppers, keyboard-grammar, onboarding) + translation pass (ru/en catalogs GA, banner removed). All merged into `ant/main @ c7b94f8`.
 
 ### Out of scope (deferred)
 - 4 pre-existing fleet test bugs (`fleetTabFromHash`/`tripStateLabelArm`/`coldChainCategoryLabelAm`/`formatFleetIdShort`) — not 10.0 typecheck cleanup, still unfixed
