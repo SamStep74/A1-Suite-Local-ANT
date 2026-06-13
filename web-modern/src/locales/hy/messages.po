@@ -13,6 +13,11 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: src/routes/app/documents/invoice-create/index.tsx:468
+#: src/routes/app/documents/invoice-create/index.tsx:472
+msgid "(missing)"
+msgstr "(missing)"
+
 #: src/components/shared/BulkActionBar.tsx:98
 #: src/routes/app/fiscal-gates/index.tsx:390
 msgid "{count} selected"
@@ -35,6 +40,10 @@ msgstr "Acknowledge"
 #: src/lib/fiscal/labels.tsx:167
 msgid "Acknowledged"
 msgstr "Acknowledged"
+
+#: src/routes/app/documents/invoice-create/index.tsx:320
+msgid "Add row"
+msgstr "Add row"
 
 #: src/routes/app/ask-ai/index.tsx:258
 msgid "AI"
@@ -75,6 +84,10 @@ msgstr "Ask anything about your business. Phase 10.5 ships a UI-only stub — an
 msgid "Ask the AI a question"
 msgstr "Ask the AI a question"
 
+#: src/components/wizard/StepperShell.tsx:177
+msgid "Back"
+msgstr "Back"
+
 #: src/routes/app/ask-ai/index.tsx:229
 msgid "Back to today"
 msgstr "Back to today"
@@ -104,6 +117,14 @@ msgstr "Close"
 msgid "Close Ask AI panel"
 msgstr "Close Ask AI panel"
 
+#: src/routes/app/documents/invoice-create/index.tsx:632
+msgid "Confirm and submit"
+msgstr "Confirm and submit"
+
+#: src/routes/app/documents/invoice-create/index.tsx:93
+msgid "Confirm before submitting"
+msgstr "Confirm before submitting"
+
 #: src/routes/app/ask-ai/index.tsx:115
 msgid "Context anchor"
 msgstr "Context anchor"
@@ -116,9 +137,30 @@ msgstr "Context:"
 msgid "Couldn't reach the AI. Showing a stub answer instead."
 msgstr "Couldn't reach the AI. Showing a stub answer instead."
 
+#: src/routes/app/documents/invoice-create/index.tsx:617
+msgid "Create another invoice"
+msgstr "Create another invoice"
+
+#: src/routes/app/documents/invoice-create/index.tsx:672
+msgid "Create invoice"
+msgstr "Create invoice"
+
 #: src/routes/app/fiscal-gates/index.tsx:213
 msgid "Current period"
 msgstr "Current period"
+
+#: src/routes/app/documents/invoice-create/index.tsx:82
+#: src/routes/app/documents/invoice-create/index.tsx:467
+msgid "Customer"
+msgstr "Customer"
+
+#: src/routes/app/documents/invoice-create/index.tsx:239
+msgid "Customer ID"
+msgstr "Customer ID"
+
+#: src/routes/app/documents/invoice-create/index.tsx:257
+msgid "Customer name"
+msgstr "Customer name"
 
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:129
 msgid "Customers"
@@ -146,6 +188,11 @@ msgstr "Delete"
 msgid "Delete view"
 msgstr "Delete view"
 
+#: src/routes/app/documents/invoice-create/index.tsx:358
+#: src/routes/app/documents/invoice-create/index.tsx:483
+msgid "Description"
+msgstr "Description"
+
 #: src/routes/app/triage-inbox/index.tsx:198
 msgid "Detail"
 msgstr "Detail"
@@ -154,6 +201,10 @@ msgstr "Detail"
 #: src/routes/app/triage-inbox/index.tsx:383
 msgid "Details"
 msgstr "Details"
+
+#: src/routes/app/documents/invoice-create/index.tsx:635
+msgid "Done"
+msgstr "Done"
 
 #: src/routes/app/fiscal-gates/index.tsx:174
 #: src/routes/app/fiscal-gates/index.tsx:304
@@ -223,9 +274,21 @@ msgstr "File the quarterly excise return and remit the tax owed."
 msgid "Filed"
 msgstr "Filed"
 
+#: src/routes/app/documents/invoice-create/index.tsx:98
+msgid "Finalize the draft"
+msgstr "Finalize the draft"
+
+#: src/routes/app/documents/invoice-create/index.tsx:648
+msgid "Finalizing will lock the draft and queue the invoice."
+msgstr "Finalizing will lock the draft and queue the invoice."
+
 #: src/routes/app/fiscal-gates/index.tsx:207
 msgid "Fiscal gates"
 msgstr "Fiscal gates"
+
+#: src/routes/app/documents/invoice-create/index.tsx:276
+msgid "Format: YYYY-MM-DD"
+msgstr "Format: YYYY-MM-DD"
 
 #: src/routes/app/fiscal-gates/index.tsx:160
 msgid "Gate"
@@ -239,6 +302,14 @@ msgstr "Gate details"
 msgid "Go back"
 msgstr "Go back"
 
+#: src/components/wizard/StepperShell.tsx:212
+msgid "Go to the next step"
+msgstr "Go to the next step"
+
+#: src/routes/app/documents/invoice-create/index.tsx:545
+msgid "I confirm the customer, line items, and total are correct."
+msgstr "I confirm the customer, line items, and total are correct."
+
 #: src/routes/app/ask-ai/index.tsx:130
 msgid "id"
 msgstr "id"
@@ -248,13 +319,27 @@ msgstr "id"
 msgid "Income tax (annual)"
 msgstr "Income tax (annual)"
 
+#: src/routes/app/documents/invoice-create/index.tsx:596
+msgid "Invoice submitted"
+msgstr "Invoice submitted"
+
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:118
 msgid "Invoices"
 msgstr "Invoices"
 
+#: src/routes/app/documents/invoice-create/index.tsx:275
+#: src/routes/app/documents/invoice-create/index.tsx:471
+msgid "Issue date"
+msgstr "Issue date"
+
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:97
 msgid "Label"
 msgstr "Label"
+
+#: src/routes/app/documents/invoice-create/index.tsx:87
+#: src/routes/app/documents/invoice-create/index.tsx:305
+msgid "Line items"
+msgstr "Line items"
 
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:177
 msgid "Loading receivables…"
@@ -288,6 +373,14 @@ msgstr "Name this view"
 msgid "Next"
 msgstr "Next"
 
+#: src/routes/app/documents/invoice-create/index.tsx:628
+msgid "Next: line items"
+msgstr "Next: line items"
+
+#: src/routes/app/documents/invoice-create/index.tsx:630
+msgid "Next: review"
+msgstr "Next: review"
+
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:208
 msgid "No buckets in this period"
 msgstr "No buckets in this period"
@@ -300,6 +393,10 @@ msgstr "No description"
 #: src/routes/app/triage-inbox/index.tsx:370
 msgid "No items match this view"
 msgstr "No items match this view"
+
+#: src/routes/app/documents/invoice-create/index.tsx:339
+msgid "No line items yet. Add the first row to continue."
+msgstr "No line items yet. Add the first row to continue."
 
 #: src/routes/app/ask-ai/index.tsx:151
 msgid "No questions yet. Ask one below to see the stub answer and citation chips."
@@ -396,6 +493,14 @@ msgstr "Period"
 msgid "Period close"
 msgstr "Period close"
 
+#: src/routes/app/documents/invoice-create/index.tsx:83
+msgid "Pick who is being billed"
+msgstr "Pick who is being billed"
+
+#: src/components/wizard/StepperShell.tsx:133
+msgid "Please fix the highlighted fields"
+msgstr "Please fix the highlighted fields"
+
 #: src/components/ai/AskAiPanel.tsx:292
 msgid "Press Enter to ask · Shift+Enter for newline"
 msgstr "Press Enter to ask · Shift+Enter for newline"
@@ -403,6 +508,14 @@ msgstr "Press Enter to ask · Shift+Enter for newline"
 #: src/components/shared/DataTable.tsx:407
 msgid "Prev"
 msgstr "Prev"
+
+#: src/routes/app/documents/invoice-create/index.tsx:486
+msgid "Qty"
+msgstr "Qty"
+
+#: src/routes/app/documents/invoice-create/index.tsx:378
+msgid "Quantity"
+msgstr "Quantity"
 
 #: src/routes/app/triage-inbox/index.tsx:221
 #: src/routes/app/triage-inbox/index.tsx:411
@@ -421,6 +534,10 @@ msgstr "Remit income tax withheld from employee salaries."
 msgid "Remit tax withheld on payments to non-resident contractors."
 msgstr "Remit tax withheld on payments to non-resident contractors."
 
+#: src/routes/app/documents/invoice-create/index.tsx:430
+msgid "Remove line item"
+msgstr "Remove line item"
+
 #: src/components/shared/SavedViews.tsx:178
 #: src/components/shared/SavedViews.tsx:205
 msgid "Rename view"
@@ -433,6 +550,14 @@ msgstr "Reports"
 #: src/routes/app/triage-inbox/index.tsx:365
 msgid "Reset"
 msgstr "Reset"
+
+#: src/routes/app/documents/invoice-create/index.tsx:92
+msgid "Review"
+msgstr "Review"
+
+#: src/routes/app/documents/invoice-create/index.tsx:460
+msgid "Review the draft"
+msgstr "Review the draft"
 
 #: src/components/shared/SavedViews.tsx:186
 #: src/components/shared/SavedViews.tsx:245
@@ -492,6 +617,18 @@ msgstr "Status"
 msgid "Stop generating"
 msgstr "Stop generating"
 
+#: src/routes/app/documents/invoice-create/index.tsx:97
+msgid "Submit"
+msgstr "Submit"
+
+#: src/routes/app/documents/invoice-create/index.tsx:636
+msgid "Submit invoice"
+msgstr "Submit invoice"
+
+#: src/components/wizard/StepperShell.tsx:211
+msgid "Submit invoice draft"
+msgstr "Submit invoice draft"
+
 #: src/lib/fiscal/labels.tsx:94
 msgid "Submit the consolidated customs declaration for the month."
 msgstr "Submit the consolidated customs declaration for the month."
@@ -500,6 +637,10 @@ msgstr "Submit the consolidated customs declaration for the month."
 msgid "Submit the monthly statistical report to the statistical office."
 msgstr "Submit the monthly statistical report to the statistical office."
 
+#: src/routes/app/documents/invoice-create/index.tsx:492
+msgid "Subtotal"
+msgstr "Subtotal"
+
 #: src/components/shared/BulkActionBar.tsx:51
 msgid "Tag"
 msgstr "Tag"
@@ -507,6 +648,23 @@ msgstr "Tag"
 #: src/components/ai/AskAiPanel.tsx:392
 msgid "The answer is a UI-only stub in Phase 10.5 — no data leaves your browser."
 msgstr "The answer is a UI-only stub in Phase 10.5 — no data leaves your browser."
+
+#: src/routes/app/documents/invoice-create/index.tsx:601
+msgid "the customer"
+msgstr "the customer"
+
+#. placeholder {0}: state.draft.customer?.customerName ?? t`the customer`
+#: src/routes/app/documents/invoice-create/index.tsx:599
+msgid "The invoice draft has been finalized and queued for delivery to {0}."
+msgstr "The invoice draft has been finalized and queued for delivery to {0}."
+
+#: src/routes/app/documents/invoice-create/index.tsx:581
+msgid "The invoice is ready to be sent. Click the button below to finalize it."
+msgstr "The invoice is ready to be sent. Click the button below to finalize it."
+
+#: src/routes/app/documents/invoice-create/index.tsx:651
+msgid "Tick the box to confirm before continuing."
+msgstr "Tick the box to confirm before continuing."
 
 #: src/routes/app/triage-inbox/index.tsx:188
 msgid "Title"
@@ -517,6 +675,7 @@ msgid "Today"
 msgstr "Today"
 
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:107
+#: src/routes/app/documents/invoice-create/index.tsx:517
 msgid "Total"
 msgstr "Total"
 
@@ -541,6 +700,11 @@ msgstr "Unassigned"
 msgid "Undo"
 msgstr "Undo"
 
+#: src/routes/app/documents/invoice-create/index.tsx:402
+#: src/routes/app/documents/invoice-create/index.tsx:489
+msgid "Unit price"
+msgstr "Unit price"
+
 #: src/lib/fiscal/labels.tsx:121
 #: src/lib/fiscal/labels.tsx:179
 msgid "VAT"
@@ -558,6 +722,14 @@ msgstr "View name"
 #: src/components/shared/SavedViews.tsx:137
 msgid "Views"
 msgstr "Views"
+
+#: src/routes/app/documents/invoice-create/index.tsx:675
+msgid "Walk through customer, line items, and review before submitting the draft."
+msgstr "Walk through customer, line items, and review before submitting the draft."
+
+#: src/routes/app/documents/invoice-create/index.tsx:88
+msgid "What was sold or delivered"
+msgstr "What was sold or delivered"
 
 #: src/lib/fiscal/labels.tsx:125
 #: src/lib/fiscal/labels.tsx:183
