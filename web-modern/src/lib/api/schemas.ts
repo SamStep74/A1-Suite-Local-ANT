@@ -5552,5 +5552,226 @@ export type SmbCrmListPipelineStagesResponse = z.infer<
   typeof SmbCrmListPipelineStagesResponseSchema
 >;
 /* ─── block-smb-crm-records-end ─── */
+/* ─── block-smb-crm-assist-begin ─── */
+
+// ─── Enums ──────────────────────────────────────────────────────────────
+export const SmbCrmAssistRunType = z.enum([
+  "sales-assist",
+  "message-assist",
+  "customer-summary"
+]);
+export type SmbCrmAssistRunType = z.infer<typeof SmbCrmAssistRunType>;
+
+export const SmbCrmMessageChannel = z.enum([
+  "whatsapp",
+  "email",
+  "sms",
+  "phone",
+  "telegram",
+  "viber"
+]);
+export type SmbCrmMessageChannel = z.infer<typeof SmbCrmMessageChannel>;
+
+export const SmbCrmMessageIntent = z.enum([
+  "follow-up",
+  "reminder",
+  "thank-you",
+  "intro",
+  "win-back",
+  "quote",
+  "check-in",
+  "support"
+]);
+export type SmbCrmMessageIntent = z.infer<typeof SmbCrmMessageIntent>;
+
+export const SmbCrmRiskLevel = z.enum(["low", "medium", "high"]);
+export type SmbCrmRiskLevel = z.infer<typeof SmbCrmRiskLevel>;
+
+export const SmbCrmFeedbackRating = z.enum(["up", "down"]);
+export type SmbCrmFeedbackRating = z.infer<typeof SmbCrmFeedbackRating>;
+
+// ─── Source record (cited by sales-assist) ──────────────────────────────
+export const SmbCrmSourceRecordSchema = z.object({
+  type: z.enum(["deal", "customer", "activity"]),
+  id: z.string(),
+  label: z.string()
+});
+export type SmbCrmSourceRecord = z.infer<typeof SmbCrmSourceRecordSchema>;
+
+// ─── Run row (audit log entry) ──────────────────────────────────────────
+export const SmbCrmAssistRunSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  runType: SmbCrmAssistRunType,
+  entityId: z.string().nullable(),
+  request: z.record(z.string(), z.unknown()),
+  response: z.record(z.string(), z.unknown()),
+  parsed: z.record(z.string(), z.unknown()),
+  provider: z.string().nullable(),
+  evidence: z.record(z.string(), z.unknown()).nullable(),
+  warnings: z.array(z.string()),
+  createdBy: z.string().nullable(),
+  createdAt: z.string()
+});
+export type SmbCrmAssistRun = z.infer<typeof SmbCrmAssistRunSchema>;
+
+// ─── Feedback row ───────────────────────────────────────────────────────
+export const SmbCrmFeedbackSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  runId: z.string(),
+  userId: z.string(),
+  rating: SmbCrmFeedbackRating,
+  comment: z.string().nullable(),
+  createdAt: z.string()
+});
+export type SmbCrmFeedback = z.infer<typeof SmbCrmFeedbackSchema>;
+
+// ─── Sales-assist: request + result ─────────────────────────────────────
+export const SmbCrmSalesAssistRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  dealId: z.string().min(1),
+  customerId: z.string().nullable().optional()
+});
+export type SmbCrmSalesAssistRequest = z.infer<
+  typeof SmbCrmSalesAssistRequestSchema
+>;
+
+export const SmbCrmSalesAssistResultSchema = z.object({
+  suggestedAction: z.string(),
+  reasoning: z.string(),
+  confidence: z.number().min(0).max(1),
+  sourceRecords: z.array(SmbCrmSourceRecordSchema),
+  riskLevel: SmbCrmRiskLevel
+});
+export type SmbCrmSalesAssistResult = z.infer<
+  typeof SmbCrmSalesAssistResultSchema
+>;
+
+export const SmbCrmSalesAssistResponseSchema = z.object({
+  ok: z.literal(true),
+  run: SmbCrmAssistRunSchema,
+  suggestedAction: z.string(),
+  reasoning: z.string(),
+  confidence: z.number().min(0).max(1),
+  sourceRecords: z.array(SmbCrmSourceRecordSchema),
+  riskLevel: SmbCrmRiskLevel,
+  warnings: z.array(z.string())
+});
+export type SmbCrmSalesAssistResponse = z.infer<
+  typeof SmbCrmSalesAssistResponseSchema
+>;
+
+// ─── Message-assist: request + result ───────────────────────────────────
+export const SmbCrmMessageHistoryItemSchema = z.object({
+  channel: SmbCrmMessageChannel.optional(),
+  direction: z.enum(["inbound", "outbound"]).optional(),
+  body: z.string().optional(),
+  sentAt: z.string().optional()
+});
+export type SmbCrmMessageHistoryItem = z.infer<
+  typeof SmbCrmMessageHistoryItemSchema
+>;
+
+export const SmbCrmMessageAssistRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  customerId: z.string().min(1),
+  channel: SmbCrmMessageChannel,
+  intent: SmbCrmMessageIntent,
+  history: z.array(SmbCrmMessageHistoryItemSchema).optional()
+});
+export type SmbCrmMessageAssistRequest = z.infer<
+  typeof SmbCrmMessageAssistRequestSchema
+>;
+
+export const SmbCrmMessageAssistResultSchema = z.object({
+  body: z.string(),
+  channel: SmbCrmMessageChannel,
+  language: SmbCrmLocale,
+  followups: z.array(z.string())
+});
+export type SmbCrmMessageAssistResult = z.infer<
+  typeof SmbCrmMessageAssistResultSchema
+>;
+
+export const SmbCrmMessageAssistResponseSchema = z.object({
+  ok: z.literal(true),
+  run: SmbCrmAssistRunSchema,
+  body: z.string(),
+  channel: SmbCrmMessageChannel,
+  language: SmbCrmLocale,
+  followups: z.array(z.string()),
+  warnings: z.array(z.string())
+});
+export type SmbCrmMessageAssistResponse = z.infer<
+  typeof SmbCrmMessageAssistResponseSchema
+>;
+
+// ─── Customer-summary: request + result ─────────────────────────────────
+export const SmbCrmCustomerSummaryRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  customerId: z.string().min(1)
+});
+export type SmbCrmCustomerSummaryRequest = z.infer<
+  typeof SmbCrmCustomerSummaryRequestSchema
+>;
+
+export const SmbCrmCustomerSummaryResultSchema = z.object({
+  summaryText: z.string(),
+  keyInsights: z.array(z.string()),
+  lastContactAt: z.string().nullable()
+});
+export type SmbCrmCustomerSummaryResult = z.infer<
+  typeof SmbCrmCustomerSummaryResultSchema
+>;
+
+export const SmbCrmCustomerSummaryResponseSchema = z.object({
+  ok: z.literal(true),
+  run: SmbCrmAssistRunSchema,
+  summaryText: z.string(),
+  keyInsights: z.array(z.string()),
+  lastContactAt: z.string().nullable(),
+  warnings: z.array(z.string())
+});
+export type SmbCrmCustomerSummaryResponse = z.infer<
+  typeof SmbCrmCustomerSummaryResponseSchema
+>;
+
+// ─── Feedback: request + response ───────────────────────────────────────
+export const SmbCrmFeedbackRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  runId: z.string().min(1),
+  rating: SmbCrmFeedbackRating,
+  comment: z.string().nullable().optional()
+});
+export type SmbCrmFeedbackRequest = z.infer<
+  typeof SmbCrmFeedbackRequestSchema
+>;
+
+export const SmbCrmFeedbackResponseSchema = z.object({
+  ok: z.literal(true),
+  feedback: SmbCrmFeedbackSchema
+});
+export type SmbCrmFeedbackResponse = z.infer<
+  typeof SmbCrmFeedbackResponseSchema
+>;
+
+// ─── List assist-runs response ──────────────────────────────────────────
+export const SmbCrmListAssistRunsResponseSchema = z.object({
+  assistRuns: z.array(SmbCrmAssistRunSchema)
+});
+export type SmbCrmListAssistRunsResponse = z.infer<
+  typeof SmbCrmListAssistRunsResponseSchema
+>;
+
+export const SmbCrmListAssistRunsQuerySchema = z.object({
+  runType: SmbCrmAssistRunType.optional(),
+  entityId: z.string().optional(),
+  limit: z.coerce.number().int().min(1).max(500).optional()
+});
+export type SmbCrmListAssistRunsQuery = z.infer<
+  typeof SmbCrmListAssistRunsQuerySchema
+>;
+/* ─── block-smb-crm-assist-end ─── */
 
 

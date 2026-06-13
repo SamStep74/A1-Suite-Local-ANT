@@ -251,6 +251,7 @@ function openDatabase(dbPath) {
   ensureRbacSchema(db);
   ensureSmbCrmFoundationSchema(db);
   ensureSmbCrmRecordsSchema(db);
+  ensureSmbCrmAssistSchema(db);
   ensurePilotPacketLayer(db);
   ensureSessionGovernanceLayer(db);
   seedIfEmpty(db);
@@ -10549,6 +10550,64 @@ function ensureSmbCrmRecordsSchema(db) {
 }
 
 /**
+ * SMB CRM — Assist track (Track 3: M14.11–M14.14).
+ *
+ * Two new tables:
+ *   - smb_crm_assist_runs: one row per AI assist call (sales-assist,
+ *     message-assist, customer-summary). Carries the request, the
+ *     raw AI response, the parsed payload, the provider name, the
+ *     evidence envelope (URL/method/requestHash/responseHash/at),
+ *     and any warnings. This is the audit log for the assist
+ *     surface — every AI call lands here regardless of outcome
+ *     (success or fail), so a later governance review can replay
+ *     the call.
+ *   - smb_crm_feedback: user thumbs-up/down on a previous assist
+ *     run. Run-scoped (one run may collect multiple feedback rows
+ *     over time). The run_id FK is org-scoped at the engine layer
+ *     (the engine refuses to write feedback for a run_id the caller's
+ *     org does not own).
+ */
+function ensureSmbCrmAssistSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS smb_crm_assist_runs (
+      id              TEXT PRIMARY KEY,
+      org_id          TEXT NOT NULL,
+      run_type        TEXT NOT NULL,
+      entity_id       TEXT,
+      request_json    TEXT NOT NULL DEFAULT '{}',
+      response_json   TEXT NOT NULL DEFAULT '{}',
+      parsed_json     TEXT NOT NULL DEFAULT '{}',
+      provider        TEXT,
+      evidence_json   TEXT,
+      warnings_json   TEXT NOT NULL DEFAULT '[]',
+      created_by      TEXT,
+      created_at      TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_assist_runs_org
+      ON smb_crm_assist_runs(org_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_assist_runs_org_type
+      ON smb_crm_assist_runs(org_id, run_type);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_assist_runs_org_entity
+      ON smb_crm_assist_runs(org_id, entity_id);
+
+    CREATE TABLE IF NOT EXISTS smb_crm_feedback (
+      id          TEXT PRIMARY KEY,
+      org_id      TEXT NOT NULL,
+      run_id      TEXT NOT NULL,
+      user_id     TEXT NOT NULL,
+      rating      TEXT NOT NULL,
+      comment     TEXT,
+      created_at  TEXT NOT NULL,
+      FOREIGN KEY (run_id) REFERENCES smb_crm_assist_runs(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_feedback_org
+      ON smb_crm_feedback(org_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_smb_crm_feedback_org_run
+      ON smb_crm_feedback(org_id, run_id);
+  `);
+}
+
+/**
  * Seed app_assignments for the "smb-crm" app. Lives outside
  * ensureSmbCrmFoundationSchema because it must run AFTER seedIfEmpty
  * (which is what creates the organizations + Owner/Admin user rows
@@ -10635,6 +10694,7 @@ module.exports = {
   ensureSmbCrmAppAssignments,
   ensureSmbCrmFoundationSchema,
   ensureSmbCrmRecordsSchema,
+  ensureSmbCrmAssistSchema,
   __test: {
     backfillCatalogUnitsOfMeasureFromItems,
     ensureMoneyPrecisionMigration,
