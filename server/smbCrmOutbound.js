@@ -154,11 +154,13 @@ async function sendOutbound(db, orgId, id, provider) {
   try {
     const result = await provider.send(row.channel, row.to_address, row.body);
     const sentAt = nowIso();
+    // Persist the full envelope (provider / channel / providerMessageId /
+    // deliveredAt / response) so the view adapter can expose them.
     db.prepare(`
       UPDATE smb_crm_outbound_messages
          SET status = 'sent', sent_at = ?, provider = ?, response_json = ?
        WHERE id = ? AND org_id = ?
-    `).run(sentAt, result.provider, JSON.stringify(result.response), id, orgId);
+    `).run(sentAt, result.provider, JSON.stringify(result), id, orgId);
   } catch (err) {
     const errText = String(err && err.message || err);
     db.prepare(`
