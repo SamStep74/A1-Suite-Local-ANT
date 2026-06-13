@@ -27,12 +27,14 @@ import {
   Boxes,
   Truck,
   Sprout,
+  Building2,
   type LucideIcon,
 } from "lucide-react";
 
 export const APP_IDS = [
   "crm",
   "crm-tube",
+  "smb-crm",
   "finance",
   "copilot",
   "desk",
@@ -93,6 +95,16 @@ export const APPS: Record<AppId, AppMeta> = {
     accent: "violet",
     group: "ext",
     legacyMountId: "suite-app-crm-tube",
+  },
+  "smb-crm": {
+    id: "smb-crm",
+    label: "SMB CRM",
+    labelAm: "Փոքր բիզնես",
+    tagline: "AI blueprint · customers · deals · automations",
+    icon: Building2,
+    accent: "violet",
+    group: "core",
+    legacyMountId: "suite-app-smb-crm",
   },
   finance: {
     id: "finance",
