@@ -3548,6 +3548,158 @@ function registerApi(app, db, options = {}) {
   app.delete("/api/smb-crm/goals/:id", request => recordsDeleteRoute(request, goalEntity, request.params.id, "smb_crm.goal.deleted"));
 
 
+  // ─── SMB CRM — AI assist (Track 3) ─────────────────────────────────────
+  // The pure engine lives in `server/smbCrmAssist.js`. Mirrors the
+  // foundation/records pattern: every route does ONLY auth →
+  // requireAppAccess → smbCrmAuth.requireSmbCrmPermission → input
+  // validation → idempotency_keys cache → engine call → audit row →
+  // respond. No Fastify or node:sqlite imports inside the engine.
+  //
+  // Permissions: sales-assist / message-assist / customer-summary /
+  // assist-runs GET all require `smb_crm.access` (read-class).
+  // Feedback reuses the same read-class code per the contract
+  // (no separate `smb_crm.feedback` permission is created).
+  const assist = require("./smbCrmAssist");
+
+  // 1. POST /api/smb-crm/sales-assist — next-best-action for a deal
+  app.post("/api/smb-crm/sales-assist", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.access");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const dealId = String(body.dealId || "").trim();
+    const customerId = body.customerId ? String(body.customerId).trim() : null;
+    if (!dealId) { const err = new Error("dealId is required"); err.statusCode = 400; throw err; }
+    const provider = smbCrmAiProvider.createDefaultProvider({});
+    const result = await assist.salesAssist(db, user.org_id, dealId, customerId, provider, { createdBy: user.id });
+    const envelope = {
+      ok: true,
+      run: result.run,
+      suggestedAction: result.suggestedAction,
+      reasoning: result.reasoning,
+      confidence: result.confidence,
+      sourceRecords: result.sourceRecords,
+      riskLevel: result.riskLevel,
+      warnings: result.warnings
+    };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "smb_crm.sales_assist.generated", {
+      runId: result.run.id, dealId, customerId, idempotencyKey: idem
+    });
+    return envelope;
+  });
+
+  // 2. POST /api/smb-crm/message-assist — draft an outbound message
+  app.post("/api/smb-crm/message-assist", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.access");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const customerId = String(body.customerId || "").trim();
+    const channel = String(body.channel || "").trim().toLowerCase();
+    const intent = String(body.intent || "").trim().toLowerCase();
+    const history = Array.isArray(body.history) ? body.history : [];
+    if (!customerId) { const err = new Error("customerId is required"); err.statusCode = 400; throw err; }
+    if (!channel)    { const err = new Error("channel is required");    err.statusCode = 400; throw err; }
+    if (!intent)     { const err = new Error("intent is required");     err.statusCode = 400; throw err; }
+    const provider = smbCrmAiProvider.createDefaultProvider({});
+    const result = await assist.messageAssist(db, user.org_id, customerId, channel, intent, provider, { history, createdBy: user.id });
+    const envelope = {
+      ok: true,
+      run: result.run,
+      body: result.body,
+      channel: result.channel,
+      language: result.language,
+      followups: result.followups,
+      warnings: result.warnings
+    };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "smb_crm.message_assist.generated", {
+      runId: result.run.id, customerId, channel, intent, idempotencyKey: idem
+    });
+    return envelope;
+  });
+
+  // 3. POST /api/smb-crm/customer-summary — LLM summary of a customer
+  app.post("/api/smb-crm/customer-summary", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.access");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const customerId = String(body.customerId || "").trim();
+    if (!customerId) { const err = new Error("customerId is required"); err.statusCode = 400; throw err; }
+    const provider = smbCrmAiProvider.createDefaultProvider({});
+    const result = await assist.customerSummary(db, user.org_id, customerId, provider, { createdBy: user.id });
+    const envelope = {
+      ok: true,
+      run: result.run,
+      summaryText: result.summaryText,
+      keyInsights: result.keyInsights,
+      lastContactAt: result.lastContactAt,
+      warnings: result.warnings
+    };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "smb_crm.customer_summary.generated", {
+      runId: result.run.id, customerId, idempotencyKey: idem
+    });
+    return envelope;
+  });
+
+  // 4. POST /api/smb-crm/feedback — thumbs-up/down on a previous run
+  app.post("/api/smb-crm/feedback", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    // Contract: feedback requires only smb_crm.access (no separate
+    // smb_crm.feedback permission is seeded). Anyone with the app
+    // can vote.
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.access");
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
+    if (existing) return JSON.parse(existing.response_json);
+    const runId = String(body.runId || "").trim();
+    const rating = String(body.rating || "").trim().toLowerCase();
+    const comment = (body.comment === undefined || body.comment === null) ? null : String(body.comment);
+    if (!runId)  { const err = new Error("runId is required");  err.statusCode = 400; throw err; }
+    if (!rating) { const err = new Error("rating is required"); err.statusCode = 400; throw err; }
+    const fb = assist.recordFeedback(db, user.org_id, runId, user.id, rating, comment);
+    const envelope = { ok: true, feedback: assist.toFeedbackView(fb) };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)")
+      .run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "smb_crm.feedback.recorded", {
+      feedbackId: fb.id, runId, rating, idempotencyKey: idem
+    });
+    return envelope;
+  });
+
+  // 5. GET /api/smb-crm/assist-runs — list (audit log) with optional filters
+  app.get("/api/smb-crm/assist-runs", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    smbCrmAuth.requireSmbCrmPermission(db, user, user.org_id, "smb_crm.access");
+    const q = request.query || {};
+    const filters = { runType: q.runType, entityId: q.entityId, limit: q.limit };
+    const runs = assist.listAssistRuns(db, user.org_id, filters);
+    return { assistRuns: runs.map(assist.toAssistRunView) };
+  });
+
+
   // ─── Inbox + bulk enrich (v0.5) ────────────────────────────────────────
   app.get("/api/crm/tube/inbox", async request => {
     const user = await app.auth(request);
