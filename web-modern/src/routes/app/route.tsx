@@ -14,6 +14,7 @@ import { BottomBar } from "../../components/shell/BottomBar";
 import { AppLauncher } from "../../components/shell/AppLauncher";
 import { AskCommandPalette } from "../../components/command/AskCommandPalette";
 import { AskAiPanel } from "../../components/ai/AskAiPanel";
+import { TourOverlay, useTour } from "../../components/onboarding";
 import { postVoid } from "../../lib/api/client";
 import { getToken, clearToken } from "../../lib/api/auth-token";
 import { APP_IDS, type AppId } from "../../lib/apps";
@@ -43,6 +44,48 @@ function AppLayout() {
   // the Topbar; the panel mounts at the AppLayout level so its
   // z-index/positioning are independent of any sub-route chrome.
   const [askAiOpen, setAskAiOpen] = useState(false);
+  // Phase 10.5 W7 onboarding: the shared tour runtime. We own it
+  // here (not in the Topbar) so the `TourOverlay` modal — also
+  // mounted at this level — shares the same state as the
+  // `OnboardingLauncher` button in the Topbar. The `onNavigate`
+  // hook routes the user to the tour's target surface when a
+  // `navigate` step becomes active.
+  const tourRuntime = useTour({
+    onNavigate: useCallback(
+      (path: string) => {
+        // `navigate` from @tanstack/react-router accepts the
+        // `to` as a free-form path string; cast through `unknown`
+        // to satisfy the strongly-typed `RoutePaths` union.
+        navigate({ to: path as unknown as "/" });
+      },
+      [navigate],
+    ),
+  });
+  // Persisted "is the launcher button visible in the Topbar?"
+  // toggle. Read on mount, default true, write through on every
+  // change. The user can hide the launcher from the menu's
+  // footer ("Hide tour launcher").
+  const [tourLauncherVisible, setTourLauncherVisible] = useState<boolean>(
+    () => {
+      if (typeof window === "undefined") return true;
+      try {
+        return window.localStorage.getItem("a1:onboarding:visible") !== "0";
+      } catch {
+        return true;
+      }
+    },
+  );
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    try {
+      window.localStorage.setItem(
+        "a1:onboarding:visible",
+        tourLauncherVisible ? "1" : "0",
+      );
+    } catch {
+      // localStorage can throw in private-browsing; swallow.
+    }
+  }, [tourLauncherVisible]);
 
   // ⌘K / Ctrl+K toggles the Ask/Command palette globally.
   useEffect(() => {
@@ -84,6 +127,9 @@ function AppLayout() {
           // Phase 1: AI help panel
         }}
         onOpenAskAi={() => setAskAiOpen(true)}
+        tourRuntime={tourRuntime}
+        tourLauncherVisible={tourLauncherVisible}
+        onTourLauncherVisibleChange={setTourLauncherVisible}
       />
 
       <div className="flex flex-1 overflow-hidden">
@@ -108,6 +154,11 @@ function AppLayout() {
         onSignOut={onSignOut}
       />
       <AskAiPanel open={askAiOpen} onOpenChange={setAskAiOpen} />
+      {/* Phase 10.5 W7 onboarding: tour overlay modal. Mounted at
+          the AppLayout level (not the Topbar) so its z-index sits
+          above every sub-route chrome and the modal is a sibling
+          of AskAiPanel, AppLauncher, and AskCommandPalette. */}
+      <TourOverlay runtime={tourRuntime} />
     </div>
   );
 }
