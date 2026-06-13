@@ -78,13 +78,15 @@ describe("onboarding/tours — DEFAULT_TOURS catalog", () => {
     }
   });
 
-  it("the r2 surfaces (documents, settings) are explicitly deferred", () => {
-    // r2 W5 + W6 may not have landed in the build's ant/main
-    // branch at the time of W7's dispatch. We ship the tour
-    // definitions anyway; the overlay renders the "Preview"
-    // copy so the user knows the surface is on the roadmap.
-    expect(DEFAULT_TOURS_BY_ID["documents"]?.deferred).toBe(true);
-    expect(DEFAULT_TOURS_BY_ID["settings"]?.deferred).toBe(true);
+  it("the r2 surfaces (documents, settings) are live once W5 + W6 merge", () => {
+    // W7 ships the tour catalog with `deferred: true` for the
+    // W5 / W6 tours. After both workers land in ant/main, the
+    // orchestrator flips the flag so the launcher offers all 5
+    // tours without the "Preview" body copy. This test pins the
+    // post-flip contract: r2 tours are NOT deferred once the
+    // surfaces are live.
+    expect(DEFAULT_TOURS_BY_ID["documents"]?.deferred).toBe(false);
+    expect(DEFAULT_TOURS_BY_ID["settings"]?.deferred).toBe(false);
   });
 
   it("every step's kind is one of the three allowed values", () => {

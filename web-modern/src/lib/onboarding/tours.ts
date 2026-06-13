@@ -5,22 +5,16 @@
  *   1. fiscal-gates  → 3 steps · r1 W1 surface (in ant/main)
  *   2. triage-inbox  → 3 steps · r1 W2 surface (in ant/main)
  *   3. ask-ai        → 2 steps · r1 W3 surface (in ant/main)
- *   4. documents     → 4 steps · r2 W5 surface (deferred)
- *   5. settings      → 2 steps · r2 W6 surface (deferred)
+ *   4. documents     → 4 steps · r2 W5 surface (live as of W7 flip)
+ *   5. settings      → 2 steps · r2 W6 surface (live as of W7 flip)
  *
- * Why `deferred: true` for the W5 / W6 tours:
- *   The plan documents W5 / W6 as pre-reqs for these two tours.
- *   The worktrees for those workers exist but are "not started"
- *   at the time of W7's dispatch. Shipping the tour definitions
- *   (not just the surface code) is the right move:
- *     - The launcher menu still lists all 5 tours so the user
- *       knows they exist.
- *     - The body copy explicitly says "ships in 10.5 r2" so the
- *       user isn't surprised by a 404.
- *     - When W5 / W6 land, flipping `deferred` to `false` is a
- *       one-line change; no schema work, no overlay rework.
- *   This matches the W4 pattern (period-close-checklist shipped
- *   the surface in r1 and wired the inline action bar in r2).
+ * `deferred` lifecycle:
+ *   W7 shipped the tour catalog with `deferred: true` on the
+ *   W5 / W6 tours (the W5/W6 worktrees were still in flight).
+ *   With W5 (document-steppers) and W6 (keyboard-grammar) both
+ *   merged into ant/main, both flags flip to `false` so the
+ *   launcher offers all 5 tours and the "ships in 10.5 r2"
+ *   body copy is no longer needed.
  *
  * i18n:
  *   Every `title` and `body` is wrapped in `t({ message: ... })`
@@ -143,7 +137,7 @@ const RAW_TOURS: ReadonlyArray<Tour> = [
     feature: t({ message: "Documents" }),
     goal: t({ message: "Create an invoice" }),
     icon: "FileText",
-    deferred: true,
+    deferred: false,
     steps: [
       {
         kind: "navigate",
@@ -151,7 +145,7 @@ const RAW_TOURS: ReadonlyArray<Tour> = [
         title: t({ message: "Open invoice-create" }),
         body: t({
           message:
-            "The invoice-create wizard is a 4-step stepper. The full wizard ships in 10.5 r2 W5; this tour is a preview.",
+            "The invoice-create wizard is a 4-step stepper. Pick a customer, add line items, set tax + dates, then review and submit.",
         }),
       },
       {
@@ -187,7 +181,7 @@ const RAW_TOURS: ReadonlyArray<Tour> = [
     feature: t({ message: "Settings" }),
     goal: t({ message: "Switch locale" }),
     icon: "Settings",
-    deferred: true,
+    deferred: false,
     steps: [
       {
         kind: "navigate",
