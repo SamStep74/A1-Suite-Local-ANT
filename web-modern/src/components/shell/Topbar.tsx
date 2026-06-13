@@ -30,6 +30,8 @@ import { useTheme } from "../../lib/theme/ThemeProvider";
 import { useDensity, DENSITIES, type Density } from "../../lib/density/DensityProvider";
 import { APPS, type AppId } from "../../lib/apps";
 import { cn } from "../../lib/utils/cn";
+import { OnboardingLauncher } from "../onboarding/OnboardingLauncher";
+import type { TourRuntime } from "../onboarding";
 import {
   activateLocale,
   getActiveLocale,
@@ -57,6 +59,9 @@ export function Topbar({
   onOpenNotifications,
   onOpenHelp,
   onOpenAskAi,
+  tourRuntime,
+  tourLauncherVisible,
+  onTourLauncherVisibleChange,
 }: {
   currentApp?: AppId;
   userName?: string;
@@ -66,6 +71,15 @@ export function Topbar({
   onOpenHelp: () => void;
   /** Phase 10.5 ask-ai: opens the in-app AI assistant sidebar. */
   onOpenAskAi?: () => void;
+  /** Phase 10.5 W7 onboarding: shared tour runtime so the
+   *  Topbar's launcher button + the AppLayout's TourOverlay
+   *  share state without prop-drilling a context. The Topbar is
+   *  the visual host; the parent (AppLayout) owns the runtime. */
+  tourRuntime?: TourRuntime;
+  /** Whether the launcher button is visible in the Topbar.
+   *  The user can hide it from the launcher's own menu. */
+  tourLauncherVisible?: boolean;
+  onTourLauncherVisibleChange?: (visible: boolean) => void;
 }) {
   const { t } = useLingui();
   const { theme, setTheme } = useTheme();
@@ -211,6 +225,21 @@ export function Topbar({
       >
         <HelpCircle className="size-4" />
       </Button>
+
+      {/* Phase 10.5 W7: Onboarding launcher — single button that
+          opens a popover listing all 5 default tours. Visible in
+          all surfaces because the launcher menu is the canonical
+          "first run" entry point. The runtime prop is optional;
+          the launcher self-suppresses when the parent didn't
+          pass one (defensive — keeps Topbar usable in unit tests
+          that don't wire the runtime). */}
+      {tourRuntime ? (
+        <OnboardingLauncher
+          runtime={tourRuntime}
+          visible={tourLauncherVisible ?? true}
+          onVisibleChange={onTourLauncherVisibleChange}
+        />
+      ) : null}
 
       {/* Phase 10.5: Ask AI trigger. Distinct from ⌘K (which is
           the command palette) and from Help (Phase 1 doc). The
