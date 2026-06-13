@@ -23,11 +23,15 @@ msgstr "(missing)"
 msgid "{count} selected"
 msgstr "{count} selected"
 
+#: src/components/onboarding/OnboardingLauncher.tsx:148
+msgid "{count} tours remaining"
+msgstr "{count} tours remaining"
+
 #: src/routes/app/period-close/index.tsx:43
 msgid "0 of {total} done for {period}. The full wizard ships in Phase 10.5 r2."
 msgstr "0 of {total} done for {period}. The full wizard ships in Phase 10.5 r2."
 
-#: src/components/shell/Topbar.tsx:132
+#: src/components/shell/Topbar.tsx:146
 msgid "A1 Suite"
 msgstr "A1 Suite"
 
@@ -49,6 +53,10 @@ msgstr "Actions"
 msgid "Add row"
 msgstr "Add row"
 
+#: src/lib/onboarding/tours.ts:165
+msgid "Add the SKU / service lines, quantity, and unit price."
+msgstr "Add the SKU / service lines, quantity, and unit price."
+
 #: src/routes/app/ask-ai/index.tsx:258
 msgid "AI"
 msgstr "AI"
@@ -65,15 +73,24 @@ msgstr "Amount"
 msgid "Ask"
 msgstr "Ask"
 
+#: src/lib/onboarding/tours.ts:117
+msgid "Ask a question"
+msgstr "Ask a question"
+
 #: src/components/ai/AskAiPanel.tsx:277
 msgid "Ask about this page, the data, or what to do next…"
 msgstr "Ask about this page, the data, or what to do next…"
 
 #: src/components/ai/AskAiPanel.tsx:196
-#: src/components/shell/Topbar.tsx:234
+#: src/components/shell/Topbar.tsx:263
+#: src/lib/onboarding/tours.ts:116
 #: src/routes/app/ask-ai/index.tsx:98
 msgid "Ask AI"
 msgstr "Ask AI"
+
+#: src/lib/onboarding/tours.ts:125
+msgid "Ask AI works from anywhere in /app/*. Land on the finance workspace for this tour."
+msgstr "Ask AI works from anywhere in /app/*. Land on the finance workspace for this tour."
 
 #: src/components/ai/AskAiPanel.tsx:389
 msgid "Ask anything about this page."
@@ -88,6 +105,7 @@ msgstr "Ask anything about your business. Phase 10.5 ships a UI-only stub — an
 msgid "Ask the AI a question"
 msgstr "Ask the AI a question"
 
+#: src/components/onboarding/TourOverlay.tsx:221
 #: src/components/wizard/StepperShell.tsx:177
 msgid "Back"
 msgstr "Back"
@@ -113,6 +131,18 @@ msgstr "Category"
 msgid "Clear"
 msgstr "Clear"
 
+#: src/lib/onboarding/tours.ts:70
+msgid "Click 'Mark filed'"
+msgstr "Click 'Mark filed'"
+
+#: src/lib/onboarding/tours.ts:97
+msgid "Click an overdue row"
+msgstr "Click an overdue row"
+
+#: src/lib/onboarding/tours.ts:134
+msgid "Click the Sparkles button in the Topbar (or press its shortcut). Type a question and press Submit. Citations appear under the answer."
+msgstr "Click the Sparkles button in the Topbar (or press its shortcut). Type a question and press Submit. Citations appear under the answer."
+
 #: src/components/shared/PeekPanel.tsx:119
 msgid "Close"
 msgstr "Close"
@@ -121,6 +151,15 @@ msgstr "Close"
 msgid "Close Ask AI panel"
 msgstr "Close Ask AI panel"
 
+#: src/components/onboarding/TourOverlay.tsx:117
+#: src/components/onboarding/TourOverlay.tsx:162
+msgid "Close tour"
+msgstr "Close tour"
+
+#: src/components/onboarding/OnboardingLauncher.tsx:225
+msgid "Completed"
+msgstr "Completed"
+
 #: src/routes/app/documents/invoice-create/index.tsx:632
 msgid "Confirm and submit"
 msgstr "Confirm and submit"
@@ -128,6 +167,10 @@ msgstr "Confirm and submit"
 #: src/routes/app/documents/invoice-create/index.tsx:93
 msgid "Confirm before submitting"
 msgstr "Confirm before submitting"
+
+#: src/lib/onboarding/tours.ts:179
+msgid "Confirm the totals, then click Issue to post the invoice to the ledger."
+msgstr "Confirm the totals, then click Issue to post the invoice to the ledger."
 
 #: src/routes/app/ask-ai/index.tsx:115
 msgid "Context anchor"
@@ -140,6 +183,10 @@ msgstr "Context:"
 #: src/components/ai/AskAiPanel.tsx:247
 msgid "Couldn't reach the AI. Showing a stub answer instead."
 msgstr "Couldn't reach the AI. Showing a stub answer instead."
+
+#: src/lib/onboarding/tours.ts:144
+msgid "Create an invoice"
+msgstr "Create an invoice"
 
 #: src/routes/app/documents/invoice-create/index.tsx:617
 msgid "Create another invoice"
@@ -206,6 +253,11 @@ msgstr "Detail"
 msgid "Details"
 msgstr "Details"
 
+#: src/lib/onboarding/tours.ts:143
+msgid "Documents"
+msgstr "Documents"
+
+#: src/components/onboarding/TourOverlay.tsx:231
 #: src/routes/app/documents/invoice-create/index.tsx:635
 msgid "Done"
 msgstr "Done"
@@ -286,9 +338,14 @@ msgstr "Finalize the draft"
 msgid "Finalizing will lock the draft and queue the invoice."
 msgstr "Finalizing will lock the draft and queue the invoice."
 
+#: src/lib/onboarding/tours.ts:44
 #: src/routes/app/fiscal-gates/index.tsx:207
 msgid "Fiscal gates"
 msgstr "Fiscal gates"
+
+#: src/lib/onboarding/tours.ts:53
+msgid "Fiscal gates is the per-period tax-action list. Click below to land on the workspace."
+msgstr "Fiscal gates is the per-period tax-action list. Click below to land on the workspace."
 
 #: src/routes/app/documents/invoice-create/index.tsx:276
 msgid "Format: YYYY-MM-DD"
@@ -313,6 +370,10 @@ msgstr "Go to the next step"
 #: src/components/keyboard/ShortcutCheatsheet.tsx:166
 msgid "Help"
 msgstr "Help"
+
+#: src/components/onboarding/OnboardingLauncher.tsx:241
+msgid "Hide tour launcher"
+msgstr "Hide tour launcher"
 
 #: src/routes/app/documents/invoice-create/index.tsx:545
 msgid "I confirm the customer, line items, and total are correct."
@@ -361,10 +422,18 @@ msgstr "Lists"
 msgid "Loading receivables…"
 msgstr "Loading receivables…"
 
+#: src/lib/onboarding/tours.ts:45
+msgid "Mark a gate as filed"
+msgstr "Mark a gate as filed"
+
 #: src/lib/fiscal/labels.tsx:148
 #: src/lib/fiscal/labels.tsx:205
 msgid "Mark filed"
 msgstr "Mark filed"
+
+#: src/lib/onboarding/tours.ts:106
+msgid "Mark resolved"
+msgstr "Mark resolved"
 
 #. placeholder {0}: ids.length
 #: src/routes/app/fiscal-gates/index.tsx:133
@@ -389,6 +458,7 @@ msgstr "Name this view"
 msgid "Navigation"
 msgstr "Navigation"
 
+#: src/components/onboarding/TourOverlay.tsx:234
 #: src/components/shared/DataTable.tsx:420
 msgid "Next"
 msgstr "Next"
@@ -434,14 +504,38 @@ msgstr "No saved views yet"
 msgid "One queue for every \"needs your attention\" item across invoices, tax gates, approvals, customer replies, fleet, and purchase orders."
 msgstr "One queue for every \"needs your attention\" item across invoices, tax gates, approvals, customer replies, fleet, and purchase orders."
 
-#: src/components/shell/Topbar.tsx:223
-#: src/components/shell/Topbar.tsx:226
+#: src/lib/onboarding/tours.ts:124
+msgid "Open any app route"
+msgstr "Open any app route"
+
+#: src/lib/onboarding/tours.ts:133
+msgid "Open Ask AI and submit a question"
+msgstr "Open Ask AI and submit a question"
+
+#: src/lib/onboarding/tours.ts:52
+msgid "Open Fiscal gates"
+msgstr "Open Fiscal gates"
+
+#: src/lib/onboarding/tours.ts:151
+msgid "Open invoice-create"
+msgstr "Open invoice-create"
+
+#: src/components/onboarding/OnboardingLauncher.tsx:133
+msgid "Open onboarding tour launcher"
+msgstr "Open onboarding tour launcher"
+
+#: src/components/shell/Topbar.tsx:252
+#: src/components/shell/Topbar.tsx:255
 msgid "Open the Ask AI assistant sidebar"
 msgstr "Open the Ask AI assistant sidebar"
 
 #: src/components/ai/AskAiPanel.tsx:326
 msgid "Open the full page"
 msgstr "Open the full page"
+
+#: src/lib/onboarding/tours.ts:88
+msgid "Open Triage inbox"
+msgstr "Open Triage inbox"
 
 #: src/components/keyboard/ShortcutCheatsheet.tsx:178
 #: src/lib/fiscal/labels.tsx:43
@@ -518,9 +612,25 @@ msgstr "Period"
 msgid "Period close"
 msgstr "Period close"
 
+#: src/lib/onboarding/tours.ts:160
+msgid "Pick the customer (or supplier) the invoice is for."
+msgstr "Pick the customer (or supplier) the invoice is for."
+
+#: src/lib/onboarding/tours.ts:98
+msgid "Pick the first overdue row. The peek panel slides in from the right with the entity detail."
+msgstr "Pick the first overdue row. The peek panel slides in from the right with the entity detail."
+
+#: src/lib/onboarding/tours.ts:172
+msgid "Pick the VAT rate, issue date, and due date. Preview updates live."
+msgstr "Pick the VAT rate, issue date, and due date. Preview updates live."
+
 #: src/routes/app/documents/invoice-create/index.tsx:83
 msgid "Pick who is being billed"
 msgstr "Pick who is being billed"
+
+#: src/lib/onboarding/tours.ts:204
+msgid "Pick РУ in the locale switcher"
+msgstr "Pick РУ in the locale switcher"
 
 #: src/components/wizard/StepperShell.tsx:133
 msgid "Please fix the highlighted fields"
@@ -530,13 +640,33 @@ msgstr "Please fix the highlighted fields"
 msgid "Press ? to show keyboard shortcuts"
 msgstr "Press ? to show keyboard shortcuts"
 
+#: src/lib/onboarding/tours.ts:195
+msgid "Press ⌘K to open the cheatsheet"
+msgstr "Press ⌘K to open the cheatsheet"
+
 #: src/components/ai/AskAiPanel.tsx:292
 msgid "Press Enter to ask · Shift+Enter for newline"
 msgstr "Press Enter to ask · Shift+Enter for newline"
 
+#: src/lib/onboarding/tours.ts:107
+msgid "Press Mark resolved in the peek panel. The item leaves the overdue view; a 5-second Undo toast lets you revert."
+msgstr "Press Mark resolved in the peek panel. The item leaves the overdue view; a 5-second Undo toast lets you revert."
+
+#: src/lib/onboarding/tours.ts:71
+msgid "Press the Mark filed button in the bulk bar. The gate moves to Filed and a 5-second Undo toast lets you revert."
+msgstr "Press the Mark filed button in the bulk bar. The gate moves to Filed and a 5-second Undo toast lets you revert."
+
 #: src/components/shared/DataTable.tsx:407
 msgid "Prev"
 msgstr "Prev"
+
+#: src/components/onboarding/OnboardingLauncher.tsx:214
+msgid "Preview"
+msgstr "Preview"
+
+#: src/components/onboarding/TourOverlay.tsx:147
+msgid "Preview · ships in 10.5 r2"
+msgstr "Preview · ships in 10.5 r2"
 
 #: src/routes/app/documents/invoice-create/index.tsx:486
 msgid "Qty"
@@ -545,6 +675,10 @@ msgstr "Qty"
 #: src/routes/app/documents/invoice-create/index.tsx:378
 msgid "Quantity"
 msgstr "Quantity"
+
+#: src/components/onboarding/OnboardingLauncher.tsx:173
+msgid "Quick walkthroughs of the 5 product differentiators."
+msgstr "Quick walkthroughs of the 5 product differentiators."
 
 #: src/routes/app/triage-inbox/index.tsx:221
 #: src/routes/app/triage-inbox/index.tsx:411
@@ -580,6 +714,10 @@ msgstr "Reports"
 msgid "Reset"
 msgstr "Reset"
 
+#: src/lib/onboarding/tours.ts:81
+msgid "Resolve an overdue item"
+msgstr "Resolve an overdue item"
+
 #: src/routes/app/documents/invoice-create/index.tsx:92
 msgid "Review"
 msgstr "Review"
@@ -600,6 +738,14 @@ msgstr "Save current view"
 #: src/components/shared/SavedViews.tsx:147
 msgid "Saved views"
 msgstr "Saved views"
+
+#: src/lib/onboarding/tours.ts:61
+msgid "Select an overdue gate"
+msgstr "Select an overdue gate"
+
+#: src/lib/onboarding/tours.ts:187
+msgid "Settings"
+msgstr "Settings"
 
 #. placeholder {0}: Math.min(pageIndex * pageSize + 1, totalRows)
 #. placeholder {1}: Math.min((pageIndex + 1) * pageSize, totalRows)
@@ -642,6 +788,26 @@ msgstr "Statistical return (monthly)"
 msgid "Status"
 msgstr "Status"
 
+#: src/components/onboarding/TourOverlay.tsx:191
+msgid "Step {step} of {total}"
+msgstr "Step {step} of {total}"
+
+#: src/lib/onboarding/tours.ts:159
+msgid "Step 1: Counterparty"
+msgstr "Step 1: Counterparty"
+
+#: src/lib/onboarding/tours.ts:164
+msgid "Step 2: Line items"
+msgstr "Step 2: Line items"
+
+#: src/lib/onboarding/tours.ts:171
+msgid "Step 3: Tax + dates"
+msgstr "Step 3: Tax + dates"
+
+#: src/lib/onboarding/tours.ts:178
+msgid "Step 4: Review + submit"
+msgstr "Step 4: Review + submit"
+
 #: src/components/ai/AskAiPanel.tsx:300
 msgid "Stop generating"
 msgstr "Stop generating"
@@ -670,9 +836,17 @@ msgstr "Submit the monthly statistical report to the statistical office."
 msgid "Subtotal"
 msgstr "Subtotal"
 
+#: src/lib/onboarding/tours.ts:188
+msgid "Switch locale"
+msgstr "Switch locale"
+
 #: src/components/shared/BulkActionBar.tsx:51
 msgid "Tag"
 msgstr "Tag"
+
+#: src/components/onboarding/OnboardingLauncher.tsx:170
+msgid "Take a tour"
+msgstr "Take a tour"
 
 #: src/components/ai/AskAiPanel.tsx:392
 msgid "The answer is a UI-only stub in Phase 10.5 — no data leaves your browser."
@@ -682,6 +856,10 @@ msgstr "The answer is a UI-only stub in Phase 10.5 — no data leaves your brows
 msgid "the customer"
 msgstr "the customer"
 
+#: src/lib/onboarding/tours.ts:205
+msgid "The dev-only locale switcher is in the Topbar (right side). Press РУ to switch to Russian."
+msgstr "The dev-only locale switcher is in the Topbar (right side). Press РУ to switch to Russian."
+
 #. placeholder {0}: state.draft.customer?.customerName ?? t`the customer`
 #: src/routes/app/documents/invoice-create/index.tsx:599
 msgid "The invoice draft has been finalized and queued for delivery to {0}."
@@ -690,6 +868,14 @@ msgstr "The invoice draft has been finalized and queued for delivery to {0}."
 #: src/routes/app/documents/invoice-create/index.tsx:581
 msgid "The invoice is ready to be sent. Click the button below to finalize it."
 msgstr "The invoice is ready to be sent. Click the button below to finalize it."
+
+#: src/lib/onboarding/tours.ts:152
+msgid "The invoice-create wizard is a 4-step stepper. The full wizard ships in 10.5 r2 W5; this tour is a preview."
+msgstr "The invoice-create wizard is a 4-step stepper. The full wizard ships in 10.5 r2 W5; this tour is a preview."
+
+#: src/lib/onboarding/tours.ts:196
+msgid "The keyboard cheatsheet (10.5 r2 W6) lists every shortcut. Use the locale switcher in the Topbar to pick РУ."
+msgstr "The keyboard cheatsheet (10.5 r2 W6) lists every shortcut. Use the locale switcher in the Topbar to pick РУ."
 
 #: src/routes/app/documents/invoice-create/index.tsx:651
 msgid "Tick the box to confirm before continuing."
@@ -712,13 +898,22 @@ msgstr "Today"
 msgid "Total"
 msgstr "Total"
 
+#: src/components/onboarding/OnboardingLauncher.tsx:160
+msgid "Tours"
+msgstr "Tours"
+
 #: src/i18n/I18nProvider.tsx:92
 msgid "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
 msgstr "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
 
+#: src/lib/onboarding/tours.ts:80
 #: src/routes/app/triage-inbox/index.tsx:322
 msgid "Triage inbox"
 msgstr "Triage inbox"
+
+#: src/lib/onboarding/tours.ts:89
+msgid "Triage inbox is the cross-feature work queue. Click below to land on the workspace."
+msgstr "Triage inbox is the cross-feature work queue. Click below to land on the workspace."
 
 #: src/routes/app/ask-ai/index.tsx:189
 msgid "Type a question — the stub echoes a canned answer with citation chips for the current context."
@@ -737,6 +932,10 @@ msgstr "Undo"
 #: src/routes/app/documents/invoice-create/index.tsx:489
 msgid "Unit price"
 msgstr "Unit price"
+
+#: src/lib/onboarding/tours.ts:62
+msgid "Use the row checkbox to pick a gate from the 'All overdue' saved view. The bulk action bar appears at the bottom."
+msgstr "Use the row checkbox to pick a gate from the 'All overdue' saved view. The bulk action bar appears at the bottom."
 
 #: src/components/keyboard/ShortcutCheatsheet.tsx:95
 msgid "Use these shortcuts to move around the app without touching the mouse."
