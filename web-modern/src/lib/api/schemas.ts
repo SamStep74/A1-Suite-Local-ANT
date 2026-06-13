@@ -4527,3 +4527,245 @@ export const WebhookDeliveriesResponseSchema = z.object({
 export type WebhookDeliveriesResponse = z.infer<typeof WebhookDeliveriesResponseSchema>;
 
 /* ─── block-integration-hub-end ─── */
+
+/* ─── block-smb-crm-foundation-begin ─── */
+/* A1 SMB CRM (Phase 10: M14.1–M14.4) — Foundation track.
+ *
+ * Mirrors the 8 routes under /api/smb-crm/* in server/app.js
+ * (added by the foundation worker; lines after the
+ * "─── A1 SMB CRM (Phase 10: M14.1–M14.4) ───" header). The Zod
+ * shapes here MUST match the server response envelope exactly —
+ * `toTenantView`, `toBranchView`, the blueprint envelope, and
+ * the AI evidence envelope. Pure data, no HTTP.
+ */
+
+export const SmbCrmLocale = z.enum(["hy", "en", "ru"]);
+export type SmbCrmLocale = z.infer<typeof SmbCrmLocale>;
+
+export const SmbCrmPlan = z.enum(["trial", "starter", "pro", "enterprise"]);
+export type SmbCrmPlan = z.infer<typeof SmbCrmPlan>;
+
+/** A single tenant row, as returned by toTenantView.
+ *  Mirrors server/smbCrmTenants.js#toTenantView. */
+export const SmbCrmTenantSchema = z.object({
+  id: z.string(),
+  slug: z.string(),
+  companyName: z.string(),
+  locale: SmbCrmLocale,
+  plan: SmbCrmPlan,
+  host: z.string().nullable().optional(),
+  settings: z.record(z.string(), z.unknown()).nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string().optional(),
+});
+export type SmbCrmTenant = z.infer<typeof SmbCrmTenantSchema>;
+
+/** A single branch row, as returned by toBranchView. */
+export const SmbCrmBranchSchema = z.object({
+  id: z.string(),
+  tenantId: z.string(),
+  name: z.string(),
+  address: z.string().nullable().optional(),
+  phone: z.string().nullable().optional(),
+  isDefault: z.boolean().optional(),
+  createdAt: z.string(),
+});
+export type SmbCrmBranch = z.infer<typeof SmbCrmBranchSchema>;
+
+/** Request body for POST /api/smb-crm/tenants. */
+export const SmbCrmCreateTenantRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  slug: z
+    .string()
+    .min(2)
+    .max(64)
+    .regex(/^[a-z0-9-]+$/, "slug must be lowercase letters, digits, or dashes"),
+  companyName: z.string().min(1).max(200),
+  locale: SmbCrmLocale.default("en"),
+  plan: SmbCrmPlan.default("trial"),
+  host: z.string().optional(),
+  branch: z
+    .object({
+      name: z.string().min(1),
+      address: z.string().optional(),
+      phone: z.string().optional(),
+    })
+    .optional(),
+  settings: z.record(z.string(), z.unknown()).optional(),
+});
+export type SmbCrmCreateTenantRequest = z.infer<
+  typeof SmbCrmCreateTenantRequestSchema
+>;
+
+/** Response body for POST /api/smb-crm/tenants. */
+export const SmbCrmCreateTenantResponseSchema = z.object({
+  ok: z.literal(true),
+  tenant: SmbCrmTenantSchema,
+});
+export type SmbCrmCreateTenantResponse = z.infer<
+  typeof SmbCrmCreateTenantResponseSchema
+>;
+
+/** Response body for GET /api/smb-crm/tenants. */
+export const SmbCrmListTenantsResponseSchema = z.object({
+  tenants: z.array(SmbCrmTenantSchema),
+});
+export type SmbCrmListTenantsResponse = z.infer<
+  typeof SmbCrmListTenantsResponseSchema
+>;
+
+/** Response body for GET /api/smb-crm/tenants/current. */
+export const SmbCrmCurrentTenantResponseSchema = z.object({
+  tenant: SmbCrmTenantSchema,
+  branches: z.array(SmbCrmBranchSchema),
+});
+export type SmbCrmCurrentTenantResponse = z.infer<
+  typeof SmbCrmCurrentTenantResponseSchema
+>;
+
+/** Request body for PATCH /api/smb-crm/tenants/current. */
+export const SmbCrmUpdateTenantRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  companyName: z.string().min(1).max(200).optional(),
+  host: z.string().optional(),
+  locale: SmbCrmLocale.optional(),
+  plan: SmbCrmPlan.optional(),
+  settings: z.record(z.string(), z.unknown()).optional(),
+});
+export type SmbCrmUpdateTenantRequest = z.infer<
+  typeof SmbCrmUpdateTenantRequestSchema
+>;
+
+/** Response body for PATCH /api/smb-crm/tenants/current. */
+export const SmbCrmUpdateTenantResponseSchema = z.object({
+  ok: z.literal(true),
+  tenant: SmbCrmTenantSchema,
+});
+export type SmbCrmUpdateTenantResponse = z.infer<
+  typeof SmbCrmUpdateTenantResponseSchema
+>;
+
+/** A single industry template row, as returned by
+ *  GET /api/smb-crm/industry-templates. */
+export const SmbCrmIndustryTemplateSchema = z.object({
+  industryKey: z.string(),
+  label: z.string(),
+  modules: z.array(z.string()).default([]),
+  pipeline: z.array(z.string()).default([]),
+  fields: z.array(z.string()).default([]),
+  kpis: z.array(z.string()).default([]),
+});
+export type SmbCrmIndustryTemplate = z.infer<
+  typeof SmbCrmIndustryTemplateSchema
+>;
+
+export const SmbCrmListIndustryTemplatesResponseSchema = z.object({
+  industryTemplates: z.array(SmbCrmIndustryTemplateSchema),
+});
+export type SmbCrmListIndustryTemplatesResponse = z.infer<
+  typeof SmbCrmListIndustryTemplatesResponseSchema
+>;
+
+/** Free-form JSON object holding whatever the questionnaire
+ *  form collected. The server does not validate the inner
+ *  shape — it passes it to the AI provider. The Zod side
+ *  mirrors that. */
+export const SmbCrmQuestionnaireSchema = z
+  .record(z.string(), z.unknown())
+  .and(
+    z.object({
+      industry: z.string().optional(),
+      companyName: z.string().optional(),
+    }).partial()
+  );
+export type SmbCrmQuestionnaire = z.infer<typeof SmbCrmQuestionnaireSchema>;
+
+/** Request body for POST /api/smb-crm/generate-blueprint. */
+export const SmbCrmGenerateBlueprintRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+  questionnaire: SmbCrmQuestionnaireSchema,
+  templateOverride: z.boolean().optional(),
+});
+export type SmbCrmGenerateBlueprintRequest = z.infer<
+  typeof SmbCrmGenerateBlueprintRequestSchema
+>;
+
+/** A single blueprint (matches contract §2.5 — 11 fields plus
+ *  bookkeeping IDs). */
+export const SmbCrmBlueprintSchema = z.object({
+  id: z.string().optional(),
+  industry: z.string(),
+  companyName: z.string(),
+  language: z.string(),
+  modules: z.array(z.string()),
+  pipeline: z.array(z.string()),
+  fields: z.array(z.string()),
+  opportunities: z.array(z.unknown()).default([]),
+  tasks: z.array(z.unknown()).default([]),
+  kpis: z.array(z.string()),
+  automations: z.array(z.unknown()).default([]),
+  leadFormFields: z.array(z.string()).default([]),
+  starterMessages: z.array(z.string()).default([]),
+  subdomain: z.string().optional(),
+});
+export type SmbCrmBlueprint = z.infer<typeof SmbCrmBlueprintSchema>;
+
+/** AI evidence envelope: { url, method, requestHash, responseHash, at }. */
+export const SmbCrmEvidenceSchema = z.object({
+  url: z.string().nullable(),
+  method: z.string().nullable(),
+  requestHash: z.string().nullable(),
+  responseHash: z.string().nullable(),
+  at: z.string().nullable(),
+});
+export type SmbCrmEvidence = z.infer<typeof SmbCrmEvidenceSchema>;
+
+/** Response body for POST /api/smb-crm/generate-blueprint. */
+export const SmbCrmGenerateBlueprintResponseSchema = z.object({
+  ok: z.literal(true),
+  blueprint: SmbCrmBlueprintSchema.nullable(),
+  blueprintId: z.string().nullable(),
+  evidence: SmbCrmEvidenceSchema.nullable(),
+  warnings: z.array(z.string()).default([]),
+  error: z.string().nullable().optional(),
+});
+export type SmbCrmGenerateBlueprintResponse = z.infer<
+  typeof SmbCrmGenerateBlueprintResponseSchema
+>;
+
+/** Response body for GET /api/smb-crm/blueprints/:id. */
+export const SmbCrmGetBlueprintResponseSchema = z.object({
+  blueprint: SmbCrmBlueprintSchema.and(
+    z.object({
+      id: z.string(),
+      createdAt: z.string().optional(),
+    })
+  ),
+});
+export type SmbCrmGetBlueprintResponse = z.infer<
+  typeof SmbCrmGetBlueprintResponseSchema
+>;
+
+/** Request body for POST /api/smb-crm/blueprints/:id/apply. */
+export const SmbCrmApplyBlueprintRequestSchema = z.object({
+  idempotencyKey: z.string().min(1),
+});
+export type SmbCrmApplyBlueprintRequest = z.infer<
+  typeof SmbCrmApplyBlueprintRequestSchema
+>;
+
+/** Response body for POST /api/smb-crm/blueprints/:id/apply. */
+export const SmbCrmApplyBlueprintResponseSchema = z.object({
+  ok: z.literal(true),
+  blueprintId: z.string(),
+  applied: z.object({
+    appliedAt: z.string(),
+    alreadyApplied: z.boolean().optional(),
+    summary: z.record(z.string(), z.number()).optional(),
+  }),
+});
+export type SmbCrmApplyBlueprintResponse = z.infer<
+  typeof SmbCrmApplyBlueprintResponseSchema
+>;
+/* ─── block-smb-crm-foundation-end ─── */
+
