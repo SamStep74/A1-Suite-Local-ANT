@@ -1,8 +1,8 @@
 # Phase 10 orchestration — state snapshot
 
-**Last update:** 2026-06-14 15:55 UTC (19:55 local)
-**Session:** 2026-06-14 (Phase 10.6 production hardening CLOSED + 10.7 e2e coverage + hasTranslation cleanup CLOSED + 10.8 (a) Lingui activation race fix CLOSED + 10.12 / 8.12 legacy `web/` delete CLOSED + 10.9 (d) e2e content fixes **PARTIAL CLOSED**; all merged into `ant/main @ ec4fbe5`; tags `phase10-6-production-hardening-v1` + `phase10-7-e2e-coverage-v1` + `phase10-8-lingui-race-fix-v1` + `phase10-12-legacy-delete-v1` + **`phase10-9-e2e-content-fixes-v1` → ec4fbe5 ✅** all on ant)
-**Current ref:** `ant/integration/phase10-9-d` **at 793a974** (10.9 (d) wave-3 partial close — 7aba8af W5 error-pending + 4527c94 W2 fiscal-gates+period-close + 793a974 docs commit on top of 40c78d4; e2e gate: **44 / 110 pass, 66 fail, 1 skip** in 3.3m — gain of +3 over the 41-baseline at ec4fbe5). Local `main` at `c6ab45f` (cherry-picked 9d89aac + c6ab45f baseRef bump to 793a974, on top of 793a974). `ant/main` is at `6f7ff05` (force-updated by parallel automation; AHEAD of local main; merge will be needed before ant/integration → ant/main fold). **`ant/integration/phase10-9-d` is awaiting ant/integration → ant/main merge via the standing refspec `git push ant main:refs/heads/ant/main`** when the user gives the go-ahead. **10.9 (g) vitest-flakes closed (NOOP-FIX-NEEDED)** — `ant/integration/phase10-9-g` at 793a974, tag `phase10-9-vitest-flakes-v1` at 793a974; no source/test edits, audit only; full vitest 2470/2470 PASS in 54s, typecheck 0 errors, build 0 errors.
+**Last update:** 2026-06-14 16:55 UTC (20:55 local)
+**Session:** 2026-06-14 (Phase 10.6 production hardening CLOSED + 10.7 e2e coverage + hasTranslation cleanup CLOSED + 10.8 (a) Lingui activation race fix CLOSED + 10.12 / 8.12 legacy `web/` delete CLOSED + 10.9 (d) e2e content fixes **PARTIAL CLOSED** (wave-1 + wave-2 + wave-3 + wave-4 **NOOP-CLOSED**); all merged into `ant/main @ ec4fbe5`; tags `phase10-6-production-hardening-v1` + `phase10-7-e2e-coverage-v1` + `phase10-8-lingui-race-fix-v1` + `phase10-12-legacy-delete-v1` + **`phase10-9-e2e-content-fixes-v1` → ec4fbe5 ✅** all on ant)
+**Current ref:** `ant/integration/phase10-9-d` **at ec4fbe5** (10.9 (d) wave-3 partial close at 793a974 + 10.9 (d) wave-4 NOOP close at a0eb959f + ec4fbe5; e2e gate at 4f6e17c base: **44 / 110 pass, 66 fail, 1 skip** — net **+0** from wave-4 because all 3 wave-4 workers died with edits that produced zero net improvement; salvage verification: document-steppers 8→8, export-docs 2→2, ask-ai 4→4, onboarding 8→8, ai-onboarding 2→2, keyboard-grammar 1→1 — full NOOP). Local `main` at `c6ab45f` (cherry-picked 9d89aac + c6ab45f baseRef bump to 793a974, on top of 793a974; STALE — does not yet contain a0eb959f storage engine / backup-restore). `ant/main` is at `6f7ff05` (force-updated by parallel automation; AHEAD of local main; merge will be needed before ant/integration → ant/main fold). **`ant/integration/phase10-9-d` is awaiting ant/integration → ant/main merge via the standing refspec `git push ant main:refs/heads/ant/main`** when the user gives the go-ahead. **10.9 (g) vitest-flakes closed (NOOP-FIX-NEEDED)** — `ant/integration/phase10-9-g` at 793a974, tag `phase10-9-vitest-flakes-v1` at 793a974; no source/test edits, audit only; full vitest 2470/2470 PASS in 54s, typecheck 0 errors, build 0 errors.
 **Tag:** `phase10-0-typecheck-cleanup-v1` → d6d4c44 ✅ + `phase10-0-d1-spa-shell-v1` → 5fd4dfb ✅ + `phase10-1-deploy-v1` → 57c60eb ✅ + `phase10-hygiene-v1` → 98c72a6 ✅ + `phase10-2-finance-v1` → 0902b38 ✅ + `phase10-2-people-v1` → 4795251 ✅ + `phase10-2-flow-integrations-v1` → 37f7732 ✅ + `phase10-2e-login-shell-retirement-v1` → 463089d ✅ + `phase10-3-i18n-infra-v1` → bc8b159 ✅ + `phase10-4-shared-components-v1` → b04a88c ✅ + **`phase10-5-product-differentiators-v1` → c7b94f8 ✅** + **`phase10-6-production-hardening-v1` → f8610df ✅** + **`phase10-7-e2e-coverage-v1` → 9b007d6 ✅** + **`phase10-8-lingui-race-fix-v1` → 76e4d65 ✅** + **`phase10-12-legacy-delete-v1` → c15fbe0 ✅** + **`phase10-9-e2e-content-fixes-v1` → ec4fbe5 ✅**
 
 ## Phase 10.2c Finance (phase10-2-finance) — ✅ CLOSED
@@ -1296,6 +1296,39 @@ All 6 wave-2 workers died on the same pattern: **long bash hangs in headed Playw
 **Push:** branch `wip/phase10-9-vitest-flakes-vitest-flakes` pushed to `ant` at `793a974` (no new commits — same SHA as base). Tag `phase10-9-vitest-flakes-vitest-flakes-v1` created at `793a974` on `ant` (archeology, per-worker). **No push to `ant/main` or `ant/integration/phase10-9-d`** — NOOP close, no integration commit to fold in. Integration tag `phase10-9-vitest-flakes-v1` created at `793a974` on `ant`. `ant/integration/phase10-9-g` at `793a974` (orchestrator refspec push of worker branch). Standing rules honored: no push to `ant/main`; no push to `origin`.
 
 **Notes for next worker:** if either flake resurfaces in CI / fresh-clone, apply the `getByTestId("app-card-crm")` rewrite for AppLauncher and the `findAllByTestId` with 10s timeout for fiscal-gates (the recommended fixes from the task brief). These are the lowest-risk rewrites that would resolve the flakes if they ever return.
+
+### Wave-4 postmortem (2026-06-14) — NOOP-CLOSED, 0 of 3 workers salvaged
+
+**Plan:** `wip/phase10-9-e2e-content-fixes-w4-launch` from baseRef `4f6e17c`; 3 workers (docs-and-finance 17 tests, comm-ai-cluster 15 tests, greenhouse-and-ops 13 tests). Plan file at `.orchestration/phase10-9-e2e-content-fixes-w4/plan.json`. Per-worker task.md files at `.orchestration/phase10-9-e2e-content-fixes-w4/{worker}/task.md`. Worker bash wrapped in `timeout 200`/`timeout 300` per the wave-2/wave-3 postmortem. `NODE_OPTIONS=--max-old-space-size=2048` set in all worker environments. 40-min wall-clock budget per worker.
+
+**Wave-4 collapse (T+38m):** All 3 workers (docs-and-finance, comm-ai-cluster, greenhouse-and-ops) died at T+~38m with uncommitted edits only. No commits. No tags. No `status.md` written. Tmux session `phase10-9-w4` killed post-collapse.
+
+**Salvage verification (orchestrator ran each uncommitted spec isolated against the 4f6e17c base):**
+
+| Worker | Spec edited | Baseline (fail) | After edit (fail) | Δ | Verdict |
+|--------|-------------|-----------------|--------------------|---|---------|
+| docs-and-finance | `document-steppers.spec.ts` | 8 | 8 | 0 | NOOP (worker added `stepBody`/`stepRail` helpers but testid scoping was already correct; no improvement) |
+| greenhouse-and-ops | `export-docs.spec.ts` | 2 | 2 | 0 | NOOP (worker rewrote route matchers + back-link, but the 10.5 form-envelope refactor hadn't actually been applied to this spec) |
+| comm-ai-cluster | `ask-ai.spec.ts` | 4 | 4 | 0 | NOOP (worker changed `ENTITY_ROUTE` to a real seeded invoice id, but tests still fail at `login response missing sid` — root cause is in the auth helper, not the route) |
+| comm-ai-cluster | `onboarding.spec.ts` | 8 | 8 | 0 | NOOP (worker removed `wrapCatalogsAsEsm` CJS→ESM wrapper, but it's already a pass-through post-`import.meta.glob + ?raw` migration) |
+| comm-ai-cluster | `ai-onboarding.spec.ts` | 2 | 2 | 0 | NOOP (untouched in the worker's edit set) |
+| comm-ai-cluster | `keyboard-grammar.spec.ts` | 1 | 1 | 0 | NOOP (untouched in the worker's edit set) |
+
+**Net delta: 0 / 17 / 15 / 13 = 0 / 45 (0%).** All worker edits reverted via `git checkout -- web-modern/e2e/` + `rm -f pnpm-lock.yaml` in all 3 worktrees. Worktrees still on `wip/phase10-9-e2e-content-fixes-w4-*` branches at `4f6e17c` (stale base — `ant/integration/phase10-9-d` has since moved to `ec4fbe5` via a0eb959f storage engine / backup-restore merge).
+
+**Catastrophic pattern (3 waves in a row):** wave-2 (6/6 workers died), wave-3 (3/5 salvaged), wave-4 (0/3 salvaged). The 38-min budget is the consistent kill point — workers produce thoughtful edits but never reach a `git commit`. The `_common.sh` 12-rule system prompt is being followed; the problem is execution overhead, not the rules. Possible mitigations to try in wave-5: (a) reduce worker budget to 25 min, (b) force workers to `git add + git commit` every 10 min as a checkpoint, (c) run a single worker in the main session with closer oversight rather than 3 parallel workers in tmux.
+
+**Push:** no refspec push needed — no commits to integrate. Wave-4 close is docs-only (this STATE.md update). `ant/integration/phase10-9-d` already at `ec4fbe5` from the a0eb959f + ec4fbe5 commits made by the parallel automation during the wave-4 worker window. Standing rules honored: no push to `ant/main`; no push to `origin`.
+
+### Wave-5 plan (deferred) — 15 residual carry-forwards at 4f6e17c base
+
+**Cluster (5 specs / 13 tests, 2 workers planned):**
+- **W1 locale-spa-cluster** — `locale-switching.spec.ts` (3) + `spa-mode.spec.ts` (2) + `healthcheck.spec.ts` (1). 6 tests, LinguiProvider + macro wire-up timing.
+- **W2 procurement-canary-cluster** — `procurement.spec.ts` (2) + `shared-components-canary.spec.ts` (2) + `cabinet.spec.ts` (1) + `apps.spec.ts` (2). 7 tests, panel testid drift + access gate.
+
+**2 tests deferred to wave-6:** TBD per audit at the new integration ref.
+
+**baseRef update required:** wave-5 plan.json currently has `baseRef: "TBD-POST-WAVE-4"`. New baseRef is `ec4fbe5` (10.9 (d) wave-4 NOOP close target). Per-spec audit at ec4fbe5 needed before launch — the 60-fail baseline was at 4f6e17c; the 15-residual subset may have shifted after the a0eb959f storage engine / backup-restore merge.
 
 ### Next concrete step (Phase 10.9 (d) remainder)
 
