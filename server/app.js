@@ -1,6 +1,7 @@
 const fs = require("node:fs");
 const path = require("node:path");
 const crypto = require("node:crypto");
+const os = require("node:os");
 const fastify = require("fastify");
 const cookie = require("@fastify/cookie");
 const fastifyStatic = require("@fastify/static");
@@ -141,6 +142,7 @@ const rbac = require("./rbac");
 const documentCabinet = require("./documentCabinet");
 const documentAi = require("./documentAi");
 const documentCabinetRoutes = require("./documentCabinetRoutes");
+const backupArchiveRoutes = require("./backup-archive-routes");
 const stateIntegrations = require("./stateIntegrations");
 const stateInt = stateIntegrations;
 const exportDocs = require("./exportDocs");
@@ -7854,6 +7856,17 @@ ${controls}
     const user = await app.auth(request);
     requireOwner(user);
     return { ok: true, restoreProof: verifyTenantBackupRestoreProof(db, user, request.params.id) };
+  });
+
+  // Portable filesystem-based archive routes (lib/backup-restore.js).
+  // These are independent of the in-DB `tenant_backup_packets` packets
+  // above — archives are restorable into any compatible ANT instance.
+  backupArchiveRoutes.registerBackupArchiveRoutes(app, {
+    db,
+    requireOwner,
+    audit,
+    fsp: require("node:fs/promises"),
+    stateDir: process.env.A1_BACKUP_ARCHIVE_DIR || path.join(env.ARMOSPHERA_ONE_STATE_DIR || path.join(os.homedir(), ".armosphera-one"), "state")
   });
 
   app.get("/api/audit", async request => {
