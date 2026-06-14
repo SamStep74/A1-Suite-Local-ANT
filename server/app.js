@@ -8188,6 +8188,45 @@ ${controls}
     audit(db, user.org_id, user.id, "greenhouse.ai.yieldForecast", { packetId: packet.id, intent: packet.intent });
     return envelope;
   });
+
+  // ─── OAuth PULL flow (Phase 10.13 — wires the integrations port) ──
+  // The engines live in server/lib/integrations/; this block
+  // mounts the Fastify routes + starts the refresh cron. The
+  // refresh loop is disabled in test environments so the suite
+  // doesn't leak timers between test files.
+  const oauthRoutes = require("./oauthRoutes");
+  const oauthRefreshJob = require("./oauthRefreshJob");
+  const oauthAttach = oauthRoutes.registerOAuthRoutes({
+    db,
+    env,
+    auth: request => app.auth(request),
+    requirePermission: (dbArg, user, orgId, perm) =>
+      rbac.requirePermission(dbArg, user, orgId, perm),
+    appBaseUrl: env.APP_BASE_URL
+  });
+  oauthAttach(app);
+
+  // POST /api/oauth/sweep — manual one-shot sweep.
+  // Useful from the admin "Refresh now" button.
+  app.post("/api/oauth/sweep", async request => {
+    const user = await app.auth(request);
+    rbac.requirePermission(db, user, user.org_id, "integrations.write");
+    const result = await oauthRefreshJob.runOnce(db, { env });
+    return result;
+  });
+
+  // Start the cron loop unless explicitly disabled. The
+  // `A1_OAUTH_REFRESH_DISABLED=1` env flag lets tests + dev
+  // sessions opt out without touching code.
+  if (env.A1_OAUTH_REFRESH_DISABLED !== "1") {
+    oauthRefreshJob.startOAuthRefreshLoop(db, { env }).catch((err) => {
+      // eslint-disable-next-line no-console
+      console.warn("[oauth-refresh] failed to start loop:", err && err.message);
+    });
+    app.addHook("onClose", () => {
+      oauthRefreshJob.stopOAuthRefreshLoop();
+    });
+  }
 }
 
 function registerStatic(app) {
