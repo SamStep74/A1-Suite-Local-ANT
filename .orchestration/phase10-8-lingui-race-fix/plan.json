@@ -1,0 +1,40 @@
+{
+  "sessionName": "phase10-8-lingui-race-fix",
+  "baseRef": "ant/main",
+  "branchPrefix": "wip/phase10-8-lingui-race-fix",
+  "launcherCommand": "claude \"$(cat {task_file})\"",
+  "seedPaths": [
+    ".orchestration/phase10-8-lingui-race-fix/plan.md",
+    ".orchestration/phase10-7-e2e-coverage/e2e-fiscal-gates/handoff.md",
+    "web-modern/src/i18n/lingui.ts",
+    "web-modern/src/i18n/I18nProvider.tsx",
+    "web-modern/src/lib/onboarding/tours.ts",
+    "web-modern/e2e/fiscal-gates.spec.ts",
+    "web-modern/e2e/triage-inbox.spec.ts",
+    "web-modern/e2e/ask-ai.spec.ts",
+    "web-modern/e2e/document-steppers.spec.ts",
+    "web-modern/e2e/onboarding.spec.ts",
+    "web-modern/e2e/locale-switching.spec.ts",
+    "web-modern/e2e/apps.spec.ts",
+    "web-modern/e2e/i18n-canary.spec.ts"
+  ],
+  "workers": [
+    {
+      "name": "fix-lingui-race",
+      "task": "Fix the pre-existing Lingui activation race that blocks the React tree from mounting on every route. Root cause: `web-modern/src/lib/onboarding/tours.ts` declares `RAW_TOURS` at module scope with `t({ message: '...' })` macros that fire at module-evaluation time, before `I18nProvider`'s `useEffect` calls the async `activateLocale(...)`. Effect: every Playwright spec fails 100% (`#root` stays empty). Fix: add a top-level `i18n.activate(DEFAULT_LOCALE, {})` call in `web-modern/src/i18n/lingui.ts` (right after the `i18n` import) so the i18n instance is armed with a safe `message`-fallback before any other module that uses `t` is imported. The async `activateLocale(...)` in `I18nProvider`'s useEffect remains unchanged and will swap the empty messages dict for the real per-locale catalog on the next render. File scope: ONLY `web-modern/src/i18n/lingui.ts` (~5 lines + comment). Do NOT touch `tours.ts`, `I18nProvider.tsx`, `main.tsx`, or any consumer. After making the change, run the full audit gate suite: `pnpm typecheck`, `pnpm vitest run src/i18n src/lib/onboarding src/components/onboarding`, `pnpm vitest run` (full), `pnpm i18n:extract` (idempotent), `pnpm build` (3 per-locale chunks), then `pnpm playwright test` for the 8 e2e specs that were previously blocked: `e2e/fiscal-gates.spec.ts`, `e2e/triage-inbox.spec.ts`, `e2e/ask-ai.spec.ts`, `e2e/document-steppers.spec.ts`, `e2e/onboarding.spec.ts`, `e2e/locale-switching.spec.ts`, `e2e/apps.spec.ts`, `e2e/i18n-canary.spec.ts`. All 8 must pass. If they pass, this is the unblock for the full e2e suite. Commit with message `fix(i18n): Phase 10.8 arm i18n at module load — unblock React tree mount + full Playwright suite`. Push to `ant` and tag `phase10-8-lingui-race-fix-v1`. Write handoff + flip status to STATUS: PASS.",
+      "verify": [
+        "pnpm typecheck → 0 errors",
+        "pnpm vitest run src/i18n src/lib/onboarding src/components/onboarding → all green",
+        "pnpm vitest run (full) → 2469+ passed, 1 pre-existing AppLauncher failure",
+        "pnpm i18n:extract → idempotent, 242 source msgids",
+        "pnpm build → success, 3 per-locale chunks",
+        "pnpm playwright test e2e/{fiscal-gates,triage-inbox,ask-ai,document-steppers,onboarding,locale-switching,apps,i18n-canary}.spec.ts → all 8 pass",
+        "grep -rE 'hasTranslation|TRANSLATED_LOCALES|i18n-translations-in-progress' web-modern/src → 0 hits",
+        "Commit + push branch wip/phase10-8-lingui-race-fix-fix-lingui-race to ant + tag phase10-8-lingui-race-fix-v1"
+      ]
+    }
+  ],
+  "mergeOrder": [
+    "fix-lingui-race"
+  ]
+}
