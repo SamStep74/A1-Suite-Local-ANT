@@ -1,8 +1,8 @@
 # Phase 10 orchestration — state snapshot
 
-**Last update:** 2026-06-14 13:50 UTC (17:50 local)
+**Last update:** 2026-06-14 15:55 UTC (19:55 local)
 **Session:** 2026-06-14 (Phase 10.6 production hardening CLOSED + 10.7 e2e coverage + hasTranslation cleanup CLOSED + 10.8 (a) Lingui activation race fix CLOSED + 10.12 / 8.12 legacy `web/` delete CLOSED + 10.9 (d) e2e content fixes **PARTIAL CLOSED**; all merged into `ant/main @ ec4fbe5`; tags `phase10-6-production-hardening-v1` + `phase10-7-e2e-coverage-v1` + `phase10-8-lingui-race-fix-v1` + `phase10-12-legacy-delete-v1` + **`phase10-9-e2e-content-fixes-v1` → ec4fbe5 ✅** all on ant)
-**Current ref:** `ant/main @ ec4fbe5` (10.9 (d) integration close — wave-1 5 clusters + wave-2 finance-partial 1 spec + 2 ant/main cross-merges: storage engine f05d2c1 + backup-restore b6a059f, on top of 10.6 production hardening @ f8610df + 10.7 e2e coverage @ 9b007d6 + 10.8 (a) Lingui race fix @ 76e4d65 + 2f41482 dashboard launcher test rewire + 10.12 legacy delete @ c15fbe0; tag `phase10-9-e2e-content-fixes-v1` ✅ at ec4fbe5; `ant/integration/phase10-9-d` **at 4527c94** — wave-3 partial close: 7aba8af (W5 error-pending) + 4527c94 (W2 finance-rest fiscal-gates + period-close) on top of 40c78d4; e2e gate: **44 / 110 pass, 66 fail, 1 skip** in 3.3m — gain of +3 over the 41-baseline at ec4fbe5; awaiting ant/integration → ant/main merge via the standing refspec when the user gives the go-ahead)
+**Current ref:** `ant/integration/phase10-9-d` **at 793a974** (10.9 (d) wave-3 partial close — 7aba8af W5 error-pending + 4527c94 W2 fiscal-gates+period-close + 793a974 docs commit on top of 40c78d4; e2e gate: **44 / 110 pass, 66 fail, 1 skip** in 3.3m — gain of +3 over the 41-baseline at ec4fbe5). Local `main` at `c6ab45f` (cherry-picked 9d89aac + c6ab45f baseRef bump to 793a974, on top of 793a974). `ant/main` is at `6f7ff05` (force-updated by parallel automation; AHEAD of local main; merge will be needed before ant/integration → ant/main fold). **`ant/integration/phase10-9-d` is awaiting ant/integration → ant/main merge via the standing refspec `git push ant main:refs/heads/ant/main`** when the user gives the go-ahead. **10.9 (g) vitest-flakes worker now in flight** (tmux `phase10-9-g`, single worker, 30-min budget, audit + optional fix for AppLauncher Armenian-label flake + fiscal-gates row-count flake + fleet audit).
 **Tag:** `phase10-0-typecheck-cleanup-v1` → d6d4c44 ✅ + `phase10-0-d1-spa-shell-v1` → 5fd4dfb ✅ + `phase10-1-deploy-v1` → 57c60eb ✅ + `phase10-hygiene-v1` → 98c72a6 ✅ + `phase10-2-finance-v1` → 0902b38 ✅ + `phase10-2-people-v1` → 4795251 ✅ + `phase10-2-flow-integrations-v1` → 37f7732 ✅ + `phase10-2e-login-shell-retirement-v1` → 463089d ✅ + `phase10-3-i18n-infra-v1` → bc8b159 ✅ + `phase10-4-shared-components-v1` → b04a88c ✅ + **`phase10-5-product-differentiators-v1` → c7b94f8 ✅** + **`phase10-6-production-hardening-v1` → f8610df ✅** + **`phase10-7-e2e-coverage-v1` → 9b007d6 ✅** + **`phase10-8-lingui-race-fix-v1` → 76e4d65 ✅** + **`phase10-12-legacy-delete-v1` → c15fbe0 ✅** + **`phase10-9-e2e-content-fixes-v1` → ec4fbe5 ✅**
 
 ## Phase 10.2c Finance (phase10-2-finance) — ✅ CLOSED
@@ -1257,9 +1257,26 @@ All 6 wave-2 workers died on the same pattern: **long bash hangs in headed Playw
 | --- | --- |
 | `pnpm typecheck` (web-modern, post-cherry-pick) | **0 errors** |
 | `pnpm playwright test` (full, with chromium + Vite + Fastify up) | **44 / 110 pass, 66 fail, 1 skip (3.3m)** — gain of 3 over the 41-baseline |
-| Refspec push to `ant/integration/phase10-9-d` | ✅ `40c78d4..4527c94` |
+| Refspec push to `ant/integration/phase10-9-d` | ✅ `40c78d4..4527c94`, then `4527c94..793a974` (docs commit) |
 | No push to `ant/main` | ✅ held for user-initiated `git push ant main:refs/heads/ant/main` |
 | Worker file-ownership compliance (W2 + W5) | ✅ clean. Only `web-modern/e2e/{fiscal-gates,period-close,error-pending}.spec.ts` modified. No `_helpers.ts` / `playwright.config.ts` / `package.json` / `src/**` edits. |
+
+### Phase 10.9 (g) vitest-flakes cleanup — 🔄 IN FLIGHT (1 worker, 30-min budget)
+
+**Plan:** `wip/phase10-9-vitest-flakes-vitest-flakes` from baseRef `793a974`; 1 worker (vitest-flakes). Plan files at `.orchestration/phase10-9-vitest-flakes/{plan.json,plan.md,task.md,scripts/_common.sh}`. Worker bash wrapped in `timeout 300` per the wave-3 postmortem fix. `NODE_OPTIONS=--max-old-space-size=2048` to avoid OOM in 16 GB shared system.
+
+**Scope:** audit + (if needed) fix 2 pre-existing vitest flakes carried since 10.0:
+- **AppLauncher Armenian label flake** — `web-modern/src/components/shell/AppLauncher.test.tsx`, last test "renders the Armenian labels for at least one app (bilingual UX contract)" — uses `screen.getByText("Հաճախորդներ")` (literal Armenian text). Post-Lingui-macro-wire-up flake.
+- **fiscal-gates row-count flake** — `web-modern/src/routes/app/fiscal-gates/index.test.tsx:169-185` — uses `waitFor + querySelectorAll` with `toBeGreaterThanOrEqual(2)`. Under load, `useQuery` returns later than the waitFor timeout.
+- **fleet audit (4 tests)** — `web-modern/src/lib/fleet/__tests__/status.test.ts` — confirm still green after the 10.6 W2 commit `1c49ec4` fix.
+
+**File ownership (HARD):** W1 may ONLY edit `web-modern/src/components/shell/AppLauncher.test.tsx`, `web-modern/src/routes/app/fiscal-gates/index.test.tsx`, and audit-only `web-modern/src/lib/fleet/__tests__/status.test.ts`. NO source edits, NO `_helpers.ts` / `playwright.config.ts` / `package.json` / `tsconfig.json` / `vite.config.ts` edits, NO server edits.
+
+**Audit gates:** (1) each test isolated, (2) cluster vitest (shell + fiscal-gates + fleet), (3) full vitest (≤2 pre-existing flakes), (4) typecheck, (5) i18n extract, (6) build.
+
+**Worktree:** `/Users/samvelstepanyan/dev/A1-Suite-Local-ANT-queue-phase10-9-vitest-flakes-vitest-flakes` (branch `wip/phase10-9-vitest-flakes-vitest-flakes` at 793a974). Tmux session: `phase10-9-g`. Polling every 5 min.
+
+**Expected close:** refspec push to `ant/integration/phase10-9-g` (NEW branch) at the worker's last commit. Tag `phase10-9-vitest-flakes-v1` at close.
 
 ### Next concrete step (Phase 10.9 (d) remainder)
 
