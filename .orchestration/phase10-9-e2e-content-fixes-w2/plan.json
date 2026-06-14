@@ -1,0 +1,33 @@
+{
+  "sessionName": "phase10-9-e2e-content-fixes-w2",
+  "repoRoot": "/Users/samvelstepanyan/dev/A1-Suite-Local-ANT-queue",
+  "baseRef": "1b4f49b851bbb41170694ea203237473dd5efce7",
+  "baseRefNote": "Wave-2 baseRef = 1b4f49b (the post-wave-1 integration of crm + state-int + procurement + fleet-greens + docs-partial clusters). ant/main @ 6f7ff05 is a separate lineage and is NOT the base — workers must branch from 1b4f49b to stay on the 10.8 (e) + 10.9 (d) lineage.",
+  "launcherCommand": "claude --model sonnet --dangerously-skip-permissions --add-dir {repo_root} --append-system-prompt \"You are a worker in the phase10-9 (d) e2e content fix wave-2. Your only job is to fix the e2e test failures in the spec files you are assigned. Do NOT add debug instrumentation (console.log, page.evaluate for __errors, page.on('request'/'console'/'pageerror') etc.) — a prior worker wasted 48 minutes in a debug loop. Either fix the locator and confirm with a run, or report the spec unfixable and move on. Do NOT touch web-modern/e2e/_helpers.ts, playwright.config.ts, package.json, tsconfig.json, vite.config.ts, or any web-modern/src/** source. All fixes are in test code (the assigned spec files only). Commit your work to the worktree branch and push to ant. Write status.md with STATUS: PASS (or FAIL with reason) and a handoff.md with details.\"",
+  "workers": [
+    {
+      "name": "apps",
+      "task": "Fix the 19 carry-forward e2e test-content failures in `web-modern/e2e/apps.spec.ts`. Run `cd web-modern && START_FASTIFY=1 pnpm playwright test apps` and capture the failure list. For each failure, run headed (`--headed --debug`) to see the actual DOM, then update the test assertions to match (do NOT touch src/). If all 19 turn out to be ECONNREFUSED-class (server not up) and they pass with Fastify up, commit a no-op and report. Run the audit gate suite: typecheck, build, i18n:extract, vitest, full playwright. Branch: wip/phase10-9-e2e-content-fixes-w2-apps. Tag: phase10-9-e2e-content-fixes-w2-apps-v1. Push: ant. Do NOT use mcp__claude-in-chrome__* tools. Do NOT add debug instrumentation. Do NOT spawn subagents. Report handoff and status at .orchestration/phase10-9-e2e-content-fixes-w2/apps/{handoff.md,status.md}."
+    },
+    {
+      "name": "finance",
+      "task": "Fix the 9 carry-forward e2e test-content failures in 4 specs: `web-modern/e2e/cfo-reports.spec.ts` (1), `compliance.spec.ts` (1), `fiscal-gates.spec.ts` (5), `period-close.spec.ts` (2). Run `cd web-modern && START_FASTIFY=1 pnpm playwright test cfo-reports compliance fiscal-gates period-close` and capture failures. For each, run headed, update the locator in the spec (NOT the source). Run audit gates. Branch: wip/phase10-9-e2e-content-fixes-w2-finance. Tag: phase10-9-e2e-content-fixes-w2-finance-v1. Push: ant. Do NOT use mcp__claude-in-chrome__* tools. Do NOT add debug instrumentation. Do NOT spawn subagents. Report handoff and status at .orchestration/phase10-9-e2e-content-fixes-w2/finance/{handoff.md,status.md}."
+    },
+    {
+      "name": "comm-ai-big",
+      "task": "Fix the 13 carry-forward e2e test-content failures in 3 specs: `web-modern/e2e/ask-ai.spec.ts` (4), `onboarding.spec.ts` (8), `keyboard-grammar.spec.ts` (1). Run `cd web-modern && START_FASTIFY=1 pnpm playwright test ask-ai onboarding keyboard-grammar` and capture failures. For each, run headed, update the locator. Run audit gates. Branch: wip/phase10-9-e2e-content-fixes-w2-comm-ai-big. Tag: phase10-9-e2e-content-fixes-w2-comm-ai-big-v1. Push: ant. Do NOT use mcp__claude-in-chrome__* tools. Do NOT add debug instrumentation — the prior comm-ai worker wasted 48 min in a debug loop on onboarding.spec.ts. Do NOT spawn subagents. Report handoff and status at .orchestration/phase10-9-e2e-content-fixes-w2/comm-ai-big/{handoff.md,status.md}."
+    },
+    {
+      "name": "comm-ai-small",
+      "task": "Fix the 3 carry-forward e2e test-content failures in 2 specs: `web-modern/e2e/triage-inbox.spec.ts` (1), `ai-onboarding.spec.ts` (2). Run `cd web-modern && START_FASTIFY=1 pnpm playwright test triage-inbox ai-onboarding` and capture failures. For each, run headed, update the locator. Run audit gates. Branch: wip/phase10-9-e2e-content-fixes-w2-comm-ai-small. Tag: phase10-9-e2e-content-fixes-w2-comm-ai-small-v1. Push: ant. Do NOT use mcp__claude-in-chrome__* tools. Do NOT add debug instrumentation. Do NOT spawn subagents. Report handoff and status at .orchestration/phase10-9-e2e-content-fixes-w2/comm-ai-small/{handoff.md,status.md}."
+    },
+    {
+      "name": "docs-2",
+      "task": "Fix the 20 carry-forward e2e test-content failures in 4 specs: `web-modern/e2e/assets.spec.ts` (5), `document-steppers.spec.ts` (9), `export-docs.spec.ts` (2), `warehouse.spec.ts` (4). Note: `cabinet.spec.ts` is already done by wave-1 docs worker (commit d1e46ab on the docs branch, not w2). Run `cd web-modern && START_FASTIFY=1 pnpm playwright test assets document-steppers export-docs warehouse` and capture failures. For each, run headed, update the locator. For export-docs.spec.ts the drift class is form-envelope (op/payload → operation/data per the 10.5 server refactor). Run audit gates. Branch: wip/phase10-9-e2e-content-fixes-w2-docs-2. Tag: phase10-9-e2e-content-fixes-w2-docs-2-v1. Push: ant. Do NOT use mcp__claude-in-chrome__* tools. Do NOT add debug instrumentation. Do NOT spawn subagents. Report handoff and status at .orchestration/phase10-9-e2e-content-fixes-w2/docs-2/{handoff.md,status.md}."
+    },
+    {
+      "name": "fleet-greens-2",
+      "task": "Fix the 7 carry-forward e2e test-content failures in 1 spec: `web-modern/e2e/greenhouse.spec.ts`. Note: `fleet.spec.ts` is already done by wave-1 fleet-greens worker (commit bf7170a on the fleet-greens branch, not w2). Run `cd web-modern && START_FASTIFY=1 pnpm playwright test greenhouse` and capture failures. For each, run headed, update the locator. Run audit gates. Branch: wip/phase10-9-e2e-content-fixes-w2-fleet-greens-2. Tag: phase10-9-e2e-content-fixes-w2-fleet-greens-2-v1. Push: ant. Do NOT use mcp__claude-in-chrome__* tools. Do NOT add debug instrumentation. Do NOT spawn subagents. Report handoff and status at .orchestration/phase10-9-e2e-content-fixes-w2/fleet-greens-2/{handoff.md,status.md}."
+    }
+  ]
+}
