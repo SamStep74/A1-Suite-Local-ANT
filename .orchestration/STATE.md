@@ -786,13 +786,47 @@ Every user-facing string in the new components is wrapped in `<Trans>` or `t\`\`
 - `healthcheck.sh` cosmetic: "(unreachable)" on 4xx due to curl -f (10.1 follow-up)
 - W4 period-close-checklist full route port (DataTable API mismatch between W4's `selectedRowIds` and 10.4's controlled-state DataTable) — see handoff for retry plan
 
+## Phase 10.6 production hardening — CLOSED
+
+Closed at `ant/main @ f8610df` (tag `phase10-6-production-hardening-v1`). 3 workers, file-isolated, parallel dispatch from `ant/main @ 6f7ff05`.
+
+### Workers (all PASS)
+- **W1 w4-port** — `226bb08` `feat(period-close): Phase 10.6 full route port (10.4 controlled DataTable)`. Restores the full `/app/period-close` route that was stubbed in commit `f5cac35` (Phase 10.5 r2). Uses 10.4 controlled-state DataTable (`state` + `onStateChange`), local bulk action bar (Mark done / Mark blocked / Skip) modeled on `fiscal-gates/index.tsx#FiscalBulkBar` pattern, UndoToast for the 5s revert window, period picker (prev/next month + typed `?period=YYYY-MM`), summary strip (X of N done + progress bar + per-status counts). State via `lib/close/state.ts` (localStorage key `a1:close:<periodId>:<stepId>`). 13 canonical steps in 5 categories. 9 new period-close vitest tests pass. 17 new Lingui source msgids (hy filled, ru/en empty — compile falls back to source per 10.5 GA policy).
+  - **Recovery note:** the worker's tmux pane was killed mid-flight by an incorrect pane mapping during poll #2 (the orchestrator's --status readback flagged w4-port as "done" because the worker had committed locally, but the worker's STATUS: PASS flip was never written). The commit `6253798` was locally complete and clean; the orchestrator recovered by fixing one residual `useLingui()` destructure-unused `t` typecheck error, re-extracting Lingui catalogs (17 new msgids), amending to `226bb08`, and pushing via the standard refspec. Full audit gates green on the pushed commit.
+- **W2 fleet-test-fixes** — `1c49ec4` `fix(fleet): Phase 10.6 resolve 4 pre-existing test failures`. Resolves all 4 pre-existing fleet test failures carried since 10.0 typecheck cleanup: `fleetTabFromHash` (hash decoder now correctly returns `coldchain` for `#coldchain`), `tripStateLabelArm` (`Ճանապարհին — In transit` wrapped label), `coldChainCategoryLabelAm` (`Կաթնամթերdelays… — Dairy` wrapped label), `formatFleetIdShort` (off-by-one trim fixed — `trailing-` is preserved, not trimmed to `iling-`).
+- **W3 healthcheck-cosmetic** — `636c345` `fix(deploy): Phase 10.6 healthcheck captures http_code on 4xx`. Replaces `curl -f` with `%{http_code}` capture so operators see `health: HTTP <code> from <url>` instead of `(unreachable)`. Curl error case (no listener) prints `health: connection refused to <url>`. Exit semantics tightened: 0 only when every probe is 2xx, non-zero on any 4xx/5xx or curl error. `bash -n` clean, 3 manual smoke tests pass. Function name (`probe`) and env-var contract (`HOST`, `BACKEND_PORT`, `SPA_PORT`) preserved so `start-all.sh` / `install.sh` callers are unaffected.
+
+### Merge sequence
+`ant/main @ 6f7ff05` → merge w4-port (`b8cb45d`) → merge fleet-test-fixes (`e5c6c8d`) → merge healthcheck-cosmetic (`f8610df`). All 3 merges clean (no conflicts). Integration tag `phase10-6-production-hardening-v1` → `f8610df`.
+
+### Lingui tie-in
+- 225 → 242 source msgids (17 added by W1, all in `period-close/index.tsx`)
+- `hy` (Armenian source) filled for all 242
+- `ru` and `en` have 17 missing (the W1 deltas) — empty msgstrs accepted per 10.5 GA policy
+- `pnpm i18n:extract` idempotent (2 consecutive runs, zero diff)
+
+### Post-merge audit gates
+- `pnpm typecheck` → 0 errors
+- `pnpm vitest run` → 2458+9 passed (9 new period-close tests), 1 pre-existing AppLauncher failure (out of scope, 10.5 r1 regression), 0 fleet failures (W2 fixed all 4)
+- `pnpm build` → success, 3 per-locale chunks
+- `bash -n deploy/scripts/healthcheck.sh` → 0 syntax errors, 3 smoke tests pass
+
+### Teardown
+- 3 worktrees + worker branches pruned
+- Tmux session `phase10-6-production-hardening` killed
+- Worker tags all on ant: `phase10-6-production-hardening-w4-port-v1` (226bb08), `phase10-6-production-hardening-fleet-test-fixes-v1` (1c49ec4), `phase10-6-production-hardening-healthcheck-cosmetic-v1` (636c345)
+- Integration tag `phase10-6-production-hardening-v1` → f8610df
+
+### Orchestrator learnings
+- `node scripts/orchestrate-worktrees.js --merge` does its merges on a detached `ant/main` checkout and then runs `git push ant main` (no refspec) — this pushes the local `main` branch, NOT `ant/main` on the remote. The merges "succeed" locally but never reach the remote. **Fix for future phases:** the orchestrator's `mergePlan` should use `git push ant main:refs/heads/ant/main` per the standing instructions. Until that's patched, do the merges inline (as done in this phase).
+- The orchestrator's `--status` flag reads the parent `.orchestration/.../status.md` which is a template that workers rarely flip — workers tend to write to the worktree-side `.orchestration/.../status.md` (created by the `seedPaths` copy). The status flag is unreliable as a progress signal; check worktree-side files or `git ls-remote ant` for tag presence.
+
 ### Next concrete step
-**Phase 10.6 production hardening** is the natural next phase. Candidates from the deferred list:
-- W4 period-close-checklist full route port (DataTable API alignment)
-- Fleet test bug fixes (4 pre-existing failures)
-- 10.0 D1 hotfix (sirv + dist/index.html SPA serving)
-- `healthcheck.sh` cosmetic 4xx handling
-- 10.2a pilot pipeline (still gated on 8.13 CRM Tube unblock)
+**Phase 10.7 candidates:**
+- **(a) e2e coverage + hasTranslation cleanup** — `.orchestration/phase10-6-e2e-coverage/plan.md` already drafted (7 workers: W1-W6 e2e spec expansion + W7 `remove-hasTranslation` refactor). Different scope than 10.6; ready to dispatch.
+- **(b) 10.2a pilot pipeline** — still gated on M3's Phase 8.13 CRM Tube unblock (`wip/phase8-tube-*` / `wip/phase8-healthcheck`). M3 work in flight, out of scope for orchestrator.
+- **(c) real LLM backend for ask-ai** — pre-staged in 10.5 close as theme (c). Pending vendor decision (Anthropic? OpenAI? local Ollama?). The ask-ai stub stays as-is until 10.7+ picks a vendor.
+- **(d) 8.12 delete legacy `web/`** — unblocked since 10.2, awaiting dedicated worker.
 
 ## Standing instructions (carried from prior sessions)
 - Do NOT push to `ant/main` except via `git push ant main:refs/heads/ant/main` refspec
