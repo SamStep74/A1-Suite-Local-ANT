@@ -273,11 +273,15 @@ test("expanded Armenia SaaS roles receive least-privilege app entitlements", asy
 });
 
 test("dashboard launcher source wiring covers every seeded login role app", async () => {
-  const dashboardSource = fs.readFileSync(path.join(__dirname, "..", "web", "src", "main.jsx"), "utf8");
-  const routeSource = fs.readFileSync(path.join(__dirname, "..", "web", "src", "suite-routes.js"), "utf8");
-  const routeListMatch = routeSource.match(/export const SUITE_APP_IDS = \[([^\]]+)\]/);
-  assert.ok(routeListMatch, "dashboard route allowlist is missing");
-  const routeIds = new Set([...routeListMatch[1].matchAll(/"([^"]+)"/g)].map(match => match[1]));
+  // The legacy web/ build was retired in 10.2e. The single source of
+  // truth for the app allow-list is now web-modern/src/lib/apps.ts
+  // (its header comment says: 'Mirrors web/src/suite-routes.js#SUITE_APP_IDS
+  // — keep in sync until sunset.'). We parse APP_IDS out of that file
+  // and use it as the expected allow-list.
+  const appsTs = fs.readFileSync(path.join(__dirname, "..", "web-modern", "src", "lib", "apps.ts"), "utf8");
+  const appIdMatch = appsTs.match(/export const APP_IDS = \[([^\]]+)\]/);
+  assert.ok(appIdMatch, "web-modern APP_IDS allowlist is missing");
+  const routeIds = new Set([...appIdMatch[1].matchAll(/"([^"]+)"/g)].map(match => match[1]));
 
   await withApp(async app => {
     const loginEmails = app.db.prepare(`
@@ -302,14 +306,11 @@ test("dashboard launcher source wiring covers every seeded login role app", asyn
       assert.equal(response.statusCode, 200, response.body);
       for (const suiteApp of response.json().apps) {
         assert.equal(suiteApp.route, `/app/${suiteApp.id}`, `${email} app ${suiteApp.id} route`);
-        assert.ok(routeIds.has(suiteApp.id), `${email} app ${suiteApp.id} is missing from SUITE_APP_IDS`);
-        assert.ok(
-          dashboardSource.includes(`id="suite-app-${suiteApp.id}"`),
-          `${email} app ${suiteApp.id} is missing a dashboard anchor`
-        );
-
-        const appRouteResponse = await app.inject({ method: "GET", url: suiteApp.route, headers: { cookie } });
-        assert.equal(appRouteResponse.statusCode, 200, `${email} app route failed: ${suiteApp.route}`);
+        assert.ok(routeIds.has(suiteApp.id), `${email} app ${suiteApp.id} is missing from APP_IDS`);
+        // The /app/<id> routes are served by the web-modern SPA
+        // (port 3000+) and the Fastify backend doesn't proxy them.
+        // Backend coverage ends at /api/suite; SPA coverage is
+        // handled by the playwright suite.
       }
     }
   });
