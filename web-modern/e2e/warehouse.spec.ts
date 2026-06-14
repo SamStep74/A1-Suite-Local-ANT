@@ -4,9 +4,9 @@
  *
  * What this asserts (the must-haves for "the warehouse skeleton works"):
  *   - GET /app/inventory/warehouse returns 2xx (route resolves, auth works)
- *   - H2 contains "Պահեստ" (Armenian title, the route section label)
+ *   - H1 contains "Պահեստ" (Armenian title, the route section label)
  *   - English subtitle contains "Warehouse" (bilingual routes render an
- *     Armenian label below an English heading)
+ *     Armenian label above an English heading)
  *   - The warehouse panel (data-testid="warehouse-panel") is visible
  *   - 4 tab buttons render: lots / serials / cold / analytics
  *   - Clicking each tab switches the visible panel content
@@ -34,7 +34,24 @@
  *     user without `inventory` access (or an unauthed probe).
  */
 import { test, expect } from "@playwright/test";
-import { authedPage, waitForHydration } from "./_helpers";
+import { authedPage } from "./_helpers";
+
+/**
+ * Wait for the warehouse panel to mount. The `waitForHydration` helper
+ * waits for a generic `h1, h2, [data-testid='app-heading']` to appear,
+ * but the warehouse H2 is gated by the data-loading promise (the
+ * route's first render shows a spinner until the lots query settles).
+ * In dev mode the spinner can hold the H2 off for 15+ s, which trips
+ * the helper's default 5 s timeout.
+ *
+ * The `warehouse-panel` testid is on the outer container and is
+ * rendered as soon as React mounts — so we wait for that instead.
+ */
+async function waitForWarehouse(page: import("@playwright/test").Page) {
+  await expect(page.getByTestId("warehouse-panel")).toBeVisible({
+    timeout: 15_000,
+  });
+}
 
 test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
   test("loads, renders 4 tabs, the form is wired, and the back-link points to inventory", async ({
@@ -50,13 +67,15 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
       ).not.toBeNull();
       expect([200, 304]).toContain(response!.status());
 
-      await waitForHydration(page);
+      await waitForWarehouse(page);
 
-      // H2 — the section header. The Pattern A warehouse route renders
-      // "Պահեստ" as the route title (Armenian for "warehouse" —
-      // the route extracts the section label for a stable testid).
+      // H1 — the page title. The Pattern A warehouse route renders
+      // "Պահեստ" as the H1 (Armenian for "warehouse"). The
+      // H2 that previously lived here was removed when the
+      // access-denied card was refactored into its own
+      // component; the route's primary heading is now the H1.
       await expect(
-        page.getByRole("heading", { level: 2, name: /Պահեստ/i }),
+        page.getByRole("heading", { level: 1, name: /Պահեստ/i }),
       ).toBeVisible();
 
       // English subtitle — bilingual routes (cabinet, cfo, crm, etc.)
@@ -146,7 +165,7 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
       );
 
       await page.goto("/app/inventory/warehouse");
-      await waitForHydration(page);
+      await waitForWarehouse(page);
 
       // The default tab is Lots — fill the form with a unique lot code
       // so we can verify the new row appears in the list.
@@ -174,7 +193,7 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
     const { page } = await authedPage(browser, request);
     try {
       await page.goto("/app/inventory/warehouse");
-      await waitForHydration(page);
+      await waitForWarehouse(page);
 
       // Switch to the Cold Storage tab.
       await page.getByTestId("warehouse-tab-cold").click();
@@ -207,7 +226,7 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
     const { page } = await authedPage(browser, request);
     try {
       await page.goto("/app/inventory/warehouse");
-      await waitForHydration(page);
+      await waitForWarehouse(page);
 
       // Switch to Analytics.
       await page.getByTestId("warehouse-tab-analytics").click();

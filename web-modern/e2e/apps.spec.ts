@@ -31,7 +31,7 @@ test.describe("apps smoke — every registered app loads and shows its H1", () =
     const meta = APPS[appId];
     const path = APPS_USING_FALLBACK.has(appId) ? `/app/${appId}` : `/app/${appId}/`;
 
-    test(`${appId} → ${path} renders "${meta.label}"`, async ({ browser, request }) => {
+    test(`${appId} → ${path} loads`, async ({ browser, request }) => {
       const { page } = await authedPage(browser, request);
       try {
         const response = await page.goto(path);
@@ -46,8 +46,27 @@ test.describe("apps smoke — every registered app loads and shows its H1", () =
         const status = response!.status();
         expect([200, 304]).toContain(status);
 
-        await waitForHydration(page);
-        await expect(page.getByRole("heading", { level: 1, name: meta.label })).toBeVisible();
+        // Wait for the per-app panel testid (e.g. "greenhouse-panel",
+        // "assets-panel"). Every Pattern A route exposes one; if this
+        // never appears, the route tree is broken or auth failed.
+        const panel = page.getByTestId(`${appId}-panel`);
+        await expect(panel).toBeVisible({ timeout: 15_000 });
+
+        // The H1 inside the panel — routes render either the
+        // Armenian label (e.g. assets: "Հիմնական միջոցներ") or
+        // the English label (e.g. greenhouse: "Greenhouse"). Accept
+        // either, in either order — the panel is the load signal,
+        // the H1 is just a smoke check.
+        const h1Am = panel.getByRole("heading", { level: 1, name: meta.labelAm });
+        const h1En = panel.getByRole("heading", { level: 1, name: meta.label });
+        const h1Visible = await Promise.race([
+          h1Am.waitFor({ state: "visible", timeout: 2_000 }).then(() => true).catch(() => false),
+          h1En.waitFor({ state: "visible", timeout: 2_000 }).then(() => true).catch(() => false),
+        ]);
+        expect(
+          h1Visible,
+          `expected H1 with "${meta.label}" or "${meta.labelAm}" inside ${appId}-panel`,
+        ).toBe(true);
       } finally {
         await page.context().close();
       }
