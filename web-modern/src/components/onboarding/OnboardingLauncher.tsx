@@ -204,7 +204,7 @@ export function OnboardingLauncher({
                     <div className="min-w-0 flex-1">
                       <div className="flex items-center gap-1.5">
                         <span className="text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
-                          {tour.feature}
+                          {tour.feature as string}
                         </span>
                         {tour.deferred ? (
                           <span
@@ -216,7 +216,7 @@ export function OnboardingLauncher({
                         ) : null}
                       </div>
                       <div className="truncate text-[var(--text-xs)] text-[var(--color-muted)]">
-                        {tour.goal}
+                        {tour.goal as string}
                       </div>
                     </div>
                     {done ? (

@@ -19,36 +19,21 @@
  * Test files with their own `vi.mock` still win (vi.mock replaces).
  */
 import "@testing-library/jest-dom/vitest";
-import { vi } from "vitest";
 
-vi.mock("@lingui/core", () => ({
-  i18n: { _: (s: string) => s, activate: () => {}, load: async () => {} },
-}));
-
-vi.mock("@lingui/core/macro", () => ({
-  t: (s: { message: string } | string) =>
-    typeof s === "string" ? s : s.message,
-  defineMessage: (s: { message: string }) => s,
-}));
-
-vi.mock("@lingui/macro", () => ({
-  useLingui: () => ({
-    t: (s: { message: string } | string) =>
-      typeof s === "string" ? s : s.message,
-    i18n: { _: (s: string) => s },
-  }),
-  Trans: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-  t: (s: { message: string } | string) =>
-    typeof s === "string" ? s : s.message,
-}));
-
-vi.mock("@lingui/react/macro", () => ({
-  useLingui: () => ({
-    t: (s: { message: string } | string) =>
-      typeof s === "string" ? s : s.message,
-    i18n: { _: (s: string) => s },
-  }),
-  Trans: ({ children }: { children?: React.ReactNode }) => <>{children}</>,
-  t: (s: { message: string } | string) =>
-    typeof s === "string" ? s : s.message,
-}));
+// Vite's resolve.alias maps every @lingui/* spec to
+// src/test-utils/lingui-stub.ts. That stub exports `i18n`,
+// `useLingui`, `Trans`, `t`, `defineMessage`, `I18nProvider`.
+//
+// Don't add global `vi.mock(...)` calls here for the same spec
+// strings: vi.mock registers a per-spec factory that REPLACES
+// the resolved module's exports, so a factory that doesn't
+// include `i18n` will shadow the stub's `i18n` export and
+// crash any SUT that does `import { i18n } from "@lingui/core"`.
+// The SUTs that need a richer mock (e.g. tours.test.ts) add
+// their own per-file vi.mock — those win because they target
+// the same spec string.
+//
+// The 15 file breakages Phase 10.5 introduced were because the
+// alias wasn't in place. With the alias + stub + tMessage
+// transform in `schemas.ts`, all the Lingui import sites resolve
+// cleanly without any global vi.mock.

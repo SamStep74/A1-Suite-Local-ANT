@@ -121,8 +121,13 @@ describe("onboarding/tours — DEFAULT_TOURS catalog", () => {
   it("every step has a non-empty title and body", () => {
     for (const tour of DEFAULT_TOURS) {
       for (const step of tour.steps) {
-        expect(step.title.length).toBeGreaterThan(0);
-        expect(step.body.length).toBeGreaterThan(0);
+        // step.title and step.body are MessageNode (string | macro
+        // descriptor) in the production schema; the test stub
+        // always returns plain strings, so we cast.
+        const title = step.title as unknown as string;
+        const body = step.body as unknown as string;
+        expect(title.length).toBeGreaterThan(0);
+        expect(body.length).toBeGreaterThan(0);
       }
     }
   });

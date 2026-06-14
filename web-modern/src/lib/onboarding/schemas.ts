@@ -33,6 +33,28 @@ import { z } from "zod";
 
 /* ────────── step discriminant ────────── */
 
+/**
+ * A non-empty string that ALSO accepts a Lingui macro descriptor.
+ *
+ * Why this shape: production builds compile `t({ message: "..." })`
+ * into a macro descriptor (a frozen `{ id, message?, values? }`
+ * object that the i18n runtime later translates via
+ * `i18n._(descriptor)`). The schema runs at module load — before
+ * `i18n.activate()` has loaded the catalog — so we can't translate
+ * at parse time. We validate shape only.
+ *
+ * In test mode the Lingui stub returns a plain string (the
+ * `t({ message: "..." })` call returns the source text), so this
+ * union accepts both. Downstream code treats the result as an
+ * opaque "i18n node" — React will stringify the object via its
+ * `toString()` override (Lingui's MacroMessageDescriptor
+ * implements it), and `<Trans>` / `i18n._()` translate it
+ * on render. We deliberately do NOT call `i18n._()` here.
+ */
+type MessageNode = string | { id: string; message?: string; values?: Record<string, unknown> };
+const tMessage: z.ZodType<MessageNode> = z
+  .union([z.string().min(1), z.object({ id: z.string() }).passthrough()]) as unknown as z.ZodType<MessageNode>;
+
 /** What a single step in a tour does. */
 export const stepKind = z.enum(["navigate", "highlight", "info"]);
 export type StepKind = z.infer<typeof stepKind>;
@@ -43,8 +65,8 @@ export type StepKind = z.infer<typeof stepKind>;
 export const navigateStep = z.object({
   kind: z.literal("navigate"),
   routePath: z.string().min(1),
-  title: z.string().min(1),
-  body: z.string().min(1),
+  title: tMessage,
+  body: tMessage,
 });
 export type NavigateStep = z.infer<typeof navigateStep>;
 
@@ -56,8 +78,8 @@ export type NavigateStep = z.infer<typeof navigateStep>;
 export const highlightStep = z.object({
   kind: z.literal("highlight"),
   selector: z.string().min(1),
-  title: z.string().min(1),
-  body: z.string().min(1),
+  title: tMessage,
+  body: tMessage,
 });
 export type HighlightStep = z.infer<typeof highlightStep>;
 
@@ -65,8 +87,8 @@ export type HighlightStep = z.infer<typeof highlightStep>;
  *  on the current page; no navigation or selector pinning. */
 export const infoStep = z.object({
   kind: z.literal("info"),
-  title: z.string().min(1),
-  body: z.string().min(1),
+  title: tMessage,
+  body: tMessage,
 });
 export type InfoStep = z.infer<typeof infoStep>;
 
@@ -97,11 +119,11 @@ export const tour = z.object({
   id: tourId,
   /** Short feature-area name (e.g. "Fiscal gates"). Shown in the
    *  launcher menu and as the overlay's first-step title prefix. */
-  feature: z.string().min(1),
+  feature: tMessage,
   /** The tour's one-line goal (e.g. "Mark a gate as filed").
    *  Shown in the launcher menu and as the overlay's first-step
    *  title prefix. */
-  goal: z.string().min(1),
+  goal: tMessage,
   /** Lucide icon name; resolved at render time. Stored as a
    *  string so DEFAULT_TOURS is plain JSON-serializable. */
   icon: z.string().min(1),
