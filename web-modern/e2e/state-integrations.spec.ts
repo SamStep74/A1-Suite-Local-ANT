@@ -123,20 +123,19 @@ function installStateIntApiMocks(route: Route): void {
     route.fulfill({
       status: 200,
       contentType: "application/json",
+      // The SPA's postJson() validates the response body directly against
+      // `StateIntDispatchResponseSchema` (lib/api/schemas.ts) — that schema
+      // is FLAT (top-level requestId/status/...), not the wrapped
+      // `{ok, stateInt}` envelope the server returns. The client unwraps
+      // server-side before validation, so the mock must mirror the
+      // unwrapped shape, not the raw server envelope.
       body: JSON.stringify({
-        ok: true,
-        stateInt: {
-          adapter: ADAPTER,
-          operation: OPERATION,
-          requestId: REQUEST_ID,
-          status: "ok",
-          providerRef: "prov-e2e-ref-1",
-          signatureB64: SIGNATURE_B64,
-          certificateThumbprint: THUMBPRINT,
-          latencyMs: 142,
-          advisoryOnly: false,
-          calledAt: "2026-06-12T10:00:00Z",
-        },
+        requestId: REQUEST_ID,
+        status: "ok",
+        providerRef: "prov-e2e-ref-1",
+        signatureB64: SIGNATURE_B64,
+        certificateThumbprint: THUMBPRINT,
+        advisoryOnly: false,
       }),
     });
     return;
@@ -153,11 +152,17 @@ test.describe("State Integrations — Phase 8.8 Pattern A skeleton", () => {
   test("loads, renders the H1 + 6 adapter options + mode badge + back link, and is permissive in the e2e session", async ({
     browser,
     request,
-    page,
   }) => {
-    await page.route("**/api/state-int/**", installStateIntApiMocks);
-
+    // NOTE: route handlers MUST be registered on `ctx.page`, not the
+    // test-fixture `page`. `authedPage()` creates a fresh BrowserContext
+    // + Page in a new context, so any `page.route()` on the auto-allocated
+    // fixture `page` would never intercept `ctx.page`'s requests. The
+    // canonical server paths mocked below (kebab-case /api/state-int/*)
+    // are defined in server/app.js:
+    //   - GET  /api/state-int/audit              (app.js:4949)
+    //   - POST /api/state-int/:adapter/:operation (app.js:4874)
     const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/state-int/**", installStateIntApiMocks);
     try {
       const response = await ctx.page.goto("/app/cfo/state-integrations");
       expect(
@@ -199,12 +204,18 @@ test.describe("State Integrations — Phase 8.8 Pattern A skeleton", () => {
         ).toHaveCount(1);
       }
 
-      // Back link — the route renders a ChevronLeft link to
-      // /app/cfo with the `view=cash-flow` search that the CFO
-      // hub uses. We assert the visible label + the href.
+      // Back link — the route renders a ChevronLeft <Link to="/app/cfo"
+      // search={{ view: "cash-flow" }}> which produces
+      // `href="/app/cfo?view=cash-flow"`. The search param is required by
+      // the CFO hub's default view; the e2e asserts the pathname is the
+      // CFO hub (any optional `?view=...` search is allowed).
       const back = ctx.page.getByTestId("state-int-back");
       await expect(back).toBeVisible();
-      await expect(back).toHaveAttribute("href", "/app/cfo");
+      const backHref = await back.getAttribute("href");
+      expect(backHref, "back link href").not.toBeNull();
+      expect(new URL(backHref!, "http://localhost").pathname).toBe(
+        "/app/cfo",
+      );
 
       // 403 — the route is permissive in the browser e2e because
       // the useUserAccess("cfo") hook defaults to true when no
@@ -225,11 +236,16 @@ test.describe("State Integrations — dispatch flow", () => {
   test("selecting src + clicking dispatch POSTs /api/state-int/src/submitVat and renders the result card", async ({
     browser,
     request,
-    page,
   }) => {
     let dispatchPath: string | null = null;
     let dispatchBody: { idempotencyKey?: string } | null = null;
-    await page.route("**/api/state-int/**", async (route) => {
+    // NOTE: route handler MUST be registered on `ctx.page`, not the
+    // test-fixture `page`. The dispatch endpoint shape
+    // (`/api/state-int/:adapter/:operation`) is the canonical kebab-case
+    // path defined in server/app.js:4874 — server is source of truth, test
+    // follows.
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/state-int/**", async (route) => {
       if (requestMatchesDispatch(route.request())) {
         const url = new URL(route.request().url());
         dispatchPath = url.pathname;
@@ -243,28 +259,25 @@ test.describe("State Integrations — dispatch flow", () => {
         route.fulfill({
           status: 200,
           contentType: "application/json",
+          // The SPA's postJson() validates the response body directly
+          // against `StateIntDispatchResponseSchema` (lib/api/schemas.ts)
+          // — that schema is FLAT (top-level requestId/status/...), not
+          // the wrapped `{ok, stateInt}` envelope the server returns. The
+          // client unwraps server-side before validation, so the mock
+          // must mirror the unwrapped shape, not the raw server envelope.
           body: JSON.stringify({
-            ok: true,
-            stateInt: {
-              adapter: ADAPTER,
-              operation: OPERATION,
-              requestId: REQUEST_ID,
-              status: "ok",
-              providerRef: "prov-e2e-ref-1",
-              signatureB64: SIGNATURE_B64,
-              certificateThumbprint: THUMBPRINT,
-              latencyMs: 142,
-              advisoryOnly: false,
-              calledAt: "2026-06-12T10:00:00Z",
-            },
+            requestId: REQUEST_ID,
+            status: "ok",
+            providerRef: "prov-e2e-ref-1",
+            signatureB64: SIGNATURE_B64,
+            certificateThumbprint: THUMBPRINT,
+            advisoryOnly: false,
           }),
         });
         return;
       }
       installStateIntApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/cfo/state-integrations");
       await waitForHydration(ctx.page);
@@ -325,10 +338,14 @@ test.describe("State Integrations — audit panel", () => {
   test("renders the audit block for an Owner session and the refresh button re-issues GET /api/state-int/audit", async ({
     browser,
     request,
-    page,
   }) => {
     let auditGetCount = 0;
-    await page.route("**/api/state-int/**", async (route) => {
+    // NOTE: route handler MUST be registered on `ctx.page`, not the
+    // test-fixture `page`. The audit endpoint shape
+    // (`/api/state-int/audit`) is the canonical kebab-case path defined
+    // in server/app.js:4949 — server is source of truth, test follows.
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/state-int/**", async (route) => {
       if (requestMatchesPath(route.request(), "/api/state-int/audit")) {
         auditGetCount += 1;
         route.fulfill({
@@ -353,8 +370,6 @@ test.describe("State Integrations — audit panel", () => {
       }
       installStateIntApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/cfo/state-integrations");
       await waitForHydration(ctx.page);
