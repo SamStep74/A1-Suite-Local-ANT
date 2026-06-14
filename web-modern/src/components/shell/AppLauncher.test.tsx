@@ -116,8 +116,10 @@ describe("AppLauncher", () => {
   it("navigates to /app/<id> and closes the launcher when an app card is clicked", () => {
     const onClose = vi.fn();
     render(<AppLauncher open onClose={onClose} />);
-    // Click the "CRM" card (a known core app).
-    fireEvent.click(screen.getByRole("button", { name: /CRM/ }));
+    // Click the "CRM" card (a known core app). Use exact-match on the
+    // visible "CRM" label — not a substring — because the new SMB CRM
+    // app also has "CRM" in its visible label.
+    fireEvent.click(screen.getByRole("button", { name: "CRM Quotes · deals · activities Հաճախորդներ" }));
     expect(navigateMock).toHaveBeenCalledTimes(1);
     expect(navigateMock).toHaveBeenCalledWith({
       to: "/app/$appId",

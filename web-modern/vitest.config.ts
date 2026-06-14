@@ -40,6 +40,48 @@ export default defineConfig({
     tsConfigPaths(),
     react(),
   ],
+  resolve: {
+    alias: [
+      // Lingui babel-macro packages resolve to a stub file in tests
+      // because the babel macros are NOT registered in the vitest
+      // plugin chain (see docstring above for why). The stub lives at
+      // src/test-utils/lingui-stub.ts and is a no-op that exports the
+      // macros as plain functions returning the source message.
+      //
+      // We use a regex with an anchored `$` so each spec matches
+      // exactly (not by prefix). This lets Vite resolve both
+      // `@lingui/core` and `@lingui/core/macro` to the same stub
+      // file, which is what we want for tests that need a no-op
+      // Lingui surface. Per-file `vi.mock` calls in some test files
+      // override the resolved module AFTER Vite hands it to vitest,
+      // so they can still provide richer mocks where needed.
+      {
+        find: /^@lingui\/core$/,
+        replacement: new URL("./src/test-utils/lingui-stub.ts", import.meta.url)
+          .pathname,
+      },
+      {
+        find: /^@lingui\/react$/,
+        replacement: new URL("./src/test-utils/lingui-stub.ts", import.meta.url)
+          .pathname,
+      },
+      {
+        find: /^@lingui\/core\/macro$/,
+        replacement: new URL("./src/test-utils/lingui-stub.ts", import.meta.url)
+          .pathname,
+      },
+      {
+        find: /^@lingui\/macro$/,
+        replacement: new URL("./src/test-utils/lingui-stub.ts", import.meta.url)
+          .pathname,
+      },
+      {
+        find: /^@lingui\/react\/macro$/,
+        replacement: new URL("./src/test-utils/lingui-stub.ts", import.meta.url)
+          .pathname,
+      },
+    ],
+  },
   test: {
     environmentMatchGlobs: [
       ["src/lib/api/**", "node"],
@@ -47,6 +89,6 @@ export default defineConfig({
     environment: "jsdom",
     globals: false,
     include: ["src/**/*.test.{ts,tsx}"],
-    setupFiles: ["./vitest.setup.ts"],
+    setupFiles: ["./vitest.setup.tsx"],
   },
 });

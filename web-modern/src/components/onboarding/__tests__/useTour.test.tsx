@@ -28,6 +28,12 @@ vi.mock("@lingui/core/macro", () => ({
 }));
 
 vi.mock("@lingui/react/macro", () => ({
+  // Note: the SUT (tours.ts) imports `t` from `@lingui/core/macro`, but
+  // because the Lingui macro package re-exports the same surface across
+  // paths, vitest's mock resolver occasionally routes a `@lingui/core/macro`
+  // import to the *react/macro* mock when both are hoisted in the same
+  // file. Exporting `t` here too makes the test resilient to that quirk.
+  t: (msg: { message: string } | string) => (typeof msg === "string" ? msg : msg.message),
   useLingui: () => ({
     i18n: { _: (msg: { message: string } | string) => (typeof msg === "string" ? msg : msg.message) },
     t: (msg: { message: string } | string) => (typeof msg === "string" ? msg : msg.message),
