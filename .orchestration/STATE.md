@@ -2,7 +2,7 @@
 
 **Last update:** 2026-06-14 13:50 UTC (17:50 local)
 **Session:** 2026-06-14 (Phase 10.6 production hardening CLOSED + 10.7 e2e coverage + hasTranslation cleanup CLOSED + 10.8 (a) Lingui activation race fix CLOSED + 10.12 / 8.12 legacy `web/` delete CLOSED + 10.9 (d) e2e content fixes **PARTIAL CLOSED**; all merged into `ant/main @ ec4fbe5`; tags `phase10-6-production-hardening-v1` + `phase10-7-e2e-coverage-v1` + `phase10-8-lingui-race-fix-v1` + `phase10-12-legacy-delete-v1` + **`phase10-9-e2e-content-fixes-v1` → ec4fbe5 ✅** all on ant)
-**Current ref:** `ant/main @ ec4fbe5` (10.9 (d) integration close — wave-1 5 clusters + wave-2 finance-partial 1 spec + 2 ant/main cross-merges: storage engine f05d2c1 + backup-restore b6a059f, on top of 10.6 production hardening @ f8610df + 10.7 e2e coverage @ 9b007d6 + 10.8 (a) Lingui race fix @ 76e4d65 + 2f41482 dashboard launcher test rewire + 10.12 legacy delete @ c15fbe0; tag `phase10-9-e2e-content-fixes-v1` ✅ at ec4fbe5; `ant/integration/phase10-9-d` also at ec4fbe5)
+**Current ref:** `ant/main @ ec4fbe5` (10.9 (d) integration close — wave-1 5 clusters + wave-2 finance-partial 1 spec + 2 ant/main cross-merges: storage engine f05d2c1 + backup-restore b6a059f, on top of 10.6 production hardening @ f8610df + 10.7 e2e coverage @ 9b007d6 + 10.8 (a) Lingui race fix @ 76e4d65 + 2f41482 dashboard launcher test rewire + 10.12 legacy delete @ c15fbe0; tag `phase10-9-e2e-content-fixes-v1` ✅ at ec4fbe5; `ant/integration/phase10-9-d` **at 4527c94** — wave-3 partial close: 7aba8af (W5 error-pending) + 4527c94 (W2 finance-rest fiscal-gates + period-close) on top of 40c78d4; e2e gate: **44 / 110 pass, 66 fail, 1 skip** in 3.3m — gain of +3 over the 41-baseline at ec4fbe5; awaiting ant/integration → ant/main merge via the standing refspec when the user gives the go-ahead)
 **Tag:** `phase10-0-typecheck-cleanup-v1` → d6d4c44 ✅ + `phase10-0-d1-spa-shell-v1` → 5fd4dfb ✅ + `phase10-1-deploy-v1` → 57c60eb ✅ + `phase10-hygiene-v1` → 98c72a6 ✅ + `phase10-2-finance-v1` → 0902b38 ✅ + `phase10-2-people-v1` → 4795251 ✅ + `phase10-2-flow-integrations-v1` → 37f7732 ✅ + `phase10-2e-login-shell-retirement-v1` → 463089d ✅ + `phase10-3-i18n-infra-v1` → bc8b159 ✅ + `phase10-4-shared-components-v1` → b04a88c ✅ + **`phase10-5-product-differentiators-v1` → c7b94f8 ✅** + **`phase10-6-production-hardening-v1` → f8610df ✅** + **`phase10-7-e2e-coverage-v1` → 9b007d6 ✅** + **`phase10-8-lingui-race-fix-v1` → 76e4d65 ✅** + **`phase10-12-legacy-delete-v1` → c15fbe0 ✅** + **`phase10-9-e2e-content-fixes-v1` → ec4fbe5 ✅**
 
 ## Phase 10.2c Finance (phase10-2-finance) — ✅ CLOSED
@@ -1193,6 +1193,73 @@ All 6 wave-2 workers died on the same pattern: **long bash hangs in headed Playw
 - **Wave-2 worker death is a pattern, not a fluke** — the long-bash-hang pattern is consistent across all 6 workers and across 2 cluster types (e2e preflight + Playwright headed run). The fix is `timeout` wrappers on worker bash commands; the plan's anti-debug-instrumentation rule was correct but insufficient.
 - **Honest partial close is better than ship-as-is** — pretending all 6 wave-2 clusters were "fixed" would have been a lie; the `4a8c1c9` integration only contains the 1 finance spec change, and the v1 tag points at it. The remaining 12 specs are documented in this section as the next concrete work items.
 - **The `4a8c1c9` integration commit + `phase10-9-e2e-content-fixes-v1` tag is a working baseline** — a wave-3 (or wave-2.5 single-worker retry) can branch from `4a8c1c9` (NOT from `dcb2f0d`) and pick up the 12 deferred specs with the same file-ownership discipline.
+
+### Wave-3 postmortem (2026-06-14) — partial close, 2 of 5 workers salvaged
+
+**Plan:** `wip/phase10-9-e2e-content-fixes-w3-plan` from baseRef `40c78d4`; 5 workers (W1 apps-spa-warehouse, W2 finance-rest, W3 docs-rest, W4 comm-ai-rest, W5 error-pending). Plan file at `.orchestration/phase10-9-e2e-content-fixes-w3/plan.md`. Worker bash wrapped in `timeout 300`/`timeout 600` per the wave-2 postmortem fix.
+
+**Outcome: 2 of 5 salvaged, 1 dropped (regression), 2 zero-work.**
+
+| Worker | Specs | Status | Commit |
+| --- | --- | --- | --- |
+| **W1 apps-spa-warehouse** | `apps.spec.ts` (2: assets-renders, greenhouse-renders) + `spa-mode.spec.ts` (2: data-spa-hydrated, cfo-toolbar) + `warehouse.spec.ts` (4) | ❌ **DROPPED** | `8c7ce8e` |
+| **W2 finance-rest** | `fiscal-gates.spec.ts` (5 fixes) + `period-close.spec.ts` (1 fix) | ✅ **SALVAGED** | `4527c94` |
+| **W3 docs-rest** | `document-steppers.spec.ts` (9, post-revert) | ⏱ zero work | — |
+| **W4 comm-ai-rest** | `ask-ai.spec.ts` (4) + `onboarding.spec.ts` (8) + `keyboard-grammar.spec.ts` (1) + `triage-inbox.spec.ts` (1) + `ai-onboarding.spec.ts` (2) + `greenhouse.spec.ts` (7) + `locale-switching.spec.ts` (3) + `shared-components-canary.spec.ts` (2) | ⏱ zero work | — |
+| **W5 error-pending** | `error-pending.spec.ts` (1 fix: home link accepts `/app` redirect) | ✅ **SALVAGED** | `7aba8af` |
+
+**W1 drop root cause:** the W1 fix rewrote `apps.spec.ts` to use `getByTestId(`${appId}-panel`)` (with a 15s timeout) instead of the previous `waitForHydration()` + role-based heading. Only 7 of 19 apps have a `${appId}-panel` testid in the rendered DOM — the other 12 fail at `getByTestId` resolution. The e2e gate on the W1 commit reported **31 / 110 pass, 79 fail** (regression of 10 from the 41-baseline). The fix was technically correct for 7 apps and unfixable for 12 without a sweeping testid-rename of the app components (out of scope for the worker). **Orchestrator call: drop W1 entirely, keep W2 + W5.**
+
+**W3 / W4 zero-work:** both workers ran the `timeout 600` Playwright preflight, encountered the same missing-browser binary that the orchestrator had hit, and idled out at the 10-min mark waiting for instructions. They produced no commits and no `status.md` flips. W3 and W4 carry-forwards remain in the deferred-12-specs table below.
+
+**Cherry-pick onto reset plan branch:**
+1. `git reset --hard 40c78d4` (clean reset to the orchestrator close; dropped W1 commit `8c7ce8e` entirely)
+2. `git cherry-pick 7aba8af` (W5: error-pending home link) — clean apply
+3. `git cherry-pick 4527c94` (W2: fiscal-gates + period-close) — clean apply
+4. `pnpm typecheck` → 0 errors
+
+**Environment red herring — missing Playwright chromium binary:** the first e2e on the corrected plan branch reported `109 failed, 1 skipped, 0 passed`. All 109 failures were the same error: `browserType.launch: Executable doesn't exist at /Users/samvelstepanyan/Library/Caches/ms-playwright/chromium_headless_shell-1223/chrome-headless-shell-mac-arm64/chrome-headless-shell`. The Playwright browser cache directory did not exist on the host — the browser had never been installed. The `playwright.config.ts` only configures Fastify (port 4100) via the `START_FASTIFY=1` env var; Vite (port 4173) is also needed for the test baseURL but is not auto-started. Fix: `cd web-modern && npx playwright install chromium` (downloaded chromium-headless-shell-1223 + ffmpeg-1011 in ~30s) + `cd web-modern && pnpm dev &` to start Vite in the background. **Not a code regression** — the 41-baseline numbers from the `38507ec` close were recorded on a host that had the browser installed; this host did not.
+
+**Real e2e result on corrected plan branch (chromium installed + Vite + Fastify up):**
+```
+44 passed (3.3m)
+66 failed
+1 skipped
+```
+**Net change: 41 → 44 = +3 tests passing** — a real improvement from the W2 fiscal-gates + period-close + W5 error-pending fixes, on top of the 41 baseline. The 66 remaining failures are the expected carry-forwards (carry-forwards + W3 docs-rest + W4 comm-ai-rest + the residual `apps` / `spa-mode` / `warehouse` failures from the W1 cluster that the W1 fix had been trying to address).
+
+**Refspec push:** `git push ant wip/phase10-9-e2e-content-fixes-w3-plan:refs/heads/ant/integration/phase10-9-d` → `40c78d4..4527c94` ✅. `ant/integration/phase10-9-d` is now at `4527c94` (orchestrator close + W5 + W2). **No push to ant/main** — that requires a separate `git push ant main:refs/heads/ant/main` step that the user should initiate when ready to fold the wave-3 close into main.
+
+**Updated deferred table (12 → 11 specs, 69 → 66 failures):**
+
+| Cluster | Worker | Specs | Tests still failing | Reason |
+| --- | --- | --- | --- | --- |
+| **carry-forwards (cross-spec, post wave-3)** | n/a | `cfo-reports.spec.ts` (1) + `healthcheck.spec.ts` (1) + `locale-switching.spec.ts` (3) + `shared-components-canary.spec.ts` (2) | 7 | `error-pending.spec.ts` (2) was the W5 fix — **CLOSED**. Remaining 4 specs are the Lingui-era cross-spec carry-forwards. Could be folded into a wave-4 cluster or split per-spec. |
+| **W3 docs-rest (wave-3)** | zero work | `document-steppers.spec.ts` (9, post-revert) | 9 | Worker timed out; no commits. Deep DOM investigation needed; not in the scope of any other wave-3 worker. |
+| **W4 comm-ai-rest (wave-3)** | zero work | `ask-ai.spec.ts` (4) + `onboarding.spec.ts` (8) + `keyboard-grammar.spec.ts` (1) + `triage-inbox.spec.ts` (1) + `ai-onboarding.spec.ts` (2) + `greenhouse.spec.ts` (7) + `locale-switching.spec.ts` (overlap with carry-forwards, split) + `shared-components-canary.spec.ts` (overlap, split) | 23 (deduplicated) | Worker timed out; no commits. The biggest cluster by count but the most well-documented. |
+| **W6 finance (wave-2/3 remainder)** | partial work | `fiscal-gates.spec.ts` (some residual — Russian-locale + Undo-still-fires remain) + `period-close.spec.ts` (1 residual — undo data-blocked path) | ~6 | W2 (wave-3) cherry-pick `4527c94` fixed 5 of 6 fiscal-gates + 1 of 1 period-close. Residual: `fiscal-gates` Russian-locale stability + 1 fiscal-gates undo-catches-it edge. Carry-forward. |
+| **W1 apps-spa-warehouse (wave-2/3)** | dropped | `apps.spec.ts` (some) + `spa-mode.spec.ts` (2) + `warehouse.spec.ts` (some) | ~9 | W1 fix was dropped (panel testid missing for 12/19 apps). Original carry-forward remains. |
+| **W7 docs-2 (wave-2)** | net regression | `document-steppers.spec.ts` (overlap with W3 docs-rest) | (in W3) | Reverted in wave-2. Re-classified under W3 docs-rest. |
+
+**Total still failing: 66 of 110 (was 69; net improvement of 3 from wave-3 = -3; baseline 41 → 44, gain 3).**
+
+### Wave-3 orchestrator learnings (delta vs wave-2)
+
+- **`timeout` wrappers on worker bash work** — wave-2 workers hung for 30+ min on bash commands; wave-3 workers were hard-killed at the 10-min mark. This is a **partial fix**: it prevents pane-hang but also prevents slow-but-correct work. Wave-4 should use `timeout 1200` (20 min) for `pnpm vitest run` preflights and `timeout 900` (15 min) for Playwright runs, not 10-min.
+- **Worker "no commits + no status" is recoverable — but only if the orchestrator checks `git log worktree-branch` every 5 min during the wave, not at the end.** Wave-3 ended with 2 zero-work workers that could have been re-prompted mid-wave if I'd been polling.
+- **Drop-bad-commit-then-cherry-pick works.** Resetting the plan branch to baseRef and re-applying the salvageable commits avoided the "ship-a-regression" trap that wave-2's docs-2 worker fell into. **This is now the canonical recovery flow** — verify cherry-pick onto a clean branch, not the worker's branch.
+- **A "0 / N" e2e is almost always an environment issue, not a code issue.** When every test fails at the same line with the same error string, the test runner is broken — not the code. Diagnostic order: (1) is the browser binary present? (2) is the test-runner up? (3) is the dev server up? (4) is the data layer up? Only then consider code regressions.
+- **Workers need both Fastify (4100) and Vite (4173) to be up for e2e**, but `playwright.config.ts` only auto-starts Fastify. Wave-4 worker task files must include `cd web-modern && pnpm dev &` in their preflight.
+
+### Wave-3 audit gates (post cherry-pick at `4527c94`)
+
+| Gate | Result |
+| --- | --- |
+| `pnpm typecheck` (web-modern, post-cherry-pick) | **0 errors** |
+| `pnpm playwright test` (full, with chromium + Vite + Fastify up) | **44 / 110 pass, 66 fail, 1 skip (3.3m)** — gain of 3 over the 41-baseline |
+| Refspec push to `ant/integration/phase10-9-d` | ✅ `40c78d4..4527c94` |
+| No push to `ant/main` | ✅ held for user-initiated `git push ant main:refs/heads/ant/main` |
+| Worker file-ownership compliance (W2 + W5) | ✅ clean. Only `web-modern/e2e/{fiscal-gates,period-close,error-pending}.spec.ts` modified. No `_helpers.ts` / `playwright.config.ts` / `package.json` / `src/**` edits. |
 
 ### Next concrete step (Phase 10.9 (d) remainder)
 
