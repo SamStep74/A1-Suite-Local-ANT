@@ -3,7 +3,7 @@
 # Three jobs, run in parallel:
 #   1. server     — root node --test (933+ tests, Fastify API contract)
 #   2. web-modern — vitest + tsc (1203 component tests, typecheck)
-#   3. e2e        — Playwright smoke (15 tests, full stack). Only on
+#   3. e2e        — Playwright full stack (92 tests / 26 specs). Only on
 #                   push to main, PRs from a non-ant branch, and manual
 #                   dispatch — e2e needs both servers running and a
 #                   seeded DB, so it's the slow lane.
@@ -16,8 +16,10 @@
 # order with health checks.
 #
 # Triggers:
-#   - push to any branch EXCEPT `ant` (the mirror push target, see
-#     HANDOFF.md — never test ant pushes)
+#   - push to any branch EXCEPT `ant/**` (the mirror push target, see
+#     HANDOFF.md — never test ant pushes). The glob is `ant/**` (not
+#     just `ant`) so the orchestrator's `ant/main` integration ref
+#     is also excluded.
 #   - pull_request targeting main
 #   - workflow_dispatch (manual)
 #
@@ -32,7 +34,7 @@ on:
   push:
     branches:
       - "**"
-      - "!ant"
+      - "!ant/**"
   pull_request:
     branches: [main]
   workflow_dispatch:
@@ -134,7 +136,7 @@ jobs:
   e2e:
     name: E2E (Playwright, full stack)
     runs-on: ubuntu-latest
-    timeout-minutes: 12
+    timeout-minutes: 15
     if: |
       github.event_name == 'push' && github.ref == 'refs/heads/main' ||
       github.event_name == 'pull_request' ||
@@ -186,6 +188,27 @@ jobs:
             sleep 1
           done
 
+      - name: Start Fastify backend (background)
+        # Playwright's `webServer` config would try to spawn
+        # `node server/index.js` from the `web-modern/` CWD — but
+        # `server/` lives at the project root, so the spawn would
+        # fail with MODULE_NOT_FOUND. Instead we start Fastify
+        # here from the project root, and let Playwright's
+        # `reuseExistingServer: true` pick up the already-listening
+        # :4100 socket (see playwright.config.ts).
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          nohup node server/index.js > /tmp/fastify.log 2>&1 &
+          echo $! > /tmp/fastify.pid
+          # Wait for Fastify to be ready (max 60s)
+          for i in {1..60}; do
+            if curl -fsS http://localhost:4100/api/health -o /dev/null 2>&1; then
+              echo "Fastify ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
       - name: Run Playwright e2e
         env:
           START_FASTIFY: "1"
@@ -197,9 +220,16 @@ jobs:
         if: failure()
         run: tail -50 /tmp/vite.log || true
 
-      - name: Stop background Vite
+      - name: Tail Fastify log on failure
+        if: failure()
+        run: tail -50 /tmp/fastify.log || true
+
+      - name: Stop background servers
         if: always()
         run: |
           if [ -f /tmp/vite.pid ]; then
             kill "$(cat /tmp/vite.pid)" 2>/dev/null || true
+          fi
+          if [ -f /tmp/fastify.pid ]; then
+            kill "$(cat /tmp/fastify.pid)" 2>/dev/null || true
           fi

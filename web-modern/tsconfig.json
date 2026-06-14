@@ -18,12 +18,7 @@
     "rootDirs": ["."],
     "baseUrl": ".",
     "paths": {
-      "@/*": ["./src/*"],
-      "@lingui/core": ["./src/test-utils/lingui-stub.ts"],
-      "@lingui/core/macro": ["./src/test-utils/lingui-stub.ts"],
-      "@lingui/macro": ["./src/test-utils/lingui-stub.ts"],
-      "@lingui/react": ["./src/test-utils/lingui-stub.ts"],
-      "@lingui/react/macro": ["./src/test-utils/lingui-stub.ts"]
+      "@/*": ["./src/*"]
     },
     "esModuleInterop": true,
     "verbatimModuleSyntax": true,
