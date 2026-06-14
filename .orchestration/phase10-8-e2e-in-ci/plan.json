@@ -1,0 +1,31 @@
+{
+  "sessionName": "phase10-8-e2e-in-ci",
+  "baseRef": "ant/main",
+  "branchPrefix": "wip/phase10-8-e2e-in-ci",
+  "launcherCommand": "claude \"$(cat {task_file})\"",
+  "seedPaths": [
+    ".orchestration/phase10-8-e2e-in-ci/plan.md",
+    ".orchestration/phase10-8-lingui-race-fix/fix-lingui-race/handoff.md",
+    ".github/workflows/ci.yml",
+    "web-modern/playwright.config.ts",
+    "web-modern/package.json",
+    "web-modern/e2e/_helpers.ts"
+  ],
+  "workers": [
+    {
+      "name": "e2e-in-ci",
+      "task": "Harden the existing e2e GitHub Actions lane at `.github/workflows/ci.yml` after the 10.8 (a) unblock. Three changes: (1) bump the e2e job `timeout-minutes` from 12 to 15 (the suite has grown from 15 tests / 8 specs to 92 tests / 26 specs, and the 8-spec 10.8 (a) subset alone takes 1.1m locally, so 12m is borderline on a fresh GitHub-hosted runner with cold install + Vite + Fastify boot); (2) fix the `!ant` push-trigger filter to `!ant/**` so it actually excludes the orchestrator's `ant/main` integration pushes (the current `!ant` glob matches the literal branch name `ant` but NOT `ant/main`, defeating the comment at lines 24-28 that says this is a belt-and-suspenders filter); (3) refresh the stale e2e job header comment at line 6 (`E2E (Playwright smoke (15 tests, full stack))` → `E2E (Playwright full stack, 92 tests / 26 specs)`) and the trigger-filter comment block at lines 24-28 to document the `!ant/**` fix. File scope: ONLY `.github/workflows/ci.yml` (one file, ~10-15 line diff). Do NOT touch `playwright.config.ts`, `package.json`, `e2e/`, or any other `src/` consumer. After making the change, run the audit gate suite: (1) `cd web-modern && pnpm playwright test` — full 26-spec suite, 92 tests, all green (this is the gate that confirms 10.8 (a) unblock holds end-to-end); (2) `python3 -c \"import yaml; yaml.safe_load(open('.github/workflows/ci.yml'))\"` — no parse error; (3) `grep -E 'timeout-minutes: 15' .github/workflows/ci.yml` — hit (confirms bump); (4) `grep -E '!ant/\\*\\*' .github/workflows/ci.yml` — hit (confirms filter fix). If all 4 pass, commit with message `ci(github): Phase 10.8 (e) bump e2e timeout + fix ant push filter + refresh stale comment — 92 tests across 26 specs`. Push to `ant` and tag `phase10-8-e2e-in-ci-v1`. Write handoff + flip status to STATUS: PASS.",
+      "verify": [
+        "cd web-modern && pnpm playwright test → all 26 specs / 92 tests green",
+        "python3 yaml.safe_load on .github/workflows/ci.yml → no parse error",
+        "grep 'timeout-minutes: 15' .github/workflows/ci.yml → hit (e2e job only; server + web-modern stay at 8m)",
+        "grep '!ant/**' .github/workflows/ci.yml → hit (filter fix)",
+        "git diff on the branch shows ONLY .github/workflows/ci.yml modified",
+        "Commit + push branch wip/phase10-8-e2e-in-ci-e2e-in-ci to ant + tag phase10-8-e2e-in-ci-v1"
+      ]
+    }
+  ],
+  "mergeOrder": [
+    "e2e-in-ci"
+  ]
+}
