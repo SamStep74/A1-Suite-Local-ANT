@@ -69,10 +69,13 @@ test.describe("root error/pending/notFound (R7 closure)", () => {
       await homeLink.click();
       await waitForHydration(page);
       // After clicking, the URL should be the app shell — no more
-      // 404. We don't assert the H1 text because the home route
+      // 404. The Link's href is "/" but the authed app redirects
+      // "/" to "/app" (the apps hub), so we accept either.
+      // We don't assert the H1 text because the home route
       // may render any of the app-launcher / desk / default H1
       // depending on auth state.
-      expect(new URL(page.url()).pathname).toBe("/");
+      const landed = new URL(page.url()).pathname;
+      expect(["/", "/app"]).toContain(landed);
     } finally {
       await page.context().close();
     }
