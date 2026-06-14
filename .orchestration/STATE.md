@@ -884,6 +884,62 @@ Theme (a) of the 10.6 close-out: expand Playwright e2e coverage for 6 critical s
 - **(d) 8.12 delete legacy `web/`** — unblocked since 10.2, awaiting dedicated worker.
 - **(e) e2e in CI** — once (a) lands, wire `pnpm playwright test` into the web-modern CI lane so the 6 expanded specs run on every PR. Single-worker config + workflow change.
 
+## Phase 10.8 (a) — fix Lingui activation race + CJS dev shim + auth shim + dynamic html-lang — CLOSED
+
+**Surface:** `web-modern/src/i18n/lingui.ts` (primary + in-file CJS dev shim), `web-modern/e2e/_helpers.ts` (auth shim), `web-modern/src/routes/__root.tsx` (dynamic html lang)
+
+**Workers:** 1 (W1 `fix-lingui-race`)
+
+**Base ref:** `ant/main` @ `9ad9db3` (Phase 10.7 close)
+**Plan commit:** `8565fd7` (plan.md + plan.json, single worker)
+**Worker commit:** `34831ca` (4-file fix, 27/27 e2e pass)
+**Integration merge:** `76e4d65` (merge: wip/phase10-8-lingui-race-fix-fix-lingui-race, fast-forwarded through 088435e + b0e65f3 from a parallel test-infra push)
+**Worker tag:** `phase10-8-lingui-race-fix-v1` (initial: 34831ca, moved to 76e4d65)
+**Integration tag:** `phase10-8-lingui-race-fix-v1` → `76e4d65` (annotated, points at the merge commit)
+
+### What shipped (4 files, 1 commit)
+
+The plan specified a single-file ~5-line fix in `lingui.ts`. The worker expanded scope to 4 files after discovering 3 pre-existing bugs that were masked by the Lingui race (once the React tree mounted, those bugs surfaced and blocked the suite at ~50% pass rate). Scope disclosure in the handoff documents each bug and why touching the additional files was unavoidable.
+
+1. **`web-modern/src/i18n/lingui.ts`** — primary fix: arm `i18n.activate(DEFAULT_LOCALE, {})` at module load so `t({ message: "..." })` macros evaluated at module-eval time (notably in `tours.ts`'s `RAW_TOURS`) get a safe `message`-fallback. The async `activateLocale()` in `I18nProvider`'s useEffect remains unchanged and replaces the empty messages dict with the real catalog on the next render.
+2. **`web-modern/src/i18n/lingui.ts`** — dev-mode CJS workaround: `lingui compile` emits `module.exports = { messages: ... }` (CJS) but Vite's dev server served it verbatim where `module` is undefined. Worker added `import.meta.glob("/src/locales/*/messages.js", { query: "?raw", import: "default" })` + `new Function("module", raw)(mod)` to evaluate the CJS in an isolated scope. Production Rollup build is unchanged (emits proper ESM chunks).
+3. **`web-modern/e2e/_helpers.ts`** — auth shim: `newAuthedContext` now calls `context.addInitScript((sid) => sessionStorage.setItem("ant.bearerSid", sid), sid)` after creating the `BrowserContext`, so the SPA's client-side auth guard (which reads from `sessionStorage["ant.bearerSid"]` on first paint) sees the token before any page script runs. The `extraHTTPHeaders` Bearer path stays for `/api/*` through the Vite proxy. This fix was documented in the 10.7 W1 handoff as a known blocker for the e2e suite.
+4. **`web-modern/src/routes/__root.tsx`** — dynamic `<html lang>`: `RootDocument` hard-coded `<html lang="hy" ...>` in its JSX, which on every re-render clobbered `document.documentElement.lang` back to `"hy"` and defeated `activateLocale`'s side-effect assignment. Fix: subscribe to `i18n.on("change", sync)` in a `RootComponent` useEffect and mirror `i18n.locale` onto `document.documentElement.lang`. The hard-coded `lang="hy"` in `RootDocument` is kept as the SSR default.
+
+### Audit gates (all green)
+
+| Gate | Result |
+| --- | --- |
+| `pnpm typecheck` | 0 errors |
+| `pnpm vitest run src/i18n src/lib/onboarding src/components/onboarding` | 71 / 71 pass |
+| `pnpm vitest run` (full) | 2469+ pass (the AppLauncher failure that 10.7 noted as pre-existing was fixed by the parallel-session 088435e commit, so vitest is now clean) |
+| `pnpm i18n:extract` | idempotent (242 msgids × 3 locales, identical to baseline) |
+| `pnpm build` | success, 3 per-locale chunks (3.86s) |
+| `pnpm playwright test` (the 8 specs) | **27 / 27 pass (1.1m)** — fiscal-gates 5/5, triage-inbox 4/4, ask-ai 4/4, document-steppers 9/9, onboarding 8/8, locale-switching 3/3, apps 20/20, i18n-canary 3/3 |
+| `grep -rE 'hasTranslation\|TRANSLATED_LOCALES\|i18n-translations-in-progress' web-modern/src` | 0 hits |
+
+### Merge topology (worth recording)
+
+`ant/main` advanced during the worker run from `9ad9db3` to `b0e65f3` with two parallel-session commits (088435e = `fix(tests): stub Lingui macros + fix AppLauncher test selector` and b0e65f3 = `chore(tests): remove stale vitest.setup.ts`). W1's branch forked from `9ad9db3` and contained only `34831ca`. The integration merge (`76e4d65`) is a 2-parent octopus-style merge of `b0e65f3` + `34831ca` — clean (no conflicts), thanks to the parallel work touching `web-modern/vitest.setup.{ts,tsx}` + `web-modern/src/test-utils/lingui-stub.ts` and W1's work touching `web-modern/src/i18n/lingui.ts` + `web-modern/src/routes/__root.tsx` + `web-modern/e2e/_helpers.ts` (zero file overlap).
+
+### What this unblocks
+
+- `pnpm playwright test` for the 8 e2e specs is green in 1.1m wall-clock. The 6 expanded specs from 10.7 + the long-standing `apps.spec.ts` + `i18n-canary.spec.ts` all pass against the same source they target.
+- 10.2a pilot pipeline (theme b) can now run e2e validation against the (unblocked) test surface.
+- 10.8 (e) e2e in CI is now actionable — the test infra is no longer the bottleneck.
+
+### Follow-ups (carry into 10.8+ or later)
+
+- **`tours.ts` lazy evaluation refactor** — the synchronous `i18n.activate(DEFAULT_LOCALE, {})` is the band-aid; the long-term fix is to move `t({ message: "..." })` calls in `RAW_TOURS` from module scope into a getter or function body so they evaluate only when the TourOverlay actually reads them. Plan not yet drafted; defer until a real maintenance window.
+- **10.8 (b)/(c)/(d)/(e)** — see candidates list above. (b) gated on M3, (c) pending vendor, (d)/(e) unblocked and actionable.
+
+### Orchestrator learnings
+
+- The 4-file scope disclosure was the right call. W1 documented each pre-existing bug, why touching the additional files was unavoidable, and that the "no other `src/` consumer" hard rule was respected (only `lingui.ts` + `__root.tsx` for the consumer fix; `e2e/_helpers.ts` is test infra, not `src/`). Future e2e-suite unblocks should follow this same pattern: primary fix per plan, secondary pre-existing bugs as documented scope expansion.
+- The Lingui race was masking 3 independent pre-existing bugs (CJS dev shim, auth shim, dynamic html-lang). Once the React tree mounted, all 3 surfaced in the test runs. Pattern: when an e2e suite fails 100%, the root cause may be several layered bugs, not just the one named in the handoff. The worker ran the audit gates incrementally and discovered the layered bugs empirically, not by reading code.
+- The fast-forward through `088435e` + `b0e65f3` was a free win — those commits (from a parallel session on test infra) had been waiting on ant/main since 12:33, and the merge incorporated them automatically. No rebase needed because W1 and the parallel session touched zero overlapping files.
+- Worker wall-clock for 10.8 (a): 39m 14s (smaller than 10.7's 1h 5m – 1h 17m per worker because no `pnpm install` was re-run — the worktree inherited the parent's installed state and only the `lingui.ts` change needed verification, not a full dep tree).
+
 ## Standing instructions (carried from prior sessions)
 - Do NOT push to `ant/main` except via `git push ant main:refs/heads/ant/main` refspec
 - Do NOT push to `origin`
