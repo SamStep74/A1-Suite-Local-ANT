@@ -138,7 +138,7 @@ export function TourOverlay({ runtime }: Props) {
         <div className="flex items-start justify-between gap-3 px-5 pt-4">
           <div className="min-w-0">
             <div className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">
-              {tour.feature}
+              {tour.feature as string}
               {tour.deferred ? (
                 <span
                   data-testid="tour-overlay-deferred-badge"
@@ -152,7 +152,7 @@ export function TourOverlay({ runtime }: Props) {
               id="tour-overlay-title"
               className="mt-0.5 text-[var(--text-md)] font-semibold leading-tight"
             >
-              {tour.goal}
+              {tour.goal as string}
             </h2>
           </div>
           <Button
@@ -173,13 +173,13 @@ export function TourOverlay({ runtime }: Props) {
             data-testid="tour-overlay-step-title"
             className="text-[var(--text-sm)] font-semibold text-[var(--color-ink)]"
           >
-            {step.title}
+            {step.title as string}
           </h3>
           <p
             data-testid="tour-overlay-step-body"
             className="mt-1.5 text-[var(--text-sm)] leading-relaxed text-[var(--color-muted)]"
           >
-            {step.body}
+            {step.body as string}
           </p>
         </div>
 
