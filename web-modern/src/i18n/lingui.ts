@@ -24,6 +24,16 @@ export type Locale = (typeof LOCALES)[number];
 
 export const DEFAULT_LOCALE: Locale = "hy";
 
+// Arm the i18n instance synchronously at module load so that any
+// `t({ message: "..." })` macro evaluated at module-eval time (notably
+// in `lib/onboarding/tours.ts` which builds a static const out of them)
+// gets a safe `message`-fallback instead of throwing
+// "Lingui: Attempted to call a translation function without setting a
+// locale". The async `activateLocale()` in `I18nProvider`'s useEffect
+// then replaces the empty messages dict with the real per-locale
+// catalog on the next render.
+i18n.activate(DEFAULT_LOCALE, {} as unknown as string[]);
+
 const LOCALE_LABELS: Record<Locale, string> = {
   hy: "Հյ",
   ru: "РУ",
@@ -72,13 +82,44 @@ export const getActiveLocale = (): Locale => {
  * lazy-loaded chunk for each. The templated form would either
  * pull all three into the initial bundle (worst case) or trip
  * `vite:dynamic-import-vars`' "file extension required" rule.
+ *
+ * Dev-mode CJS workaround: `lingui compile` emits CJS
+ * (`module.exports = { messages: ... }`), but Vite's dev server
+ * serves the file verbatim to the browser, where `module` is
+ * undefined. We sidestep that with `import.meta.glob`, which
+ * tells Vite to bundle the matching files as raw strings
+ * (`?raw`). We then evaluate the CJS in an isolated `Function`
+ * scope to extract `module.exports`. The production build
+ * bundles the catalogs into proper ESM chunks, so the raw path
+ * is only hit in dev.
+ *
+ * Security note: the `raw` string is a build artifact from
+ * `lingui compile` (derived from the committed `.po` files in
+ * the source tree) — not user input. The content is
+ * deterministic and reviewed via the `.po` files in git.
  */
+const RAW_CATALOGS = import.meta.glob<string>(
+  "/src/locales/*/messages.js",
+  { query: "?raw", import: "default" },
+);
+
+const loadCJS = async (
+  localeKey: string,
+): Promise<{ messages: Record<string, string> }> => {
+  const loader = RAW_CATALOGS[`/src/locales/${localeKey}/messages.js`];
+  if (!loader) {
+    throw new Error(`No compiled catalog for locale "${localeKey}"`);
+  }
+  const raw: string = await loader();
+  const mod: { exports: unknown } = { exports: {} };
+  new Function("module", raw)(mod);
+  return mod.exports as { messages: Record<string, string> };
+};
+
 const CATALOG_LOADERS: Record<Locale, () => Promise<{ messages: Record<string, string> }>> = {
-  // Use the @/ alias (mapped to ./src/* in tsconfig) so the
-  // `src/locales/messages.d.ts` ambient declaration matches.
-  hy: () => import("@/locales/hy/messages"),
-  ru: () => import("@/locales/ru/messages"),
-  en: () => import("@/locales/en/messages"),
+  hy: () => loadCJS("hy"),
+  ru: () => loadCJS("ru"),
+  en: () => loadCJS("en"),
 };
 
 export const activateLocale = async (l: Locale): Promise<void> => {
