@@ -153,12 +153,17 @@ test.describe("Procurement — Phase 8.4 Pattern A skeleton", () => {
       await expect(panel).toBeVisible();
       const title = ctx.page.getByTestId("procurement-title");
       await expect(title).toBeVisible();
-      expect(title.textContent ?? "").toMatch(/Գ|Procurement/);
+      // Playwright's Locator.textContent is a method (not a property),
+      // so we must await the call. Calling it without () would return
+      // the function reference (truthy, non-string), which the `?? ""`
+      // fallback would not coalesce and toMatch would reject with
+      // "received value must be a string".
+      expect((await title.textContent()) ?? "").toMatch(/Գ|Procurement/);
 
       // English subtitle (bilingual header — Armenian H2 + English <p>).
       const subtitle = ctx.page.getByTestId("procurement-subtitle");
       await expect(subtitle).toBeVisible();
-      expect(subtitle.textContent ?? "").toContain("Procurement");
+      expect((await subtitle.textContent()) ?? "").toContain("Procurement");
 
       // 5 tab buttons render in the strip, in route-local order.
       const tabs = [
@@ -226,11 +231,14 @@ test.describe("Procurement — cross-tab POST flow", () => {
       await expect(reqPill).toHaveAttribute("data-state", "ready");
       expect((await reqPill.textContent()) ?? "").toContain(REQUISITION_ID);
 
-      // Step 2 — RFQ. The tab is now enabled (the requisition
-      // id is set).
+      // Step 2 — RFQ. The id-pill lives INSIDE the per-tab form, so
+      // it only mounts when the matching tab is active. Click the
+      // tab first, then assert the pill is empty (the route's
+      // initial state for that tab). Asserting before the click
+      // would time out — the pill simply isn't in the DOM yet.
       const rfqPill = ctx.page.getByTestId("procurement-rfq-id-pill");
-      await expect(rfqPill).toHaveAttribute("data-state", "empty");
       await ctx.page.getByTestId("procurement-tab-rfq").click();
+      await expect(rfqPill).toHaveAttribute("data-state", "empty");
       await ctx.page
         .getByTestId("procurement-rfq-neededBy")
         .fill("2026-07-15");
@@ -238,29 +246,29 @@ test.describe("Procurement — cross-tab POST flow", () => {
       await expect(rfqPill).toHaveAttribute("data-state", "ready");
       expect((await rfqPill.textContent()) ?? "").toContain(RFQ_ID);
 
-      // Step 3 — Quote.
+      // Step 3 — Quote. Same click-then-assert pattern as RFQ.
       const quotePill = ctx.page.getByTestId("procurement-quote-id-pill");
-      await expect(quotePill).toHaveAttribute("data-state", "empty");
       await ctx.page.getByTestId("procurement-tab-quote").click();
+      await expect(quotePill).toHaveAttribute("data-state", "empty");
       await ctx.page.getByTestId("procurement-quote-rfqId").fill(RFQ_ID);
       await ctx.page.getByTestId("procurement-quote-amount").fill("100000");
       await ctx.page.getByTestId("procurement-quote-submit").click();
       await expect(quotePill).toHaveAttribute("data-state", "ready");
       expect((await quotePill.textContent()) ?? "").toContain(QUOTE_ID);
 
-      // Step 4 — PO.
+      // Step 4 — PO. Same click-then-assert pattern.
       const poPill = ctx.page.getByTestId("procurement-po-id-pill");
-      await expect(poPill).toHaveAttribute("data-state", "empty");
       await ctx.page.getByTestId("procurement-tab-po").click();
+      await expect(poPill).toHaveAttribute("data-state", "empty");
       await ctx.page.getByTestId("procurement-po-quoteId").fill(QUOTE_ID);
       await ctx.page.getByTestId("procurement-po-submit").click();
       await expect(poPill).toHaveAttribute("data-state", "ready");
       expect((await poPill.textContent()) ?? "").toContain(PO_ID);
 
-      // Step 5 — Receipt.
+      // Step 5 — Receipt. Same click-then-assert pattern.
       const receiptPill = ctx.page.getByTestId("procurement-receipt-id-pill");
-      await expect(receiptPill).toHaveAttribute("data-state", "empty");
       await ctx.page.getByTestId("procurement-tab-receipt").click();
+      await expect(receiptPill).toHaveAttribute("data-state", "empty");
       await ctx.page.getByTestId("procurement-receipt-poId").fill(PO_ID);
       await ctx.page.getByTestId("procurement-receipt-submit").click();
       await expect(receiptPill).toHaveAttribute("data-state", "ready");
