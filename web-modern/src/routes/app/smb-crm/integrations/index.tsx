@@ -10,7 +10,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ChevronLeft, Plug, RefreshCw } from "lucide-react";
+import { ChevronLeft, Plug, RefreshCw, ShieldCheck } from "lucide-react";
 import { postJson } from "../../../../lib/api/client";
 import { cn } from "../../../../lib/utils/cn";
 
@@ -114,6 +114,20 @@ function IntegrationsHealth() {
           );
         })}
       </ul>
+
+      <div>
+        <Link
+          to="/app/smb-crm/integrations/oauth"
+          className="mb-2 inline-flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] px-3 py-2 text-[var(--text-sm)] text-[var(--color-ink)] hover:bg-[var(--color-surface)]"
+          data-testid="smb-crm-integration-oauth-link"
+        >
+          <ShieldCheck className="size-4 text-[var(--color-brand)]" aria-hidden />
+          <span>
+            <strong className="font-medium">OAuth providers</strong>
+            <span className="ml-1 text-[var(--color-muted)]">— 5 sovereign sub-app connections (Apollo, Surfe, Closely, Webflow, Make)</span>
+          </span>
+        </Link>
+      </div>
 
       <div>
         <Link

@@ -75,6 +75,7 @@ import { Route as AppSmbCrmBlueprintBlueprintIdRouteImport } from './routes/app/
 import { Route as AppCrmTubeSequencesSequenceIdRouteImport } from './routes/app/crm-tube/sequences/$sequenceId'
 import { Route as AppCrmTubeDealsDealIdRouteImport } from './routes/app/crm-tube/deals/$dealId'
 import { Route as AppCrmTubeContactsContactIdRouteImport } from './routes/app/crm-tube/contacts/$contactId'
+import { Route as AppSmbCrmIntegrationsOauthIndexRouteImport } from './routes/app/smb-crm/integrations/oauth/index'
 
 const LoginRoute = LoginRouteImport.update({
   id: '/login',
@@ -420,6 +421,12 @@ const AppCrmTubeContactsContactIdRoute =
     path: '/crm-tube/contacts/$contactId',
     getParentRoute: () => AppRouteRoute,
   } as any)
+const AppSmbCrmIntegrationsOauthIndexRoute =
+  AppSmbCrmIntegrationsOauthIndexRouteImport.update({
+    id: '/smb-crm/integrations/oauth/',
+    path: '/smb-crm/integrations/oauth/',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
 
 export interface FileRoutesByFullPath {
   '/': typeof IndexRoute
@@ -488,6 +495,7 @@ export interface FileRoutesByFullPath {
   '/app/smb-crm/customers/': typeof AppSmbCrmCustomersIndexRoute
   '/app/smb-crm/deals/': typeof AppSmbCrmDealsIndexRoute
   '/app/smb-crm/integrations/': typeof AppSmbCrmIntegrationsIndexRoute
+  '/app/smb-crm/integrations/oauth/': typeof AppSmbCrmIntegrationsOauthIndexRoute
 }
 export interface FileRoutesByTo {
   '/': typeof IndexRoute
@@ -554,6 +562,7 @@ export interface FileRoutesByTo {
   '/app/smb-crm/customers': typeof AppSmbCrmCustomersIndexRoute
   '/app/smb-crm/deals': typeof AppSmbCrmDealsIndexRoute
   '/app/smb-crm/integrations': typeof AppSmbCrmIntegrationsIndexRoute
+  '/app/smb-crm/integrations/oauth': typeof AppSmbCrmIntegrationsOauthIndexRoute
 }
 export interface FileRoutesById {
   __root__: typeof rootRouteImport
@@ -623,6 +632,7 @@ export interface FileRoutesById {
   '/app/smb-crm/customers/': typeof AppSmbCrmCustomersIndexRoute
   '/app/smb-crm/deals/': typeof AppSmbCrmDealsIndexRoute
   '/app/smb-crm/integrations/': typeof AppSmbCrmIntegrationsIndexRoute
+  '/app/smb-crm/integrations/oauth/': typeof AppSmbCrmIntegrationsOauthIndexRoute
 }
 export interface FileRouteTypes {
   fileRoutesByFullPath: FileRoutesByFullPath
@@ -693,6 +703,7 @@ export interface FileRouteTypes {
     | '/app/smb-crm/customers/'
     | '/app/smb-crm/deals/'
     | '/app/smb-crm/integrations/'
+    | '/app/smb-crm/integrations/oauth/'
   fileRoutesByTo: FileRoutesByTo
   to:
     | '/'
@@ -759,6 +770,7 @@ export interface FileRouteTypes {
     | '/app/smb-crm/customers'
     | '/app/smb-crm/deals'
     | '/app/smb-crm/integrations'
+    | '/app/smb-crm/integrations/oauth'
   id:
     | '__root__'
     | '/'
@@ -827,6 +839,7 @@ export interface FileRouteTypes {
     | '/app/smb-crm/customers/'
     | '/app/smb-crm/deals/'
     | '/app/smb-crm/integrations/'
+    | '/app/smb-crm/integrations/oauth/'
   fileRoutesById: FileRoutesById
 }
 export interface RootRouteChildren {
@@ -1299,6 +1312,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppCrmTubeContactsContactIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/smb-crm/integrations/oauth/': {
+      id: '/app/smb-crm/integrations/oauth/'
+      path: '/smb-crm/integrations/oauth'
+      fullPath: '/app/smb-crm/integrations/oauth/'
+      preLoaderRoute: typeof AppSmbCrmIntegrationsOauthIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
   }
 }
 
@@ -1378,6 +1398,7 @@ interface AppRouteRouteChildren {
   AppSmbCrmCustomersIndexRoute: typeof AppSmbCrmCustomersIndexRoute
   AppSmbCrmDealsIndexRoute: typeof AppSmbCrmDealsIndexRoute
   AppSmbCrmIntegrationsIndexRoute: typeof AppSmbCrmIntegrationsIndexRoute
+  AppSmbCrmIntegrationsOauthIndexRoute: typeof AppSmbCrmIntegrationsOauthIndexRoute
 }
 
 const AppRouteRouteChildren: AppRouteRouteChildren = {
@@ -1440,6 +1461,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppSmbCrmCustomersIndexRoute: AppSmbCrmCustomersIndexRoute,
   AppSmbCrmDealsIndexRoute: AppSmbCrmDealsIndexRoute,
   AppSmbCrmIntegrationsIndexRoute: AppSmbCrmIntegrationsIndexRoute,
+  AppSmbCrmIntegrationsOauthIndexRoute: AppSmbCrmIntegrationsOauthIndexRoute,
 }
 
 const AppRouteRouteWithChildren = AppRouteRoute._addFileChildren(
