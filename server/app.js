@@ -498,6 +498,26 @@ function registerApi(app, db, options = {}) {
     return { ok: true, check, connector: getIntegrationConnector(db, user.org_id, connectorKey) };
   });
 
+  // ─── AI provider status (Phase 10.13 — wires the ai/ provider) ─
+  // GET /api/ai/status — returns the resolved provider +
+  // Ollama /api/tags probe. NO API key is included; only the
+  // provider name, base URL host, model list, ok flag, and
+  // error. The SPA renders a "local LLM" surface so the
+  // operator knows whether the sovereign model is reachable.
+  app.get("/api/ai/status", async request => {
+    const user = await app.auth(request);
+    requireIntegrationReader(user);
+    const aiProvider = require("./lib/ai/provider");
+    const probe = await aiProvider.health({ env: process.env });
+    return {
+      provider: probe.provider,
+      baseURL: probe.baseURL ? new URL(probe.baseURL).host : "",
+      models: probe.models,
+      ok: probe.ok,
+      error: probe.error || null
+    };
+  });
+
   app.get("/api/catalog/categories", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);
