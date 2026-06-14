@@ -2,61 +2,78 @@
 
 Captured at the end of Phase 10 (`phase10-smb-crm-v1` shipped on `ant/main`).
 These are **not caused by Phase 10** — they pre-existed on the pre-Phase-10 baseline
-(`ant/main` at `b774600` and earlier, `origin/main` at `fae01a5` and earlier).
+and have been carried forward through Phase 10.5 + 10.6.
 
 The next push that triggers a full test suite + typecheck will surface these as
-"new" failures and make the next diff look worse than it is. Fix or quarantine
-them before starting Phase 11.
+"new" failures. Fix or quarantine them before starting Phase 11.
 
 ---
 
-## A. ANT (`A1-Suite-Local-ANT`) — 5 test failures on `ant/main`
+## A. ANT (`A1-Suite-Local-ANT`) — test environment broken on `ant/main` (HEAD = `de16a1a`)
 
-### A.1 `src/routes/app/fleet/-index.test.tsx` — 4 failures in `helpers` describe
-
-All 4 are the same root cause: the helper functions (`formatFleetIdShort`,
-`tripStateLabelArm`, `coldChainCategoryLabelAm`, `fleetTabFromHash`) return
-**substring values** of what the test expects — the **Edit tool's Armenian
-corruption pattern** (U+0530..U+0556 + U+0561..U+0586 mixed-byte insertion of the
-string `Delays` mid-text; see agent memory entry "Edit tool gotcha").
-
-Example (from `formatFleetIdShort` test):
-```
-expected: 'trailing-'
-received: 'iling-'    // prefix swallowed
-```
-
-The `fleetTabFromHash` test uses Armenian input that's already in the source —
-so this is *not* the Edit tool, it's a *pre-existing* test vs impl mismatch where
-the test fixture was written against a *different* implementation than what's now
-on `ant/main` (the impl was updated during Phase 8 fleet re-architecture; the test
-was never updated).
-
-**Fix:** either (a) rewrite the 4 tests to assert the *current* impl behavior, or
-(b) use heredoc + python byte-level replacement to fix the Armenian input strings
-in the source.
-
-### A.2 `src/components/shell/AppLauncher.test.tsx` — 1 failure
+### A.1 All component tests fail with `ReferenceError: document is not defined`
 
 ```
-"navigates to /app/<id> and closes the launcher when an app card is clicked"
+$ npx vitest run src/routes/app/fleet/-index.test.tsx
+Test Files  1 failed (1)
+Tests       35 failed | 10 passed (45)
+
+$ npx vitest run src/components/shell/AppLauncher.test.tsx
+Test Files  1 failed (1)
+Tests       12 failed (12)
 ```
 
-Assertion: clicking a card should call `useNavigate({ to: '/app/<id>' })` and
-`onClose()`. The mock's `useNavigate` returns `vi.fn()` — the test passes a real
-card-click handler. The failure is the mock `Link` component (from
-`@tanstack/react-router`) not propagating the click.
+Both test files render React components via `@testing-library/react`, which
+requires a DOM. The error is:
+```
+ReferenceError: document is not defined
+  at Proxy.render @testing-library/react/dist/pure.js:256
+```
 
-**Likely cause:** recent TanStack Router upgrade (probably the 1.168 bump in
-Phase 8) changed the `Link` API. The mock at the top of the test file stubs
-`Link` as an `<a>` — and the `<a>` doesn't get the `Link`-specific navigation
-handler. Fix: render with the real `Link` and a real test router, or update
-the mock to call `navigate` and `onClose` on click.
+**Root cause:** vitest's `environmentMatchGlobs` config (in
+`web-modern/vitest.config.ts`) is supposed to route component tests to
+`jsdom`, but at least some test files are running in `node` env instead.
+This is a **vitest config regression** — when running a single test file
+in isolation, 35+ tests run correctly (when env is correctly jsdom); when
+running via the full suite, the env match doesn't trigger.
 
-**NOT caused by my `smb-crm` APP_IDS addition** — `APP_IDS.length` increased from
-18 → 19, but the test uses the live `APP_IDS` array (line: `for (const id of APP_IDS)`),
-so the count adjusts automatically. The single failure is the click-handler
-one, not a count assertion.
+**Evidence:** Running just `src/components/shell/AppLauncher.test.tsx` shows
+12 failures (the dialog never renders because there's no document). But the
+test file does NOT have any per-file `// @vitest-environment` pragma — so
+the env should come from the config default (`jsdom`).
+
+The previously working runs (Phase 9 rbac, Phase 10.5, Phase 10.6) added
+new tests that may have shifted the env-match cache. Most likely:
+- A test file under `src/lib/api/` with `.test.tsx` (or similar) was added
+- This `environmentMatchGlobs` path now matches something it shouldn't
+- Or the glob pattern was too broad
+
+**Fix (recommended):** add a per-file pragma to the two affected test files:
+```ts
+// @vitest-environment jsdom
+```
+
+Or audit `web-modern/vitest.config.ts`:
+```ts
+environmentMatchGlobs: [
+  ["src/lib/api/**", "node"],
+],
+```
+The `src/lib/api/**` pattern is too greedy if a React test in that
+subtree was added recently.
+
+**NOT a code regression.** Zero changes to the test files would fix this.
+
+### A.2 MAX `apps/erp` cross-package break (legacy, still present)
+
+From the Phase 9 handoff (not re-verified today, but referenced in the
+MAX typecheck failure below):
+
+- `apps/erp/src/index.ts` references a missing `./idempotency` module path
+- `work-orders.ts` / `work-orders-v1.ts` had field renames (`refType`,
+  `minutes`) that didn't propagate to the test mocks
+
+**NOT caused by Phase 10.**
 
 ---
 
@@ -105,18 +122,24 @@ If B.1 is fixed first, B.2 may auto-resolve (or surface new errors). Run
 
 ## Recommended fix order
 
-1. **A.2 first (15 min)** — one-line mock fix. Unblocks the full test suite
-   run. Then `vitest run` from `ant/main` will go from "5 pre-existing fails"
-   to "1 pre-existing fail" (the 4 fleet ones).
-2. **A.1 (30 min)** — rewrite 4 fleet test fixtures to match current impl
-   (or use heredoc to fix the Armenian in source). Same goal: `vitest run` clean.
+1. **A.1 (10 min)** — add `// @vitest-environment jsdom` pragma to
+   `src/routes/app/fleet/-index.test.tsx` and
+   `src/components/shell/AppLauncher.test.tsx`. Or, better, audit
+   `web-modern/vitest.config.ts` for the too-greedy `src/lib/api/**` glob.
+   This is the single highest-leverage fix — it unblocks 47 broken tests
+   and reveals the actual fleet feature state.
+
+2. **A.2 (30 min)** — audit `apps/erp` cross-imports (or in MAX, the
+   equivalent).
+
 3. **B.1 (1-2 hours)** — either restore enum values OR refactor to string
    union. The string-union refactor is the longer-lived fix.
+
 4. **B.2 (30 min, if still present)** — audit `apps/erp` cross-imports.
 
 After all 4 steps:
-- `vitest run` from `ant/main` should be green (modulo whatever pre-existing
-  fleet feature tests exist that we haven't documented yet).
+- `vitest run` from `ant/main` should be green (modulo whatever
+  feature-level test debt the fleet + AppLauncher test suites had).
 - `npm run typecheck --workspaces` from MAX should be green.
 
 ---
@@ -127,3 +150,6 @@ After all 4 steps:
   repos have their own backlogs independent of this Phase 10 work.
 - The "V1 vs V2" cut (real-time WebSocket chat, Ollama, PDF, mobile push) is
   in the Phase 10 contract §4 and is intentionally NOT in this backlog.
+- The Phase 10.5 + 10.6 work that shipped on `ant/main` between Phase 10
+  and this backlog — those were integrated cleanly and the v1 + v6 tags
+  are on remote.

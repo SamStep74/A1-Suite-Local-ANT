@@ -19,7 +19,12 @@
  */
 import { useEffect, useState, type ReactNode } from "react";
 import { I18nProvider as LinguiProvider } from "@lingui/react";
-import { i18n, activateLocale, getActiveLocale, type Locale } from "./lingui";
+import {
+  i18n,
+  activateLocale,
+  getActiveLocale,
+  type Locale,
+} from "./lingui";
 
 interface Props {
   children: ReactNode;
@@ -30,9 +35,11 @@ export const I18nProvider = ({ children }: Props) => {
 
   useEffect(() => {
     let cancelled = false;
-    const locale: Locale = getActiveLocale();
-    activateLocale(locale).then(() => {
-      if (!cancelled) setReady(true);
+    const l: Locale = getActiveLocale();
+    activateLocale(l).then(() => {
+      if (!cancelled) {
+        setReady(true);
+      }
     });
     return () => {
       cancelled = true;
@@ -42,5 +49,9 @@ export const I18nProvider = ({ children }: Props) => {
   // Avoid a flash of untranslated text: render nothing until the catalog is loaded
   if (!ready) return null;
 
-  return <LinguiProvider i18n={i18n}>{children}</LinguiProvider>;
+  return (
+    <LinguiProvider i18n={i18n}>
+      {children}
+    </LinguiProvider>
+  );
 };

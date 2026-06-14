@@ -16,9 +16,11 @@ import { Route as AppIndexRouteImport } from './routes/app/index'
 import { Route as LoginMfaRouteImport } from './routes/login.mfa'
 import { Route as AppCopilotRouteImport } from './routes/app/copilot'
 import { Route as AppAppIdRouteImport } from './routes/app/$appId'
+import { Route as AppTriageInboxIndexRouteImport } from './routes/app/triage-inbox/index'
 import { Route as AppSmbCrmIndexRouteImport } from './routes/app/smb-crm/index'
 import { Route as AppPurchaseIndexRouteImport } from './routes/app/purchase/index'
 import { Route as AppProjectsIndexRouteImport } from './routes/app/projects/index'
+import { Route as AppPeriodCloseIndexRouteImport } from './routes/app/period-close/index'
 import { Route as AppPeopleIndexRouteImport } from './routes/app/people/index'
 import { Route as AppInventoryIndexRouteImport } from './routes/app/inventory/index'
 import { Route as AppHealthcheckIndexRouteImport } from './routes/app/healthcheck/index'
@@ -26,6 +28,7 @@ import { Route as AppGreenhouseIndexRouteImport } from './routes/app/greenhouse/
 import { Route as AppFormsIndexRouteImport } from './routes/app/forms/index'
 import { Route as AppFlowIndexRouteImport } from './routes/app/flow/index'
 import { Route as AppFleetIndexRouteImport } from './routes/app/fleet/index'
+import { Route as AppFiscalGatesIndexRouteImport } from './routes/app/fiscal-gates/index'
 import { Route as AppFinanceIndexRouteImport } from './routes/app/finance/index'
 import { Route as AppDocsIndexRouteImport } from './routes/app/docs/index'
 import { Route as AppDeskIndexRouteImport } from './routes/app/desk/index'
@@ -36,6 +39,7 @@ import { Route as AppCfoIndexRouteImport } from './routes/app/cfo/index'
 import { Route as AppCampaignsIndexRouteImport } from './routes/app/campaigns/index'
 import { Route as AppCabinetIndexRouteImport } from './routes/app/cabinet/index'
 import { Route as AppAssetsIndexRouteImport } from './routes/app/assets/index'
+import { Route as AppAskAiIndexRouteImport } from './routes/app/ask-ai/index'
 import { Route as AppAnalyticsIndexRouteImport } from './routes/app/analytics/index'
 import { Route as AppPurchaseOrderIdRouteImport } from './routes/app/purchase/$orderId'
 import { Route as AppProjectsProjectIdRouteImport } from './routes/app/projects/$projectId'
@@ -58,6 +62,7 @@ import { Route as AppSmbCrmAutomationsIndexRouteImport } from './routes/app/smb-
 import { Route as AppPurchaseProcurementIndexRouteImport } from './routes/app/purchase/procurement/index'
 import { Route as AppInventoryWarehouseIndexRouteImport } from './routes/app/inventory/warehouse/index'
 import { Route as AppFlowIntegrationsIndexRouteImport } from './routes/app/flow/integrations/index'
+import { Route as AppDocumentsInvoiceCreateIndexRouteImport } from './routes/app/documents/invoice-create/index'
 import { Route as AppCrmTubeSequencesIndexRouteImport } from './routes/app/crm-tube/sequences/index'
 import { Route as AppCrmTubeIntegrationsIndexRouteImport } from './routes/app/crm-tube/integrations/index'
 import { Route as AppCrmTubeContactsIndexRouteImport } from './routes/app/crm-tube/contacts/index'
@@ -106,6 +111,11 @@ const AppAppIdRoute = AppAppIdRouteImport.update({
   path: '/$appId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppTriageInboxIndexRoute = AppTriageInboxIndexRouteImport.update({
+  id: '/triage-inbox/',
+  path: '/triage-inbox/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppSmbCrmIndexRoute = AppSmbCrmIndexRouteImport.update({
   id: '/smb-crm/',
   path: '/smb-crm/',
@@ -119,6 +129,11 @@ const AppPurchaseIndexRoute = AppPurchaseIndexRouteImport.update({
 const AppProjectsIndexRoute = AppProjectsIndexRouteImport.update({
   id: '/projects/',
   path: '/projects/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppPeriodCloseIndexRoute = AppPeriodCloseIndexRouteImport.update({
+  id: '/period-close/',
+  path: '/period-close/',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppPeopleIndexRoute = AppPeopleIndexRouteImport.update({
@@ -154,6 +169,11 @@ const AppFlowIndexRoute = AppFlowIndexRouteImport.update({
 const AppFleetIndexRoute = AppFleetIndexRouteImport.update({
   id: '/fleet/',
   path: '/fleet/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppFiscalGatesIndexRoute = AppFiscalGatesIndexRouteImport.update({
+  id: '/fiscal-gates/',
+  path: '/fiscal-gates/',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppFinanceIndexRoute = AppFinanceIndexRouteImport.update({
@@ -204,6 +224,11 @@ const AppCabinetIndexRoute = AppCabinetIndexRouteImport.update({
 const AppAssetsIndexRoute = AppAssetsIndexRouteImport.update({
   id: '/assets/',
   path: '/assets/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppAskAiIndexRoute = AppAskAiIndexRouteImport.update({
+  id: '/ask-ai/',
+  path: '/ask-ai/',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppAnalyticsIndexRoute = AppAnalyticsIndexRouteImport.update({
@@ -321,6 +346,12 @@ const AppFlowIntegrationsIndexRoute =
     path: '/flow/integrations/',
     getParentRoute: () => AppRouteRoute,
   } as any)
+const AppDocumentsInvoiceCreateIndexRoute =
+  AppDocumentsInvoiceCreateIndexRouteImport.update({
+    id: '/documents/invoice-create/',
+    path: '/documents/invoice-create/',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
 const AppCrmTubeSequencesIndexRoute =
   AppCrmTubeSequencesIndexRouteImport.update({
     id: '/crm-tube/sequences/',
@@ -413,6 +444,7 @@ export interface FileRoutesByFullPath {
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/analytics/': typeof AppAnalyticsIndexRoute
+  '/app/ask-ai/': typeof AppAskAiIndexRoute
   '/app/assets/': typeof AppAssetsIndexRoute
   '/app/cabinet/': typeof AppCabinetIndexRoute
   '/app/campaigns/': typeof AppCampaignsIndexRoute
@@ -423,6 +455,7 @@ export interface FileRoutesByFullPath {
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
   '/app/finance/': typeof AppFinanceIndexRoute
+  '/app/fiscal-gates/': typeof AppFiscalGatesIndexRoute
   '/app/fleet/': typeof AppFleetIndexRoute
   '/app/flow/': typeof AppFlowIndexRoute
   '/app/forms/': typeof AppFormsIndexRoute
@@ -430,9 +463,11 @@ export interface FileRoutesByFullPath {
   '/app/healthcheck/': typeof AppHealthcheckIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
+  '/app/period-close/': typeof AppPeriodCloseIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/smb-crm/': typeof AppSmbCrmIndexRoute
+  '/app/triage-inbox/': typeof AppTriageInboxIndexRoute
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
@@ -445,6 +480,7 @@ export interface FileRoutesByFullPath {
   '/app/crm-tube/contacts/': typeof AppCrmTubeContactsIndexRoute
   '/app/crm-tube/integrations/': typeof AppCrmTubeIntegrationsIndexRoute
   '/app/crm-tube/sequences/': typeof AppCrmTubeSequencesIndexRoute
+  '/app/documents/invoice-create/': typeof AppDocumentsInvoiceCreateIndexRoute
   '/app/flow/integrations/': typeof AppFlowIntegrationsIndexRoute
   '/app/inventory/warehouse/': typeof AppInventoryWarehouseIndexRoute
   '/app/purchase/procurement/': typeof AppPurchaseProcurementIndexRoute
@@ -474,6 +510,7 @@ export interface FileRoutesByTo {
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/analytics': typeof AppAnalyticsIndexRoute
+  '/app/ask-ai': typeof AppAskAiIndexRoute
   '/app/assets': typeof AppAssetsIndexRoute
   '/app/cabinet': typeof AppCabinetIndexRoute
   '/app/campaigns': typeof AppCampaignsIndexRoute
@@ -484,6 +521,7 @@ export interface FileRoutesByTo {
   '/app/desk': typeof AppDeskIndexRoute
   '/app/docs': typeof AppDocsIndexRoute
   '/app/finance': typeof AppFinanceIndexRoute
+  '/app/fiscal-gates': typeof AppFiscalGatesIndexRoute
   '/app/fleet': typeof AppFleetIndexRoute
   '/app/flow': typeof AppFlowIndexRoute
   '/app/forms': typeof AppFormsIndexRoute
@@ -491,9 +529,11 @@ export interface FileRoutesByTo {
   '/app/healthcheck': typeof AppHealthcheckIndexRoute
   '/app/inventory': typeof AppInventoryIndexRoute
   '/app/people': typeof AppPeopleIndexRoute
+  '/app/period-close': typeof AppPeriodCloseIndexRoute
   '/app/projects': typeof AppProjectsIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
   '/app/smb-crm': typeof AppSmbCrmIndexRoute
+  '/app/triage-inbox': typeof AppTriageInboxIndexRoute
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
@@ -506,6 +546,7 @@ export interface FileRoutesByTo {
   '/app/crm-tube/contacts': typeof AppCrmTubeContactsIndexRoute
   '/app/crm-tube/integrations': typeof AppCrmTubeIntegrationsIndexRoute
   '/app/crm-tube/sequences': typeof AppCrmTubeSequencesIndexRoute
+  '/app/documents/invoice-create': typeof AppDocumentsInvoiceCreateIndexRoute
   '/app/flow/integrations': typeof AppFlowIntegrationsIndexRoute
   '/app/inventory/warehouse': typeof AppInventoryWarehouseIndexRoute
   '/app/purchase/procurement': typeof AppPurchaseProcurementIndexRoute
@@ -538,6 +579,7 @@ export interface FileRoutesById {
   '/app/projects/$projectId': typeof AppProjectsProjectIdRoute
   '/app/purchase/$orderId': typeof AppPurchaseOrderIdRoute
   '/app/analytics/': typeof AppAnalyticsIndexRoute
+  '/app/ask-ai/': typeof AppAskAiIndexRoute
   '/app/assets/': typeof AppAssetsIndexRoute
   '/app/cabinet/': typeof AppCabinetIndexRoute
   '/app/campaigns/': typeof AppCampaignsIndexRoute
@@ -548,6 +590,7 @@ export interface FileRoutesById {
   '/app/desk/': typeof AppDeskIndexRoute
   '/app/docs/': typeof AppDocsIndexRoute
   '/app/finance/': typeof AppFinanceIndexRoute
+  '/app/fiscal-gates/': typeof AppFiscalGatesIndexRoute
   '/app/fleet/': typeof AppFleetIndexRoute
   '/app/flow/': typeof AppFlowIndexRoute
   '/app/forms/': typeof AppFormsIndexRoute
@@ -555,9 +598,11 @@ export interface FileRoutesById {
   '/app/healthcheck/': typeof AppHealthcheckIndexRoute
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
+  '/app/period-close/': typeof AppPeriodCloseIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/smb-crm/': typeof AppSmbCrmIndexRoute
+  '/app/triage-inbox/': typeof AppTriageInboxIndexRoute
   '/app/crm-tube/contacts/$contactId': typeof AppCrmTubeContactsContactIdRoute
   '/app/crm-tube/deals/$dealId': typeof AppCrmTubeDealsDealIdRoute
   '/app/crm-tube/sequences/$sequenceId': typeof AppCrmTubeSequencesSequenceIdRoute
@@ -570,6 +615,7 @@ export interface FileRoutesById {
   '/app/crm-tube/contacts/': typeof AppCrmTubeContactsIndexRoute
   '/app/crm-tube/integrations/': typeof AppCrmTubeIntegrationsIndexRoute
   '/app/crm-tube/sequences/': typeof AppCrmTubeSequencesIndexRoute
+  '/app/documents/invoice-create/': typeof AppDocumentsInvoiceCreateIndexRoute
   '/app/flow/integrations/': typeof AppFlowIntegrationsIndexRoute
   '/app/inventory/warehouse/': typeof AppInventoryWarehouseIndexRoute
   '/app/purchase/procurement/': typeof AppPurchaseProcurementIndexRoute
@@ -603,6 +649,7 @@ export interface FileRouteTypes {
     | '/app/projects/$projectId'
     | '/app/purchase/$orderId'
     | '/app/analytics/'
+    | '/app/ask-ai/'
     | '/app/assets/'
     | '/app/cabinet/'
     | '/app/campaigns/'
@@ -613,6 +660,7 @@ export interface FileRouteTypes {
     | '/app/desk/'
     | '/app/docs/'
     | '/app/finance/'
+    | '/app/fiscal-gates/'
     | '/app/fleet/'
     | '/app/flow/'
     | '/app/forms/'
@@ -620,9 +668,11 @@ export interface FileRouteTypes {
     | '/app/healthcheck/'
     | '/app/inventory/'
     | '/app/people/'
+    | '/app/period-close/'
     | '/app/projects/'
     | '/app/purchase/'
     | '/app/smb-crm/'
+    | '/app/triage-inbox/'
     | '/app/crm-tube/contacts/$contactId'
     | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
@@ -635,6 +685,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/contacts/'
     | '/app/crm-tube/integrations/'
     | '/app/crm-tube/sequences/'
+    | '/app/documents/invoice-create/'
     | '/app/flow/integrations/'
     | '/app/inventory/warehouse/'
     | '/app/purchase/procurement/'
@@ -664,6 +715,7 @@ export interface FileRouteTypes {
     | '/app/projects/$projectId'
     | '/app/purchase/$orderId'
     | '/app/analytics'
+    | '/app/ask-ai'
     | '/app/assets'
     | '/app/cabinet'
     | '/app/campaigns'
@@ -674,6 +726,7 @@ export interface FileRouteTypes {
     | '/app/desk'
     | '/app/docs'
     | '/app/finance'
+    | '/app/fiscal-gates'
     | '/app/fleet'
     | '/app/flow'
     | '/app/forms'
@@ -681,9 +734,11 @@ export interface FileRouteTypes {
     | '/app/healthcheck'
     | '/app/inventory'
     | '/app/people'
+    | '/app/period-close'
     | '/app/projects'
     | '/app/purchase'
     | '/app/smb-crm'
+    | '/app/triage-inbox'
     | '/app/crm-tube/contacts/$contactId'
     | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
@@ -696,6 +751,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/contacts'
     | '/app/crm-tube/integrations'
     | '/app/crm-tube/sequences'
+    | '/app/documents/invoice-create'
     | '/app/flow/integrations'
     | '/app/inventory/warehouse'
     | '/app/purchase/procurement'
@@ -727,6 +783,7 @@ export interface FileRouteTypes {
     | '/app/projects/$projectId'
     | '/app/purchase/$orderId'
     | '/app/analytics/'
+    | '/app/ask-ai/'
     | '/app/assets/'
     | '/app/cabinet/'
     | '/app/campaigns/'
@@ -737,6 +794,7 @@ export interface FileRouteTypes {
     | '/app/desk/'
     | '/app/docs/'
     | '/app/finance/'
+    | '/app/fiscal-gates/'
     | '/app/fleet/'
     | '/app/flow/'
     | '/app/forms/'
@@ -744,9 +802,11 @@ export interface FileRouteTypes {
     | '/app/healthcheck/'
     | '/app/inventory/'
     | '/app/people/'
+    | '/app/period-close/'
     | '/app/projects/'
     | '/app/purchase/'
     | '/app/smb-crm/'
+    | '/app/triage-inbox/'
     | '/app/crm-tube/contacts/$contactId'
     | '/app/crm-tube/deals/$dealId'
     | '/app/crm-tube/sequences/$sequenceId'
@@ -759,6 +819,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/contacts/'
     | '/app/crm-tube/integrations/'
     | '/app/crm-tube/sequences/'
+    | '/app/documents/invoice-create/'
     | '/app/flow/integrations/'
     | '/app/inventory/warehouse/'
     | '/app/purchase/procurement/'
@@ -825,6 +886,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAppIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/triage-inbox/': {
+      id: '/app/triage-inbox/'
+      path: '/triage-inbox'
+      fullPath: '/app/triage-inbox/'
+      preLoaderRoute: typeof AppTriageInboxIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/smb-crm/': {
       id: '/app/smb-crm/'
       path: '/smb-crm'
@@ -844,6 +912,13 @@ declare module '@tanstack/react-router' {
       path: '/projects'
       fullPath: '/app/projects/'
       preLoaderRoute: typeof AppProjectsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/period-close/': {
+      id: '/app/period-close/'
+      path: '/period-close'
+      fullPath: '/app/period-close/'
+      preLoaderRoute: typeof AppPeriodCloseIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/people/': {
@@ -893,6 +968,13 @@ declare module '@tanstack/react-router' {
       path: '/fleet'
       fullPath: '/app/fleet/'
       preLoaderRoute: typeof AppFleetIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/fiscal-gates/': {
+      id: '/app/fiscal-gates/'
+      path: '/fiscal-gates'
+      fullPath: '/app/fiscal-gates/'
+      preLoaderRoute: typeof AppFiscalGatesIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/finance/': {
@@ -963,6 +1045,13 @@ declare module '@tanstack/react-router' {
       path: '/assets'
       fullPath: '/app/assets/'
       preLoaderRoute: typeof AppAssetsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/ask-ai/': {
+      id: '/app/ask-ai/'
+      path: '/ask-ai'
+      fullPath: '/app/ask-ai/'
+      preLoaderRoute: typeof AppAskAiIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/analytics/': {
@@ -1119,6 +1208,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppFlowIntegrationsIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/documents/invoice-create/': {
+      id: '/app/documents/invoice-create/'
+      path: '/documents/invoice-create'
+      fullPath: '/app/documents/invoice-create/'
+      preLoaderRoute: typeof AppDocumentsInvoiceCreateIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/crm-tube/sequences/': {
       id: '/app/crm-tube/sequences/'
       path: '/crm-tube/sequences'
@@ -1240,6 +1336,7 @@ interface AppRouteRouteChildren {
   AppProjectsProjectIdRoute: typeof AppProjectsProjectIdRoute
   AppPurchaseOrderIdRoute: typeof AppPurchaseOrderIdRoute
   AppAnalyticsIndexRoute: typeof AppAnalyticsIndexRoute
+  AppAskAiIndexRoute: typeof AppAskAiIndexRoute
   AppAssetsIndexRoute: typeof AppAssetsIndexRoute
   AppCabinetIndexRoute: typeof AppCabinetIndexRoute
   AppCampaignsIndexRoute: typeof AppCampaignsIndexRoute
@@ -1249,6 +1346,7 @@ interface AppRouteRouteChildren {
   AppDeskIndexRoute: typeof AppDeskIndexRoute
   AppDocsIndexRoute: typeof AppDocsIndexRoute
   AppFinanceIndexRoute: typeof AppFinanceIndexRoute
+  AppFiscalGatesIndexRoute: typeof AppFiscalGatesIndexRoute
   AppFleetIndexRoute: typeof AppFleetIndexRoute
   AppFlowIndexRoute: typeof AppFlowIndexRoute
   AppFormsIndexRoute: typeof AppFormsIndexRoute
@@ -1256,9 +1354,11 @@ interface AppRouteRouteChildren {
   AppHealthcheckIndexRoute: typeof AppHealthcheckIndexRoute
   AppInventoryIndexRoute: typeof AppInventoryIndexRoute
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
+  AppPeriodCloseIndexRoute: typeof AppPeriodCloseIndexRoute
   AppProjectsIndexRoute: typeof AppProjectsIndexRoute
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
   AppSmbCrmIndexRoute: typeof AppSmbCrmIndexRoute
+  AppTriageInboxIndexRoute: typeof AppTriageInboxIndexRoute
   AppCrmTubeContactsContactIdRoute: typeof AppCrmTubeContactsContactIdRoute
   AppCrmTubeDealsDealIdRoute: typeof AppCrmTubeDealsDealIdRoute
   AppCrmTubeSequencesSequenceIdRoute: typeof AppCrmTubeSequencesSequenceIdRoute
@@ -1270,6 +1370,7 @@ interface AppRouteRouteChildren {
   AppCrmTubeContactsIndexRoute: typeof AppCrmTubeContactsIndexRoute
   AppCrmTubeIntegrationsIndexRoute: typeof AppCrmTubeIntegrationsIndexRoute
   AppCrmTubeSequencesIndexRoute: typeof AppCrmTubeSequencesIndexRoute
+  AppDocumentsInvoiceCreateIndexRoute: typeof AppDocumentsInvoiceCreateIndexRoute
   AppFlowIntegrationsIndexRoute: typeof AppFlowIntegrationsIndexRoute
   AppInventoryWarehouseIndexRoute: typeof AppInventoryWarehouseIndexRoute
   AppPurchaseProcurementIndexRoute: typeof AppPurchaseProcurementIndexRoute
@@ -1297,6 +1398,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppProjectsProjectIdRoute: AppProjectsProjectIdRoute,
   AppPurchaseOrderIdRoute: AppPurchaseOrderIdRoute,
   AppAnalyticsIndexRoute: AppAnalyticsIndexRoute,
+  AppAskAiIndexRoute: AppAskAiIndexRoute,
   AppAssetsIndexRoute: AppAssetsIndexRoute,
   AppCabinetIndexRoute: AppCabinetIndexRoute,
   AppCampaignsIndexRoute: AppCampaignsIndexRoute,
@@ -1306,6 +1408,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppDeskIndexRoute: AppDeskIndexRoute,
   AppDocsIndexRoute: AppDocsIndexRoute,
   AppFinanceIndexRoute: AppFinanceIndexRoute,
+  AppFiscalGatesIndexRoute: AppFiscalGatesIndexRoute,
   AppFleetIndexRoute: AppFleetIndexRoute,
   AppFlowIndexRoute: AppFlowIndexRoute,
   AppFormsIndexRoute: AppFormsIndexRoute,
@@ -1313,9 +1416,11 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppHealthcheckIndexRoute: AppHealthcheckIndexRoute,
   AppInventoryIndexRoute: AppInventoryIndexRoute,
   AppPeopleIndexRoute: AppPeopleIndexRoute,
+  AppPeriodCloseIndexRoute: AppPeriodCloseIndexRoute,
   AppProjectsIndexRoute: AppProjectsIndexRoute,
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,
   AppSmbCrmIndexRoute: AppSmbCrmIndexRoute,
+  AppTriageInboxIndexRoute: AppTriageInboxIndexRoute,
   AppCrmTubeContactsContactIdRoute: AppCrmTubeContactsContactIdRoute,
   AppCrmTubeDealsDealIdRoute: AppCrmTubeDealsDealIdRoute,
   AppCrmTubeSequencesSequenceIdRoute: AppCrmTubeSequencesSequenceIdRoute,
@@ -1327,6 +1432,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppCrmTubeContactsIndexRoute: AppCrmTubeContactsIndexRoute,
   AppCrmTubeIntegrationsIndexRoute: AppCrmTubeIntegrationsIndexRoute,
   AppCrmTubeSequencesIndexRoute: AppCrmTubeSequencesIndexRoute,
+  AppDocumentsInvoiceCreateIndexRoute: AppDocumentsInvoiceCreateIndexRoute,
   AppFlowIntegrationsIndexRoute: AppFlowIntegrationsIndexRoute,
   AppInventoryWarehouseIndexRoute: AppInventoryWarehouseIndexRoute,
   AppPurchaseProcurementIndexRoute: AppPurchaseProcurementIndexRoute,

@@ -21,6 +21,7 @@ import {
   LOCALES,
   getActiveLocale,
   getStoredLocale,
+  hasTranslation,
   setStoredLocale,
 } from "./lingui";
 
@@ -87,5 +88,24 @@ describe("i18n / lingui.ts — localStorage helpers", () => {
 describe("i18n / lingui.ts — LOCALES constant", () => {
   it("contains exactly hy, ru, en in that order", () => {
     expect([...LOCALES]).toEqual(["hy", "ru", "en"]);
+  });
+});
+
+describe("i18n / lingui.ts — hasTranslation() (Phase 10.5 gate)", () => {
+  // This pins the static allowlist in `lingui.ts`. The
+  // 10.5-translation-pass worker flipped `ru` and `en` to `true`
+  // after it committed real translations for both catalogs. With
+  // the dev-only "translations in progress" banner now removed from
+  // `I18nProvider.tsx`, all three locales are considered translated.
+  it('"hy" returns true (source locale, always translated)', () => {
+    expect(hasTranslation("hy")).toBe(true);
+  });
+
+  it('"ru" returns true after the 10.5-translation-pass flips it', () => {
+    expect(hasTranslation("ru")).toBe(true);
+  });
+
+  it('"en" returns true after the 10.5-translation-pass flips it', () => {
+    expect(hasTranslation("en")).toBe(true);
   });
 });

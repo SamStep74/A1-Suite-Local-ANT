@@ -13,12 +13,33 @@
  * The `setupFiles` import adds `@testing-library/jest-dom` matchers
  * (toBeInTheDocument, toHaveTextContent, etc.) — without this
  * `toBeInTheDocument` is just "Invalid Chai property".
+ *
+ * Lingui macros
+ * ─────────────
+ * We intentionally do NOT include `babel-plugin-macros` in the
+ * test plugin chain (unlike `vite.config.ts` which does for
+ * `pnpm dev` and `pnpm build`). With the macro plugin enabled in
+ * tests, every component that calls `useLingui()` resolves to
+ * the real Lingui hook — which throws
+ *   "useLingui hook was used without I18nProvider"
+ * unless the test tree mounts an `<I18nProvider>`. Retrofitting
+ * the 100+ existing tests with that wrapper is out of scope for a
+ * single feature (W7 onboarding), so tests that import Lingui
+ * macros at module load (e.g. `lib/onboarding/tours.ts`) mock
+ * `@lingui/macro` / `@lingui/react/macro` per-file with a tiny
+ * `vi.mock` that returns the source message text. Production
+ * `pnpm dev` and `pnpm build` are unaffected — those still go
+ * through the babel plugin pipeline.
  */
 import { defineConfig } from "vitest/config";
+import react from "@vitejs/plugin-react";
 import tsConfigPaths from "vite-tsconfig-paths";
 
 export default defineConfig({
-  plugins: [tsConfigPaths()],
+  plugins: [
+    tsConfigPaths(),
+    react(),
+  ],
   test: {
     environmentMatchGlobs: [
       ["src/lib/api/**", "node"],

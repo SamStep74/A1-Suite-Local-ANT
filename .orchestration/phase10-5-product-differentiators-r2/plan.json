@@ -1,0 +1,41 @@
+{
+  "sessionName": "phase10-5-product-differentiators-r2",
+  "baseRef": "ant/main",
+  "branchPrefix": "wip/phase10-5-product-differentiators-r2",
+  "worktreeRoot": "/Users/samvelstepanyan/dev",
+  "repoRoot": "/Users/samvelstepanyan/dev/A1-Suite-Local-ANT-queue",
+  "coordinationRoot": "/Users/samvelstepanyan/dev/A1-Suite-Local-ANT-queue/.orchestration",
+  "launcherCommand": "claude \"$(cat {task_file})\"",
+  "replaceExisting": true,
+  "mergeOrder": [
+    "document-steppers",
+    "keyboard-grammar",
+    "onboarding"
+  ],
+  "seedPaths": [
+    ".orchestration/phase10-5-product-differentiators-r2/plan.md",
+    "web-modern/src/components/shared/index.ts",
+    "web-modern/src/i18n/lingui.ts",
+    "web-modern/src/i18n/I18nProvider.tsx"
+  ],
+  "workers": [
+    {
+      "name": "document-steppers",
+      "branch": "wip/phase10-5-product-differentiators-r2/document-steppers",
+      "tag": "phase10-5-product-differentiators-r2-document-steppers-v1",
+      "task": "DOCUMENT STEPPERS — Multi-step form wizard for invoices + POs.\n\nSCOPE\n- New components: web-modern/src/components/wizard/{Stepper,StepperShell}.tsx (reusable wizard chrome: progress dots, back/next, validation summary, Lingui for every label).\n- New route: web-modern/src/routes/app/documents/invoice-create/index.tsx (4-step invoice create flow: Customer → Line items → Review → Submit).\n- New lib: web-modern/src/lib/wizard/{state,schemas}.ts (Zod-validated wizard state, step machine).\n- Lingui: every user-facing string (~15 strings: step titles, button labels, validation errors, success message).\n- e2e: web-modern/e2e/document-steppers.spec.ts — open invoice-create, walk all 4 steps, go back, fix validation, submit.\n\nHARD RULES (per 10.4 + 10.5-r1 playbook)\n- pnpm install only\n- Compose 10.4 primitives (DataTable for line items in step 2 if applicable; otherwise pure form)\n- Lingui macros for everything user-facing\n- 5 pre-existing failures (4 fleet + 1 AppLauncher): do NOT touch\n- Run pnpm typecheck, pnpm vitest run, pnpm build, pnpm i18n:extract and confirm clean (same 5 pre-existing failures expected)\n- The 10.3 locale switcher and 10.5-pre 'translations-in-progress' gate must remain unchanged\n- Commit with no literal 'verify' substring\n- Write status.md at .orchestration/phase10-5-product-differentiators-r2/document-steppers/status.md with STATUS: PASS\n\nVERIFY BEFORE COMMITTING\n- pnpm typecheck -> 0 errors\n- pnpm vitest run -> 2349+N passed / 5 pre-existing\n- pnpm build -> success, 3 per-locale chunks\n- pnpm i18n:extract -> idempotent\n- grep -rE 'useLingui|<Trans|t\\`' web-modern/src/routes/app/documents/invoice-create web-modern/src/lib/wizard web-modern/src/components/wizard | wc -l -> >= 10\n- grep -rE 'locale-switcher|i18n-translations-in-progress' web-modern/dist/assets/ | wc -l -> 0 (prod-stripped)\n\nBRANCH NAME: wip/phase10-5-product-differentiators-r2/document-steppers (slash preserved)\nCOMMIT: feat(document-steppers): Phase 10.5 r2 W5 multi-step form wizard\nPUSH: git push ant wip/phase10-5-product-differentiators-r2/document-steppers\n\nSELF-SEQUENCING: This worker can start immediately. No pre-conditions."
+    },
+    {
+      "name": "keyboard-grammar",
+      "branch": "wip/phase10-5-product-differentiators-r2/keyboard-grammar",
+      "tag": "phase10-5-product-differentiators-r2-keyboard-grammar-v1",
+      "task": "KEYBOARD GRAMMAR — Cross-feature keymap (cmd-K, esc-to-close, etc).\n\nPRE-CONDITION: Wait until W5 (document-steppers) is merged into ant/main. Poll `git fetch ant && git log --oneline ant/main | grep document-steppers` once per 5 min. Once the merge commit is visible, you may begin. The orchestrator has dispatched you in parallel with W5; you do the work AFTER W5 lands.\n\nSCOPE\n- New lib: web-modern/src/lib/keyboard/{registry,grammar,shortcuts,schemas}.ts (Zod-validated keymap grammar, registerShortcut / unregisterShortcut / parseChord APIs, feature scopes).\n- New components: web-modern/src/components/keyboard/{KeyHandler,ShortcutCheatsheet}.tsx (KeyHandler mounts in app shell; Cheatsheet is a PeekPanel that shows grouped shortcuts).\n- Lingui: ~12 strings for the cheatsheet (group titles: 'Navigation', 'Actions', etc; shortcut descriptions).\n- e2e: web-modern/e2e/keyboard-grammar.spec.ts — open cheatsheet via '?', navigate via j/k, close via esc.\n- Wire KeyHandler into the AppLayout shell (similar to how ask-ai W3 added the Topbar toggle).\n\nHARD RULES\n- pnpm install only\n- Lingui macros for everything user-facing\n- 5 pre-existing failures: do NOT touch\n- Audit gates clean\n- Status: .orchestration/phase10-5-product-differentiators-r2/keyboard-grammar/status.md\n\nVERIFY BEFORE COMMITTING\n- All 4 audit gates green\n- grep Lingui count >= 12\n- prod bundle clean\n- Test the keymap against at least 2 different r1 routes (fiscal-gates + triage-inbox) to confirm DataTable row-selection state is keyboard-accessible\n\nBRANCH / COMMIT / PUSH — swap name\nSELF-SEQUENCING: Poll ant/main for the W5 merge commit before starting code."
+    },
+    {
+      "name": "onboarding",
+      "branch": "wip/phase10-5-product-differentiators-r2/onboarding",
+      "tag": "phase10-5-product-differentiators-r2-onboarding-v1",
+      "task": "ONBOARDING — First-run tour overlay. 5 default tours for the 5 differentiator surfaces.\n\nPRE-CONDITION: Wait until BOTH W5 (document-steppers) AND W6 (keyboard-grammar) are merged into ant/main. The 5 tours reference surfaces from r1 + r2.\n\nSCOPE\n- New components: web-modern/src/components/onboarding/{TourOverlay,useTour,OnboardingLauncher}.{tsx,hook} (overlay chrome, state hook, launcher button in Topbar).\n- New lib: web-modern/src/lib/onboarding/{tours,state,schemas}.ts (5 default tour defs, localStorage persistence 'a1:tour:<id>:done', Zod schemas).\n- 5 default tours:\n  1. fiscal-gates: 'Mark a gate as filed' (3 steps: open route → select gate → click Mark filed)\n  2. triage-inbox: 'Resolve an overdue item' (3 steps: open route → click row → Mark resolved)\n  3. ask-ai: 'Ask a question' (2 steps: open panel → type + submit)\n  4. documents: 'Create an invoice' (4 steps: open invoice-create → fill steps → submit) — uses W5\n  5. settings: 'Switch locale' (2 steps: open locale switcher → pick ru) — uses W6 (cmd-K to open cheatsheet)\n- Lingui: every step title + body + button label (~25 strings total)\n- e2e: web-modern/e2e/onboarding.spec.ts — first-run launches the tour, advance, back, skip\n\nHARD RULES\n- pnpm install only\n- Lingui macros\n- 5 pre-existing failures: do NOT touch\n- Audit gates clean\n- Status: .orchestration/phase10-5-product-differentiators-r2/onboarding/status.md\n\nVERIFY BEFORE COMMITTING\n- All 4 audit gates green\n- grep Lingui count >= 20\n- prod bundle clean\n- Topbar Launcher button is in all 5 surfaces (or launches all 5 tours from a single menu)\n\nBRANCH / COMMIT / PUSH — swap name\nSELF-SEQUENCING: Poll ant/main for the W5+W6 merge commits before starting code."
+    }
+  ]
+}

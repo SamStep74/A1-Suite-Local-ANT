@@ -10,6 +10,7 @@
  */
 import { useEffect, useState } from "react";
 import { Link } from "@tanstack/react-router";
+import { Trans, useLingui } from "@lingui/react/macro";
 import {
   Sparkles,
   Sun,
@@ -29,6 +30,8 @@ import { useTheme } from "../../lib/theme/ThemeProvider";
 import { useDensity, DENSITIES, type Density } from "../../lib/density/DensityProvider";
 import { APPS, type AppId } from "../../lib/apps";
 import { cn } from "../../lib/utils/cn";
+import { OnboardingLauncher } from "../onboarding/OnboardingLauncher";
+import type { TourRuntime } from "../onboarding";
 import {
   activateLocale,
   getActiveLocale,
@@ -55,6 +58,10 @@ export function Topbar({
   onOpenCommandPalette,
   onOpenNotifications,
   onOpenHelp,
+  onOpenAskAi,
+  tourRuntime,
+  tourLauncherVisible,
+  onTourLauncherVisibleChange,
 }: {
   currentApp?: AppId;
   userName?: string;
@@ -62,7 +69,19 @@ export function Topbar({
   onOpenCommandPalette: () => void;
   onOpenNotifications: () => void;
   onOpenHelp: () => void;
+  /** Phase 10.5 ask-ai: opens the in-app AI assistant sidebar. */
+  onOpenAskAi?: () => void;
+  /** Phase 10.5 W7 onboarding: shared tour runtime so the
+   *  Topbar's launcher button + the AppLayout's TourOverlay
+   *  share state without prop-drilling a context. The Topbar is
+   *  the visual host; the parent (AppLayout) owns the runtime. */
+  tourRuntime?: TourRuntime;
+  /** Whether the launcher button is visible in the Topbar.
+   *  The user can hide it from the launcher's own menu. */
+  tourLauncherVisible?: boolean;
+  onTourLauncherVisibleChange?: (visible: boolean) => void;
 }) {
+  const { t } = useLingui();
   const { theme, setTheme } = useTheme();
   const { density, setDensity } = useDensity();
   // Phase 10.3: locale switcher (dev-only). We hold the active
@@ -123,7 +142,9 @@ export function Topbar({
         <span className="rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-1.5 py-0.5 text-[11px] font-bold text-white">
           ANT
         </span>
-        <span className="hidden [data-density=spacious]:inline">A1 Suite</span>
+        <span className="hidden [data-density=spacious]:inline">
+          {t({ message: "A1 Suite" })}
+        </span>
       </Link>
 
       {appMeta && (
@@ -203,6 +224,44 @@ export function Topbar({
         className="!p-1.5"
       >
         <HelpCircle className="size-4" />
+      </Button>
+
+      {/* Phase 10.5 W7: Onboarding launcher — single button that
+          opens a popover listing all 5 default tours. Visible in
+          all surfaces because the launcher menu is the canonical
+          "first run" entry point. The runtime prop is optional;
+          the launcher self-suppresses when the parent didn't
+          pass one (defensive — keeps Topbar usable in unit tests
+          that don't wire the runtime). */}
+      {tourRuntime ? (
+        <OnboardingLauncher
+          runtime={tourRuntime}
+          visible={tourLauncherVisible ?? true}
+          onVisibleChange={onTourLauncherVisibleChange}
+        />
+      ) : null}
+
+      {/* Phase 10.5: Ask AI trigger. Distinct from ⌘K (which is
+          the command palette) and from Help (Phase 1 doc). The
+          accent colour matches the agent palette so users learn
+          to associate Sparkles + violet = AI. */}
+      <Button
+        variant="ghost"
+        size="sm"
+        onClick={onOpenAskAi}
+        aria-label={t({
+          message: "Open the Ask AI assistant sidebar",
+        })}
+        title={t({
+          message: "Open the Ask AI assistant sidebar",
+        })}
+        data-testid="topbar-ask-ai-toggle"
+        className="!p-1.5"
+      >
+        <Sparkles className="size-4 text-[var(--color-agent)]" />
+        <span className="sr-only">
+          <Trans>Ask AI</Trans>
+        </span>
       </Button>
 
       {/* Phase 10.3: dev-only locale switcher (Հյ / РУ / EN).

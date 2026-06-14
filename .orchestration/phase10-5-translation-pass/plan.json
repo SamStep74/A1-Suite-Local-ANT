@@ -1,0 +1,28 @@
+{
+  "sessionName": "phase10-5-translation-pass",
+  "baseRef": "ant/main",
+  "branchPrefix": "wip/phase10-5-translation-pass",
+  "worktreeRoot": "/Users/samvelstepanyan/dev",
+  "repoRoot": "/Users/samvelstepanyan/dev/A1-Suite-Local-ANT-queue",
+  "coordinationRoot": "/Users/samvelstepanyan/dev/A1-Suite-Local-ANT-queue/.orchestration",
+  "launcherCommand": "claude \"$(cat {task_file})\"",
+  "replaceExisting": true,
+  "mergeOrder": [
+    "translation-pass"
+  ],
+  "seedPaths": [
+    ".orchestration/phase10-5-translation-pass/plan.md",
+    "web-modern/src/i18n/lingui.ts",
+    "web-modern/src/i18n/I18nProvider.tsx",
+    "web-modern/src/locales/ru/messages.po",
+    "web-modern/src/locales/en/messages.po"
+  ],
+  "workers": [
+    {
+      "name": "translation-pass",
+      "branch": "wip/phase10-5-translation-pass/translation-pass",
+      "tag": "phase10-5-translation-pass-v1",
+      "task": "TRANSLATION PASS — Fill ru/en Lingui catalogs, flip TRANSLATED_LOCALES, remove dev banner.\n\nPRE-CONDITION: Wait until ant/main contains the r2 merge (W5+W6+W7 all merged). Poll `git fetch ant && git log --oneline ant/main | grep -E 'document-steppers|keyboard-grammar|onboarding'` once per 5 min. The orchestrator has dispatched you; do the work AFTER r2 lands. The 10.5-pre baseline is 124 strings per catalog — by the time you start, expect ~150+.\n\nSCOPE\n- web-modern/src/locales/ru/messages.po: fill every msgstr \"\" with a Russian translation. Respect msgstr_plural forms. Keep ${variable} interpolation in grammatical position. Do not translate product names (Armosphera, Lingui, TanStack, Zod, Vite).\n- web-modern/src/locales/en/messages.po: fill every msgstr \"\" with idiomatic US English (no British spelling).\n- web-modern/src/i18n/lingui.ts: flip TRANSLATED_LOCALES from {hy:true, ru:false, en:false} to {hy:true, ru:true, en:true}. Remove the surrounding TODO comment that says 'once both are flipped, this can be deleted in a follow-up commit'.\n- web-modern/src/i18n/I18nProvider.tsx: delete the dev-only 'translations in progress' banner block (the `{import.meta.env.DEV && !hasTranslation(locale) ? <div ...>...</div> : null}` JSX). If the `hasTranslation` and `Trans` imports become unused after the deletion, remove them. Do NOT touch the `LinguiProvider i18n={i18n}` wrapper or the `ready` early-return.\n- web-modern/src/i18n/I18nProvider.test.tsx: update the 3 tests that pinned the banner behavior. They should now assert: (a) no `data-testid='i18n-translations-in-progress'` in DOM, (b) `hasTranslation('ru')` returns true, (c) `hasTranslation('en')` returns true.\n\nHARD RULES\n- pnpm install only\n- Lingui v5 — do NOT re-run pnpm i18n:extract unless catalogs drift (idempotency check after edits). The worker FILLS catalogs, doesn't re-extract.\n- 5 pre-existing failures (4 fleet + 1 AppLauncher): do NOT touch\n- pnpm typecheck 0 errors, pnpm vitest run 2400+N passed / 5 pre-existing, pnpm build success, pnpm i18n:extract idempotent\n- Commit message: no literal 'verify' substring\n- Status: .orchestration/phase10-5-translation-pass/translation-pass/status.md with STATUS: PASS\n\nVERIFY BEFORE COMMITTING\n- pnpm typecheck -> 0 errors\n- pnpm vitest run -> 2400+N passed / 5 pre-existing\n- pnpm build -> success, 3 per-locale chunks (hy/ru/en)\n- pnpm i18n:extract -> idempotent (catalogs unchanged after extract)\n- grep -cE '^msgstr \"[^\"]' web-modern/src/locales/ru/messages.po web-modern/src/locales/en/messages.po -> counts close to msgid counts (allow 0 empty msgstrs except for blank-id metadata lines)\n- grep -E 'i18n-translations-in-progress|locale-switcher' web-modern/dist/assets/ -> 0 occurrences in prod bundle\n- manual smoke: pnpm dev, switch locale to ru, confirm no yellow banner, confirm at least 5 r1+r2 strings render in Russian\n\nBRANCH / COMMIT / PUSH\n- Branch: wip/phase10-5-translation-pass/translation-pass\n- Commit: feat(translation-pass): Phase 10.5 fill ru/en catalogs, remove dev banner\n- Push: git push ant wip/phase10-5-translation-pass/translation-pass\n\nSELF-SEQUENCING: Poll ant/main for r2 merge commits (W5/W6/W7) before starting code."
+    }
+  ]
+}
