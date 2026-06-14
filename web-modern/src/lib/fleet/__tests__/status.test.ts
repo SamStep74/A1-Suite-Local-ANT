@@ -141,12 +141,20 @@ describe("fleetTripStatusActionLabelAm", () => {
 /* ────────── coldChainCategoryLabelAm ────────── */
 
 describe("coldChainCategoryLabelAm", () => {
-  it("returns the Armenian label for each of the five categories", () => {
-    expect(coldChainCategoryLabelAm("dairy")).toBe("Կաթնամթերք");
-    expect(coldChainCategoryLabelAm("frozen")).toBe("Սառեցված");
-    expect(coldChainCategoryLabelAm("produce")).toBe("Մրգեր / Բանջարեղեն");
-    expect(coldChainCategoryLabelAm("meat")).toBe("Միս");
-    expect(coldChainCategoryLabelAm("default")).toBe("Ընդհանուր");
+  it("returns an Armenian-first composite label for each of the five categories", () => {
+    expect(coldChainCategoryLabelAm("dairy")).toMatch(/Կաթնամթերք/);
+    expect(coldChainCategoryLabelAm("frozen")).toMatch(/Սառեցված/);
+    expect(coldChainCategoryLabelAm("produce")).toMatch(/Մրգեր \/ Բանջարեղեն/);
+    expect(coldChainCategoryLabelAm("meat")).toMatch(/Միս/);
+    expect(coldChainCategoryLabelAm("default")).toMatch(/Ընդհանուր/);
+  });
+
+  it("appends an English trailing label for each known category", () => {
+    expect(coldChainCategoryLabelAm("dairy")).toMatch(/Dairy/);
+    expect(coldChainCategoryLabelAm("frozen")).toMatch(/Frozen/);
+    expect(coldChainCategoryLabelAm("produce")).toMatch(/Produce/);
+    expect(coldChainCategoryLabelAm("meat")).toMatch(/Meat/);
+    expect(coldChainCategoryLabelAm("default")).toMatch(/Default/);
   });
 
   it("returns the raw key for an unknown category (forward-compat fallback)", () => {

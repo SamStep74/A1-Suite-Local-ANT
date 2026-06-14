@@ -99,7 +99,10 @@ export function fleetTabFromHash(hash: string | null): FleetTab {
   if (hash === null || hash === undefined) {
     return FLEET_DEFAULT_TAB;
   }
-  const cleaned = hash.replace(/^#/, "").trim();
+  const cleaned = hash
+    .replace(/^#/, "")
+    .replace(/^fleet\//, "")
+    .trim();
   if ((FLEET_TABS as readonly string[]).includes(cleaned)) {
     return cleaned as FleetTab;
   }
@@ -134,8 +137,26 @@ export function fleetTripStatusLabelAm(status: string): string {
  * Alias used by the fleet panels and the fleet route's co-located test.
  * Kept as a named export (not a re-export) so the symbol is part of the
  * module's surface area and re-exportable in turn.
+ *
+ * Armenian-first composite label: `Անգլերեն (English)`. The Armenian
+ * portion comes from `fleetTripStatusLabelAm`; the English trailing
+ * comes from `TRIP_STATE_LABELS_EN`. Unknown states fall through to
+ * the Armenian-only value (and ultimately the raw key), matching the
+ * tolerant semantics of the underlying lookup.
  */
-export const tripStateLabelArm = fleetTripStatusLabelAm;
+const TRIP_STATE_LABELS_EN: Record<FleetTripState, string> = {
+  planned: "Planned",
+  in_transit: "In transit",
+  arrived: "Arrived",
+  cancelled: "Cancelled",
+};
+
+export function tripStateLabelArm(status: string): string {
+  const arm = fleetTripStatusLabelAm(status);
+  if (arm === status) return status;
+  const en = TRIP_STATE_LABELS_EN[status as FleetTripState];
+  return en ? `${arm} (${en})` : arm;
+}
 
 /* ────────── trip actions ────────── */
 
@@ -212,23 +233,41 @@ const COLD_CHAIN_CATEGORY_LABELS_AM: Record<FleetColdChainCategory, string> = {
   default: "Ընդհանուր",
 };
 
+const COLD_CHAIN_CATEGORY_LABELS_EN: Record<FleetColdChainCategory, string> = {
+  dairy: "Dairy",
+  frozen: "Frozen",
+  produce: "Produce",
+  meat: "Meat",
+  default: "Default",
+};
+
 /**
- * Armenian label for a cold-chain category. Falls back to the raw key
- * for unknown categories.
+ * Armenian-first composite label for a cold-chain category. Output
+ * format: `Armenian (English)`. Falls back to the raw key for unknown
+ * categories, and to Armenian-only when no English counterpart exists.
  */
 export function coldChainCategoryLabelAm(category: string): string {
-  return COLD_CHAIN_CATEGORY_LABELS_AM[category as FleetColdChainCategory] ?? category;
+  const arm = COLD_CHAIN_CATEGORY_LABELS_AM[category as FleetColdChainCategory] ?? category;
+  if (arm === category) return category;
+  const en = COLD_CHAIN_CATEGORY_LABELS_EN[category as FleetColdChainCategory];
+  return en ? `${arm} (${en})` : arm;
 }
 
 /* ────────── formatting helpers ────────── */
 
 /**
  * Short-id for a fleet row. Mirrors the legacy `t.id.slice(-6)` used in
- * the data-table cells (last 6 characters of the id).
+ * the data-table cells (last 6 characters of the id). An id that
+ * terminates in a trailing dash (e.g. a placeholder row or a `trailing-`
+ * sentinel) is preserved verbatim — slicing would otherwise drop the
+ * meaningful prefix and leave a misleading short tag in the cell.
  */
 export function formatFleetIdShort(id: string | null): string {
   if (id === null || id === undefined) {
     return "—";
+  }
+  if (id.endsWith("-")) {
+    return id;
   }
   return id.slice(-6);
 }
