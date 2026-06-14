@@ -11,5 +11,4 @@ node_modules
 npm-debug.log*
 public/
 /reports/
-web/node_modules/
 deploy/*.log
