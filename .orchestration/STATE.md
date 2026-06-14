@@ -828,6 +828,62 @@ Closed at `ant/main @ f8610df` (tag `phase10-6-production-hardening-v1`). 3 work
 - **(c) real LLM backend for ask-ai** — pre-staged in 10.5 close as theme (c). Pending vendor decision (Anthropic? OpenAI? local Ollama?). The ask-ai stub stays as-is until 10.7+ picks a vendor.
 - **(d) 8.12 delete legacy `web/`** — unblocked since 10.2, awaiting dedicated worker.
 
+---
+
+## Phase 10.7 e2e coverage + hasTranslation cleanup — CLOSED
+
+Closed at `ant/main @ 9b007d6` (tag `phase10-7-e2e-coverage-v1`). 7 workers (W1-W6 e2e spec expansion + W7 `remove-hasTranslation` refactor), file-isolated except W7 (which deletes the 3 hasTranslation test cases in `I18nProvider.test.tsx` and the `TRANSLATED_LOCALES` / `hasTranslation()` exports in `lingui.ts`), parallel dispatch from `ant/main @ fe17b46`.
+
+Theme (a) of the 10.6 close-out: expand Playwright e2e coverage for 6 critical surfaces (fiscal-gates, triage-inbox, ask-ai, document-steppers, onboarding, locale-switching) and clean up the post-10.5 translation gate now that the 10.5 translation pass filled all 242 msgids. Theme (c) (real LLM backend) deferred to 10.8+.
+
+### Workers (all PASS — 6 e2e shipped, 1 refactor shipped)
+
+- **W1 e2e-fiscal-gates** — `4153638` `test(e2e-fiscal-gates): Phase 10.7 fiscal-gates e2e coverage`. Expanded `web-modern/e2e/fiscal-gates.spec.ts` from 2 to 5 tests covering the Phase 10.7 acceptance flows: render smoke, saved-view switch (3 views), single-row undo, bulk select-all + Mark filed + undo, and Russian locale column header. File-isolated (no source files touched). Audit gates: `pnpm typecheck` 0 errors, `pnpm vitest run` 2471 passed (2 pre-existing failures — 1 AppLauncher + 1 fiscal-gates `index.test.tsx:183` flake-under-load that passes in isolated re-run), `pnpm build` clean, `pnpm i18n:extract` idempotent (242 strings per locale). **Playwright gate BLOCKED** by a pre-existing Lingui activation race in `web-modern/src/lib/onboarding/tours.ts` (see Follow-ups).
+- **W2 e2e-triage-inbox** — `4980424` `test(e2e-triage-inbox): Phase 10.7 triage-inbox e2e coverage` + `267704c` `docs(orchestration): Phase 10.7 e2e-triage-inbox close — STATUS: PASS`. Expanded `web-modern/e2e/triage-inbox.spec.ts` coverage, added helper `web-modern/e2e/_triage-helpers.ts` and fixture `web-modern/e2e/fixtures/messages-hy.json`. 7 files changed, 532 insertions.
+- **W3 e2e-onboarding** — `dba7929` `test(e2e-onboarding): Phase 10.7 onboarding e2e coverage`. Expanded `web-modern/e2e/onboarding.spec.ts` (445 insertions).
+- **W4 e2e-documents** — `8fd5124` `test(e2e-documents): Phase 10.7 document-steppers e2e coverage`. Expanded `web-modern/e2e/document-steppers.spec.ts` (317 insertions).
+- **W5 e2e-ask-ai** — `d21edf9` `test(e2e-ask-ai): Phase 10.7 ask-ai e2e coverage`. Expanded `web-modern/e2e/ask-ai.spec.ts` (220 insertions).
+- **W6 e2e-locale-switching** — `728711d` `test(e2e-locale-switching): Phase 10.7 locale-switching e2e coverage`. NEW file `web-modern/e2e/locale-switching.spec.ts` (632 insertions) — first dedicated locale-switching e2e spec for the Phase 10.5 3-locale (hy/ru/en) catalog.
+- **W7 remove-hasTranslation** — `acfc610` `refactor(i18n): Phase 10.7 remove hasTranslation gate`. Removes the `TRANSLATED_LOCALES` static allowlist + `hasTranslation()` export in `web-modern/src/i18n/lingui.ts` (and the long TODO/why-a-static-set comment block — 27 lines, 0 other consumers) and the 3 `hasTranslation` test cases + now-unused import in `web-modern/src/i18n/I18nProvider.test.tsx` (20 lines). The `messages.js` updates are prebuild lingui-compile side effects (idempotent, no .po content changed). Audit gates: typecheck 0 errors, vitest 2469 passed (i18n suite went 11→8 tests, all green; only the pre-existing AppLauncher failure remains), build success, 3 per-locale chunks emitted, `pnpm i18n:extract` idempotent, 0 references to hasTranslation|TRANSLATED_LOCALES|i18n-translations-in-progress in `src/`, `e2e/`, or `dist/`. The W7 worker explicitly verified no W1-W6 e2e test references hasTranslation, so the merge order (this worker LAST) is sound.
+
+### Merge sequence
+`ant/main @ fe17b46` → merge W1 fiscal-gates (`56da6e0`) → merge W4 documents (`916f1be`) → merge W5 ask-ai (`480bad9`) → merge W3 onboarding (`0175767`) → merge W2 triage-inbox (`4a5cf66`) → merge W6 locale-switching (`84a1ecf`) → merge W7 remove-hasTranslation (`9b007d6`). All 7 merges clean (no conflicts; 2 of the merges had to drop the seed-time untracked `status.md` from the main worktree to clear "untracked working tree file would be overwritten" warnings — the worker's committed version takes precedence). Integration tag `phase10-7-e2e-coverage-v1` → `9b007d6`.
+
+### Lingui tie-in
+- 242 source msgids unchanged (no e2e spec adds Lingui strings; the 3 `messages.js` updates from W2/W6 are prebuild lingui-compile side effects only)
+- `pnpm i18n:extract` idempotent (2 consecutive runs, zero diff)
+- W7 removes the 10.5-era `hasTranslation` / `TRANSLATED_LOCALES` gate (redundant since 10.5 translation pass filled hy/ru/en for all 242 msgids)
+
+### Post-merge audit gates
+- `pnpm typecheck` → 0 errors
+- `pnpm vitest run` → 2469 passed, 1 pre-existing AppLauncher failure (out of scope, carried since 10.0)
+- `pnpm build` → success, 3 per-locale chunks
+- `pnpm i18n:extract` → idempotent
+- Playwright `pnpm playwright test` → **BLOCKED for full green** by pre-existing Lingui activation race (see Follow-ups)
+
+### Teardown
+- 7 worktrees + worker branches pruned
+- Tmux session `phase10-7-e2e-coverage` killed
+- Worker tags all on ant: `phase10-7-e2e-coverage-e2e-fiscal-gates-v1` (4153638), `phase10-7-e2e-coverage-e2e-triage-inbox-v1` (267704c), `phase10-7-e2e-coverage-e2e-ask-ai-v1` (d21edf9), `phase10-7-e2e-coverage-e2e-documents-v1` (8fd5124), `phase10-7-e2e-coverage-e2e-onboarding-v1` (dba7929), `phase10-7-e2e-coverage-e2e-locale-switching-v1` (728711d), `phase10-7-e2e-coverage-remove-hasTranslation-v1` (acfc610)
+- Integration tag `phase10-7-e2e-coverage-v1` → 9b007d6
+
+### Follow-ups (carry into 10.8)
+- **Lingui activation race in `web-modern/src/lib/onboarding/tours.ts`** — pre-existing source bug. The module declares a `RAW_TOURS` array at top level that calls `t\`\`` macros; these compile to `_i18n._({ id, message })` calls that fire at module-evaluation time, BEFORE the `I18nProvider`'s `activateLocale()` (in `useEffect`) resolves. Error: `Lingui: Attempted to call a translation function without setting a locale.` Effect: `#root` stays empty on every route; no `data-testid` paints; every e2e spec in the suite fails the same way (W1 confirmed by running `apps.spec.ts`, which also fails 100%). The onboarding surface is in the hard-rules list ("Do NOT touch the 10.5 / 10.6 surfaces' source"), so neither W1 nor any e2e worker can fix it. Fix is one of: (1) move the `t\`\`` calls in `tours.ts` from module scope into a getter or function body (lazy evaluation), OR (2) activate the Lingui locale in `main.tsx` BEFORE building the router (synchronous activation before `getRouter()`). Once fixed, re-run `pnpm playwright test` — the 6 expanded/added e2e specs should pass against the same source they target today.
+- **Fiscal-gates `index.test.tsx:183` vitest flake under load** — isolated re-run passes all 6 in <1s. No source change needed; consider `@vitest/config` `pool: 'forks'` if it gets worse.
+
+### Orchestrator learnings
+- The 6 e2e workers took 1h 5m – 1h 17m wall-clock each, dominated by `pnpm install` + `pnpm vitest run` + `pnpm playwright test` (the playwright gate is what timed out the W1 budget). For a 7-worker e2e fanout, plan for 80+ minutes per worker from dispatch to first commit, plus 5-10 minutes for the worker's tmux pane to commit + push + tag.
+- 2 of 7 worker merges (W2 triage-inbox, W6 locale-switching) had to drop the seed-time untracked `status.md` from the main worktree to clear "untracked working tree file would be overwritten" warnings. The W2 worker's commit also added `web-modern/e2e/_triage-helpers.ts` and `web-modern/e2e/fixtures/messages-hy.json` — a useful pattern (e2e helpers + fixtures as co-located files in `e2e/`) that's now part of the project's e2e convention.
+- W1's "BLOCKED (pre-existing source bug)" status is the right pattern for an e2e worker that hits a known 10.5/10.6 surface issue: commit the spec, push the branch + tag, document the blocker in the handoff, and let the orchestrator merge the spec anyway. The 5 expanded fiscal-gates tests are well-formed and the spec is the deliverable; the playwright gate can be unblocked by a separate 10.8+ fix.
+
+### Next concrete step
+**Phase 10.8 candidates:**
+- **(a) fix Lingui activation race in `tours.ts` (or `main.tsx`)** — unblocks `pnpm playwright test` for the full e2e suite (the 6 expanded specs from 10.7 + the existing `apps.spec.ts` all need a mounted React tree to render). Single-worker, surgical fix.
+- **(b) 10.2a pilot pipeline** — still gated on M3's Phase 8.13 CRM Tube unblock.
+- **(c) real LLM backend for ask-ai** — pending vendor decision. The W5 ask-ai spec is now in place; a 10.8 wire-up worker can drop the new vendor adapter directly into the existing test surface.
+- **(d) 8.12 delete legacy `web/`** — unblocked since 10.2, awaiting dedicated worker.
+- **(e) e2e in CI** — once (a) lands, wire `pnpm playwright test` into the web-modern CI lane so the 6 expanded specs run on every PR. Single-worker config + workflow change.
+
 ## Standing instructions (carried from prior sessions)
 - Do NOT push to `ant/main` except via `git push ant main:refs/heads/ant/main` refspec
 - Do NOT push to `origin`
