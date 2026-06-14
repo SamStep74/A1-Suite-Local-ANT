@@ -18,8 +18,33 @@ msgstr ""
 msgid "(missing)"
 msgstr "(отсутствует)"
 
+#. placeholder {0}: touched.length
+#: src/routes/app/period-close/index.tsx:180
+msgid "{0} {noun} marked blocked"
+msgstr ""
+
+#. placeholder {0}: touched.length
+#: src/routes/app/period-close/index.tsx:176
+msgid "{0} {noun} marked done"
+msgstr ""
+
+#. placeholder {0}: touched.length
+#: src/routes/app/period-close/index.tsx:184
+msgid "{0} {noun} skipped"
+msgstr ""
+
+#. placeholder {0}: rows.length
+#: src/routes/app/period-close/index.tsx:320
+msgid "{0} steps"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:472
+msgid "{blocked} blocked"
+msgstr ""
+
 #: src/components/shared/BulkActionBar.tsx:98
 #: src/routes/app/fiscal-gates/index.tsx:390
+#: src/routes/app/period-close/index.tsx:526
 msgid "{count} selected"
 msgstr "Выбрано: {count}"
 
@@ -27,9 +52,21 @@ msgstr "Выбрано: {count}"
 msgid "{count} tours remaining"
 msgstr "Осталось туров: {count}"
 
+#: src/routes/app/period-close/index.tsx:448
+msgid "{done} of {total} done"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:469
+msgid "{pending} pending"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:475
+msgid "{skipped} skipped"
+msgstr ""
+
 #: src/routes/app/period-close/index.tsx:43
-msgid "0 of {total} done for {period}. The full wizard ships in Phase 10.5 r2."
-msgstr "Выполнено 0 из {total} за {period}. Полный мастер выйдет в Phase 10.5 r2."
+#~ msgid "0 of {total} done for {period}. The full wizard ships in Phase 10.5 r2."
+#~ msgstr "Выполнено 0 из {total} за {period}. Полный мастер выйдет в Phase 10.5 r2."
 
 #: src/components/shell/Topbar.tsx:146
 msgid "A1 Suite"
@@ -107,12 +144,17 @@ msgstr "Задайте вопрос ИИ"
 
 #: src/components/onboarding/TourOverlay.tsx:221
 #: src/components/wizard/StepperShell.tsx:177
+#: src/routes/app/period-close/index.tsx:367
 msgid "Back"
 msgstr "Назад"
 
 #: src/routes/app/ask-ai/index.tsx:229
 msgid "Back to today"
 msgstr "Назад к сегодня"
+
+#: src/routes/app/period-close/index.tsx:575
+msgid "Blocked"
+msgstr ""
 
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:88
 msgid "Bucket"
@@ -124,6 +166,7 @@ msgstr "Отмена"
 
 #: src/routes/app/fiscal-gates/index.tsx:167
 #: src/routes/app/fiscal-gates/index.tsx:288
+#: src/routes/app/period-close/index.tsx:237
 msgid "Category"
 msgstr "Категория"
 
@@ -259,6 +302,7 @@ msgstr "Документы"
 
 #: src/components/onboarding/TourOverlay.tsx:231
 #: src/routes/app/documents/invoice-create/index.tsx:635
+#: src/routes/app/period-close/index.tsx:564
 msgid "Done"
 msgstr "Готово"
 
@@ -426,6 +470,14 @@ msgstr "Загрузка задолженности…"
 msgid "Mark a gate as filed"
 msgstr "Отметить обязательство как поданное"
 
+#: src/routes/app/period-close/index.tsx:506
+msgid "Mark blocked"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:501
+msgid "Mark done"
+msgstr ""
+
 #: src/lib/fiscal/labels.tsx:148
 #: src/lib/fiscal/labels.tsx:205
 msgid "Mark filed"
@@ -463,6 +515,10 @@ msgstr "Навигация"
 msgid "Next"
 msgstr "Далее"
 
+#: src/routes/app/period-close/index.tsx:395
+msgid "Next month"
+msgstr ""
+
 #: src/routes/app/documents/invoice-create/index.tsx:628
 msgid "Next: line items"
 msgstr "Далее: строки счёта"
@@ -499,6 +555,10 @@ msgstr "Нет результатов"
 #: src/components/shared/SavedViews.tsx:153
 msgid "No saved views yet"
 msgstr "Сохранённых представлений пока нет"
+
+#: src/routes/app/period-close/index.tsx:313
+msgid "No steps in this checklist."
+msgstr ""
 
 #: src/routes/app/triage-inbox/index.tsx:325
 msgid "One queue for every \"needs your attention\" item across invoices, tax gates, approvals, customer replies, fleet, and purchase orders."
@@ -552,6 +612,7 @@ msgstr "Прочее"
 msgid "Overdue"
 msgstr "Просрочено"
 
+#: src/routes/app/period-close/index.tsx:267
 #: src/routes/app/triage-inbox/index.tsx:234
 #: src/routes/app/triage-inbox/index.tsx:401
 msgid "Owner"
@@ -591,6 +652,7 @@ msgstr "Налог на зарплату (ежемесячно)"
 
 #: src/lib/fiscal/labels.tsx:106
 #: src/lib/fiscal/labels.tsx:165
+#: src/routes/app/period-close/index.tsx:596
 msgid "Pending"
 msgstr "В ожидании"
 
@@ -608,7 +670,7 @@ msgstr "Пенсионный взнос (ежеквартально)"
 msgid "Period"
 msgstr "Период"
 
-#: src/routes/app/period-close/index.tsx:40
+#: src/routes/app/period-close/index.tsx:370
 msgid "Period close"
 msgstr "Закрытие периода"
 
@@ -667,6 +729,10 @@ msgstr "Предпросмотр"
 #: src/components/onboarding/TourOverlay.tsx:147
 msgid "Preview · ships in 10.5 r2"
 msgstr "Предпросмотр · выйдет в 10.5 r2"
+
+#: src/routes/app/period-close/index.tsx:379
+msgid "Previous month"
+msgstr ""
 
 #: src/routes/app/documents/invoice-create/index.tsx:486
 msgid "Qty"
@@ -753,6 +819,14 @@ msgstr "Настройки"
 msgid "Showing {0}–{1} of {totalRows}"
 msgstr "Показано {0}–{1} из {totalRows}"
 
+#: src/routes/app/period-close/index.tsx:511
+msgid "Skip"
+msgstr ""
+
+#: src/routes/app/period-close/index.tsx:586
+msgid "Skipped"
+msgstr ""
+
 #: src/routes/app/analytics/index.tsx:113
 msgid "Snapshots"
 msgstr "Снимки"
@@ -783,10 +857,15 @@ msgstr "Статистический отчёт (ежемесячно)"
 
 #: src/routes/app/fiscal-gates/index.tsx:181
 #: src/routes/app/fiscal-gates/index.tsx:296
+#: src/routes/app/period-close/index.tsx:230
 #: src/routes/app/triage-inbox/index.tsx:244
 #: src/routes/app/triage-inbox/index.tsx:407
 msgid "Status"
 msgstr "Статус"
+
+#: src/routes/app/period-close/index.tsx:252
+msgid "Step"
+msgstr ""
 
 #: src/components/onboarding/TourOverlay.tsx:191
 msgid "Step {step} of {total}"

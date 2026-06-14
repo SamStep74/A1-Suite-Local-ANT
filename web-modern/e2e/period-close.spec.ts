@@ -1,5 +1,5 @@
 /**
- * period-close.spec.ts — e2e for the monthly close wizard (10.5 W4).
+ * period-close.spec.ts — e2e for the monthly close wizard (10.6 W4-PORT).
  *
  * Covers the user journey the worker brief calls out:
  *   - Open the wizard for a specific period
@@ -13,6 +13,14 @@
  *
  * The `authedPage` helper already does the Bearer-sid dance, so
  * the test stays focused on the close wizard itself.
+ *
+ * Note on testids: the W4-PORT port is built on the 10.4
+ * controlled DataTable, which emits `data-entity="data-table"`,
+ * `data-table-id="period-close"`, `data-testid="data-table-row-{id}"`
+ * for the row, and `data-testid="data-table-row-select-{id}"` for
+ * the per-row checkbox. The previous W4 surface used custom
+ * testids (e.g. `period-close-table-row-{id}-checkbox`); the
+ * 10.5-pre e2e was updated to the 10.4 contract.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { authedPage, waitForHydration } from "./_helpers";
@@ -52,19 +60,26 @@ test.describe("period-close wizard", () => {
       await waitForHydration(page);
 
       // 2. The page should render the table with the period label.
+      //    The 10.4 controlled DataTable uses
+      //    `data-entity="data-table"` (no standalone "period-close-table"
+      //    testid) — query for the data table section by its period control.
       await expect(page.getByTestId("period-label")).toHaveText("June 2026");
-      await expect(page.getByTestId("period-close-table")).toBeVisible();
+      await expect(
+        page.locator('[data-entity="data-table"][data-table-id="period-close"]'),
+      ).toBeVisible();
       // Summary starts at 0/N done.
       const summary = page.getByTestId("period-close-summary");
       await expect(summary).toHaveAttribute("data-done", "0");
 
       // 3. Select 2 rows via the checkboxes (the first two steps:
       //    "reconcile-bank" and "reconcile-cards") and Mark Done.
+      //    The 10.4 DataTable emits per-row checkbox testids of the
+      //    form `data-table-row-select-{id}`.
       const bankRow = page.getByTestId(
-        "period-close-table-row-reconcile-bank-checkbox",
+        "data-table-row-select-reconcile-bank",
       );
       const cardsRow = page.getByTestId(
-        "period-close-table-row-reconcile-cards-checkbox",
+        "data-table-row-select-reconcile-cards",
       );
       await bankRow.check();
       await cardsRow.check();
@@ -80,7 +95,7 @@ test.describe("period-close wizard", () => {
 
       // 4. Mark 1 row blocked ("reconcile-suppliers").
       const suppliersRow = page.getByTestId(
-        "period-close-table-row-reconcile-suppliers-checkbox",
+        "data-table-row-select-reconcile-suppliers",
       );
       await suppliersRow.check();
       await page.getByTestId("bulk-action-mark-blocked").click();
@@ -89,15 +104,17 @@ test.describe("period-close wizard", () => {
       await expect(summary).toHaveAttribute("data-done", "2");
       await expect(summary).toHaveAttribute("data-blocked", "1");
 
-      // 6. The row pills should reflect the per-row state.
+      // 6. The row pills should reflect the per-row state. The
+      //    10.4 DataTable emits `data-testid="data-table-row-{id}"`
+      //    on each <tr> (not `data-row-id`).
       await expect(
         page
-          .locator('[data-row-id="reconcile-bank"]')
+          .locator('[data-testid="data-table-row-reconcile-bank"]')
           .getByTestId("status-pill-done"),
       ).toBeVisible();
       await expect(
         page
-          .locator('[data-row-id="reconcile-suppliers"]')
+          .locator('[data-testid="data-table-row-reconcile-suppliers"]')
           .getByTestId("status-pill-blocked"),
       ).toBeVisible();
 
