@@ -6171,3 +6171,75 @@ export const SmbCrmAccountingExportResponseSchema = z.object({
 /* ─── block-smb-crm-automations-end ─── */
 
 
+/* ──────────────────────────────────────────────────────────────────────
+ * OAuth PULL providers — Phase 10.13 (server/oauthRoutes.js).
+ *
+ * The 5 OAuth providers (apollo, surfe, closely, webflow, make) are
+ * sovereign PULL connectors: the tenant authorizes a sub-app on the
+ * provider's site, we receive a code, exchange it for an access +
+ * refresh token, vault-seal it, and use it to PULL data (contact
+ * search, enrichment, sequences) into the SMB-CRM.
+ *
+ * SECURITY: status / connect / disconnect / refresh responses
+ * MUST NEVER include the access or refresh token. Only
+ * `expiresAt`, `scopes`, `connectedAt`, and `hasRefreshToken` are
+ * surfaced. The `tMessage` helper handles the t() descriptor
+ * shape that Lingui emits in production.
+ * ──────────────────────────────────────────────────────────────────── */
+
+/** A single OAuth provider descriptor — mirrors the GET /api/oauth/providers shape. */
+export const OAuthProviderDescriptorSchema = z.object({
+  id: z.enum(["apollo", "surfe", "closely", "webflow", "make"]),
+  displayName: z.string(),
+  supportsPkce: z.boolean(),
+  defaultScopes: z.array(z.string())
+});
+export type OAuthProviderDescriptor = z.infer<typeof OAuthProviderDescriptorSchema>;
+
+export const OAuthProviderListResponseSchema = z.object({
+  providers: z.array(OAuthProviderDescriptorSchema)
+});
+export type OAuthProviderListResponse = z.infer<typeof OAuthProviderListResponseSchema>;
+
+/** Response from GET /api/oauth/:provider/status. */
+export const OAuthStatusSchema = z.object({
+  connected: z.boolean(),
+  provider: z.enum(["apollo", "surfe", "closely", "webflow", "make"]),
+  expiresAt: z.string().nullable().optional(),
+  scopes: z.array(z.string()).optional(),
+  connectedAt: z.string().optional(),
+  hasRefreshToken: z.boolean().optional(),
+  reason: z.string().optional()
+});
+export type OAuthStatus = z.infer<typeof OAuthStatusSchema>;
+
+/** Response from GET /api/oauth/:provider/connect — the URL to redirect the browser to. */
+export const OAuthConnectResponseSchema = z.object({
+  url: z.string().url(),
+  state: z.string(),
+  expiresInMs: z.number().int().positive()
+});
+export type OAuthConnectResponse = z.infer<typeof OAuthConnectResponseSchema>;
+
+/** Response from POST /api/oauth/:provider/refresh (or any other action that returns ok-or-reason). */
+export const OAuthActionResultSchema = z.object({
+  ok: z.boolean().optional(),
+  provider: z.enum(["apollo", "surfe", "closely", "webflow", "make"]).optional(),
+  reason: z.string().optional(),
+  expiresAt: z.string().nullable().optional(),
+  disconnected: z.boolean().optional()
+});
+export type OAuthActionResult = z.infer<typeof OAuthActionResultSchema>;
+
+/** Response from POST /api/oauth/sweep. */
+export const OAuthSweepResultSchema = z.object({
+  ok: z.boolean(),
+  tenantsScanned: z.number().int().nonnegative().optional(),
+  pairsProcessed: z.number().int().nonnegative().optional(),
+  outcomes: z.array(z.record(z.string(), z.unknown())).optional(),
+  reason: z.string().optional()
+});
+export type OAuthSweepResult = z.infer<typeof OAuthSweepResultSchema>;
+
+
+
