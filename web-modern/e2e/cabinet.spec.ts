@@ -60,21 +60,26 @@ test.describe("Cabinet — Phase 8.2 Pattern A skeleton", () => {
       // (desk, cfo, crm) all render an Armenian label line below
       // the H1. The cabinet label is "Փաստաթղթաշրջանառություն"
       // (lit. "document circulation", the legacy H2 string).
+      // Scope to a <p> element to avoid the strict-mode collision
+      // with the H1 "Document Cabinet" (both contain English text,
+      // so a single getByText resolves to two nodes).
       const panel = page.getByTestId("cabinet-panel");
       await expect(panel).toBeVisible();
       await expect(
-        panel.getByText(/Փաստաթղթաշրջանառություն|Document Cabinet/),
+        panel.locator("p", { hasText: /Փաստաթղթաշրջանառություն/ }),
       ).toBeVisible();
 
       // Filter bar — direction select, status select, search input.
       // The route uses the same `data-entity` convention as the
       // other Pattern A apps; assert on a stable label that the
-      // filter controls expose.
+      // filter controls expose. The filter-bar selects are scoped
+      // via the "Filter by" aria-label prefix so they don't collide
+      // with the create-form "Direction" / "DocType" selects below.
       await expect(
-        panel.getByRole("combobox", { name: /direction/i }),
+        panel.getByRole("combobox", { name: /Filter by direction/i }),
       ).toBeVisible();
       await expect(
-        panel.getByRole("combobox", { name: /status/i }),
+        panel.getByRole("combobox", { name: /Filter by status/i }),
       ).toBeVisible();
       const search = panel.getByRole("searchbox", { name: /search/i });
       await expect(search).toBeVisible();
@@ -92,7 +97,7 @@ test.describe("Cabinet — Phase 8.2 Pattern A skeleton", () => {
         createForm.getByRole("combobox", { name: /direction/i }),
       ).toBeVisible();
       await expect(
-        createForm.getByRole("combobox", { name: /doc.?type/i }),
+        createForm.getByRole("combobox", { name: /Document type/i }),
       ).toBeVisible();
       await expect(
         createForm.getByRole("textbox", { name: /linked.?id/i }),
