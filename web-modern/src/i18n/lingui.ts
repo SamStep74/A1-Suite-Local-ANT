@@ -95,32 +95,5 @@ export const activateLocale = async (l: Locale): Promise<void> => {
   document.documentElement.lang = l;
 };
 
-/**
- * Locales whose `.po` source has been actually translated (msgstr
- * filled in by the `10.5-translation-pass` worker). Hy is the
- * source locale and is always considered translated.
- *
- * This is a static allowlist that the translation-pass worker
- * flips to `true` once it commits the `ru` / `en` translations.
- * `I18nProvider` reads it to decide whether to render the dev-only
- * "translations in progress" banner.
- *
- * Why a static set (not a runtime check on the compiled catalog):
- *   Lingui's compile step always fills the source text as a
- *   fallback, so the compiled `messages.js` for an untranslated
- *   `.po` looks identical to a translated one (the source text is
- *   rendered to the user regardless). The .po file is the only
- *   source of truth for "was this actually translated?", and we
- *   don't want the runtime to read .po files. So: explicit allowlist,
- *   one entry per locale, flipped by the worker.
- */
-const TRANSLATED_LOCALES: Record<Locale, boolean> = {
-  hy: true,
-  ru: true,
-  en: true,
-};
-
-export const hasTranslation = (l: Locale): boolean => TRANSLATED_LOCALES[l];
-
 export { i18n };
 
