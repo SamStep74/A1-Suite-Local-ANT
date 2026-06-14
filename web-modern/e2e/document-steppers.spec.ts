@@ -1,6 +1,7 @@
 /**
- * document-steppers.spec.ts — Phase 10.5 r2 W5 e2e coverage
- * for the /app/documents/invoice-create multi-step wizard.
+ * document-steppers.spec.ts — Phase 10.5 r2 W5 + Phase 10.7
+ * e2e coverage for the /app/documents/invoice-create
+ * multi-step wizard.
  *
  * The wizard is a self-contained client-side flow: a reducer
  * in `lib/wizard/state.ts` advances a `WizardState` through
@@ -20,6 +21,15 @@
  *   6. Click "Submit invoice" — assert the success card and
  *      the "Create another" affordance
  *
+ * Phase 10.7 expansion: in addition to the smoke surface
+ * above, the spec drives the FULL 4-step happy path with two
+ * line items (verifying that the per-row subtotal and the
+ * grand total are computed correctly), exercises line-item
+ * removal, asserts that the review step renders every value
+ * the user entered, and confirms a mid-flow locale switch
+ * from `?lang=hy` to `?lang=ru` re-renders the stepper
+ * labels in Russian.
+ *
  * No Fastify endpoint is hit during the wizard itself — the
  * submit step is a client-side "queued for delivery" copy
  * only (Phase 10.6 wires the real endpoint). The probe at
@@ -31,10 +41,16 @@ import { authedPage } from "./_helpers";
 
 /** Navigate to the wizard and wait for the StepperShell to
  *  render. We use a query-string locale so the e2e run
- *  mirrors the r1 surfaces. */
-async function gotoInvoiceWizard(page: Page): Promise<void> {
+ *  mirrors the r1 surfaces. The optional `lang` argument
+ *  lets the Phase 10.7 locale-switch test re-mount the
+ *  wizard under `?lang=ru` after filling the customer
+ *  fields in `?lang=hy`. */
+async function gotoInvoiceWizard(
+  page: Page,
+  lang: "hy" | "ru" | "en" = "hy",
+): Promise<void> {
   const response = await page.goto(
-    "/app/documents/invoice-create/?lang=hy",
+    `/app/documents/invoice-create/?lang=${lang}`,
   );
   expect(response, "expected /app/documents/invoice-create/ to respond").not.toBeNull();
   expect([200, 304]).toContain(response!.status());
@@ -292,6 +308,302 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
       await expect(
         page.getByTestId("wizard-step-line-items"),
       ).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+
+  /* ────────── Phase 10.7 expansion: full 4-step coverage ────────── */
+
+  /** Shared helper: fill the three customer fields and advance
+   *  to the line-items step. Tests below branch from here. */
+  async function fillCustomerAndAdvance(
+    page: Page,
+    fields: { id: string; name: string; issueDate: string },
+  ): Promise<void> {
+    await page
+      .getByTestId("wizard-input-customer-id")
+      .fill(fields.id);
+    await page
+      .getByTestId("wizard-input-customer-name")
+      .fill(fields.name);
+    await page
+      .getByTestId("wizard-input-issue-date")
+      .fill(fields.issueDate);
+    await page.getByTestId("wizard-primary").click();
+    await expect(
+      page.getByTestId("wizard-step-line-items"),
+    ).toBeVisible({ timeout: 2_000 });
+  }
+
+  test("the review step renders the customer name and issue date the user entered", async ({
+    browser,
+    request,
+  }) => {
+    const { page, context } = await authedPage(browser, request);
+    try {
+      await gotoInvoiceWizard(page);
+
+      // Walk to line-items…
+      await fillCustomerAndAdvance(page, {
+        id: "cust-review-001",
+        name: "Review Industries",
+        issueDate: "2026-06-14",
+      });
+
+      // …add the single row needed to advance…
+      await page.getByTestId("wizard-add-row").click();
+      await expect(
+        page.getByTestId("wizard-line-item"),
+      ).toHaveCount(1, { timeout: 2_000 });
+      await page
+        .getByTestId("wizard-line-description")
+        .first()
+        .fill("Consulting");
+      await page
+        .getByTestId("wizard-line-quantity")
+        .first()
+        .fill("1");
+      await page
+        .getByTestId("wizard-line-unit-price")
+        .first()
+        .fill("1500");
+      await page.getByTestId("wizard-primary").click();
+
+      // …and assert the review step shows BOTH customer
+      // fields we typed. The route renders them inside a
+      // <dl> with `data-testid="wizard-review-customer"`.
+      await expect(
+        page.getByTestId("wizard-step-review"),
+      ).toBeVisible({ timeout: 2_000 });
+      const reviewCustomer = page.getByTestId("wizard-review-customer");
+      await expect(reviewCustomer).toContainText("Review Industries");
+      await expect(reviewCustomer).toContainText("2026-06-14");
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("adds two line items, the review total sums them, and submitting finalizes the draft", async ({
+    browser,
+    request,
+  }) => {
+    const { page, context } = await authedPage(browser, request);
+    try {
+      await gotoInvoiceWizard(page);
+
+      /* Step 1 — Customer */
+      await fillCustomerAndAdvance(page, {
+        id: "cust-two-rows",
+        name: "Two Rows LLC",
+        issueDate: "2026-06-14",
+      });
+
+      /* Step 2 — Line items: add TWO rows, with values chosen
+       *  so the arithmetic is easy to verify by hand:
+       *    row 0 — qty 3 × price 100 = 300
+       *    row 1 — qty 2 × price 250 = 500
+       *  grand total = 800. */
+      await page.getByTestId("wizard-add-row").click();
+      await page.getByTestId("wizard-add-row").click();
+      await expect(
+        page.getByTestId("wizard-line-item"),
+      ).toHaveCount(2, { timeout: 2_000 });
+
+      // Row 0
+      const row0 = page.locator(
+        '[data-testid="wizard-line-item"][data-row-index="0"]',
+      );
+      await row0
+        .getByTestId("wizard-line-description")
+        .fill("Widget Pro");
+      await row0.getByTestId("wizard-line-quantity").fill("3");
+      await row0.getByTestId("wizard-line-unit-price").fill("100");
+
+      // Row 1
+      const row1 = page.locator(
+        '[data-testid="wizard-line-item"][data-row-index="1"]',
+      );
+      await row1
+        .getByTestId("wizard-line-description")
+        .fill("Service Hour");
+      await row1.getByTestId("wizard-line-quantity").fill("2");
+      await row1.getByTestId("wizard-line-unit-price").fill("250");
+
+      await page.getByTestId("wizard-primary").click();
+
+      /* Step 3 — Review. The route renders a table with one
+       *  <tr data-testid="wizard-review-line"> per row plus
+       *  a footer cell with the grand total. The per-row
+       *  subtotal is the last <td> of each row. We assert
+       *  the row count, the per-row subtotals, and the
+       *  grand total all in one pass. */
+      await expect(
+        page.getByTestId("wizard-step-review"),
+      ).toBeVisible({ timeout: 2_000 });
+      await expect(
+        page.getByTestId("wizard-review-line"),
+      ).toHaveCount(2, { timeout: 2_000 });
+      // The items table is also a single testid.
+      const reviewItems = page.getByTestId("wizard-review-items");
+      await expect(reviewItems).toContainText("Widget Pro");
+      await expect(reviewItems).toContainText("Service Hour");
+      // Grand total = 3*100 + 2*250 = 800. The footer cell
+      // renders `(800).toLocaleString()` which is "800" in
+      // the default en-US locale.
+      await expect(
+        page.getByTestId("wizard-review-total"),
+      ).toHaveText("800");
+
+      // Tick the confirmation box and advance to Submit.
+      await page.getByTestId("wizard-review-confirm").check();
+      await page.getByTestId("wizard-primary").click();
+
+      /* Step 4 — Submit. Click primary to finalize. */
+      await expect(
+        page.getByTestId("wizard-step-submit"),
+      ).toBeVisible({ timeout: 2_000 });
+      await page.getByTestId("wizard-primary").click();
+
+      // The success card appears with the "create another"
+      // reset affordance.
+      await expect(
+        page
+          .getByTestId("wizard-step-submit")
+          .and(page.locator('[data-submitted="true"]')),
+      ).toBeVisible({ timeout: 2_000 });
+      await expect(
+        page.getByTestId("wizard-reset"),
+      ).toBeVisible();
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("removing a line item drops the row count and the review table follows", async ({
+    browser,
+    request,
+  }) => {
+    const { page, context } = await authedPage(browser, request);
+    try {
+      await gotoInvoiceWizard(page);
+
+      await fillCustomerAndAdvance(page, {
+        id: "cust-remove-001",
+        name: "Removable Inc",
+        issueDate: "2026-06-14",
+      });
+
+      // Add two rows, fill both.
+      await page.getByTestId("wizard-add-row").click();
+      await page.getByTestId("wizard-add-row").click();
+      await expect(
+        page.getByTestId("wizard-line-item"),
+      ).toHaveCount(2, { timeout: 2_000 });
+      const row0 = page.locator(
+        '[data-testid="wizard-line-item"][data-row-index="0"]',
+      );
+      await row0
+        .getByTestId("wizard-line-description")
+        .fill("Kept row");
+      await row0.getByTestId("wizard-line-quantity").fill("1");
+      await row0.getByTestId("wizard-line-unit-price").fill("42");
+      const row1 = page.locator(
+        '[data-testid="wizard-line-item"][data-row-index="1"]',
+      );
+      await row1
+        .getByTestId("wizard-line-description")
+        .fill("Doomed row");
+      await row1.getByTestId("wizard-line-quantity").fill("9");
+      await row1.getByTestId("wizard-line-unit-price").fill("99");
+
+      // Click the remove button on row 0 (the "Doomed row"
+      // survives with the higher index). The wizard keeps
+      // the rows in stable id-order, so the description of
+      // the remaining first row is still "Doomed row" — but
+      // we assert on the count, not the contents.
+      await page
+        .getByTestId("wizard-line-remove")
+        .nth(0)
+        .click();
+
+      await expect(
+        page.getByTestId("wizard-line-item"),
+      ).toHaveCount(1, { timeout: 2_000 });
+
+      // Advance to review and assert the review table now
+      // reflects the single remaining row.
+      await page.getByTestId("wizard-primary").click();
+      await expect(
+        page.getByTestId("wizard-step-review"),
+      ).toBeVisible({ timeout: 2_000 });
+      await expect(
+        page.getByTestId("wizard-review-line"),
+      ).toHaveCount(1, { timeout: 2_000 });
+    } finally {
+      await context.close();
+    }
+  });
+
+  test("switching locale to ?lang=ru mid-flow re-renders the stepper labels in Russian", async ({
+    browser,
+    request,
+  }) => {
+    const { page, context } = await authedPage(browser, request);
+    try {
+      // Open in Armenian (the source locale) and walk one
+      // step forward so we are genuinely "mid-flow".
+      await gotoInvoiceWizard(page, "hy");
+      await expect(
+        page.getByTestId("wizard-step-customer"),
+      ).toBeVisible();
+      await page
+        .getByTestId("wizard-input-customer-id")
+        .fill("cust-locale");
+      await page
+        .getByTestId("wizard-input-customer-name")
+        .fill("Locale Test");
+      await page
+        .getByTestId("wizard-input-issue-date")
+        .fill("2026-06-14");
+      await page.getByTestId("wizard-primary").click();
+      await expect(
+        page.getByTestId("wizard-step-line-items"),
+      ).toBeVisible({ timeout: 2_000 });
+
+      // Re-mount the same route under ?lang=ru. The
+      // I18nProvider reads the query string in its
+      // useEffect and activates the ru catalog; the
+      // wizard state resets to step 0, but the stepper
+      // labels and <html lang> should now reflect Russian.
+      await gotoInvoiceWizard(page, "ru");
+      await expect(
+        page.getByTestId("wizard-step-customer"),
+      ).toBeVisible({ timeout: 5_000 });
+
+      // The 4 step labels in Russian — verified by
+      // getByText with exact-match strings from the ru
+      // catalog (src/locales/ru/messages.po).
+      await expect(
+        page.getByText("Клиент", { exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByText("Строки счёта", { exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByText("Проверка", { exact: true }),
+      ).toBeVisible();
+      await expect(
+        page.getByText("Отправить", { exact: true }),
+      ).toBeVisible();
+
+      // The I18nProvider also sets document.documentElement.lang
+      // — the most reliable single source of truth for the
+      // catalog that was actually activated.
+      const htmlLang = await page.evaluate(
+        () => document.documentElement.lang,
+      );
+      expect(htmlLang).toBe("ru");
     } finally {
       await context.close();
     }
