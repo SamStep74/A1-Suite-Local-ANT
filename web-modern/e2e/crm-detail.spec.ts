@@ -10,6 +10,28 @@
  * Why one spec for this: it's the most-trafficked flow in the
  * whole app — a salesperson opens CRM, picks a quote, sends it.
  * If this breaks, the deployment is dead in the water.
+ *
+ * Phase 10.9 (d) note — form-envelope drift investigation:
+ *   The 10.9 (d) plan attributed this spec's failures to a 10.5
+ *   server refactor of the form-submit envelope (`{op, payload}` →
+ *   `{operation, data}`). Investigation showed that diagnosis does
+ *   not apply here: the CRM routes (see `server/app.js:2754-2780`
+ *   — `app.get("/api/crm/quotes", ...)`, `app.post("/api/crm/quotes",
+ *   ...)`, `app.post("/api/crm/quotes/:id/request-approval", ...)`)
+ *   read `request.body` directly without any `op`/`payload` or
+ *   `operation`/`data` wrapper. Grepping the spec confirms it has
+ *   no `page.request.post(...)` or `page.evaluate(() => fetch(...))`
+ *   form-submit calls — only the list/detail navigation flow.
+ *
+ *   The actual pre-fix failure mode was `ECONNREFUSED` (no Fastify
+ *   backend up during the pre-server orchestrator run). Under
+ *   `START_FASTIFY=1` the spec already passes; this commit just
+ *   tightens the assertions to 6 explicit `expect(...).to...()`
+ *   calls so the audit gate's "1 test, 6 assertions" line item is
+ *   satisfied unambiguously, and adds a row-count check + URL match
+ *   to make the test less prone to silent regression (a blank table
+ *   with `tbody tr:first-child` that throws on click would have been
+ *   missed by the previous `toBeVisible()`-only shape).
  */
 import { test, expect } from "@playwright/test";
 import { authedPage, waitForHydration } from "./_helpers";
@@ -28,7 +50,15 @@ test.describe("CRM happy path", () => {
       // invariant under sort order.
       await expect(page.getByRole("heading", { level: 1, name: "CRM" })).toBeVisible();
 
-      const firstQuoteRow = page.locator("table tbody tr").first();
+      // The quote list must paint at least one row. Asserting
+      // `not.toHaveCount(0)` (rather than ">= 1") plays nicer with
+      // Playwright's auto-retry: it polls until the table is
+      // populated by the GET /api/crm/quotes response, instead of
+      // snapshotting an empty `tbody` mid-fetch.
+      const rows = page.locator("table tbody tr");
+      await expect(rows).not.toHaveCount(0, { timeout: 10_000 });
+
+      const firstQuoteRow = rows.first();
       await expect(firstQuoteRow).toBeVisible({ timeout: 10_000 });
 
       // Click and wait for the URL to change from the list to a
@@ -37,6 +67,13 @@ test.describe("CRM happy path", () => {
         page.waitForURL(/\/app\/crm\/[^/?#]+$/, { timeout: 10_000 }),
         firstQuoteRow.click(),
       ]);
+
+      // Explicit URL assertion — `waitForURL` would have thrown on
+      // timeout, but capturing the final URL in an `expect()` makes
+      // the intent visible in the Playwright HTML report and gives
+      // us a clean failure message if the regex ever drifts (e.g.
+      // someone adds a `?tab=...` suffix to the detail route).
+      expect(page.url()).toMatch(/\/app\/crm\/[^/?#]+$/);
 
       // Detail page paints: the quote title appears as the H1
       // (e.g. "UI test quote — inbox setup") and the customer's
