@@ -38,7 +38,15 @@ export async function login(
 
 /** Build a `BrowserContext` with the Bearer auth header already set.
  *  The web-modern client uses Bearer auth (not cookies), so this
- *  is the only auth propagation mechanism the suite needs. */
+ *  is the only auth propagation mechanism the suite needs.
+ *
+ *  We also seed `sessionStorage["ant.bearerSid"]` via
+ *  `addInitScript` because the SPA's client-side auth gate
+ *  (in `routes/app/route.tsx`) reads the token from
+ *  sessionStorage on the first paint and redirects to `/login`
+ *  if it is empty. `extraHTTPHeaders` covers `/api/*` traffic
+ *  through the Vite proxy; `addInitScript` covers the
+ *  client-side guard. */
 export async function newAuthedContext(
   browser: Browser,
   sid: string,
@@ -46,6 +54,17 @@ export async function newAuthedContext(
   const context = await browser.newContext({
     extraHTTPHeaders: { Authorization: `Bearer ${sid}` },
   });
+  // Seed sessionStorage before any page script runs so the
+  // SPA's first-paint auth check (which reads
+  // `sessionStorage["ant.bearerSid"]`) passes.
+  await context.addInitScript((token: string) => {
+    try {
+      window.sessionStorage.setItem("ant.bearerSid", token);
+    } catch {
+      // sessionStorage may throw in private-browsing / restricted
+      // contexts; ignore — the Bearer header still covers /api/*.
+    }
+  }, sid);
   return context;
 }
 

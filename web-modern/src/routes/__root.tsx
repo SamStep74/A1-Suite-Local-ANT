@@ -19,10 +19,12 @@
 import { Link, Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
 import { QueryClientProvider } from "@tanstack/react-query";
 import type { ReactNode } from "react";
+import { useEffect } from "react";
 
 import { Toaster } from "../components/feedback/Toaster";
 import { ErrorBoundary } from "../components/feedback/ErrorBoundary";
 import { Skeleton } from "../components/feedback/Skeleton";
+import { i18n } from "../i18n/lingui";
 import { queryClient } from "../lib/api/queryClient";
 import "../styles/globals.css";
 
@@ -86,6 +88,24 @@ function NotFoundRoot() {
 }
 
 function RootComponent() {
+  // Keep `<html lang>` in sync with the active Lingui locale. The
+  // hard-coded `lang="hy"` in `RootDocument` is the SSR default;
+  // once the client activates a different locale (via `?lang=`,
+  // localStorage, or the Topbar switcher), we re-set the
+  // attribute here so React's next render doesn't clobber it
+  // back to "hy". `i18n` emits a "change" event on every
+  // `i18n.activate(...)`, so we subscribe to that and mirror
+  // the locale onto the document element.
+  useEffect(() => {
+    const sync = () => {
+      if (i18n.locale) document.documentElement.lang = i18n.locale;
+    };
+    sync();
+    // Lingui's `i18n.on(...)` returns an unsubscribe function; it
+    // does not expose a stand-alone `.off` method.
+    const unsubscribe = i18n.on("change", sync);
+    return unsubscribe;
+  }, []);
   return (
     <RootDocument>
       <QueryClientProvider client={queryClient}>
