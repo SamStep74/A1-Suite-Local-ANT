@@ -127,8 +127,10 @@ test.describe("period-close wizard", () => {
       const undoButton = page.getByTestId("undo-toast-action");
       if (await undoButton.isVisible().catch(() => false)) {
         await undoButton.click();
-        // After undo, summary should drop back to 0 done.
-        await expect(summary).toHaveAttribute("data-done", "0");
+        // Undo restores the most recent action (mark-blocked on
+        // reconcile-suppliers). data-done stays at 2; only the
+        // blocked count drops back to 0.
+        await expect(summary).toHaveAttribute("data-blocked", "0");
       }
     } finally {
       await page.context().close();

@@ -1,0 +1,13 @@
+{
+  "sessionName": "phase10-9-vitest-flakes",
+  "repoRoot": "/Users/samvelstepanyan/dev/A1-Suite-Local-ANT-queue",
+  "baseRef": "793a974b70d4b8597afb1d46c35a14e67df2c102",
+  "baseRefNote": "10.9 (g) baseRef = 793a974 (10.9 (d) wave-3 partial close: 7aba8af W5 + 4527c94 W2 + 793a974 docs commit on top of 40c78d4). ant/main @ 6f7ff05 is AHEAD of local main; the close will need to merge ant/main's head into local main before pushing the integration. Tag phase10-9-vitest-flakes-v1 will be created at close.",
+  "launcherCommand": "bash {repo_root}/.orchestration/phase10-9-vitest-flakes/scripts/_common.sh {worker_slug}",
+  "workers": [
+    {
+      "name": "vitest-flakes",
+      "task": "Audit + (if needed) fix 2 pre-existing vitest flakes: (1) `web-modern/src/components/shell/AppLauncher.test.tsx` last test 'renders the Armenian labels for at least one app (bilingual UX contract)' — the `getByText('Հաճախորդներ')` flake. (2) `web-modern/src/routes/app/fiscal-gates/index.test.tsx:169-185` — the `waitFor + querySelectorAll` row-count flake. Also audit 4 fleet tests in `web-modern/src/lib/fleet/__tests__/status.test.ts` (fixed in 10.6 W2 commit 1c49ec4 — confirm still green). Run `timeout 60 pnpm vitest run --bail=1 <file>` for each. If a test fails in isolation, edit the TEST (NOT the source). Common fixes: change `getByText` to `findByText` with `timeout: 5000`; change `waitFor + custom assertion` to `findAllByTestId(/^data-table-row-/, {}, { timeout: 10000 })`. NO source edits, NO `_helpers.ts` edits, NO `package.json`/`tsconfig.json`/`vite.config.ts` edits. Audit gates in order: (1) each test isolated, (2) cluster vitest (shell + fiscal-gates + fleet), (3) full vitest (≤2 pre-existing flakes), (4) typecheck, (5) i18n extract, (6) build. Use `timeout 300` on all bash. If no fixes needed, report `STATUS: NOOP-FIX-NEEDED`. Branch: wip/phase10-9-vitest-flakes-vitest-flakes. Tag: phase10-9-vitest-flakes-vitest-flakes-v1. Push: ant. Do NOT use mcp__claude-in-chrome__* tools. Do NOT add debug instrumentation. Do NOT spawn subagents. Report handoff and status at .orchestration/phase10-9-vitest-flakes/vitest-flakes/{handoff.md,status.md}. Wall-clock budget: 30 min. Set `NODE_OPTIONS=--max-old-space-size=2048` to avoid OOM in 16 GB shared system (wave-3 workers are using ~10 GB)."
+    }
+  ]
+}
