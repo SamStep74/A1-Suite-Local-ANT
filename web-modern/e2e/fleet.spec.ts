@@ -6,10 +6,12 @@
  * end-to-end"):
  *   - GET /app/fleet returns 2xx (route resolves, auth works, the
  *     TanStack dev server renders the workspace)
- *   - The Armenian H2 "Ավտոպարկ" is visible (matches the legacy
- *     H2 the route renders verbatim so the migration e2e is
- *     stable)
- *   - The English subtitle "Fleet" is present (bilingual header)
+ *   - The English H1 "Fleet" is visible (the bilingual header
+ *     became a single English header in the Phase 10.0 panel
+ *     split; the Armenian label lives on the tab buttons
+ *     via fleetTabLabelAm)
+ *   - The English subtitle lists all 7 surfaces (vehicles ·
+ *     drivers · trips · fuel · repairs · tires · cold chain)
  *   - The 7 tab buttons render (vehicles, drivers, trips, fuel,
  *     repairs, tires, coldchain) and the default active tab is
  *     Vehicles
@@ -19,7 +21,7 @@
  *   - The Drivers tab POSTs to /api/fleet/drivers with the
  *     {fullName, phone, licenseNumber, idempotencyKey} envelope
  *   - The Trips tab POSTs to /api/fleet/trips and the resulting
- *     row's "departed" button PATCHes /api/fleet/trips/:id/status
+ *     row's "Departed" button PATCHes /api/fleet/trips/:id/status
  *   - The Fuel tab POSTs to /api/fleet/fuel-logs and the
  *     efficiency table renders the {vehicleId, lPer100km} rows
  *   - The Repairs tab POSTs to /api/fleet/repairs and the
@@ -27,7 +29,7 @@
  *     rows
  *   - The Tires tab POSTs to /api/fleet/tires/install
  *   - The ColdChain tab GETs /api/fleet/vehicles/:id/cold-chain
- *     -compliance?category=… and the breaches table renders
+ *     -compliance?category=… and the breaches list renders
  *   - The back link points to /app (the Today hub)
  *   - The 403 access-denied card is NOT rendered for a default
  *     authenticated user (mirrors procurement + assets — the
@@ -41,9 +43,8 @@
  * `Promise.all` fires (vehicles, drivers, trips, fuel-logs,
  * repairs, tires, cold-chain) also pass through to the live
  * server — by the time my branch lands on main (last in merge
- * order), the fl-server branch will have added the 7 missing
- * list GETs, so the e2e will exercise the real list endpoints
- * too.
+ * order), the fl-server branch will have added the 7 missing list
+ * GETs, so the e2e will exercise the real list endpoints too.
  *
  * Why a dedicated spec: this is the Phase 8.6 fleet migration
  * e2e, separate from the broader apps smoke loop. The contract
@@ -129,11 +130,11 @@ function requestMatchesColdChainCompliance(req: Request): boolean {
  *  to stable mock payloads. The seven list GETs (vehicles,
  *  drivers, trips, fuel-logs, repairs, tires, cold-chain) and
  *  the two analytics GETs (fuel-efficiency, maintenance-
- *  backlog) pass through to the live backend unchanged — by
- *  the time my branch lands on main (last in merge order),
- *  worker 1 (fl-server) will have added the 7 missing list
- *  GETs to server/app.js, so the e2e will exercise the real
- *  list endpoints too. */
+ *  backlog) pass through to the live backend unchanged — by the
+ *  time my branch lands on main (last in merge order), worker 1
+ *  (fl-server) will have added the 7 missing list GETs to
+ *  server/app.js, so the e2e will exercise the real list
+ *  endpoints too. */
 function installFleetApiMocks(route: Route): void {
   if (requestMatchesPath(route.request(), "/api/fleet/vehicles")) {
     if (route.request().method() === "POST") {
@@ -228,7 +229,7 @@ function installFleetApiMocks(route: Route): void {
 /* ────────── page shell + tab switch ────────── */
 
 test.describe("Fleet — Phase 8.6 Pattern A skeleton", () => {
-  test("loads, renders the H2 + 7 tabs, defaults to Vehicles, and points back to /app", async ({
+  test("loads, renders the H1 + 7 tabs, defaults to Vehicles, and points back to /app", async ({
     browser,
     request,
     page,
@@ -246,19 +247,20 @@ test.describe("Fleet — Phase 8.6 Pattern A skeleton", () => {
 
       await waitForHydration(ctx.page);
 
-      // H2 — the Armenian title. The route renders "Ավտոպարկ"
-      // (lit. "Vehicle Park" / "Fleet", the legacy H2 verbatim)
-      // so the e2e is stable across the migration.
+      // H1 — the English workspace title. After the Phase 10.0
+      // panel split, the bilingual header collapsed to a single
+      // English H1 + English subtitle (the Armenian labels now
+      // live on the tab buttons via fleetTabLabelAm).
       const panel = ctx.page.getByTestId("fleet-panel");
       await expect(panel).toBeVisible();
-      const title = ctx.page.getByTestId("fleet-title");
+      const title = ctx.page.getByRole("heading", { level: 1, name: /^Fleet$/i });
       await expect(title).toBeVisible();
-      expect(title.textContent ?? "").toMatch(/Ավտոպարկ/);
 
-      // English subtitle (bilingual header — Armenian H2 + English <p>).
-      const subtitle = ctx.page.getByTestId("fleet-subtitle");
-      await expect(subtitle).toBeVisible();
-      expect(subtitle.textContent ?? "").toContain("Fleet");
+      // English subtitle lists all 7 surfaces — the in-page
+      // analogue of the legacy bilingual header.
+      await expect(panel).toContainText(
+        /vehicles.*drivers.*trips.*fuel.*repairs.*tires.*cold chain/i,
+      );
 
       // 7 tab buttons render in route-local order.
       for (const t of FLEET_TABS) {
@@ -273,13 +275,14 @@ test.describe("Fleet — Phase 8.6 Pattern A skeleton", () => {
         ctx.page.getByTestId("fleet-vehicles-form"),
       ).toBeVisible();
 
-      // Click each tab — the matching form appears, the
-      // previously-active form unmounts.
+      // Click each tab — the matching panel renders, the
+      // matching form is visible inside it.
       for (const t of FLEET_TABS) {
         await ctx.page.getByTestId(`fleet-tab-${t}`).click();
         expect(
           await ctx.page.getByTestId(`fleet-tab-${t}`).getAttribute("data-active"),
         ).toBe("true");
+        await expect(ctx.page.getByTestId(`fleet-${t}-panel`)).toBeVisible();
         await expect(ctx.page.getByTestId(`fleet-${t}-form`)).toBeVisible();
       }
 
@@ -372,10 +375,12 @@ test.describe("Fleet — Vehicles POST", () => {
       expect(body.model).toBe("TGE");
       expect(body.year).toBe(2024);
       expect(body.kind).toBe("truck");
-      // The route stamps an idempotency key of the form "vehicle-…"
-      // via generateFleetIdempotencyKey("vehicle"). Assert the
-      // prefix (the suffix is Date.now() and not deterministic).
-      expect(body.idempotencyKey).toMatch(/^vehicle-/);
+      // The route stamps an idempotency key of the form
+      // "vehicles-create-ui-<ts>" via
+      // generateFleetIdempotencyKey("vehicles-create"). Assert
+      // the prefix (the suffix is Date.now() and not
+      // deterministic).
+      expect(body.idempotencyKey).toMatch(/^vehicles-create-/);
     } finally {
       await ctx.page.context().close();
     }
@@ -433,9 +438,9 @@ test.describe("Fleet — Drivers POST", () => {
         ctx.page.getByTestId("fleet-drivers-form"),
       ).toBeVisible();
 
-      await ctx.page.getByTestId("fleet-drivers-fullName").fill("Արամ Հայկականյան");
+      await ctx.page.getByTestId("fleet-drivers-fullname").fill("Արամ Հայկականյան");
       await ctx.page.getByTestId("fleet-drivers-phone").fill("+37499000111");
-      await ctx.page.getByTestId("fleet-drivers-licenseNumber").fill("AM-2026-001");
+      await ctx.page.getByTestId("fleet-drivers-license").fill("AM-2026-001");
 
       const submit = ctx.page.getByTestId("fleet-drivers-submit");
       await expect(submit).toBeEnabled();
@@ -448,7 +453,7 @@ test.describe("Fleet — Drivers POST", () => {
       expect(body.fullName).toBe("Արամ Հայկականյան");
       expect(body.phone).toBe("+37499000111");
       expect(body.licenseNumber).toBe("AM-2026-001");
-      expect(body.idempotencyKey).toMatch(/^driver-/);
+      expect(body.idempotencyKey).toMatch(/^drivers-create-/);
     } finally {
       await ctx.page.context().close();
     }
@@ -534,12 +539,12 @@ test.describe("Fleet — Trips POST + PATCH status", () => {
 
       // The trip form has 5 inputs: vehicleId, driverId, origin,
       // destination, scheduledDeparture.
-      await ctx.page.getByTestId("fleet-trips-vehicleId").fill(VEHICLE_ID);
-      await ctx.page.getByTestId("fleet-trips-driverId").fill(DRIVER_ID);
+      await ctx.page.getByTestId("fleet-trips-vehicle").fill(VEHICLE_ID);
+      await ctx.page.getByTestId("fleet-trips-driver").fill(DRIVER_ID);
       await ctx.page.getByTestId("fleet-trips-origin").fill("Yerevan");
       await ctx.page.getByTestId("fleet-trips-destination").fill("Gyumri");
       await ctx.page
-        .getByTestId("fleet-trips-scheduledDeparture")
+        .getByTestId("fleet-trips-scheduled")
         .fill("2026-06-13T08:00");
 
       const submit = ctx.page.getByTestId("fleet-trips-submit");
@@ -555,13 +560,19 @@ test.describe("Fleet — Trips POST + PATCH status", () => {
       expect(body.origin).toBe("Yerevan");
       expect(body.destination).toBe("Gyumri");
       expect(body.scheduledDeparture).toBe("2026-06-13T08:00");
-      expect(body.idempotencyKey).toMatch(/^trip-/);
+      expect(body.idempotencyKey).toMatch(/^trips-create-/);
 
       // Click the "Departed" PATCH button on the new row. The
       // row's button only appears for status="planned" trips
       // (the route uses fleetTripStatusCanTransition to gate
-      // visibility), so this is also a state-machine smoke check.
-      const departed = ctx.page.getByTestId(`fleet-trip-${TRIP_ID}-departed`);
+      // visibility), so this is also a state-machine smoke
+      // check. Scope the action-button lookup to the row with
+      // the matching data-trip-id so a populated trips list
+      // (live server already had some planned trips) doesn't
+      // make the selector ambiguous.
+      const row = ctx.page.locator(`[data-trip-id="${TRIP_ID}"]`);
+      await expect(row).toBeVisible();
+      const departed = row.getByTestId("fleet-trips-action-departed");
       await expect(departed).toBeVisible();
       await departed.click();
 
@@ -571,7 +582,7 @@ test.describe("Fleet — Trips POST + PATCH status", () => {
       const patchBodyTyped: TripPatchBody = patchBody;
       expect(patchPath).toBe(`/api/fleet/trips/${TRIP_ID}/status`);
       expect(patchBodyTyped.action).toBe("departed");
-      expect(patchBodyTyped.idempotencyKey).toMatch(/^trip-status-/);
+      expect(patchBodyTyped.idempotencyKey).toMatch(/^trips-status-/);
     } finally {
       await ctx.page.context().close();
     }
@@ -649,10 +660,10 @@ test.describe("Fleet — Fuel POST + efficiency analytics", () => {
       await ctx.page.getByTestId("fleet-tab-fuel").click();
       await expect(ctx.page.getByTestId("fleet-fuel-form")).toBeVisible();
 
-      await ctx.page.getByTestId("fleet-fuel-vehicleId").fill(VEHICLE_ID);
+      await ctx.page.getByTestId("fleet-fuel-vehicle").fill(VEHICLE_ID);
       await ctx.page.getByTestId("fleet-fuel-liters").fill("60.5");
-      await ctx.page.getByTestId("fleet-fuel-odometerKm").fill("75000");
-      await ctx.page.getByTestId("fleet-fuel-fuelCostPerL").fill("510");
+      await ctx.page.getByTestId("fleet-fuel-odometer").fill("75000");
+      await ctx.page.getByTestId("fleet-fuel-cost").fill("510");
 
       const submit = ctx.page.getByTestId("fleet-fuel-submit");
       await expect(submit).toBeEnabled();
@@ -666,13 +677,13 @@ test.describe("Fleet — Fuel POST + efficiency analytics", () => {
       expect(body.liters).toBe(60.5);
       expect(body.odometerKm).toBe(75000);
       expect(body.fuelCostPerL).toBe(510);
-      expect(body.idempotencyKey).toMatch(/^fuel-/);
+      expect(body.idempotencyKey).toMatch(/^fuel-create-/);
 
       // The efficiency rollup table renders the {vehicleId,
       // lPer100km} rows from the analytics GET.
-      const effTable = ctx.page.getByTestId("fleet-fuel-efficiency-table");
+      const effTable = ctx.page.getByTestId("fleet-fuel-eff-table");
       await expect(effTable).toBeVisible();
-      const rows = effTable.locator("[data-testid='fleet-fuel-efficiency-row']");
+      const rows = effTable.locator("[data-testid='fleet-fuel-eff-row']");
       await expect(rows).toHaveCount(1);
       await expect(rows.nth(0)).toContainText(VEHICLE_ID);
       await expect(rows.nth(0)).toContainText("8");
@@ -753,11 +764,11 @@ test.describe("Fleet — Repairs POST + maintenance-backlog analytics", () => {
       await ctx.page.getByTestId("fleet-tab-repairs").click();
       await expect(ctx.page.getByTestId("fleet-repairs-form")).toBeVisible();
 
-      await ctx.page.getByTestId("fleet-repairs-vehicleId").fill(VEHICLE_ID);
+      await ctx.page.getByTestId("fleet-repairs-vehicle").fill(VEHICLE_ID);
       await ctx.page.getByTestId("fleet-repairs-kind").selectOption("oil-change");
-      await ctx.page.getByTestId("fleet-repairs-odometerKm").fill("75500");
+      await ctx.page.getByTestId("fleet-repairs-odometer").fill("75500");
       await ctx.page.getByTestId("fleet-repairs-cost").fill("45000");
-      await ctx.page.getByTestId("fleet-repairs-nextDueAt").fill("2026-09-01");
+      await ctx.page.getByTestId("fleet-repairs-next-due").fill("2026-09-01");
 
       const submit = ctx.page.getByTestId("fleet-repairs-submit");
       await expect(submit).toBeEnabled();
@@ -772,13 +783,13 @@ test.describe("Fleet — Repairs POST + maintenance-backlog analytics", () => {
       expect(body.odometerKm).toBe(75500);
       expect(body.cost).toBe(45000);
       expect(body.nextDueAt).toBe("2026-09-01");
-      expect(body.idempotencyKey).toMatch(/^repair-/);
+      expect(body.idempotencyKey).toMatch(/^repairs-create-/);
 
       // The backlog rollup table renders the {vehicleId, kind,
       // overdueDays} rows from the analytics GET.
-      const backlog = ctx.page.getByTestId("fleet-repairs-backlog-table");
+      const backlog = ctx.page.getByTestId("fleet-backlog-table");
       await expect(backlog).toBeVisible();
-      const rows = backlog.locator("[data-testid='fleet-repairs-backlog-row']");
+      const rows = backlog.locator("[data-testid='fleet-backlog-row']");
       await expect(rows).toHaveCount(1);
       await expect(rows.nth(0)).toContainText(VEHICLE_ID);
       await expect(rows.nth(0)).toContainText("oil-change");
@@ -849,12 +860,12 @@ test.describe("Fleet — Tires POST", () => {
       await ctx.page.getByTestId("fleet-tab-tires").click();
       await expect(ctx.page.getByTestId("fleet-tires-form")).toBeVisible();
 
-      await ctx.page.getByTestId("fleet-tires-vehicleId").fill(VEHICLE_ID);
+      await ctx.page.getByTestId("fleet-tires-vehicle").fill(VEHICLE_ID);
       await ctx.page.getByTestId("fleet-tires-position").selectOption("front-left");
       await ctx.page.getByTestId("fleet-tires-brand").fill("Michelin");
-      await ctx.page.getByTestId("fleet-tires-installedAt").fill("2026-06-01");
-      await ctx.page.getByTestId("fleet-tires-odometerAtInstall").fill("75000");
-      await ctx.page.getByTestId("fleet-tires-expectedLifeKm").fill("60000");
+      await ctx.page.getByTestId("fleet-tires-installed").fill("2026-06-01");
+      await ctx.page.getByTestId("fleet-tires-odometer").fill("75000");
+      await ctx.page.getByTestId("fleet-tires-life").fill("60000");
 
       const submit = ctx.page.getByTestId("fleet-tires-submit");
       await expect(submit).toBeEnabled();
@@ -871,7 +882,7 @@ test.describe("Fleet — Tires POST", () => {
       expect(body.installedAt).toBe("2026-06-01");
       expect(body.odometerAtInstall).toBe(75000);
       expect(body.expectedLifeKm).toBe(60000);
-      expect(body.idempotencyKey).toMatch(/^tire-/);
+      expect(body.idempotencyKey).toMatch(/^tires-install-/);
     } finally {
       await ctx.page.context().close();
     }
@@ -881,7 +892,7 @@ test.describe("Fleet — Tires POST", () => {
 /* ────────── ColdChain compliance GET ────────── */
 
 test.describe("Fleet — ColdChain compliance GET", () => {
-  test("selecting vehicle + category + clicking compute GETs the compliance report and the breaches table renders", async ({
+  test("selecting vehicle + category + clicking compute GETs the compliance report and the breaches list renders", async ({
     browser,
     request,
     page,
@@ -931,7 +942,7 @@ test.describe("Fleet — ColdChain compliance GET", () => {
       // + a "Compute compliance" button. There's no
       // free-form submit; the route fires the GET on click.
       await ctx.page
-        .getByTestId("fleet-coldchain-vehicleId")
+        .getByTestId("fleet-coldchain-vehicle")
         .selectOption(VEHICLE_ID);
       await ctx.page
         .getByTestId("fleet-coldchain-category")
@@ -947,9 +958,9 @@ test.describe("Fleet — ColdChain compliance GET", () => {
       );
       expect(complianceCategory).toBe("dairy");
 
-      // The breaches table renders the {startedAt, endedAt,
+      // The breaches list renders the {startedAt, endedAt,
       // minutes} rows from the compliance report.
-      const breaches = ctx.page.getByTestId("fleet-coldchain-breaches-table");
+      const breaches = ctx.page.getByTestId("fleet-coldchain-breaches");
       await expect(breaches).toBeVisible();
       const rows = breaches.locator(
         "[data-testid='fleet-coldchain-breach-row']",
