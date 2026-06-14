@@ -1,9 +1,9 @@
 # Phase 10 orchestration — state snapshot
 
-**Last update:** 2026-06-14 02:14 UTC (06:14 local)
-**Session:** 2026-06-14 (Phase 10.5 product differentiators CLOSED + torn down: r1 W1–W4 + r2 W5–W7 + translation pass; all merged into `ant/main @ c7b94f8`; tag `phase10-5-product-differentiators-v1` force-pushed)
-**Current ref:** `ant/main @ c7b94f8` (10.5 translation-pass merge — 4 r1 surfaces + 3 r2 surfaces + ru/en catalogs GA + dev-only translations banner removed; tag `phase10-5-product-differentiators-v1` ✅)
-**Tag:** `phase10-0-typecheck-cleanup-v1` → d6d4c44 ✅ + `phase10-0-d1-spa-shell-v1` → 5fd4dfb ✅ + `phase10-1-deploy-v1` → 57c60eb ✅ + `phase10-hygiene-v1` → 98c72a6 ✅ + `phase10-2-finance-v1` → 0902b38 ✅ + `phase10-2-people-v1` → 4795251 ✅ + `phase10-2-flow-integrations-v1` → 37f7732 ✅ + `phase10-2e-login-shell-retirement-v1` → 463089d ✅ + `phase10-3-i18n-infra-v1` → bc8b159 ✅ + `phase10-4-shared-components-v1` → b04a88c ✅ + **`phase10-5-product-differentiators-v1` → c7b94f8 ✅**
+**Last update:** 2026-06-14 09:14 UTC (13:14 local)
+**Session:** 2026-06-14 (Phase 10.6 production hardening CLOSED + 10.7 e2e coverage + hasTranslation cleanup CLOSED + 10.8 (a) Lingui activation race fix CLOSED + 10.12 / 8.12 legacy `web/` delete CLOSED; all merged into `ant/main @ c15fbe0`; tags `phase10-6-production-hardening-v1` + `phase10-7-e2e-coverage-v1` + `phase10-8-lingui-race-fix-v1` + `phase10-12-legacy-delete-v1` all on ant)
+**Current ref:** `ant/main @ c15fbe0` (10.12 / 8.12 merge — single-line `.gitignore` cleanup; on top of 10.6 production hardening @ f8610df + 10.7 e2e coverage @ 9b007d6 + 10.8 (a) Lingui race fix @ 76e4d65 + 2f41482 dashboard launcher test rewire; tag `phase10-12-legacy-delete-v1` ✅)
+**Tag:** `phase10-0-typecheck-cleanup-v1` → d6d4c44 ✅ + `phase10-0-d1-spa-shell-v1` → 5fd4dfb ✅ + `phase10-1-deploy-v1` → 57c60eb ✅ + `phase10-hygiene-v1` → 98c72a6 ✅ + `phase10-2-finance-v1` → 0902b38 ✅ + `phase10-2-people-v1` → 4795251 ✅ + `phase10-2-flow-integrations-v1` → 37f7732 ✅ + `phase10-2e-login-shell-retirement-v1` → 463089d ✅ + `phase10-3-i18n-infra-v1` → bc8b159 ✅ + `phase10-4-shared-components-v1` → b04a88c ✅ + **`phase10-5-product-differentiators-v1` → c7b94f8 ✅** + **`phase10-6-production-hardening-v1` → f8610df ✅** + **`phase10-7-e2e-coverage-v1` → 9b007d6 ✅** + **`phase10-8-lingui-race-fix-v1` → 76e4d65 ✅** + **`phase10-12-legacy-delete-v1` → c15fbe0 ✅**
 
 ## Phase 10.2c Finance (phase10-2-finance) — ✅ CLOSED
 
@@ -939,6 +939,51 @@ The plan specified a single-file ~5-line fix in `lingui.ts`. The worker expanded
 - The Lingui race was masking 3 independent pre-existing bugs (CJS dev shim, auth shim, dynamic html-lang). Once the React tree mounted, all 3 surfaced in the test runs. Pattern: when an e2e suite fails 100%, the root cause may be several layered bugs, not just the one named in the handoff. The worker ran the audit gates incrementally and discovered the layered bugs empirically, not by reading code.
 - The fast-forward through `088435e` + `b0e65f3` was a free win — those commits (from a parallel session on test infra) had been waiting on ant/main since 12:33, and the merge incorporated them automatically. No rebase needed because W1 and the parallel session touched zero overlapping files.
 - Worker wall-clock for 10.8 (a): 39m 14s (smaller than 10.7's 1h 5m – 1h 17m per worker because no `pnpm install` was re-run — the worktree inherited the parent's installed state and only the `lingui.ts` change needed verification, not a full dep tree).
+
+## Phase 10.12 / 8.12 — delete untracked legacy `web/` directory — CLOSED
+
+Closed at `ant/main @ c15fbe0` (tag `phase10-12-legacy-delete-v1`). 1 worker, single-line cleanup, dispatched from `ant/main @ 2f41482` (the test-rewire commit that itself was a follow-up to the 10.8 (a) close at `a6010ce`).
+
+Theme (d) of the 10.6 close-out: close the lingering housekeeping item from row 8.12 of `docs/UI_MODERNIZATION_PLAN.md` (marked "Done in 10.2e (legacy build retired; row kept for historical reference)"). The 10.2e phase retired the **built** legacy artifacts (Fastify `:4100` static mount of `public/`, every `/legacy/*` route, the `LegacyLink` component). What remained was the on-disk `web/` directory — entirely untracked (`git ls-files web/` returns 0 files), containing only `node_modules/` from a prior clone. It contributed nothing to the build and nothing to git; it just bloated the worktree to 39M and left a stale `web/node_modules/` entry in `.gitignore`.
+
+### Worker (PASS)
+
+- **W1 cleanup-legacy-web** — `aa8b230` `chore: remove untracked legacy web/ directory (8.12 cleanup)`. Diff: 1 line removed from `.gitignore` (`web/node_modules/`, line 14). The on-disk `web/` is entirely untracked, so the `rm -rf` is a local worktree op, not a git op — no files appear in the commit's `git show --stat`. The worker also followed up by running the audit gates against the orchestrator's main worktree (per standing instructions) so the 39M directory is removed from this worktree too. Audit gates: `pnpm typecheck` 0 errors, `pnpm vitest run` 2470+ passed (no new failures, the 1 pre-existing AppLauncher + 4 fleet failures from prior phases are still in scope for a future phase), `pnpm build` clean, `pnpm i18n:extract` idempotent, `test ! -d web` exit 0, `git ls-files web/ | wc -l` 0, `grep -E '^web/node_modules/?$' .gitignore` 0 hits, `du -sh web/` returns "No such file or directory".
+
+### Merge sequence
+`ant/main @ 2f41482` → merge cleanup-legacy-web (`c15fbe0`). Single commit, single-line diff, clean (no conflicts). Integration tag `phase10-12-legacy-delete-v1` → `c15fbe0`.
+
+### Lingui tie-in
+None. This worker does not touch any Lingui source or catalog.
+
+### Post-merge audit gates
+- `pnpm typecheck` → 0 errors
+- `pnpm vitest run` → 2470+ passed, 1 pre-existing AppLauncher + 4 pre-existing fleet failures unchanged
+- `pnpm build` → success, 3 per-locale chunks
+- `pnpm i18n:extract` → idempotent
+- `test ! -d web` → exit 0
+- `git ls-files web/ | wc -l` → 0
+- `grep -E '^web/node_modules/?$' .gitignore` → 0
+
+### Teardown
+- 1 worktree + worker branch pruned
+- Tmux session `phase10-12-legacy-delete` killed (after worker flip to STATUS: PASS)
+- Worker tag on ant: `phase10-12-legacy-delete-cleanup-legacy-web-v1` (aa8b230)
+- Integration tag `phase10-12-legacy-delete-v1` → c15fbe0
+
+### Orchestrator learnings
+- The 10.12 plan originally had the worker run inline; the parallel `phase10-7-e2e-coverage` session was using the same `.worktrees/` parent and the worker was about to collide with the W7 worker. Splitting 10.12 into its own plan+session (and renaming 10.7's plan dir from `phase10-6-e2e-coverage` to `phase10-7-e2e-coverage` to fix the dir-vs-sessionName drift) kept the two runs reviewable in isolation.
+- For 1-worker housekeeping phases, the standard "dispatch → worker → orchestrator merge" 3-step pattern is overkill. The 8.12 plan-row had been open since 10.2; the worker still took ~22m (mostly `pnpm install` + `pnpm vitest run` + cleanup-verify) for a 1-line diff. Future single-commit phases could shortcut by doing the work in a scratch branch on the orchestrator's main worktree and pushing directly via refspec, but the current pattern is auditable and the wall-clock cost is acceptable.
+- The `web/` dir's `node_modules` was 39M of disk from a prior clone — untracked but real. Future housekeeping phases should call out untracked-but-on-disk artifacts explicitly in the plan (e.g., "Note: this dir is untracked AND contains 39M of node_modules from a prior clone; `rm -rf` is the only op needed on disk").
+
+### Next concrete step
+**Phase 10.8+ candidates:**
+- **(b) 10.2a pilot pipeline** — still gated on M3's Phase 8.13 CRM Tube unblock (`wip/phase8-tube-*` / `wip/phase8-healthcheck`). M3 work in flight, out of scope for orchestrator.
+- **(c) real LLM backend for ask-ai** — pending vendor decision. The W5 ask-ai spec is in place; a wire-up worker can drop the new vendor adapter directly into the existing test surface. **Recommended:** Anthropic for prod (Claude Sonnet 4.6 per session default), Ollama on `:11435` for dev fallback (per `ollama-app-blocks-11434` + `paperclip-local-llm-strategy` memory). Vendor decision still awaits user.
+- **(d) ✅ DONE** — closed in this phase.
+- **(e) e2e in CI** — unblocked since 10.8 (a). Wire `pnpm playwright test` into the web-modern CI lane so the 6 expanded specs from 10.7 + `apps.spec.ts` + `i18n-canary.spec.ts` (now all green in 1.1m per 10.8 (a) close) run on every PR. Single-worker config + workflow change.
+- **(f) `tours.ts` lazy evaluation refactor** — the 10.8 (a) band-aid is `i18n.activate(DEFAULT_LOCALE, {})` at module load. The long-term fix is moving the `t({ message: "..." })` calls in `RAW_TOURS` from module scope into a getter or function body so they evaluate only when `TourOverlay` actually reads them. Defer until a real maintenance window.
+- **(g) vitest flakes cleanup** — `AppLauncher` (1, carried since 10.0) + `fiscal-gates/index.test.tsx:183` (1, flakes under load) + 4 fleet tests (already fixed in 10.6 W2). Consider a dedicated "pre-existing test failures" phase that audits and cleans them.
 
 ## Standing instructions (carried from prior sessions)
 - Do NOT push to `ant/main` except via `git push ant main:refs/heads/ant/main` refspec
