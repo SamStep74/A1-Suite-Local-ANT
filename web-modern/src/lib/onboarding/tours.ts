@@ -29,7 +29,7 @@
  *   AST analysis and the extractor throws. Every other call site
  *   in the codebase inlines the literal — we follow suit.
  */
-import { t } from "@lingui/core/macro";
+import { t } from "@lingui/macro";
 import { tours as toursSchema, type Tour, type Tours } from "./schemas";
 
 const RAW_TOURS: ReadonlyArray<Tour> = [
