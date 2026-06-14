@@ -22,17 +22,20 @@
  */
 import { describe, expect, it, vi } from "vitest";
 
-vi.mock("@lingui/core/macro", () => ({
+vi.mock("@lingui/macro", () => ({
   t: (msg: { message: string }) => msg.message,
   defineMessage: (msg: { message: string }) => msg,
 }));
 
 vi.mock("@lingui/react/macro", () => ({
-  // Note: the SUT (tours.ts) imports `t` from `@lingui/core/macro`, but
-  // because the Lingui macro package re-exports the same surface across
-  // paths, vitest's mock resolver occasionally routes a `@lingui/core/macro`
-  // import to the *react/macro* mock when both are hoisted in the same
-  // file. Exporting `t` here too makes the test resilient to that quirk.
+  // Note: the SUT (tours.ts) imports `t` from `@lingui/macro` (the proper
+  // babel-macro entry, which has the `babel-plugin-macros` keyword +
+  // export condition needed for Vite's babel pipeline to transform the
+  // macro at build time). The Lingui macro package re-exports the same
+  // surface across paths, so vitest's mock resolver occasionally routes
+  // a `@lingui/macro` import to the *react/macro* mock when both are
+  // hoisted in the same file. Exporting `t` here too makes the test
+  // resilient to that quirk.
   t: (msg: { message: string } | string) => (typeof msg === "string" ? msg : msg.message),
   useLingui: () => ({
     i18n: { _: (msg: { message: string } | string) => (typeof msg === "string" ? msg : msg.message) },

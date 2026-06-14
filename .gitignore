@@ -12,3 +12,6 @@ npm-debug.log*
 public/
 /reports/
 deploy/*.log
+test-results/
+playwright-report/
+blob-report/
