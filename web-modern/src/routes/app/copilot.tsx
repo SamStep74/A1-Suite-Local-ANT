@@ -50,6 +50,7 @@ import {
 } from "../../lib/api/schemas";
 import { HybridBadge } from "../../components/ui/HybridBadge";
 import { cn } from "../../lib/utils/cn";
+import { appLinkTo } from "../../lib/apps";
 
 export const Route = createFileRoute("/app/copilot")({
   component: MissionControl,
@@ -460,8 +461,8 @@ function Panel({
           {badge}
         </div>
         <Link
-          to="/app/$appId"
-          params={{ appId: "copilot" }}
+          to={appLinkTo("copilot").to}
+          params={appLinkTo("copilot").params}
           className="inline-flex items-center gap-0.5 text-[10px] text-[var(--color-muted)] hover:text-[var(--color-brand)]"
           aria-label={`See all ${title}`}
         >

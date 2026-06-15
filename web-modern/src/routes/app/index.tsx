@@ -37,7 +37,7 @@ import {
   Timer,
   Inbox,
 } from "lucide-react";
-import { APPS, type AppId } from "../../lib/apps";
+import { APPS, appLinkTo, type AppId } from "../../lib/apps";
 import { getJson } from "../../lib/api/client";
 import { ServiceConsoleSchema, type ServiceCase } from "../../lib/api/schemas";
 import { cn } from "../../lib/utils/cn";
@@ -348,8 +348,8 @@ function CaseRow({ case: c, dimmed }: { case: ServiceCase; dimmed?: boolean }) {
   const statusTone = STATUS_TONE[c.status];
   return (
     <Link
-      to="/app/$appId"
-      params={{ appId: "desk" satisfies AppId }}
+      to={appLinkTo("desk").to}
+      params={appLinkTo("desk").params}
       search={{ case: c.id }}
       className={cn(
         "flex items-center gap-3 px-3 py-2",
@@ -421,8 +421,8 @@ function AppQuickLink({ id }: { id: AppId }) {
   const Icon = meta.icon;
   return (
     <Link
-      to="/app/$appId"
-      params={{ appId: id }}
+      to={appLinkTo(id).to}
+      params={appLinkTo(id).params}
       className={cn(
         "group flex items-center gap-2 rounded-[var(--radius-lg)]",
         "border border-[var(--color-line)] bg-[var(--color-surface)] p-3",

@@ -271,3 +271,51 @@ export const APPS: Record<AppId, AppMeta> = {
 export function appHref(id: AppId): string {
   return `/app/${id}`;
 }
+
+/**
+ * Build the TanStack Router `to` + `params` pair for a given app id.
+ *
+ * Every id in `APP_IDS` has a literal route file
+ * (e.g. `src/routes/app/crm/index.tsx` → registered as `/app/crm/`).
+ * Linking via `/app/$appId` (the catch-all) for these emits
+ * `params.stringify`'s "Generated path matched literal route" warning
+ * on every render, which floods the console and burns the main
+ * thread — at ~19 apps × multiple Link components per page, that's
+ * 100+ warnings on every navigation. Linking directly to the
+ * literal route avoids both the warning and the per-call
+ * route-match check.
+ *
+ * Unknown ids (e.g. a future app whose route file hasn't been
+ * written yet) fall through to the dynamic catch-all so the
+ * placeholder page at `/app/$appId.tsx` can render.
+ */
+/**
+ * Build a TanStack Router `to` + `params` pair for a given app id.
+ *
+ * Every id in `APP_IDS` has a literal route file
+ * (e.g. `src/routes/app/crm/index.tsx` → registered as `/app/crm`).
+ * Linking via `/app/$appId` (the catch-all) for these emits
+ * `params.stringify`'s "Generated path matched literal route" warning
+ * on every render, which floods the console and burns the main
+ * thread — at ~19 apps × multiple Link components per page, that's
+ * 100+ warnings on every navigation. Linking directly to the
+ * literal route avoids both the warning and the per-call
+ * route-match check.
+ *
+ * Unknown ids (e.g. a future app whose route file hasn't been
+ * written yet) fall through to the dynamic catch-all so the
+ * placeholder page at `/app/$appId.tsx` can render.
+ *
+ * Cast: TanStack Router types `to` as a strict literal union of
+ * registered route IDs; `\`/app/${id}\`` is too dynamic to express
+ * in that union. The runtime uses the actual string value, which
+ * IS a registered route (the literal index for `id`).
+ */
+export function appLinkTo(
+  id: string,
+): { to: "/app/$appId"; params: { appId: string } } {
+  if ((APP_IDS as readonly string[]).includes(id)) {
+    return { to: `/app/${id}/` as unknown as "/app/$appId", params: { appId: id } };
+  }
+  return { to: "/app/$appId", params: { appId: id } };
+}

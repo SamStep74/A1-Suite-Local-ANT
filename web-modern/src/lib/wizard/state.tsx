@@ -38,7 +38,7 @@
  *   localized copy at render time. Everything else returns plain
  *   data.
  */
-import { useLingui } from "@lingui/react/macro";
+import { i18n } from "@lingui/core";
 import {
   CustomerStepSchema,
   type CustomerStep,
@@ -370,27 +370,31 @@ function clearTouchedErrors(
 
 /* ────────── Lingui validation messages ────────── */
 
-/** Map a stable `ValidationCode` to a localized message. Called
- *  by the route at render time with the Lingui `t` tag from
- *  `useLingui()`. */
-export function validationMessage(
-  t: ReturnType<typeof useLingui>["t"],
-  code: ValidationCode | string,
-): string {
+/** Map a stable `ValidationCode` to a localized message. Uses
+ *  `i18n._` directly (not the `t` macro) because this lib is
+ *  consumed by the route without JSX, and Lingui's macro `t` is
+ *  only expanded by babel-plugin-macros in .tsx files that have
+ *  JSX. Passing an unexpanded tagged template to `i18n._` would
+ *  lose the id and message, so we go through the low-level API
+ *  with hand-picked catalog ids. */
+export function validationMessage(code: ValidationCode | string): string {
   switch (code) {
     case ValidationCode.Required:
-      return t`This field is required`;
+      return i18n._({ id: "B8AaMI", message: "This field is required" });
     case ValidationCode.DateFormat:
-      return t`Use YYYY-MM-DD`;
+      return i18n._({ id: "jQ3LkA", message: "Use YYYY-MM-DD" });
     case ValidationCode.Positive:
-      return t`Must be greater than zero`;
+      return i18n._({ id: "pcVjVf", message: "Must be greater than zero" });
     case ValidationCode.Nonnegative:
-      return t`Cannot be negative`;
+      return i18n._({ id: "1OsPpv", message: "Cannot be negative" });
     case ValidationCode.MinOneLine:
-      return t`Add at least one line item`;
+      return i18n._({ id: "90/jMS", message: "Add at least one line item" });
     case ValidationCode.ConfirmRequired:
-      return t`Confirm the draft before submitting`;
+      return i18n._({
+        id: "3Qx51L",
+        message: "Confirm the draft before submitting",
+      });
     default:
-      return t`Invalid value`;
+      return i18n._({ id: "", message: "Invalid value" });
   }
 }

@@ -29,7 +29,7 @@ import {
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "@tanstack/react-router";
-import { APP_IDS, APPS, appHref, type AppId } from "../../lib/apps";
+import { APP_IDS, APPS, appHref, appLinkTo, type AppId } from "../../lib/apps";
 import { useTheme } from "../../lib/theme/ThemeProvider";
 import { useDensity, DENSITIES, type Density } from "../../lib/density/DensityProvider";
 import { HybridBadge } from "../ui/HybridBadge";
@@ -262,7 +262,7 @@ export function AskCommandPalette({ open, onOpenChange, onSignOut }: PaletteProp
 /* ──────────────── helpers ──────────────── */
 
 function goToApp(navigate: ReturnType<typeof useNavigate>, id: AppId, close: (b: boolean) => void) {
-  navigate({ to: "/app/$appId", params: { appId: id } });
+  navigate(appLinkTo(id) as unknown as Parameters<typeof useNavigate>[0]);
   close(false);
 }
 
