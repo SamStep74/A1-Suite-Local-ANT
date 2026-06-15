@@ -227,7 +227,9 @@ router helpers must either run with a `/legacy` basename or rewrite `appIdFromLo
 `appRoute()` so classic navigation stays under `/legacy/app/...`. Non-MFA login/session already
 work on both (Bearer + cookie); the flip is gated on an MFA login parity test covering
 `/api/login` returning `mfaRequired` + `challengeId`, verification at `/api/login/mfa`, and
-storing the returned `sid`. Rollback = restore the legacy root contract, not just repoint
+storing the returned `sid`, plus a browser test proving web-modern carries `challengeId` into
+`/login/mfa`, posts `{ challengeId, code }` to `/api/login/mfa`, and persists the returned
+`sid`. Rollback = restore the legacy root contract, not just repoint
 `build:ui`: rebuild legacy with the root Vite base/basename, return classic router helpers to
 root `/app/...`, and restore the root static/index fallback while disabling the `/legacy/*`
 fallback. The transition window ends at 8.12 (legacy deletion), which deletes the escape hatch too.

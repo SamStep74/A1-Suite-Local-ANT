@@ -627,6 +627,9 @@ function executePlan(plan, runtime = {}) {
   runCommandImpl('git', ['rev-parse', '--is-inside-work-tree'], { cwd: plan.repoRoot });
   runCommandImpl('tmux', ['-V']);
 
+  const baseRefFetch = resolveBaseRefFetch(plan.baseRef);
+  runCommandImpl('git', ['fetch', 'ant', baseRefFetch], { cwd: plan.repoRoot });
+
   if (plan.replaceExisting) {
     cleanupExistingImpl(plan);
   } else {
@@ -641,11 +644,6 @@ function executePlan(plan, runtime = {}) {
 
   try {
     materializePlanImpl(plan);
-
-    const baseRefFetch = resolveBaseRefFetch(plan.baseRef);
-    if (baseRefFetch) {
-      runCommandImpl('git', ['fetch', 'ant', baseRefFetch], { cwd: plan.repoRoot });
-    }
 
     for (const workerPlan of plan.workerPlans) {
       runCommandImpl('git', workerPlan.gitArgs, { cwd: plan.repoRoot });
