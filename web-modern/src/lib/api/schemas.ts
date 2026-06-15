@@ -6241,5 +6241,53 @@ export const OAuthSweepResultSchema = z.object({
 });
 export type OAuthSweepResult = z.infer<typeof OAuthSweepResultSchema>;
 
+/* ── AI surface (Phase 10.13 / slice 11) ─────────────────────────
+ *
+ * Source: server/app.js
+ *   - GET  /api/ai/status  →  AiStatusResponseSchema
+ *   - POST /api/ai/chat    →  AiChatResponseSchema
+ *
+ * The discriminated result from the server is reshaped by the
+ * route handler into a 2xx envelope:
+ *   { ok, provider, model, data | null, error | null }
+ * so the SPA can pattern-match on `ok` instead of inspecting
+ * the provider's internal `error` field. The `provider` field
+ * is one of 'ollama' | 'anthropic' | 'openai' | 'none'.
+ *
+ * NO API key is ever returned by either route — the sovereign
+ * contract holds. `model` is the model name the provider
+ * actually used (e.g. 'llama3.1:8b').
+ */
+
+export const AiStatusResponseSchema = z.object({
+  provider: z.string(),
+  /**
+   * Host-only base URL for transparency ('127.0.0.1:11434' or
+   * similar). NO path, NO API key, NO port-secret.
+   */
+  baseURL: z.string(),
+  models: z.array(z.string()).default([]),
+  ok: z.boolean(),
+  error: z.string().nullable().optional(),
+});
+export type AiStatusResponse = z.infer<typeof AiStatusResponseSchema>;
+
+export const AiChatRequestSchema = z.object({
+  system: z.string().min(1).max(8 * 1024),
+  user: z.string().min(1).max(64 * 1024),
+  temperature: z.number().min(0).max(2).optional(),
+  maxTokens: z.number().int().min(1).max(4096).optional(),
+});
+export type AiChatRequest = z.infer<typeof AiChatRequestSchema>;
+
+export const AiChatResponseSchema = z.object({
+  ok: z.boolean(),
+  provider: z.string(),
+  model: z.string().nullable(),
+  data: z.unknown().nullable(),
+  error: z.string().nullable(),
+});
+export type AiChatResponse = z.infer<typeof AiChatResponseSchema>;
+
 
 

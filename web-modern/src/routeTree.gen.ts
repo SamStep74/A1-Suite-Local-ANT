@@ -59,6 +59,7 @@ import { Route as AppSmbCrmIntegrationsIndexRouteImport } from './routes/app/smb
 import { Route as AppSmbCrmDealsIndexRouteImport } from './routes/app/smb-crm/deals/index'
 import { Route as AppSmbCrmCustomersIndexRouteImport } from './routes/app/smb-crm/customers/index'
 import { Route as AppSmbCrmAutomationsIndexRouteImport } from './routes/app/smb-crm/automations/index'
+import { Route as AppSmbCrmAiIndexRouteImport } from './routes/app/smb-crm/ai/index'
 import { Route as AppPurchaseProcurementIndexRouteImport } from './routes/app/purchase/procurement/index'
 import { Route as AppInventoryWarehouseIndexRouteImport } from './routes/app/inventory/warehouse/index'
 import { Route as AppFlowIntegrationsIndexRouteImport } from './routes/app/flow/integrations/index'
@@ -329,6 +330,11 @@ const AppSmbCrmAutomationsIndexRoute =
     path: '/smb-crm/automations/',
     getParentRoute: () => AppRouteRoute,
   } as any)
+const AppSmbCrmAiIndexRoute = AppSmbCrmAiIndexRouteImport.update({
+  id: '/smb-crm/ai/',
+  path: '/smb-crm/ai/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppPurchaseProcurementIndexRoute =
   AppPurchaseProcurementIndexRouteImport.update({
     id: '/purchase/procurement/',
@@ -491,6 +497,7 @@ export interface FileRoutesByFullPath {
   '/app/flow/integrations/': typeof AppFlowIntegrationsIndexRoute
   '/app/inventory/warehouse/': typeof AppInventoryWarehouseIndexRoute
   '/app/purchase/procurement/': typeof AppPurchaseProcurementIndexRoute
+  '/app/smb-crm/ai/': typeof AppSmbCrmAiIndexRoute
   '/app/smb-crm/automations/': typeof AppSmbCrmAutomationsIndexRoute
   '/app/smb-crm/customers/': typeof AppSmbCrmCustomersIndexRoute
   '/app/smb-crm/deals/': typeof AppSmbCrmDealsIndexRoute
@@ -558,6 +565,7 @@ export interface FileRoutesByTo {
   '/app/flow/integrations': typeof AppFlowIntegrationsIndexRoute
   '/app/inventory/warehouse': typeof AppInventoryWarehouseIndexRoute
   '/app/purchase/procurement': typeof AppPurchaseProcurementIndexRoute
+  '/app/smb-crm/ai': typeof AppSmbCrmAiIndexRoute
   '/app/smb-crm/automations': typeof AppSmbCrmAutomationsIndexRoute
   '/app/smb-crm/customers': typeof AppSmbCrmCustomersIndexRoute
   '/app/smb-crm/deals': typeof AppSmbCrmDealsIndexRoute
@@ -628,6 +636,7 @@ export interface FileRoutesById {
   '/app/flow/integrations/': typeof AppFlowIntegrationsIndexRoute
   '/app/inventory/warehouse/': typeof AppInventoryWarehouseIndexRoute
   '/app/purchase/procurement/': typeof AppPurchaseProcurementIndexRoute
+  '/app/smb-crm/ai/': typeof AppSmbCrmAiIndexRoute
   '/app/smb-crm/automations/': typeof AppSmbCrmAutomationsIndexRoute
   '/app/smb-crm/customers/': typeof AppSmbCrmCustomersIndexRoute
   '/app/smb-crm/deals/': typeof AppSmbCrmDealsIndexRoute
@@ -699,6 +708,7 @@ export interface FileRouteTypes {
     | '/app/flow/integrations/'
     | '/app/inventory/warehouse/'
     | '/app/purchase/procurement/'
+    | '/app/smb-crm/ai/'
     | '/app/smb-crm/automations/'
     | '/app/smb-crm/customers/'
     | '/app/smb-crm/deals/'
@@ -766,6 +776,7 @@ export interface FileRouteTypes {
     | '/app/flow/integrations'
     | '/app/inventory/warehouse'
     | '/app/purchase/procurement'
+    | '/app/smb-crm/ai'
     | '/app/smb-crm/automations'
     | '/app/smb-crm/customers'
     | '/app/smb-crm/deals'
@@ -835,6 +846,7 @@ export interface FileRouteTypes {
     | '/app/flow/integrations/'
     | '/app/inventory/warehouse/'
     | '/app/purchase/procurement/'
+    | '/app/smb-crm/ai/'
     | '/app/smb-crm/automations/'
     | '/app/smb-crm/customers/'
     | '/app/smb-crm/deals/'
@@ -1200,6 +1212,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSmbCrmAutomationsIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/smb-crm/ai/': {
+      id: '/app/smb-crm/ai/'
+      path: '/smb-crm/ai'
+      fullPath: '/app/smb-crm/ai/'
+      preLoaderRoute: typeof AppSmbCrmAiIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/purchase/procurement/': {
       id: '/app/purchase/procurement/'
       path: '/purchase/procurement'
@@ -1394,6 +1413,7 @@ interface AppRouteRouteChildren {
   AppFlowIntegrationsIndexRoute: typeof AppFlowIntegrationsIndexRoute
   AppInventoryWarehouseIndexRoute: typeof AppInventoryWarehouseIndexRoute
   AppPurchaseProcurementIndexRoute: typeof AppPurchaseProcurementIndexRoute
+  AppSmbCrmAiIndexRoute: typeof AppSmbCrmAiIndexRoute
   AppSmbCrmAutomationsIndexRoute: typeof AppSmbCrmAutomationsIndexRoute
   AppSmbCrmCustomersIndexRoute: typeof AppSmbCrmCustomersIndexRoute
   AppSmbCrmDealsIndexRoute: typeof AppSmbCrmDealsIndexRoute
@@ -1457,6 +1477,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppFlowIntegrationsIndexRoute: AppFlowIntegrationsIndexRoute,
   AppInventoryWarehouseIndexRoute: AppInventoryWarehouseIndexRoute,
   AppPurchaseProcurementIndexRoute: AppPurchaseProcurementIndexRoute,
+  AppSmbCrmAiIndexRoute: AppSmbCrmAiIndexRoute,
   AppSmbCrmAutomationsIndexRoute: AppSmbCrmAutomationsIndexRoute,
   AppSmbCrmCustomersIndexRoute: AppSmbCrmCustomersIndexRoute,
   AppSmbCrmDealsIndexRoute: AppSmbCrmDealsIndexRoute,
