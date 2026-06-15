@@ -3587,6 +3587,79 @@ function registerApi(app, db, options = {}) {
   app.patch("/api/smb-crm/quotes/:id", request => recordsUpdateRoute(request, quoteEntity, request.params.id, "smb_crm.quote.updated"));
   app.delete("/api/smb-crm/quotes/:id", request => recordsDeleteRoute(request, quoteEntity, request.params.id, "smb_crm.quote.deleted"));
 
+  // GET /api/smb-crm/quotes/:id.pdf — printable PDF view of a
+  // quote. Hand-rolled (no pdfkit), 0-dep sovereign. Armenian
+  // is preserved verbatim in the /Info /Subject; the printable
+  // body uses the built-in Helvetica + WinAnsiEncoding with
+  // Armenian transliterated to Latin. Content-Disposition is
+  // "inline" so the browser opens the PDF in a new tab.
+  app.get("/api/smb-crm/quotes/:id.pdf", async (request, reply) => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    const quote = records.getQuote(db, user.org_id, request.params.id);
+    if (!quote) {
+      const err = new Error(`Quote not found: ${request.params.id}`);
+      err.statusCode = 404;
+      throw err;
+    }
+    // Pull customer + org metadata for the header. Both
+    // lookups are best-effort: if the customer is missing
+    // (e.g. deleted), the PDF still renders. Note: the
+    // smb_crm_customers table has full_name + company_name
+    // + address (NO tax_id column); the bill-to header uses
+    // company_name when present, else full_name.
+    const customer = quote.customer_id
+      ? records.getCustomer(db, user.org_id, quote.customer_id)
+      : null;
+    const org = db.prepare("SELECT name, tax_id FROM organizations WHERE id = ?").get(user.org_id);
+    const lineItems = quote.line_items_json
+      ? (() => {
+          try { return JSON.parse(quote.line_items_json); }
+          catch (err) { return []; }
+        })()
+      : [];
+
+    const pdf = require("./lib/pdf/quote-pdf");
+    const bytes = pdf.buildQuotePdf({
+      quoteNumber: quote.number,
+      customerName: customer ? (customer.company_name || customer.full_name || "") : "",
+      customerAddress: customer ? (customer.address || "") : "",
+      customerTaxId: org ? (org.tax_id || "") : "",
+      orgName: org ? org.name : "",
+      orgAddress: org ? (org.address || "") : "",  // organizations table may not have address; null-safe
+      orgTaxId: org ? (org.tax_id || "") : "",
+      orgLogoText: org ? org.name : "A1 Suite",
+      issueDate: quote.issue_date || "",
+      expiryDate: quote.expiry_date || "",
+      status: quote.status || "draft",
+      currency: quote.currency || "AMD",
+      totalAmount: quote.total_amount || 0,
+      lineItems,
+      notes: "",
+      rawQuote: {
+        id: quote.id,
+        number: quote.number,
+        customer_id: quote.customer_id,
+        org_id: quote.org_id,
+        line_items_json: quote.line_items_json,
+        customer_full_name: customer ? customer.full_name : null,
+        customer_company_name: customer ? customer.company_name : null,
+        customer_address: customer ? customer.address : null
+      }
+    });
+
+    audit(db, user.org_id, user.id, "smb_crm.quote.exported_pdf", {
+      quote_id: quote.id,
+      quote_number: quote.number,
+      bytes: bytes.length
+    });
+
+    reply.type("application/pdf");
+    reply.header("Content-Disposition", `inline; filename="quote-${quote.number}.pdf"`);
+    reply.header("Content-Length", String(bytes.length));
+    return reply.send(Buffer.from(bytes));
+  });
+
   // ── Activities (5 routes) ──────────────────────────────────────
   app.get("/api/smb-crm/activities", request => recordsListRoute(request, activityEntity));
   app.post("/api/smb-crm/activities", request => recordsCreateRoute(request, activityEntity, "smb_crm.activity.created"));
