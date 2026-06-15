@@ -155,6 +155,7 @@ const greenhouse = require("./greenhouse");
 const postingCodes = require("./postingCodes");
 const settingsStore = require("./settingsStore");
 const aiProvider = require("./aiProvider");
+const smbCrmAiProvider = require("./smbCrmAiProvider");
 const openNotebook = require("./openNotebook");
 const {
   assertPlatformTenantUser,
@@ -526,7 +527,7 @@ function registerApi(app, db, options = {}) {
   // when a real provider is configured.
   app.post("/api/ai/ask", async request => {
     const user = await app.auth(request);
-    requireIntegrationWriter(user);
+    requireAskAiAccess(user);
     const body = request.body && typeof request.body === "object" ? request.body : {};
     const question = typeof body.question === "string" ? body.question.trim() : "";
     if (!question) {
@@ -539,41 +540,8 @@ function registerApi(app, db, options = {}) {
     const idempotencyKey = typeof body.idempotencyKey === "string" && body.idempotencyKey.trim()
       ? body.idempotencyKey.trim()
       : undefined;
-    const aiChat = require("./lib/ai/chat");
     const fallback = buildAskAiFallback(question, context, idempotencyKey);
-    const result = await aiChat.chatJson(
-      {
-        system:
-          "You answer A1 Suite in-app questions. Return only JSON matching " +
-          "{answer:string,citations:array,tokensUsed:number}. Keep citations to route links from the supplied context.",
-        user: JSON.stringify({ question, context }),
-        jsonSchema: {
-          type: "object",
-          additionalProperties: false,
-          required: ["answer", "citations", "tokensUsed"],
-          properties: {
-            answer: { type: "string" },
-            citations: {
-              type: "array",
-              items: {
-                type: "object",
-                additionalProperties: true,
-                required: ["kind", "id", "label"],
-                properties: {
-                  kind: { type: "string" },
-                  id: { type: "string" },
-                  label: { type: "string" },
-                  app: { type: "string" },
-                  href: { type: "string" }
-                }
-              }
-            },
-            tokensUsed: { type: "integer", minimum: 0 }
-          }
-        }
-      },
-      { env: process.env }
-    );
+    const result = await runAskAiProvider({ question, context, fallback });
     audit(db, user.org_id, user.id, "ai.ask", {
       provider: result.provider,
       model: result.model || null,
@@ -10366,6 +10334,14 @@ function requireIntegrationReader(user) {
 function requireIntegrationWriter(user) {
   if (!["Owner", "Admin"].includes(user.role)) {
     const err = new Error("Integration writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requireAskAiAccess(user) {
+  if (!["Owner", "Admin", "Salesperson", "Operator", "Accountant", "Auditor"].includes(user.role)) {
+    const err = new Error("Ask AI role required");
     err.statusCode = 403;
     throw err;
   }
@@ -63652,6 +63628,68 @@ function buildAskAiFallback(question, context, idempotencyKey) {
   return response;
 }
 
+async function runAskAiProvider({ question, context, fallback }) {
+  const settings = settingsStore.getSettings();
+  const policy = settingsStore.resolveModelPolicy();
+  const model = aiProvider.resolveModelForRequest(policy, { aspect: "default" }) || config.ai.copilotModel || "openai/gpt-4o-mini";
+  if (!settings.openrouterApiKey || !config.isOpenRouterEgressAllowed()) {
+    return {
+      ok: false,
+      data: fallback,
+      error: settings.openrouterApiKey ? "openrouter_egress_blocked" : "openrouter_api_key_missing",
+      provider: "openrouter",
+      model
+    };
+  }
+  const provider = smbCrmAiProvider.createOpenRouterProvider({
+    apiKey: settings.openrouterApiKey,
+    baseUrl: config.openrouter.baseUrl,
+    referer: config.openrouter.referer,
+    title: config.openrouter.title,
+    model
+  });
+  const result = await provider.generateStructured({
+    systemPrompt:
+      "You answer A1 Suite in-app questions. Return only JSON matching " +
+      "{answer:string,citations:array,tokensUsed:number}. Keep citations to route links from the supplied context.",
+    userPrompt: JSON.stringify({ question, context }),
+    jsonSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["answer", "citations", "tokensUsed"],
+      properties: {
+        answer: { type: "string" },
+        citations: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: true,
+            required: ["kind", "id", "label"],
+            properties: {
+              kind: { type: "string" },
+              id: { type: "string" },
+              label: { type: "string" },
+              app: { type: "string" },
+              href: { type: "string" }
+            }
+          }
+        },
+        tokensUsed: { type: "integer", minimum: 0 }
+      }
+    },
+    maxOutputTokens: 1024,
+    temperature: 0.2,
+    model
+  });
+  return {
+    ok: result.ok === true,
+    data: result.data,
+    error: result.error || (Array.isArray(result.warnings) ? result.warnings.join("; ") : undefined),
+    provider: provider.name,
+    model
+  };
+}
+
 function coerceAskAiResponse(result, fallback, idempotencyKey) {
   if (!result || result.ok !== true || !isPlainObject(result.data)) {
     return fallback;
@@ -63697,8 +63735,8 @@ function isAskAiCitation(value) {
   if (value.kind !== "route" && value.kind !== "document") return false;
   if (typeof value.id !== "string" || !value.id.trim()) return false;
   if (typeof value.label !== "string" || !value.label.trim()) return false;
-  if (value.kind === "route" && typeof value.app !== "string") return false;
-  if (value.href !== undefined && typeof value.href !== "string") return false;
+  if (value.kind === "route" && (typeof value.app !== "string" || !value.app.trim())) return false;
+  if (value.href !== undefined && (typeof value.href !== "string" || !value.href.trim())) return false;
   return true;
 }
 

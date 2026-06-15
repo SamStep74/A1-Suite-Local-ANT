@@ -125,6 +125,85 @@ test("POST /api/ai/ask returns the existing Ask AI response contract", async () 
   }
 });
 
+test("POST /api/ai/ask lets app users use saved OpenRouter settings and filters blank citations", async () => {
+  const previousAllowEgress = process.env.ARMOSPHERA_ONE_ALLOW_EGRESS;
+  const previousAllowlist = process.env.ARMOSPHERA_ONE_EGRESS_ALLOWLIST;
+  const previousFetch = globalThis.fetch;
+  const calls = [];
+  process.env.ARMOSPHERA_ONE_ALLOW_EGRESS = "1";
+  process.env.ARMOSPHERA_ONE_EGRESS_ALLOWLIST = "openrouter.ai";
+  globalThis.fetch = async (url, init = {}) => {
+    calls.push({ url: String(url), init });
+    return {
+      ok: true,
+      status: 200,
+      async text() {
+        return JSON.stringify({
+          choices: [{
+            message: {
+              content: JSON.stringify({
+                answer: "Use the finance dashboard.",
+                citations: [
+                  { kind: "route", id: "finance", app: "finance", label: "Finance", href: "/app/finance" },
+                  { kind: "route", id: "bad-app", app: "", label: "Bad", href: "/app/bad" },
+                  { kind: "route", id: "bad-href", app: "finance", label: "Bad href", href: "" }
+                ],
+                tokensUsed: 7
+              })
+            }
+          }]
+        });
+      }
+    };
+  };
+
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const settings = await app.inject({
+      method: "PUT",
+      url: "/api/ai/settings",
+      headers: { cookie: owner },
+      payload: {
+        openrouterApiKey: "sk-or-test-ask",
+        models: { default: "openai/gpt-4o-mini" }
+      }
+    });
+    assert.strictEqual(settings.statusCode, 200, settings.body);
+
+    const operator = await login(app, "operator@armosphera.local", DEFAULT_PASSWORD);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai/ask",
+      headers: { cookie: operator },
+      payload: {
+        question: "Where next?",
+        context: { app: "finance" },
+        idempotencyKey: "ask-provider-1"
+      }
+    });
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const body = res.json();
+    assert.strictEqual(body.answer, "Use the finance dashboard.");
+    assert.deepStrictEqual(body.citations, [
+      { kind: "route", id: "finance", app: "finance", label: "Finance", href: "/app/finance" }
+    ]);
+    assert.strictEqual(body.tokensUsed, 7);
+    assert.strictEqual(body.idempotencyKey, "ask-provider-1");
+    assert.strictEqual(calls.length, 1);
+    assert.strictEqual(JSON.parse(calls[0].init.body).model, "openai/gpt-4o-mini");
+    assert.strictEqual(calls[0].init.headers.Authorization, "Bearer sk-or-test-ask");
+  } finally {
+    if (previousAllowEgress === undefined) delete process.env.ARMOSPHERA_ONE_ALLOW_EGRESS;
+    else process.env.ARMOSPHERA_ONE_ALLOW_EGRESS = previousAllowEgress;
+    if (previousAllowlist === undefined) delete process.env.ARMOSPHERA_ONE_EGRESS_ALLOWLIST;
+    else process.env.ARMOSPHERA_ONE_EGRESS_ALLOWLIST = previousAllowlist;
+    globalThis.fetch = previousFetch;
+    await app.close();
+  }
+});
+
 test("PUT /api/ai/settings validates input (400 on bad baseUrl and non-string key)", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
