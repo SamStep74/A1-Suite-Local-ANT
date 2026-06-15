@@ -315,6 +315,9 @@ export function appLinkTo(
   id: string,
 ): { to: "/app/$appId"; params: { appId: string } } {
   if ((APP_IDS as readonly string[]).includes(id)) {
+    if (id === "copilot") {
+      return { to: "/app/copilot" as unknown as "/app/$appId", params: { appId: id } };
+    }
     return { to: `/app/${id}/` as unknown as "/app/$appId", params: { appId: id } };
   }
   return { to: "/app/$appId", params: { appId: id } };

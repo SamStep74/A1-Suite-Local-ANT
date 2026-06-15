@@ -55,22 +55,23 @@
  * these shims are only active in dev-mode e2e runs.
  */
 import type { BrowserContext, Route } from "@playwright/test";
-import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 
-const require = createRequire(import.meta.url);
+const E2E_DIR = dirname(fileURLToPath(import.meta.url));
 
 type Catalog = Record<string, string>;
 
 /** Loaded from the compiled CJS catalogs under src/locales/.
- *  The `messages.js` files do `module.exports = { messages: ... }`,
- *  so `.messages` is the dictionary Lingui's `i18n.activate`
- *  expects. We use `createRequire` instead of the CJS files'
- *  text content because the source shape is guaranteed by
- *  `lingui compile` and the test isn't responsible for parsing it. */
+ *  The package is `type: module`, so Node treats these .js files
+ *  as ESM even though Lingui compiled them as `module.exports`.
+ *  Reading and parsing the file text avoids `require()` semantics
+ *  while keeping the test shim tied to the committed catalogs. */
 const CATALOGS: Record<string, Catalog> = {
-  hy: require("../src/locales/hy/messages.js").messages,
-  ru: require("../src/locales/ru/messages.js").messages,
-  en: require("../src/locales/en/messages.js").messages,
+  hy: readCompiledCatalog("hy"),
+  ru: readCompiledCatalog("ru"),
+  en: readCompiledCatalog("en"),
 };
 
 /** Inline `<script type="module">` that pre-activates Lingui with
@@ -79,14 +80,53 @@ const CATALOGS: Record<string, Catalog> = {
  *  then takes over and re-activates with the locale selected
  *  via `?lang=` / localStorage on the next render. */
 const PRE_ACTIVATE_SNIPPET = `<script type="module">
-const core = await import("/node_modules/.vite/deps/@lingui_core.js?v=2fa7a4f2");
+const { i18n } = await import("/src/i18n/lingui.ts");
 const mod = await import("/src/locales/hy/messages.js");
 // Lingui v5: i18n.activate(locale, locales) only sets the locale.
 // To set BOTH the locale AND the messages catalog, use
 // loadAndActivate({ locale, messages }).
-core.i18n.loadAndActivate({ locale: "hy", messages: mod.messages });
+i18n.loadAndActivate({ locale: "hy", messages: mod.messages });
 window.__I18N_PRE_ACTIVATED__ = true;
 </script>`;
+
+function readCompiledCatalog(locale: string): Catalog {
+  const source = readFileSync(
+    join(E2E_DIR, "..", "src", "locales", locale, "messages.js"),
+    "utf8",
+  );
+  const jsonText = JSON.parse(extractJsonParseStringLiteral(source)) as string;
+  return JSON.parse(jsonText) as Catalog;
+}
+
+function extractJsonParseStringLiteral(source: string): string {
+  const marker = "JSON.parse(";
+  const markerIndex = source.indexOf(marker);
+  if (markerIndex < 0) {
+    throw new Error("Compiled Lingui catalog is missing JSON.parse(...)");
+  }
+  let index = markerIndex + marker.length;
+  while (/\s/.test(source[index] ?? "")) index += 1;
+  const quote = source[index];
+  if (quote !== "\"") {
+    throw new Error("Compiled Lingui catalog JSON.parse argument is not a string literal");
+  }
+  let escaped = false;
+  for (let end = index + 1; end < source.length; end += 1) {
+    const ch = source[end];
+    if (escaped) {
+      escaped = false;
+      continue;
+    }
+    if (ch === "\\") {
+      escaped = true;
+      continue;
+    }
+    if (ch === quote) {
+      return source.slice(index, end + 1);
+    }
+  }
+  throw new Error("Compiled Lingui catalog string literal is unterminated");
+}
 
 /** Map a request URL to a locale code. Returns "hy" as the
  *  fallback for URLs that don't match the expected pattern
