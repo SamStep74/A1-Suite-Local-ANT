@@ -125,6 +125,35 @@ test("POST /api/ai/ask returns the existing Ask AI response contract", async () 
   }
 });
 
+test("POST /api/ai/ask rejects users without the requested app assignment", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const disabled = await app.inject({
+      method: "POST",
+      url: "/api/apps/finance/assign",
+      headers: { cookie: owner },
+      payload: { role: "Operator", enabled: false },
+    });
+    assert.strictEqual(disabled.statusCode, 200, disabled.body);
+
+    const operator = await login(app, "operator@armosphera.local", DEFAULT_PASSWORD);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai/ask",
+      headers: { cookie: operator },
+      payload: {
+        question: "Show finance health",
+        context: { app: "finance" },
+      },
+    });
+    assert.strictEqual(res.statusCode, 403, res.body);
+  } finally {
+    await app.close();
+  }
+});
+
 test("POST /api/ai/ask lets app users use saved OpenRouter settings and filters blank citations", async () => {
   const previousAllowEgress = process.env.ARMOSPHERA_ONE_ALLOW_EGRESS;
   const previousAllowlist = process.env.ARMOSPHERA_ONE_EGRESS_ALLOWLIST;
