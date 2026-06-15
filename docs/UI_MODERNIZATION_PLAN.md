@@ -353,6 +353,9 @@ shared `design.md` or `contract.md`, 2–4 workers with territorial file ownersh
 (schemas/helpers → routes/components → e2e/parity[/legacy-drop]), a **read-only verifier**
 worker, `merge-order.md`, no-ff merges via the D5/R10 explicit-ref flow + `phase10-<name>-v1`
 tag to remote `ant`.
+The orchestrator must fetch the selected remote-tracking `baseRef` with an explicit refspec
+before `git worktree add`; a missing or stale `refs/remotes/ant/...` base is a hard stop, not
+a reason to fall back to shorthand refs.
 Standing invariants carry over: append-only schemas.ts; `tsr generate` for route tree;
 Armenian-first (now: Lingui hy-source); push only to `ant`; 45–60 min worker budget;
 blockers >10 min → status.md and stop; **never merge from detached HEAD** (cabinet lesson);

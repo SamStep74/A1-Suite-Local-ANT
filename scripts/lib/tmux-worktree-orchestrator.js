@@ -378,6 +378,7 @@ function materializePlan(plan) {
   // orchestrator (human) to follow after workers complete.
   if (Array.isArray(plan.mergeOrder) && plan.mergeOrder.length > 0) {
     const mergeOrderPath = path.join(plan.coordinationDir, 'merge-order.md');
+    const mergeTarget = resolveMergeTarget(plan.baseRef);
     const lines = [
       '# Merge Order',
       '',
@@ -388,16 +389,14 @@ function materializePlan(plan) {
       '## Per-branch steps',
       '',
       '```bash',
-      'git fetch ant refs/heads/ant/main:refs/remotes/ant/ant/main',
-      'git checkout -B __orchestration_merge_ant_main refs/remotes/ant/ant/main',
+      `git fetch ant ${mergeTarget.fetchRefspec}`,
+      `git checkout -B ${mergeTarget.localBranch} ${mergeTarget.trackingRef}`,
       `git merge --no-ff ${plan.mergeOrder[0] ? '<branch-for-step-N>' : ''} -m "merge: <branch>"`,
-      'git push ant HEAD:refs/heads/ant/main   # NOT origin',
+      `git push ant HEAD:${mergeTarget.remoteHead}   # NOT origin`,
       'git push ant <tag-name>',
       '```',
       '',
-      'Fallback topology, only when the repo default is `refs/heads/main`: fetch',
-      '`refs/heads/main:refs/remotes/ant/main`, reset from `refs/remotes/ant/main`,',
-      'and push `HEAD:refs/heads/main`.',
+      `This command block was generated from plan baseRef \`${plan.baseRef}\`.`,
       '',
       '## Conflict resolution',
       '',
@@ -414,6 +413,34 @@ function materializePlan(plan) {
     ];
     fs.writeFileSync(mergeOrderPath, lines.join('\n') + '\n', 'utf8');
   }
+}
+
+function resolveMergeTarget(baseRef = '') {
+  if (baseRef === 'refs/remotes/ant/main') {
+    return {
+      remoteHead: 'refs/heads/main',
+      trackingRef: 'refs/remotes/ant/main',
+      fetchRefspec: 'refs/heads/main:refs/remotes/ant/main',
+      localBranch: '__orchestration_merge_main'
+    };
+  }
+
+  return {
+    remoteHead: 'refs/heads/ant/main',
+    trackingRef: 'refs/remotes/ant/ant/main',
+    fetchRefspec: 'refs/heads/ant/main:refs/remotes/ant/ant/main',
+    localBranch: '__orchestration_merge_ant_main'
+  };
+}
+
+function resolveBaseRefFetch(baseRef = '') {
+  if (baseRef === 'refs/remotes/ant/ant/main') {
+    return 'refs/heads/ant/main:refs/remotes/ant/ant/main';
+  }
+  if (baseRef === 'refs/remotes/ant/main') {
+    return 'refs/heads/main:refs/remotes/ant/main';
+  }
+  return null;
 }
 
 function runCommand(program, args, options = {}) {
@@ -604,6 +631,11 @@ function executePlan(plan, runtime = {}) {
 
   try {
     materializePlanImpl(plan);
+
+    const baseRefFetch = resolveBaseRefFetch(plan.baseRef);
+    if (baseRefFetch) {
+      runCommandImpl('git', ['fetch', 'ant', baseRefFetch], { cwd: plan.repoRoot });
+    }
 
     for (const workerPlan of plan.workerPlans) {
       runCommandImpl('git', workerPlan.gitArgs, { cwd: plan.repoRoot });

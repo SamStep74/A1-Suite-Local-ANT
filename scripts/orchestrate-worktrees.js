@@ -215,31 +215,49 @@ function mergePlan(orchestration, plan) {
     }
     process.stdout.write(`Fetched ${mergeTarget.remoteHead} into ${mergeTarget.trackingRef}.\n`);
 
-    const co = spawnSync('git', ['checkout', '-B', mergeTarget.localBranch, mergeTarget.trackingRef], { cwd: repoRoot, encoding: 'utf8' });
-    if (co.status !== 0) {
-      process.stderr.write(`git checkout -B ${mergeTarget.localBranch} ${mergeTarget.trackingRef} failed:\n${co.stderr}\n`);
-      process.exit(1);
+    if (isAncestor(repoRoot, w.branchName, mergeTarget.trackingRef)) {
+      process.stdout.write(`  ✓ ${w.branchName} is already present in ${mergeTarget.remoteHead}; skipping\n`);
+      continue;
     }
 
-    // Merge
-    const mergeMsg = `merge: ${w.branchName} (${w.workerName})`;
-    const merge = spawnSync(
-      'git',
-      ['merge', '--no-ff', w.branchName, '-m', mergeMsg],
-      { cwd: repoRoot, encoding: 'utf8' }
-    );
-    if (merge.status !== 0) {
-      process.stderr.write(`\nMERGE CONFLICT on ${w.branchName}.\n\n`);
-      process.stderr.write('To resolve:\n');
-      process.stderr.write('  1. Open the conflicted file(s) — likely server/app.js (route block collision) or server/db.js (table collision).\n');
-      process.stderr.write('  2. For each conflict: keep the route block / table from the branch being merged; drop the placeholder stub.\n');
-      process.stderr.write('  3. `npm test` to confirm everything still passes.\n');
-      process.stderr.write('  4. `git add . && git commit --no-edit` to complete the merge commit.\n');
-      process.stderr.write('  5. Re-run: scripts/orchestrate-worktrees.js plan.json --merge\n');
-      process.stderr.write('     (the --merge command is idempotent: it will resume from the next branch in mergeOrder).\n');
-      process.exit(2);
+    const localMergeRef = `refs/heads/${mergeTarget.localBranch}`;
+    const canResume = refExists(repoRoot, localMergeRef)
+      && isAncestor(repoRoot, mergeTarget.trackingRef, mergeTarget.localBranch)
+      && isAncestor(repoRoot, w.branchName, mergeTarget.localBranch);
+
+    if (canResume) {
+      const co = spawnSync('git', ['checkout', mergeTarget.localBranch], { cwd: repoRoot, encoding: 'utf8' });
+      if (co.status !== 0) {
+        process.stderr.write(`git checkout ${mergeTarget.localBranch} failed:\n${co.stderr}\n`);
+        process.exit(1);
+      }
+      process.stdout.write(`  ✓ resuming resolved merge from ${mergeTarget.localBranch}\n`);
+    } else {
+      const co = spawnSync('git', ['checkout', '-B', mergeTarget.localBranch, mergeTarget.trackingRef], { cwd: repoRoot, encoding: 'utf8' });
+      if (co.status !== 0) {
+        process.stderr.write(`git checkout -B ${mergeTarget.localBranch} ${mergeTarget.trackingRef} failed:\n${co.stderr}\n`);
+        process.exit(1);
+      }
+
+      const mergeMsg = `merge: ${w.branchName} (${w.workerName})`;
+      const merge = spawnSync(
+        'git',
+        ['merge', '--no-ff', w.branchName, '-m', mergeMsg],
+        { cwd: repoRoot, encoding: 'utf8' }
+      );
+      if (merge.status !== 0) {
+        process.stderr.write(`\nMERGE CONFLICT on ${w.branchName}.\n\n`);
+        process.stderr.write('To resolve:\n');
+        process.stderr.write('  1. Open the conflicted file(s) — likely server/app.js (route block collision) or server/db.js (table collision).\n');
+        process.stderr.write('  2. For each conflict: keep the route block / table from the branch being merged; drop the placeholder stub.\n');
+        process.stderr.write('  3. `npm test` to confirm everything still passes.\n');
+        process.stderr.write('  4. `git add . && git commit --no-edit` to complete the merge commit on the current merge branch.\n');
+        process.stderr.write('  5. Re-run: scripts/orchestrate-worktrees.js plan.json --merge\n');
+        process.stderr.write('     (the --merge command will push the resolved merge branch, then continue).\n');
+        process.exit(2);
+      }
+      process.stdout.write(`  ✓ merge commit created\n`);
     }
-    process.stdout.write(`  ✓ merge commit created\n`);
 
     // Push
     const push = spawnSync('git', ['push', 'ant', `HEAD:${mergeTarget.remoteHead}`], { cwd: repoRoot, encoding: 'utf8' });
@@ -264,6 +282,15 @@ function mergePlan(orchestration, plan) {
 }
 
 function resolveMergeTarget(baseRef = '') {
+  if (baseRef === 'refs/remotes/ant/ant/main') {
+    return {
+      remoteHead: 'refs/heads/ant/main',
+      trackingRef: 'refs/remotes/ant/ant/main',
+      fetchRefspec: 'refs/heads/ant/main:refs/remotes/ant/ant/main',
+      localBranch: '__orchestration_merge_ant_main'
+    };
+  }
+
   if (baseRef === 'refs/remotes/ant/main') {
     return {
       remoteHead: 'refs/heads/main',
@@ -273,12 +300,23 @@ function resolveMergeTarget(baseRef = '') {
     };
   }
 
-  return {
-    remoteHead: 'refs/heads/ant/main',
-    trackingRef: 'refs/remotes/ant/ant/main',
-    fetchRefspec: 'refs/heads/ant/main:refs/remotes/ant/ant/main',
-    localBranch: '__orchestration_merge_ant_main'
-  };
+  throw new Error(
+    `Ambiguous merge baseRef ${JSON.stringify(baseRef)}. ` +
+    'Use refs/remotes/ant/ant/main for the preferred topology or refs/remotes/ant/main for fallback.'
+  );
+}
+
+function refExists(repoRoot, ref) {
+  const result = spawnSync('git', ['show-ref', '--verify', '--quiet', ref], { cwd: repoRoot });
+  return result.status === 0;
+}
+
+function isAncestor(repoRoot, ancestor, descendant) {
+  const result = spawnSync('git', ['merge-base', '--is-ancestor', ancestor, descendant], {
+    cwd: repoRoot,
+    stdio: 'ignore'
+  });
+  return result.status === 0;
 }
 
 function main() {
