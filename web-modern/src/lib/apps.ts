@@ -314,6 +314,9 @@ export function appHref(id: AppId): string {
 export function appLinkTo(
   id: string,
 ): { to: "/app/$appId"; params: { appId: string } } {
+  if (id === "copilot") {
+    return { to: "/app/copilot" as unknown as "/app/$appId", params: { appId: id } };
+  }
   if ((APP_IDS as readonly string[]).includes(id)) {
     return { to: `/app/${id}/` as unknown as "/app/$appId", params: { appId: id } };
   }
