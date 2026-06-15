@@ -378,6 +378,7 @@ function materializePlan(plan) {
   // orchestrator (human) to follow after workers complete.
   if (Array.isArray(plan.mergeOrder) && plan.mergeOrder.length > 0) {
     const mergeOrderPath = path.join(plan.coordinationDir, 'merge-order.md');
+    const mergeTarget = resolveMergeTarget(plan.baseRef);
     const lines = [
       '# Merge Order',
       '',
@@ -388,12 +389,14 @@ function materializePlan(plan) {
       '## Per-branch steps',
       '',
       '```bash',
-      'git fetch ant',
-      'git checkout ant/main',
+      `git fetch ant ${mergeTarget.fetchRefspec}`,
+      `git checkout -B ${mergeTarget.localBranch} ${mergeTarget.trackingRef}`,
       `git merge --no-ff ${plan.mergeOrder[0] ? '<branch-for-step-N>' : ''} -m "merge: <branch>"`,
-      'git push ant main   # NOT origin',
+      `git push ant HEAD:${mergeTarget.remoteHead}   # NOT origin`,
       'git push ant <tag-name>',
       '```',
+      '',
+      `This command block was generated from plan baseRef \`${plan.baseRef}\`.`,
       '',
       '## Conflict resolution',
       '',
@@ -404,12 +407,50 @@ function materializePlan(plan) {
       '2. Identify the route block for the module being merged — keep it intact.',
       '3. Drop the other side\'s conflicting stub if it\'s a placeholder.',
       '4. Run `npm test` to confirm the route still loads + the new module\'s contract tests pass.',
-      '5. `git add . && git commit --no-edit` then `git push ant main`.',
+      '5. `git add . && git commit --no-edit` then push with the explicit ref above.',
       '',
       '_See the per-worker `status.md` for the final test count and any test gaps._'
     ];
     fs.writeFileSync(mergeOrderPath, lines.join('\n') + '\n', 'utf8');
   }
+}
+
+function resolveMergeTarget(baseRef = '') {
+  if (baseRef === 'refs/remotes/ant/ant/main') {
+    return {
+      remoteHead: 'refs/heads/ant/main',
+      trackingRef: 'refs/remotes/ant/ant/main',
+      fetchRefspec: 'refs/heads/ant/main:refs/remotes/ant/ant/main',
+      localBranch: '__orchestration_merge_ant_main'
+    };
+  }
+
+  if (baseRef === 'refs/remotes/ant/main') {
+    return {
+      remoteHead: 'refs/heads/main',
+      trackingRef: 'refs/remotes/ant/main',
+      fetchRefspec: 'refs/heads/main:refs/remotes/ant/main',
+      localBranch: '__orchestration_merge_main'
+    };
+  }
+
+  throw new Error(
+    `Ambiguous baseRef ${JSON.stringify(baseRef)}. ` +
+    'Use refs/remotes/ant/ant/main for the preferred topology or refs/remotes/ant/main for fallback.'
+  );
+}
+
+function resolveBaseRefFetch(baseRef = '') {
+  if (baseRef === 'refs/remotes/ant/ant/main') {
+    return 'refs/heads/ant/main:refs/remotes/ant/ant/main';
+  }
+  if (baseRef === 'refs/remotes/ant/main') {
+    return 'refs/heads/main:refs/remotes/ant/main';
+  }
+  throw new Error(
+    `Ambiguous baseRef ${JSON.stringify(baseRef)}. ` +
+    'Use refs/remotes/ant/ant/main for the preferred topology or refs/remotes/ant/main for fallback.'
+  );
 }
 
 function runCommand(program, args, options = {}) {
@@ -585,6 +626,9 @@ function executePlan(plan, runtime = {}) {
 
   runCommandImpl('git', ['rev-parse', '--is-inside-work-tree'], { cwd: plan.repoRoot });
   runCommandImpl('tmux', ['-V']);
+
+  const baseRefFetch = resolveBaseRefFetch(plan.baseRef);
+  runCommandImpl('git', ['fetch', 'ant', baseRefFetch], { cwd: plan.repoRoot });
 
   if (plan.replaceExisting) {
     cleanupExistingImpl(plan);
