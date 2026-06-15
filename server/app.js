@@ -3660,6 +3660,74 @@ function registerApi(app, db, options = {}) {
     return reply.send(Buffer.from(bytes));
   });
 
+  // ── Quote templates (Phase 10.13 / slice 12) ──────────────────
+  // GET /api/smb-crm/quote-templates — list the 4 built-in
+  // templates (Standard product, Service 3-line, Annual
+  // subscription, Consulting blank) + the org's custom
+  // templates. Pure read; no auth beyond smb-crm app access.
+  app.get("/api/smb-crm/quote-templates", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    const qt = require("./lib/quote-templates");
+    return { templates: qt.listTemplates(db, user.org_id) };
+  });
+
+  // POST /api/smb-crm/quotes/from-template — create a quote
+  // from a template, applying optional positional overrides
+  // for quantity + unit price. The server-side total is
+  // always recomputed from the line items (never trusted from
+  // the client). The route also supports an idempotencyKey
+  // header / body field so a retry doesn't create two
+  // duplicate quotes.
+  app.post("/api/smb-crm/quotes/from-template", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    const qt = require("./lib/quote-templates");
+    const body = request.body || {};
+    if (!body.templateId) {
+      const err = new Error("templateId is required");
+      err.statusCode = 400;
+      throw err;
+    }
+    if (!body.number) {
+      const err = new Error("number is required");
+      err.statusCode = 400;
+      throw err;
+    }
+    // Idempotency: if a key is provided and a quote with the
+    // same number already exists for this org, return it.
+    if (body.idempotencyKey) {
+      const existing = db.prepare(
+        "SELECT id FROM smb_crm_quotes WHERE org_id = ? AND number = ?"
+      ).get(user.org_id, String(body.number));
+      if (existing) {
+        return { ok: true, quote: records.getQuote(db, user.org_id, existing.id), idempotent: true };
+      }
+    }
+    const result = qt.createQuoteFromTemplate(db, user.org_id, {
+      templateId: String(body.templateId),
+      number: String(body.number),
+      customerId: body.customerId,
+      dealId: body.dealId,
+      issueDate: body.issueDate,
+      expiryDate: body.expiryDate,
+      currency: body.currency,
+      status: body.status,
+      overrides: body.overrides
+    });
+    if (!result.ok) {
+      const err = new Error(result.error || "could not create quote from template");
+      err.statusCode = err.error && err.error.startsWith("template not found") ? 404 : 400;
+      throw err;
+    }
+    audit(db, user.org_id, user.id, "smb_crm.quote.created_from_template", {
+      quote_id: result.quote.id,
+      template_id: body.templateId,
+      total_amount: result.totalAmount
+    });
+    return { ok: true, quote: result.quote, lineItems: result.lineItems, totalAmount: result.totalAmount };
+  });
+
   // ── Activities (5 routes) ──────────────────────────────────────
   app.get("/api/smb-crm/activities", request => recordsListRoute(request, activityEntity));
   app.post("/api/smb-crm/activities", request => recordsCreateRoute(request, activityEntity, "smb_crm.activity.created"));
