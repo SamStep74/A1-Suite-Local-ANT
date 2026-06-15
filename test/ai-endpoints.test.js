@@ -168,9 +168,12 @@ test("POST /api/ai/ask maps extension routes to assigned apps", async () => {
       payload: {
         question: "Help me finish this form",
         context: { app: "forms", rawPath: "/app/forms" },
+        idempotencyKey: "ask-forms-role-route-1",
       },
     });
+
     assert.strictEqual(res.statusCode, 200, res.body);
+    assert.strictEqual(res.json().idempotencyKey, "ask-forms-role-route-1");
   } finally {
     if (previousProvider === undefined) {
       delete process.env.AI_PROVIDER;
