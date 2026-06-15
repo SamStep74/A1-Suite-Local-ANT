@@ -416,6 +416,15 @@ function materializePlan(plan) {
 }
 
 function resolveMergeTarget(baseRef = '') {
+  if (baseRef === 'refs/remotes/ant/ant/main') {
+    return {
+      remoteHead: 'refs/heads/ant/main',
+      trackingRef: 'refs/remotes/ant/ant/main',
+      fetchRefspec: 'refs/heads/ant/main:refs/remotes/ant/ant/main',
+      localBranch: '__orchestration_merge_ant_main'
+    };
+  }
+
   if (baseRef === 'refs/remotes/ant/main') {
     return {
       remoteHead: 'refs/heads/main',
@@ -425,12 +434,10 @@ function resolveMergeTarget(baseRef = '') {
     };
   }
 
-  return {
-    remoteHead: 'refs/heads/ant/main',
-    trackingRef: 'refs/remotes/ant/ant/main',
-    fetchRefspec: 'refs/heads/ant/main:refs/remotes/ant/ant/main',
-    localBranch: '__orchestration_merge_ant_main'
-  };
+  throw new Error(
+    `Ambiguous baseRef ${JSON.stringify(baseRef)}. ` +
+    'Use refs/remotes/ant/ant/main for the preferred topology or refs/remotes/ant/main for fallback.'
+  );
 }
 
 function resolveBaseRefFetch(baseRef = '') {
@@ -440,7 +447,10 @@ function resolveBaseRefFetch(baseRef = '') {
   if (baseRef === 'refs/remotes/ant/main') {
     return 'refs/heads/main:refs/remotes/ant/main';
   }
-  return null;
+  throw new Error(
+    `Ambiguous baseRef ${JSON.stringify(baseRef)}. ` +
+    'Use refs/remotes/ant/ant/main for the preferred topology or refs/remotes/ant/main for fallback.'
+  );
 }
 
 function runCommand(program, args, options = {}) {

@@ -91,7 +91,7 @@ same commit**. Tagged `phase8-<module>-v1`, no-ff merged in declared order, seri
 | 8.13 | Tube CRM (new module) | **Done** (`phase8-tube-v1`) |
 | 8.9 | export-docs | Layers 1–2 merged (`2b88b51`); **layer 3 (legacy-drop) pending** |
 | 8.10 | compliance | Planned, not dispatched |
-| 8.12 | **delete legacy** (`rm -rf web/ public/`, strip `:4100` static mount) | **Done in 10.2e** (legacy build retired; row kept for historical reference) |
+| 8.12 | **delete legacy** (`rm -rf web/ public/legacy/`, strip legacy static mounts while preserving modern `public/`) | **Done in 10.2e** (legacy build retired; row kept for historical reference) |
 | 9 | RBAC (M14.3 RLS + M14.5 RBAC, ANT+MAX, shared contract + verifier) | Dispatched, workers pending |
 
 ### 2.3 Production gap — web-modern has never shipped
@@ -337,7 +337,7 @@ weeks (Pilot cohort dominates); 10.3 ≈ 2 weeks; 10.4 ≈ 3 weeks; 8.12 lands ~
 10.5 is a rolling backlog after.
 
 > **Historical note (Phase 10.2e, 2026-06-12):** 10.2e retired the `/legacy` escape hatch and
-> deleted `web/` + `public/`; the 8.12 row above is now historical — the actual cutover
+> deleted `web/` + `public/legacy/` while preserving modern `public/`; the 8.12 row above is now historical — the actual cutover
 > happened as part of 10.2e (the unblocking of 8.12 by the 10.2 migrations) rather than as
 > a standalone 8.12 session.
 

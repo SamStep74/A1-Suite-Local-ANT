@@ -216,14 +216,29 @@ function mergePlan(orchestration, plan) {
     process.stdout.write(`Fetched ${mergeTarget.remoteHead} into ${mergeTarget.trackingRef}.\n`);
 
     if (isAncestor(repoRoot, w.branchName, mergeTarget.trackingRef)) {
-      process.stdout.write(`  ✓ ${w.branchName} is already present in ${mergeTarget.remoteHead}; skipping\n`);
+      process.stdout.write(`  ✓ ${w.branchName} is already present in ${mergeTarget.remoteHead}\n`);
+      pushWorkerTag(repoRoot, w);
       continue;
     }
 
     const localMergeRef = `refs/heads/${mergeTarget.localBranch}`;
-    const canResume = refExists(repoRoot, localMergeRef)
-      && isAncestor(repoRoot, mergeTarget.trackingRef, mergeTarget.localBranch)
+    const hasLocalMergeBranch = refExists(repoRoot, localMergeRef);
+    const hasResolvedLocalMerge = hasLocalMergeBranch
       && isAncestor(repoRoot, w.branchName, mergeTarget.localBranch);
+    const canResume = hasResolvedLocalMerge
+      && isAncestor(repoRoot, mergeTarget.trackingRef, mergeTarget.localBranch);
+
+    if (hasResolvedLocalMerge && !canResume) {
+      process.stderr.write(
+        `Local ${mergeTarget.localBranch} already contains ${w.branchName}, ` +
+        `but ${mergeTarget.trackingRef} has advanced.\n`
+      );
+      process.stderr.write('Refusing to reset away the resolved merge. To continue safely:\n');
+      process.stderr.write(`  1. git checkout ${mergeTarget.localBranch}\n`);
+      process.stderr.write(`  2. git merge --no-ff ${mergeTarget.trackingRef} -m "merge: refresh ${mergeTarget.remoteHead}"\n`);
+      process.stderr.write('  3. Resolve conflicts if needed, run verification, then rerun --merge.\n');
+      process.exit(2);
+    }
 
     if (canResume) {
       const co = spawnSync('git', ['checkout', mergeTarget.localBranch], { cwd: repoRoot, encoding: 'utf8' });
@@ -267,18 +282,24 @@ function mergePlan(orchestration, plan) {
     }
     process.stdout.write(`  ✓ pushed to ${mergeTarget.remoteHead}\n`);
 
-    // Tag
-    if (w.tagName) {
-      const pushTag = spawnSync('git', ['push', 'ant', w.tagName], { cwd: repoRoot, encoding: 'utf8' });
-      if (pushTag.status !== 0) {
-        process.stderr.write(`git push ant ${w.tagName} failed:\n${pushTag.stderr}\n`);
-        process.exit(1);
-      }
-      process.stdout.write(`  ✓ pushed tag ${w.tagName}\n`);
-    }
+    pushWorkerTag(repoRoot, w);
   }
 
   process.stdout.write(`\nAll ${ordered.length} merges complete. ${mergeTarget.remoteHead} is up to date.\n`);
+}
+
+function pushWorkerTag(repoRoot, workerPlan) {
+  if (!workerPlan.tagName) return;
+
+  const pushTag = spawnSync('git', ['push', 'ant', workerPlan.tagName], {
+    cwd: repoRoot,
+    encoding: 'utf8'
+  });
+  if (pushTag.status !== 0) {
+    process.stderr.write(`git push ant ${workerPlan.tagName} failed:\n${pushTag.stderr}\n`);
+    process.exit(1);
+  }
+  process.stdout.write(`  ✓ pushed tag ${workerPlan.tagName}\n`);
 }
 
 function resolveMergeTarget(baseRef = '') {
