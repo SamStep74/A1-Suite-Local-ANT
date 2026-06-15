@@ -55,22 +55,20 @@
  * these shims are only active in dev-mode e2e runs.
  */
 import type { BrowserContext, Route } from "@playwright/test";
-import { createRequire } from "node:module";
+import { readFileSync } from "node:fs";
 
-const require = createRequire(import.meta.url);
-
-type Catalog = Record<string, string>;
+type Catalog = Record<string, unknown>;
 
 /** Loaded from the compiled CJS catalogs under src/locales/.
  *  The `messages.js` files do `module.exports = { messages: ... }`,
  *  so `.messages` is the dictionary Lingui's `i18n.activate`
- *  expects. We use `createRequire` instead of the CJS files'
- *  text content because the source shape is guaranteed by
- *  `lingui compile` and the test isn't responsible for parsing it. */
+ *  expects. The package is `type: module`, so loading these
+ *  `module.exports` artifacts through Node's module loader is
+ *  version-sensitive; parse the committed compile output directly. */
 const CATALOGS: Record<string, Catalog> = {
-  hy: require("../src/locales/hy/messages.js").messages,
-  ru: require("../src/locales/ru/messages.js").messages,
-  en: require("../src/locales/en/messages.js").messages,
+  hy: readCatalog("hy"),
+  ru: readCatalog("ru"),
+  en: readCatalog("en"),
 };
 
 /** Inline `<script type="module">` that pre-activates Lingui with
@@ -79,7 +77,7 @@ const CATALOGS: Record<string, Catalog> = {
  *  then takes over and re-activates with the locale selected
  *  via `?lang=` / localStorage on the next render. */
 const PRE_ACTIVATE_SNIPPET = `<script type="module">
-const core = await import("/node_modules/.vite/deps/@lingui_core.js?v=2fa7a4f2");
+const core = await import("/src/i18n/lingui.ts");
 const mod = await import("/src/locales/hy/messages.js");
 // Lingui v5: i18n.activate(locale, locales) only sets the locale.
 // To set BOTH the locale AND the messages catalog, use
@@ -104,6 +102,17 @@ function localeFromUrl(url: string): string {
 function esmBodyFor(locale: string): string {
   const catalog = CATALOGS[locale] ?? CATALOGS.hy;
   return `export const messages = ${JSON.stringify(catalog)};\n`;
+}
+
+function readCatalog(locale: string): Catalog {
+  const raw = readFileSync(new URL(`../src/locales/${locale}/messages.js`, import.meta.url), "utf8");
+  const mod: { exports: unknown } = { exports: {} };
+  new Function("module", raw)(mod);
+  const messages = (mod.exports as { messages?: unknown }).messages;
+  if (!messages || typeof messages !== "object") {
+    throw new Error(`Compiled catalog for locale "${locale}" did not export messages`);
+  }
+  return messages as Catalog;
 }
 
 /** Install the i18n shim on a context. Must be called BEFORE

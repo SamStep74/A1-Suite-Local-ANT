@@ -36,6 +36,7 @@ export const i18n = {
   // We accept any args so call sites that pass a messages object
   // (as `i18n.activate("en", { Hello: "Hello" })`) still typecheck.
   activate: (..._args: unknown[]) => {},
+  loadAndActivate: (..._args: unknown[]) => {},
   load: async (..._args: unknown[]) => {},
 };
 

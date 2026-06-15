@@ -10,7 +10,7 @@
  * tests rely on.
  */
 import { describe, expect, it } from "vitest";
-import { APP_IDS, APPS, type AppId, type AppMeta, appHref } from "./apps";
+import { APP_IDS, APPS, type AppId, type AppMeta, appHref, appLinkTo } from "./apps";
 
 /**
  * The exact set of palette names defined on the AppMeta.accent field.
@@ -179,5 +179,15 @@ describe("appHref", () => {
       expect(href.startsWith("/")).toBe(true);
       expect(href.startsWith("//"), `${id} should not have a protocol-relative URL`).toBe(false);
     }
+  });
+});
+
+describe("appLinkTo", () => {
+  it("keeps the copilot catalog link on Mission Control", () => {
+    expect(appLinkTo("copilot").to).toBe("/app/copilot");
+  });
+
+  it("links ordinary known apps to their literal index routes", () => {
+    expect(appLinkTo("crm").to).toBe("/app/crm/");
   });
 });
