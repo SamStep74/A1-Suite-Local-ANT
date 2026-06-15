@@ -176,7 +176,7 @@ function installProductionReadinessMock(route: Route): void {
 }
 
 test.describe("Compliance co-panel — production readiness on /app/cfo", () => {
-  test("loads inside CFO, paints the panel, summary, status pill, and meta row", async ({
+  test("loads inside CFO, paints the panel, summary, status pill, and meta row @smoke", async ({
     browser,
     request,
   }) => {

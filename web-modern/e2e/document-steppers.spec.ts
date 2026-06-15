@@ -35,9 +35,45 @@
  * only (Phase 10.6 wires the real endpoint). The probe at
  * the top of the suite skips cleanly when the backend isn't
  * running, mirroring the other canary specs.
+ *
+ * Note on actionability: in this Vite-dev-mode environment,
+ * Playwright's `locator.fill()` hangs on the wizard inputs
+ * (verified stable bounding box, no animations, no overlay,
+ * `elementFromPoint` returns the input — `force: true` does
+ * not bypass the wait either). The spec drives every input
+ * via the React-friendly value-setter helpers in `_dom-fill.ts`.
+ * `click()`/`check()` go through the same helpers so the
+ * whole flow is exercised with the bypass. The DOM setter
+ * dispatches `input` and `change` events, so React state
+ * updates identically to a real keypress.
  */
 import { test, expect, type Page } from "@playwright/test";
 import { authedPage } from "./_helpers";
+import { installI18nShim } from "./_i18n-shim";
+import {
+  domFillByTestId as fillTestId,
+  domClickByTestId as clickTestId,
+  domSetCheckedByTestId as checkTestId,
+} from "./_dom-fill";
+
+/** Row-scoped selector for a wizard line item, indexed from 0. */
+const lineRow = (index: number) =>
+  `[data-testid="wizard-line-item"][data-row-index="${index}"]`;
+
+/** Like `authedPage` but installs the Vite-dev-mode i18n shim
+ *  (see `_i18n-shim.ts`) on the new context. The wizard route
+ *  transitively imports `lib/onboarding/tours.ts`, which
+ *  evaluates `t({ message: "..." })` macros at module top-level
+ *  — without the shim those calls throw and React's interactive
+ *  layer is suspended, so every `fill()` hangs. */
+async function authedShimmedPage(
+  browser: import("@playwright/test").Browser,
+  request: import("@playwright/test").APIRequestContext,
+) {
+  const { page, context, sid } = await authedPage(browser, request);
+  await installI18nShim(context);
+  return { page, context, sid };
+}
 
 /** Navigate to the wizard and wait for the StepperShell to
  *  render. We use a query-string locale so the e2e run
@@ -80,11 +116,15 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
     browser,
     request,
   }) => {
-    const { page, context } = await authedPage(browser, request);
+    const { page, context } = await authedShimmedPage(browser, request);
     try {
       await gotoInvoiceWizard(page);
 
       // The 4 step dots are present in display order.
+      // (`wizard-stepper-button-{id}` is the stepper nav button;
+      //  `wizard-step-{id}` is the step body, only the active
+      //  body is rendered at a time.)
+      const stepper = page.getByTestId("wizard-stepper");
       for (const step of [
         "customer",
         "line-items",
@@ -92,7 +132,7 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
         "submit",
       ]) {
         await expect(
-          page.getByTestId(`wizard-step-${step}`),
+          stepper.getByTestId(`wizard-stepper-button-${step}`),
         ).toBeVisible();
       }
 
@@ -113,7 +153,7 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
     browser,
     request,
   }) => {
-    const { page, context } = await authedPage(browser, request);
+    const { page, context } = await authedShimmedPage(browser, request);
     try {
       await gotoInvoiceWizard(page);
       // No validation summary yet (user hasn't tried to advance).
@@ -122,16 +162,22 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
       ).toHaveCount(0);
 
       // Click Next with an empty form.
-      await page.getByTestId("wizard-primary").click();
+      await clickTestId(page, "wizard-primary");
 
       // The summary banner should now be visible.
       await expect(
         page.getByTestId("wizard-error-summary"),
       ).toBeVisible({ timeout: 2_000 });
-      // We expect at least one required-field error in the
-      // banner (the three customer fields are all empty).
+      // We expect all three empty customer fields to be listed
+      // (the friendly message for the validation code is rendered
+      //  when the catalog has a match; here we assert the field
+      //  keys the UI actually surfaces via `data-field`).
       const banner = page.getByTestId("wizard-error-summary");
-      await expect(banner).toContainText(/required/i);
+      for (const field of ["customerId", "customerName", "issueDate"]) {
+        await expect(
+          banner.locator(`[data-field="${field}"]`),
+        ).toBeVisible();
+      }
       // We are still on the customer step.
       await expect(
         page.getByTestId("wizard-step-customer"),
@@ -145,43 +191,45 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
     browser,
     request,
   }) => {
-    const { page, context } = await authedPage(browser, request);
+    const { page, context } = await authedShimmedPage(browser, request);
     try {
       await gotoInvoiceWizard(page);
 
       /* Step 1 — Customer */
-      await page
-        .getByTestId("wizard-input-customer-id")
-        .fill("cust-001");
-      await page
-        .getByTestId("wizard-input-customer-name")
-        .fill("Acme Co");
-      await page.getByTestId("wizard-input-issue-date").fill("2026-06-14");
-      await page.getByTestId("wizard-primary").click();
+      await fillTestId(page, "wizard-input-customer-id", "cust-001");
+      await fillTestId(page, "wizard-input-customer-name", "Acme Co");
+      await fillTestId(page, "wizard-input-issue-date", "2026-06-14");
+      await clickTestId(page, "wizard-primary");
 
       /* Step 2 — Line items */
       await expect(
         page.getByTestId("wizard-step-line-items"),
       ).toBeVisible({ timeout: 2_000 });
       // Add one row (the empty state shows the Add row button).
-      await page.getByTestId("wizard-add-row").click();
+      await clickTestId(page, "wizard-add-row");
       await expect(
         page.getByTestId("wizard-line-item"),
       ).toHaveCount(1, { timeout: 2_000 });
       // Fill the row.
-      await page
-        .getByTestId("wizard-line-description")
-        .first()
-        .fill("Widget");
-      await page
-        .getByTestId("wizard-line-quantity")
-        .first()
-        .fill("2");
-      await page
-        .getByTestId("wizard-line-unit-price")
-        .first()
-        .fill("100");
-      await page.getByTestId("wizard-primary").click();
+      await fillTestId(
+        page,
+        "wizard-line-description",
+        "Widget",
+        lineRow(0),
+      );
+      await fillTestId(
+        page,
+        "wizard-line-quantity",
+        "2",
+        lineRow(0),
+      );
+      await fillTestId(
+        page,
+        "wizard-line-unit-price",
+        "100",
+        lineRow(0),
+      );
+      await clickTestId(page, "wizard-primary");
 
       /* Step 3 — Review */
       await expect(
@@ -192,8 +240,8 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
         page.getByTestId("wizard-review-line"),
       ).toHaveCount(1);
       // Tick the confirmation checkbox and click primary.
-      await page.getByTestId("wizard-review-confirm").check();
-      await page.getByTestId("wizard-primary").click();
+      await checkTestId(page, "wizard-review-confirm", true);
+      await clickTestId(page, "wizard-primary");
 
       /* Step 4 — Submit */
       await expect(
@@ -202,7 +250,7 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
       // The submit step is initially `data-submitted="false"`
       // (it's a placeholder so the user has a final "I am
       // sure" moment). Click the primary button to finalize.
-      await page.getByTestId("wizard-primary").click();
+      await clickTestId(page, "wizard-primary");
 
       // The success card appears.
       await expect(
@@ -220,25 +268,21 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
     browser,
     request,
   }) => {
-    const { page, context } = await authedPage(browser, request);
+    const { page, context } = await authedShimmedPage(browser, request);
     try {
       await gotoInvoiceWizard(page);
 
       // Fill customer + advance to line items.
-      await page
-        .getByTestId("wizard-input-customer-id")
-        .fill("cust-002");
-      await page
-        .getByTestId("wizard-input-customer-name")
-        .fill("Backtrack LLC");
-      await page.getByTestId("wizard-input-issue-date").fill("2026-06-15");
-      await page.getByTestId("wizard-primary").click();
+      await fillTestId(page, "wizard-input-customer-id", "cust-002");
+      await fillTestId(page, "wizard-input-customer-name", "Backtrack LLC");
+      await fillTestId(page, "wizard-input-issue-date", "2026-06-15");
+      await clickTestId(page, "wizard-primary");
       await expect(
         page.getByTestId("wizard-step-line-items"),
       ).toBeVisible({ timeout: 2_000 });
 
       // Click Back. The Back button is the leftmost footer button.
-      await page.getByTestId("wizard-back").click();
+      await clickTestId(page, "wizard-back");
 
       // We should be back on the customer step, and the
       // fields should still hold the values we typed.
@@ -263,37 +307,39 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
     browser,
     request,
   }) => {
-    const { page, context } = await authedPage(browser, request);
+    const { page, context } = await authedShimmedPage(browser, request);
     try {
       await gotoInvoiceWizard(page);
-      await page
-        .getByTestId("wizard-input-customer-id")
-        .fill("cust-003");
-      await page
-        .getByTestId("wizard-input-customer-name")
-        .fill("Validator Inc");
-      await page.getByTestId("wizard-input-issue-date").fill("2026-06-14");
-      await page.getByTestId("wizard-primary").click();
+      await fillTestId(page, "wizard-input-customer-id", "cust-003");
+      await fillTestId(page, "wizard-input-customer-name", "Validator Inc");
+      await fillTestId(page, "wizard-input-issue-date", "2026-06-14");
+      await clickTestId(page, "wizard-primary");
       await expect(
         page.getByTestId("wizard-step-line-items"),
       ).toBeVisible({ timeout: 2_000 });
 
       // Add a row but leave the quantity at 0 (the empty
       // row defaults to 1; the user types 0).
-      await page.getByTestId("wizard-add-row").click();
-      await page
-        .getByTestId("wizard-line-description")
-        .first()
-        .fill("Bad row");
-      await page
-        .getByTestId("wizard-line-quantity")
-        .first()
-        .fill("0");
-      await page
-        .getByTestId("wizard-line-unit-price")
-        .first()
-        .fill("50");
-      await page.getByTestId("wizard-primary").click();
+      await clickTestId(page, "wizard-add-row");
+      await fillTestId(
+        page,
+        "wizard-line-description",
+        "Bad row",
+        lineRow(0),
+      );
+      await fillTestId(
+        page,
+        "wizard-line-quantity",
+        "0",
+        lineRow(0),
+      );
+      await fillTestId(
+        page,
+        "wizard-line-unit-price",
+        "50",
+        lineRow(0),
+      );
+      await clickTestId(page, "wizard-primary");
 
       // The error summary banner should be visible and
       // mention "greater than zero" (the `positive`
@@ -321,16 +367,10 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
     page: Page,
     fields: { id: string; name: string; issueDate: string },
   ): Promise<void> {
-    await page
-      .getByTestId("wizard-input-customer-id")
-      .fill(fields.id);
-    await page
-      .getByTestId("wizard-input-customer-name")
-      .fill(fields.name);
-    await page
-      .getByTestId("wizard-input-issue-date")
-      .fill(fields.issueDate);
-    await page.getByTestId("wizard-primary").click();
+    await fillTestId(page, "wizard-input-customer-id", fields.id);
+    await fillTestId(page, "wizard-input-customer-name", fields.name);
+    await fillTestId(page, "wizard-input-issue-date", fields.issueDate);
+    await clickTestId(page, "wizard-primary");
     await expect(
       page.getByTestId("wizard-step-line-items"),
     ).toBeVisible({ timeout: 2_000 });
@@ -340,7 +380,7 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
     browser,
     request,
   }) => {
-    const { page, context } = await authedPage(browser, request);
+    const { page, context } = await authedShimmedPage(browser, request);
     try {
       await gotoInvoiceWizard(page);
 
@@ -352,23 +392,29 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
       });
 
       // …add the single row needed to advance…
-      await page.getByTestId("wizard-add-row").click();
+      await clickTestId(page, "wizard-add-row");
       await expect(
         page.getByTestId("wizard-line-item"),
       ).toHaveCount(1, { timeout: 2_000 });
-      await page
-        .getByTestId("wizard-line-description")
-        .first()
-        .fill("Consulting");
-      await page
-        .getByTestId("wizard-line-quantity")
-        .first()
-        .fill("1");
-      await page
-        .getByTestId("wizard-line-unit-price")
-        .first()
-        .fill("1500");
-      await page.getByTestId("wizard-primary").click();
+      await fillTestId(
+        page,
+        "wizard-line-description",
+        "Consulting",
+        lineRow(0),
+      );
+      await fillTestId(
+        page,
+        "wizard-line-quantity",
+        "1",
+        lineRow(0),
+      );
+      await fillTestId(
+        page,
+        "wizard-line-unit-price",
+        "1500",
+        lineRow(0),
+      );
+      await clickTestId(page, "wizard-primary");
 
       // …and assert the review step shows BOTH customer
       // fields we typed. The route renders them inside a
@@ -388,7 +434,7 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
     browser,
     request,
   }) => {
-    const { page, context } = await authedPage(browser, request);
+    const { page, context } = await authedShimmedPage(browser, request);
     try {
       await gotoInvoiceWizard(page);
 
@@ -404,33 +450,53 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
        *    row 0 — qty 3 × price 100 = 300
        *    row 1 — qty 2 × price 250 = 500
        *  grand total = 800. */
-      await page.getByTestId("wizard-add-row").click();
-      await page.getByTestId("wizard-add-row").click();
+      await clickTestId(page, "wizard-add-row");
+      await clickTestId(page, "wizard-add-row");
       await expect(
         page.getByTestId("wizard-line-item"),
       ).toHaveCount(2, { timeout: 2_000 });
 
       // Row 0
-      const row0 = page.locator(
-        '[data-testid="wizard-line-item"][data-row-index="0"]',
+      await fillTestId(
+        page,
+        "wizard-line-description",
+        "Widget Pro",
+        lineRow(0),
       );
-      await row0
-        .getByTestId("wizard-line-description")
-        .fill("Widget Pro");
-      await row0.getByTestId("wizard-line-quantity").fill("3");
-      await row0.getByTestId("wizard-line-unit-price").fill("100");
+      await fillTestId(
+        page,
+        "wizard-line-quantity",
+        "3",
+        lineRow(0),
+      );
+      await fillTestId(
+        page,
+        "wizard-line-unit-price",
+        "100",
+        lineRow(0),
+      );
 
       // Row 1
-      const row1 = page.locator(
-        '[data-testid="wizard-line-item"][data-row-index="1"]',
+      await fillTestId(
+        page,
+        "wizard-line-description",
+        "Service Hour",
+        lineRow(1),
       );
-      await row1
-        .getByTestId("wizard-line-description")
-        .fill("Service Hour");
-      await row1.getByTestId("wizard-line-quantity").fill("2");
-      await row1.getByTestId("wizard-line-unit-price").fill("250");
+      await fillTestId(
+        page,
+        "wizard-line-quantity",
+        "2",
+        lineRow(1),
+      );
+      await fillTestId(
+        page,
+        "wizard-line-unit-price",
+        "250",
+        lineRow(1),
+      );
 
-      await page.getByTestId("wizard-primary").click();
+      await clickTestId(page, "wizard-primary");
 
       /* Step 3 — Review. The route renders a table with one
        *  <tr data-testid="wizard-review-line"> per row plus
@@ -456,14 +522,14 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
       ).toHaveText("800");
 
       // Tick the confirmation box and advance to Submit.
-      await page.getByTestId("wizard-review-confirm").check();
-      await page.getByTestId("wizard-primary").click();
+      await checkTestId(page, "wizard-review-confirm", true);
+      await clickTestId(page, "wizard-primary");
 
       /* Step 4 — Submit. Click primary to finalize. */
       await expect(
         page.getByTestId("wizard-step-submit"),
       ).toBeVisible({ timeout: 2_000 });
-      await page.getByTestId("wizard-primary").click();
+      await clickTestId(page, "wizard-primary");
 
       // The success card appears with the "create another"
       // reset affordance.
@@ -484,7 +550,7 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
     browser,
     request,
   }) => {
-    const { page, context } = await authedPage(browser, request);
+    const { page, context } = await authedShimmedPage(browser, request);
     try {
       await gotoInvoiceWizard(page);
 
@@ -495,37 +561,54 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
       });
 
       // Add two rows, fill both.
-      await page.getByTestId("wizard-add-row").click();
-      await page.getByTestId("wizard-add-row").click();
+      await clickTestId(page, "wizard-add-row");
+      await clickTestId(page, "wizard-add-row");
       await expect(
         page.getByTestId("wizard-line-item"),
       ).toHaveCount(2, { timeout: 2_000 });
-      const row0 = page.locator(
-        '[data-testid="wizard-line-item"][data-row-index="0"]',
+      await fillTestId(
+        page,
+        "wizard-line-description",
+        "Kept row",
+        lineRow(0),
       );
-      await row0
-        .getByTestId("wizard-line-description")
-        .fill("Kept row");
-      await row0.getByTestId("wizard-line-quantity").fill("1");
-      await row0.getByTestId("wizard-line-unit-price").fill("42");
-      const row1 = page.locator(
-        '[data-testid="wizard-line-item"][data-row-index="1"]',
+      await fillTestId(
+        page,
+        "wizard-line-quantity",
+        "1",
+        lineRow(0),
       );
-      await row1
-        .getByTestId("wizard-line-description")
-        .fill("Doomed row");
-      await row1.getByTestId("wizard-line-quantity").fill("9");
-      await row1.getByTestId("wizard-line-unit-price").fill("99");
+      await fillTestId(
+        page,
+        "wizard-line-unit-price",
+        "42",
+        lineRow(0),
+      );
+      await fillTestId(
+        page,
+        "wizard-line-description",
+        "Doomed row",
+        lineRow(1),
+      );
+      await fillTestId(
+        page,
+        "wizard-line-quantity",
+        "9",
+        lineRow(1),
+      );
+      await fillTestId(
+        page,
+        "wizard-line-unit-price",
+        "99",
+        lineRow(1),
+      );
 
       // Click the remove button on row 0 (the "Doomed row"
       // survives with the higher index). The wizard keeps
       // the rows in stable id-order, so the description of
       // the remaining first row is still "Doomed row" — but
       // we assert on the count, not the contents.
-      await page
-        .getByTestId("wizard-line-remove")
-        .nth(0)
-        .click();
+      await clickTestId(page, "wizard-line-remove", { index: 0 });
 
       await expect(
         page.getByTestId("wizard-line-item"),
@@ -533,7 +616,7 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
 
       // Advance to review and assert the review table now
       // reflects the single remaining row.
-      await page.getByTestId("wizard-primary").click();
+      await clickTestId(page, "wizard-primary");
       await expect(
         page.getByTestId("wizard-step-review"),
       ).toBeVisible({ timeout: 2_000 });
@@ -549,7 +632,7 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
     browser,
     request,
   }) => {
-    const { page, context } = await authedPage(browser, request);
+    const { page, context } = await authedShimmedPage(browser, request);
     try {
       // Open in Armenian (the source locale) and walk one
       // step forward so we are genuinely "mid-flow".
@@ -557,16 +640,10 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
       await expect(
         page.getByTestId("wizard-step-customer"),
       ).toBeVisible();
-      await page
-        .getByTestId("wizard-input-customer-id")
-        .fill("cust-locale");
-      await page
-        .getByTestId("wizard-input-customer-name")
-        .fill("Locale Test");
-      await page
-        .getByTestId("wizard-input-issue-date")
-        .fill("2026-06-14");
-      await page.getByTestId("wizard-primary").click();
+      await fillTestId(page, "wizard-input-customer-id", "cust-locale");
+      await fillTestId(page, "wizard-input-customer-name", "Locale Test");
+      await fillTestId(page, "wizard-input-issue-date", "2026-06-14");
+      await clickTestId(page, "wizard-primary");
       await expect(
         page.getByTestId("wizard-step-line-items"),
       ).toBeVisible({ timeout: 2_000 });

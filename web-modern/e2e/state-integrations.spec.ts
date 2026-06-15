@@ -149,7 +149,7 @@ function installStateIntApiMocks(route: Route): void {
 /* ────────── page shell + H1 + 6 adapters + back link + 403 absence ────────── */
 
 test.describe("State Integrations — Phase 8.8 Pattern A skeleton", () => {
-  test("loads, renders the H1 + 6 adapter options + mode badge + back link, and is permissive in the e2e session", async ({
+  test("loads, renders the H1 + 6 adapter options + mode badge + back link, and is permissive in the e2e session @smoke", async ({
     browser,
     request,
   }) => {
@@ -233,7 +233,7 @@ test.describe("State Integrations — Phase 8.8 Pattern A skeleton", () => {
 /* ────────── dispatch flow ────────── */
 
 test.describe("State Integrations — dispatch flow", () => {
-  test("selecting src + clicking dispatch POSTs /api/state-int/src/submitVat and renders the result card", async ({
+  test("selecting src + clicking dispatch POSTs /api/state-int/src/submitVat and renders the result card @smoke", async ({
     browser,
     request,
   }) => {
@@ -335,7 +335,7 @@ test.describe("State Integrations — dispatch flow", () => {
 /* ────────── audit panel + refresh ────────── */
 
 test.describe("State Integrations — audit panel", () => {
-  test("renders the audit block for an Owner session and the refresh button re-issues GET /api/state-int/audit", async ({
+  test("renders the audit block for an Owner session and the refresh button re-issues GET /api/state-int/audit @smoke", async ({
     browser,
     request,
   }) => {

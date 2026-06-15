@@ -229,7 +229,7 @@ function installFleetApiMocks(route: Route): void {
 /* ────────── page shell + tab switch ────────── */
 
 test.describe("Fleet — Phase 8.6 Pattern A skeleton", () => {
-  test("loads, renders the H1 + 7 tabs, defaults to Vehicles, and points back to /app", async ({
+  test("loads, renders the H1 + 7 tabs, defaults to Vehicles, and points back to /app @smoke", async ({
     browser,
     request,
     page,
@@ -976,7 +976,7 @@ test.describe("Fleet — ColdChain compliance GET", () => {
 /* ────────── 403 access gate ────────── */
 
 test.describe("Fleet — 403 access gate", () => {
-  test("does not render the 403 card for a default authenticated user", async ({
+  test("does not render the 403 card for a default authenticated user @smoke", async ({
     browser,
     request,
     page,

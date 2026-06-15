@@ -34,7 +34,7 @@ import { test, expect } from "@playwright/test";
 import { authedPage } from "./_helpers";
 
 test.describe("SPA mode — D1 invariants", () => {
-  test("GET / returns the SPA shell with a title", async ({ page }) => {
+  test("GET / returns the SPA shell with a title @smoke", async ({ page }) => {
     const response = await page.goto("/");
     expect(response, "expected / to respond").not.toBeNull();
     // 200 (or 304 for a cached SPA shell) — anything else means
@@ -106,7 +106,7 @@ test.describe("SPA mode — D1 invariants", () => {
     }
   });
 
-  test("window.armospheraApp is undefined (legacy bundle NOT loaded)", async ({
+  test("window.armospheraApp is undefined (legacy bundle NOT loaded) @smoke", async ({
     page,
   }) => {
     await page.goto("/");

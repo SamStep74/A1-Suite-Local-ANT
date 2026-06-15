@@ -48,7 +48,7 @@ test.describe("shared-components canary — analytics Receivables tab (10.4)", (
     );
   });
 
-  test("DataTable + SavedViews mount on the Receivables tab", async ({
+  test("DataTable + SavedViews mount on the Receivables tab @smoke", async ({
     browser,
     request,
   }) => {

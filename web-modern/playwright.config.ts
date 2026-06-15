@@ -32,7 +32,12 @@ export default defineConfig({
   retries: process.env.CI ? 2 : 0,
   workers: process.env.CI ? 2 : undefined,
   reporter: process.env.CI ? "github" : "list",
-  timeout: 30_000,
+  // The Vite dev server is slow to hydrate on the first request
+  // (it does a full module crawl before the page is interactive).
+  // 60s gives the multi-step wizard specs enough headroom to
+  // finish without false failures; per-call `expect` timeouts
+  // remain tight below.
+  timeout: 60_000,
   expect: { timeout: 5_000 },
 
   use: {

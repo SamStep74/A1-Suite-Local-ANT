@@ -21,7 +21,7 @@ import { test, expect } from "@playwright/test";
 import { authedPage, waitForHydration } from "./_helpers";
 
 test.describe("CFO reports — printable financial statements", () => {
-  test("loads, paints the P&L with seeded accounts, and exposes Print", async ({
+  test("loads, paints the P&L with seeded accounts, and exposes Print @smoke", async ({
     browser,
     request,
   }) => {

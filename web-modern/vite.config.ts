@@ -45,6 +45,7 @@ import tsConfigPaths from "vite-tsconfig-paths";
  * ──────────────────────────────────────────────────────────────────────
  */
 import type { Plugin, Connect } from "vite";
+import { linguiCatalogs } from "./vite-plugins/lingui-catalogs";
 
 const BACKEND = process.env.FASTIFY_BACKEND_URL ?? "http://localhost:4100";
 
@@ -149,6 +150,11 @@ export default defineConfig({
   plugins: [
     // Tailwind v4 — CSS-first config; tokens live in src/styles/tokens.css.
     tailwindcss(),
+    // Rewrite lingui-compiled CJS catalogs (`module.exports = ...`) into
+    // ESM at the Vite layer. Runs before any other transform so the
+    // rewritten source is what Vite's module graph sees in dev AND prod.
+    // See vite-plugins/lingui-catalogs.ts for the extraction logic.
+    linguiCatalogs(),
     // The API proxy MUST be registered before Vite's own middlewares
     // (SPA fallback, CORS, HMR, etc.) so /api/* hits our handler first.
     apiProxy(),

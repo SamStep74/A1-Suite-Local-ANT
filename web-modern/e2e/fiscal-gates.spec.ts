@@ -91,7 +91,7 @@ test.describe("fiscal-gates — Phase 10.7 e2e coverage", () => {
 
   /* ────────── 1. render smoke ────────── */
 
-  test("renders the page header + current period chip + 10 seeded rows", async ({
+  test("renders the page header + current period chip + 10 seeded rows @smoke", async ({
     browser,
     request,
   }) => {

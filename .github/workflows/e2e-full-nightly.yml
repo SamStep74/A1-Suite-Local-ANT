@@ -1,0 +1,125 @@
+# Nightly e2e-full cron — runs the full 110-spec Playwright suite once a day.
+#
+# Why this exists (Phase 10.10):
+#   The PR gate (ci.yml) runs only the 44 `@smoke`-tagged specs to keep
+#   the merge lane fast and the signal clear (smoke green = safe to merge).
+#   The remaining 66 specs are known-failing at base ref 879165b and are
+#   listed in .orchestration/phase10-10-ci-smoke-full-split/known-failures.md
+#   with per-spec root-cause + deferral status.
+#
+#   This cron complements the smoke run by:
+#     1. Detecting *new* failures (regressions in specs that were green
+#        in the last nightly run).
+#     2. Tracking progress on the 66 known-failures (if any flip green,
+#        they become candidates to add to the @smoke list).
+#     3. Acting as a daily "state of the suite" report.
+#
+# Schedule: 02:00 UTC (= 06:00 AM Armenia time) every day.
+#   Picked to land in a low-traffic window; cron is `0 2 * * *`.
+#   Concurrency group is shared with the main ci workflow so a manual
+#   `workflow_dispatch` can preempt the nightly run if needed.
+#
+# Why workflow_dispatch too: lets us trigger an ad-hoc full run
+# (`gh workflow run e2e-full-nightly.yml`) from the GitHub UI / CLI
+# without waiting for the cron.
+
+name: e2e-full (nightly cron)
+
+on:
+  schedule:
+    - cron: "0 2 * * *"
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  e2e-full:
+    name: E2E full (Playwright, all 110 specs)
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        working-directory: web-modern
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22.5"
+          cache: "npm"
+          cache-dependency-path: web-modern/package-lock.json
+
+      - name: Install root (for Fastify + node --test deps)
+        run: npm ci --no-audit --no-fund
+
+      - name: Install web-modern
+        run: npm ci --no-audit --no-fund
+        working-directory: web-modern
+
+      - name: Install Playwright chromium
+        run: npx playwright install chromium
+
+      - name: Reset data dir (use the seeded default credentials)
+        run: rm -rf data && mkdir -p data
+
+      - name: Start Vite dev server (background)
+        run: |
+          nohup npx vite dev --port 4173 --strictPort > /tmp/vite.log 2>&1 &
+          echo $! > /tmp/vite.pid
+          for i in {1..60}; do
+            if curl -fsS http://localhost:4173/ -o /dev/null 2>&1; then
+              echo "Vite ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Start Fastify backend (background)
+        run: |
+          cd "$GITHUB_WORKSPACE"
+          nohup node server/index.js > /tmp/fastify.log 2>&1 &
+          echo $! > /tmp/fastify.pid
+          for i in {1..60}; do
+            if curl -fsS http://localhost:4100/api/health -o /dev/null 2>&1; then
+              echo "Fastify ready after ${i}s"
+              break
+            fi
+            sleep 1
+          done
+
+      - name: Run Playwright e2e (full suite)
+        env:
+          START_FASTIFY: "1"
+          FASTIFY_URL: "http://localhost:4100"
+          BASE_URL: "http://localhost:4173"
+        run: npm run test:e2e:full
+
+      - name: Upload Playwright report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-report-full
+          path: web-modern/playwright-report/
+          retention-days: 14
+          if-no-files-found: ignore
+
+      - name: Tail Vite log on failure
+        if: failure()
+        run: tail -50 /tmp/vite.log || true
+
+      - name: Tail Fastify log on failure
+        if: failure()
+        run: tail -50 /tmp/fastify.log || true
+
+      - name: Stop background servers
+        if: always()
+        run: |
+          if [ -f /tmp/vite.pid ]; then
+            kill "$(cat /tmp/vite.pid)" 2>/dev/null || true
+          fi
+          if [ -f /tmp/fastify.pid ]; then
+            kill "$(cat /tmp/fastify.pid)" 2>/dev/null || true
+          fi

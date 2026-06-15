@@ -108,8 +108,13 @@ export const DEFAULT_TOURS_BY_ID = {};`;
 
 /** Build an ESM-wrapped stub for a `messages.js` locale catalog.
  *  Reads the JSON out of the source CJS file and emits it as a
- *  named `messages` export — the shape `activateLocale()` expects
- *  (`const { messages } = await CATALOG_LOADERS[l]()`).
+ *  DEFAULT export — the shape that the
+ *  `ant-lingui-catalogs` Vite plugin emits AND that
+ *  `import.meta.glob(..., { import: "default" })` in
+ *  `src/i18n/lingui.ts` unwraps. The shim must match the plugin's
+ *  output exactly; otherwise `.default` is `undefined` and the
+ *  loader returns `undefined`, which then throws in
+ *  `activateLocale()` and the authed shell never mounts.
  *
  *  The CJS file's shape is
  *  `module.exports={messages:JSON.parse("<escaped JSON>")};`.
@@ -138,10 +143,12 @@ function messagesStub(locale: "hy" | "ru" | "en"): string {
   return `// Stubbed locale catalog — the real CJS file uses
 // \`module.exports = { messages: ... }\` which the browser can't
 // evaluate under the project's \`"type": "module"\` setup. We
-// pre-parse the JSON at the Node side and re-emit it as a NAMED
-// \`messages\` export, matching the shape that
-// \`activateLocale()\` destructures from the dynamic import.
-export const messages = ${messagesJson};`;
+// pre-parse the JSON at the Node side and re-emit it as a DEFAULT
+// export of \`{ messages: ... }\`, matching the shape that the
+// \`ant-lingui-catalogs\` Vite plugin emits and that
+// \`import.meta.glob(..., { import: "default" })\` in
+// \`src/i18n/lingui.ts\` unwraps.
+export default { messages: ${messagesJson} };`;
 }
 
 /** Install the route-level workarounds on a browser context. The
@@ -183,11 +190,27 @@ async function installI18nWorkarounds(context: BrowserContext): Promise<void> {
   });
   for (const locale of ["hy", "ru", "en"] as const) {
     // Vite appends `?import` / `?t=<hash>` for cache-bust — match the
-    // bare path AND any query string suffix.
+    // bare path AND any query string suffix. CRITICAL: skip `?raw`
+    // (with or without `=`) — that's what the bundle's `loadCJS()`
+    // uses to fetch the file content as a string and
+    // `new Function("module", raw)(mod)` to extract
+    // `module.exports.messages`. If we replaced the response with
+    // our ESM stub, that eval would throw on the `export` keyword
+    // and the catalog would never load. The negative-lookahead
+    // regex trick alone isn't safe here because Vite's `?raw`
+    // import literally appends `?raw` (no `=`, so `(?!(raw=))`
+    // still matches `?raw`). Guard on the URL string in the
+    // handler instead.
     const urlPattern = new RegExp(
       `/src/locales/${locale}/messages(\\.js|)(\\?.*)?$`,
     );
     await context.route(urlPattern, (route) => {
+      const url = route.request().url();
+      if (url.includes("?raw")) {
+        // Let Vite serve the real CJS source as a string for
+        // loadCJS's `new Function("module", raw)(mod)` eval.
+        return route.fallback();
+      }
       const body = messagesStub(locale);
       route.fulfill({
         status: 200,
@@ -309,7 +332,7 @@ test.describe("Locale switching — Topbar dev switcher (10.7)", () => {
     );
   });
 
-  test("default locale is hy and the switcher is visible in the Topbar", async ({
+  test("default locale is hy and the switcher is visible in the Topbar @smoke", async ({
     browser,
     request,
   }) => {
@@ -415,7 +438,7 @@ test.describe("Locale switching — Topbar dev switcher (10.7)", () => {
     }
   });
 
-  test("switching to en re-renders the UI: en is pressed and html[lang] is en", async ({
+  test("switching to en re-renders the UI: en is pressed and html[lang] is en @smoke", async ({
     browser,
     request,
   }) => {
@@ -516,7 +539,7 @@ test.describe("Locale switching — Topbar dev switcher (10.7)", () => {
     }
   });
 
-  test("locale persists across reload via localStorage a1:locale", async ({
+  test("locale persists across reload via localStorage a1:locale @smoke", async ({
     browser,
     request,
   }) => {

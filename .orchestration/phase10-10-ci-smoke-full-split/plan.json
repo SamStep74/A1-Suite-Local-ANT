@@ -1,0 +1,107 @@
+{
+  "phase": "10.10-ci-smoke-full-split",
+  "version": "1",
+  "createdAt": "2026-06-15T04:30:00Z",
+  "createdBy": "orchestrator",
+  "baseRef": "879165b",
+  "antIntegrationRef": "ant/integration/phase10-9-d@879165b",
+  "closeRef": "ant/main@879165b",
+  "predecessor": "10.9 (d) e2e content fixes — closed PARTIAL at 4a8c1c9, wave-3 partial at 793a974, wave-4 NOOP at a0eb959f, wave-5 INFRA-CLOSED at T+~4 min (no commits)",
+  "rationale": "The 110-test e2e suite has 66 known-failing tests at 4f6e17c base. Running the full suite in CI is expensive (~10-15 min) and produces a confusing signal. Splitting into `smoke` (44 currently-passing + 5 wave-1 fixed) and `full` (all 110) gives a clear 'smoke green = safe to merge' signal + a 'full' diagnostic signal that doesn't block merges. This is configuration + docs work, NOT multi-spec test fixing — single orchestrator pass, no tmux workers needed.",
+  "approach": "single-orchestrator-inline",
+  "workerCount": 0,
+  "estimatedDuration": "30-45 min wall-clock (mostly waiting on `pnpm playwright test` to finish)",
+  "scope": {
+    "edits": [
+      "web-modern/playwright.config.ts (add @smoke tag handling, expose grep knob)",
+      "web-modern/package.json (add test:e2e:smoke + test:e2e:full scripts)",
+      ".github/workflows/ci.yml (or .github/workflows/*.yml — discover at audit time) (split smoke on PR, full on nightly cron)",
+      ".orchestration/phase10-10-ci-smoke-full-split/known-failures.md (NEW: per-spec root-cause + deferral status for the 66 known-failing tests)"
+    ],
+    "nonEdits": [
+      "web-modern/e2e/**/*.spec.ts (no test changes; this is meta-work)",
+      "any test source code, any test helper, _helpers.ts, etc.",
+      "vite.config.ts, tsconfig.json, vitest config"
+    ]
+  },
+  "tasks": [
+    {
+      "id": "audit-runtime",
+      "title": "Audit current e2e suite runtime + per-spec duration + retry counts at 879165b",
+      "command": "cd /Users/samvelstepanyan/dev/A1-Suite-Local-ANT-queue/web-modern && NODE_OPTIONS=--max-old-space-size=2048 timeout 1200 pnpm playwright test --reporter=line 2>&1 | tee /tmp/phase10-10-audit.log",
+      "output": ".orchestration/phase10-10-ci-smoke-full-split/audit-runtime.md",
+      "expectedDuration": "10-15 min wall-clock",
+      "passesIf": "Audit file records total runtime, per-spec duration, pass/fail count (44/110/66 baseline), retry counts. Confirms no new failures introduced since 4f6e17c baseline."
+    },
+    {
+      "id": "tag-smoke",
+      "title": "Add @smoke tag to the 44 currently-passing specs + the 5 wave-1 fixed specs",
+      "command": "manual: edit each of the ~50 spec files to add `test.describe.configure({ mode: 'parallel' });` + tag with `@smoke` annotation OR use Playwright's `test.info().annotations.push({ type: 'tag', description: '@smoke' })` pattern",
+      "input": "audit-runtime.md (lists which specs are currently passing)",
+      "output": "diff to web-modern/e2e/**/*.spec.ts (in a single commit)",
+      "expectedDuration": "5-10 min wall-clock (mechanical)",
+      "passesIf": "`pnpm playwright test --grep @smoke --reporter=line` runs only the tagged specs and passes 50/50"
+    },
+    {
+      "id": "add-scripts",
+      "title": "Add `test:e2e:smoke` and `test:e2e:full` scripts to web-modern/package.json",
+      "command": "manual: edit package.json scripts section",
+      "output": "diff to web-modern/package.json",
+      "expectedDuration": "1-2 min",
+      "passesIf": "`pnpm test:e2e:smoke` runs only the smoke specs, `pnpm test:e2e:full` runs all"
+    },
+    {
+      "id": "split-ci",
+      "title": "Split CI: smoke on every PR, full on nightly cron",
+      "command": "manual: edit .github/workflows/ci.yml (discover the exact file at audit time)",
+      "output": "diff to .github/workflows/ci.yml",
+      "expectedDuration": "5-10 min",
+      "passesIf": "PR job uses `pnpm test:e2e:smoke`; nightly cron uses `pnpm test:e2e:full`; both run vitest + typecheck + build as before"
+    },
+    {
+      "id": "known-failures",
+      "title": "Document the 66 known-failing tests in known-failures.md",
+      "command": "manual: write a per-spec table from the audit data + the wave-1/2/3/4 postmortems in STATE.md",
+      "output": ".orchestration/phase10-10-ci-smoke-full-split/known-failures.md (NEW file)",
+      "expectedDuration": "5-10 min",
+      "passesIf": "Document covers all 66 failing tests with per-spec root-cause, deferral status, and 'next action' recommendation. This becomes the work-list for any future 10.9 (d) wave-N attempt or a different approach."
+    },
+    {
+      "id": "verify",
+      "title": "Verify: run smoke + full locally, confirm split works",
+      "command": "cd /Users/samvelstepanyan/dev/A1-Suite-Local-ANT-queue/web-modern && NODE_OPTIONS=--max-old-space-size=2048 timeout 600 pnpm test:e2e:smoke 2>&1 | tee /tmp/phase10-10-smoke-verify.log && timeout 1200 pnpm test:e2e:full 2>&1 | tee /tmp/phase10-10-full-verify.log",
+      "expectedDuration": "20-25 min total",
+      "passesIf": "Smoke passes 50/50, full matches the 44/110 baseline (no regressions from the tagging work)"
+    }
+  ],
+  "auditGates": [
+    { "id": 1, "title": "Baseline audit", "command": "pnpm playwright test --reporter=line", "expected": "44/110 pass (matches wave-4 baseline at 4f6e17c)" },
+    { "id": 2, "title": "Smoke passes 50/50", "command": "pnpm test:e2e:smoke", "expected": "50/50 pass" },
+    { "id": 3, "title": "Full matches baseline", "command": "pnpm test:e2e:full", "expected": "44/110 pass (no regression from tagging)" },
+    { "id": 4, "title": "Typecheck clean", "command": "pnpm typecheck", "expected": "0 errors" },
+    { "id": 5, "title": "Build clean", "command": "pnpm build", "expected": "0 errors" }
+  ],
+  "branch": "wip/phase10-10-ci-smoke-full-split",
+  "tag": "phase10-10-ci-smoke-full-split-v1",
+  "push": {
+    "branch": "git push ant wip/phase10-10-ci-smoke-full-split",
+    "tag": "git push ant phase10-10-ci-smoke-full-split-v1",
+    "integration": "git push ant main:refs/heads/ant/integration/phase10-9-d (after merge to main)",
+    "main": "git push ant main:refs/heads/ant/main (after wave-3 close)"
+  },
+  "outputs": [
+    ".orchestration/phase10-10-ci-smoke-full-split/plan.json (this file)",
+    ".orchestration/phase10-10-ci-smoke-full-split/plan.md (human-readable brief)",
+    ".orchestration/phase10-10-ci-smoke-full-split/audit-runtime.md (e2e runtime audit)",
+    ".orchestration/phase10-10-ci-smoke-full-split/known-failures.md (66-test work-list)",
+    ".orchestration/phase10-10-ci-smoke-full-split/handoff.md (final report)"
+  ],
+  "relatedMemory": [
+    "wave-n-worker-death-pattern (this phase uses NO workers; orthogonal to the e2e content fix issue)",
+    "two-remote-workflow (push only to `ant`, refspec for main/integration)"
+  ],
+  "postponed": [
+    "10.9 (d) wave-6+ (3+ consecutive NOOP waves, stopped per wave-n-worker-death-pattern memory rule)",
+    "10.9 (e) shared helpers refactor (not in this session's scope)"
+  ]
+}

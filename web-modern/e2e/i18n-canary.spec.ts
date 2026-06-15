@@ -36,7 +36,7 @@ test.describe("i18n canary — analytics route under each locale (10.3)", () => 
     );
   });
 
-  test("?lang=en — analytics route renders the source strings (en catalog is a placeholder)", async ({
+  test("?lang=en — analytics route renders the source strings (en catalog is a placeholder) @smoke", async ({
     browser,
     request,
   }) => {
@@ -64,7 +64,7 @@ test.describe("i18n canary — analytics route under each locale (10.3)", () => 
     }
   });
 
-  test("?lang=hy — analytics route renders under the source locale", async ({
+  test("?lang=hy — analytics route renders under the source locale @smoke", async ({
     browser,
     request,
   }) => {
@@ -89,7 +89,7 @@ test.describe("i18n canary — analytics route under each locale (10.3)", () => 
     }
   });
 
-  test("?lang=ru — analytics route mounts without throwing (ru catalog is a placeholder)", async ({
+  test("?lang=ru — analytics route mounts without throwing (ru catalog is a placeholder) @smoke", async ({
     browser,
     request,
   }) => {

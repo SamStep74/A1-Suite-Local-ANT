@@ -280,7 +280,7 @@ test.describe("Procurement — cross-tab POST flow", () => {
 });
 
 test.describe("Procurement — 403 access gate", () => {
-  test("does not render the 403 card for a default authenticated user", async ({
+  test("does not render the 403 card for a default authenticated user @smoke", async ({
     browser,
     request,
     page,

@@ -88,7 +88,13 @@ export default defineConfig({
     ],
     environment: "jsdom",
     globals: false,
-    include: ["src/**/*.test.{ts,tsx}"],
+    include: [
+      "src/**/*.test.{ts,tsx}",
+      // Vite plugins live alongside `vite.config.ts` rather than
+      // under `src/`; the test file for `ant-lingui-catalogs` lives
+      // here.
+      "vite-plugins/**/*.test.ts",
+    ],
     setupFiles: ["./vitest.setup.tsx"],
   },
 });

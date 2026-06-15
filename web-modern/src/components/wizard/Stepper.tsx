@@ -146,7 +146,7 @@ export function Stepper({
               aria-current={isCurrent ? "step" : undefined}
               aria-disabled={!clickable}
               tabIndex={clickable ? 0 : -1}
-              data-testid={`wizard-step-${step.id}`}
+              data-testid={`wizard-stepper-button-${step.id}`}
             >
               <span
                 className={cn(
