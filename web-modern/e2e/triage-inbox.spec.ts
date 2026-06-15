@@ -42,7 +42,7 @@ import {
 } from "./_triage-helpers";
 
 test.describe("triage inbox — cross-feature work queue", () => {
-  test("default view, switch to Overdue, peek, bulk delete, undo", async ({
+  test("default view, switch to Overdue, peek, bulk delete, undo @smoke", async ({
     browser,
     request,
   }) => {
@@ -150,7 +150,7 @@ test.describe("triage inbox — Phase 10.7 e2e coverage expansion", () => {
     );
   });
 
-  test("peek panel: clicking a row opens the right-side preview without navigating away", async ({
+  test("peek panel: clicking a row opens the right-side preview without navigating away @smoke", async ({
     browser,
     request,
   }) => {
@@ -212,7 +212,7 @@ test.describe("triage inbox — Phase 10.7 e2e coverage expansion", () => {
     }
   });
 
-  test("saved views: switching between default views changes the visible row count", async ({
+  test("saved views: switching between default views changes the visible row count @smoke", async ({
     browser,
     request,
   }) => {
@@ -299,7 +299,7 @@ test.describe("triage inbox — Phase 10.7 e2e coverage expansion", () => {
     }
   });
 
-  test("bulk resolve: selecting 2 rows and clicking Delete resolves both; Undo reverts both", async ({
+  test("bulk resolve: selecting 2 rows and clicking Delete resolves both; Undo reverts both @smoke", async ({
     browser,
     request,
   }) => {

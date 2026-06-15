@@ -45,7 +45,7 @@ test.describe("period-close wizard", () => {
     // owns its own localStorage lifecycle. No setup needed here.
   });
 
-  test("open the wizard for June 2026, mark 2 done, 1 blocked, see summary update", async ({
+  test("open the wizard for June 2026, mark 2 done, 1 blocked, see summary update @smoke", async ({
     browser,
     request,
   }) => {
@@ -137,7 +137,7 @@ test.describe("period-close wizard", () => {
     }
   });
 
-  test("prev / next period controls change the period id and label", async ({
+  test("prev / next period controls change the period id and label @smoke", async ({
     browser,
     request,
   }) => {

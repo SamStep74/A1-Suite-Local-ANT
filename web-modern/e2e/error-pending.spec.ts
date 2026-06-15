@@ -19,7 +19,7 @@ import { test, expect } from "@playwright/test";
 import { authedPage, waitForHydration } from "./_helpers";
 
 test.describe("root error/pending/notFound (R7 closure)", () => {
-  test("notFoundComponent renders for an unknown route", async ({
+  test("notFoundComponent renders for an unknown route @smoke", async ({
     browser,
     request,
   }) => {
@@ -46,7 +46,7 @@ test.describe("root error/pending/notFound (R7 closure)", () => {
     }
   });
 
-  test("notFound home button is a working link back to /", async ({
+  test("notFound home button is a working link back to / @smoke", async ({
     browser,
     request,
   }) => {

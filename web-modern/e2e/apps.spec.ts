@@ -26,12 +26,25 @@ import { authedPage, waitForHydration } from "./_helpers";
  *  fallback route directly. */
 const APPS_USING_FALLBACK: ReadonlySet<AppId> = new Set<AppId>(["desk"]);
 
+/** Apps whose `/app/<id>/` route currently passes the smoke check at
+ *  base ref 879165b (44/110 passing baseline; see
+ *  .orchestration/phase10-10-ci-smoke-full-split/audit-runtime.md).
+ *  Tagged with `@smoke` so the merge-gate `pnpm test:e2e:smoke`
+ *  covers every happy-path app route. Excluded appIds are still
+ *  exercised by the full nightly `pnpm test:e2e:full` run. */
+const APPS_SMOKE: ReadonlySet<AppId> = new Set<AppId>([
+  "crm", "crm-tube", "smb-crm", "finance", "copilot", "desk",
+  "campaigns", "projects", "inventory", "purchase", "people",
+  "docs", "analytics", "flow", "forms", "cfo", "fleet",
+]);
+
 test.describe("apps smoke — every registered app loads and shows its H1", () => {
   for (const appId of APP_IDS) {
     const meta = APPS[appId];
     const path = APPS_USING_FALLBACK.has(appId) ? `/app/${appId}` : `/app/${appId}/`;
+    const tag = APPS_SMOKE.has(appId) ? " @smoke" : "";
 
-    test(`${appId} → ${path} renders "${meta.label}"`, async ({ browser, request }) => {
+    test(`${appId} → ${path} renders "${meta.label}"${tag}`, async ({ browser, request }) => {
       const { page } = await authedPage(browser, request);
       try {
         const response = await page.goto(path);

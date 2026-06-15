@@ -309,7 +309,7 @@ test.describe("Locale switching — Topbar dev switcher (10.7)", () => {
     );
   });
 
-  test("default locale is hy and the switcher is visible in the Topbar", async ({
+  test("default locale is hy and the switcher is visible in the Topbar @smoke", async ({
     browser,
     request,
   }) => {
@@ -415,7 +415,7 @@ test.describe("Locale switching — Topbar dev switcher (10.7)", () => {
     }
   });
 
-  test("switching to en re-renders the UI: en is pressed and html[lang] is en", async ({
+  test("switching to en re-renders the UI: en is pressed and html[lang] is en @smoke", async ({
     browser,
     request,
   }) => {
@@ -516,7 +516,7 @@ test.describe("Locale switching — Topbar dev switcher (10.7)", () => {
     }
   });
 
-  test("locale persists across reload via localStorage a1:locale", async ({
+  test("locale persists across reload via localStorage a1:locale @smoke", async ({
     browser,
     request,
   }) => {

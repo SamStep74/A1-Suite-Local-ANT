@@ -37,7 +37,7 @@ import { test, expect } from "@playwright/test";
 import { authedPage, waitForHydration } from "./_helpers";
 
 test.describe("CRM happy path", () => {
-  test("list page paints quotes and first-row click opens detail", async ({ browser, request }) => {
+  test("list page paints quotes and first-row click opens detail @smoke", async ({ browser, request }) => {
     const { page } = await authedPage(browser, request);
     try {
       await page.goto("/app/crm/");

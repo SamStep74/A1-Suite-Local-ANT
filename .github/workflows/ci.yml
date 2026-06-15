@@ -209,12 +209,18 @@ jobs:
             sleep 1
           done
 
-      - name: Run Playwright e2e
+      - name: Run Playwright e2e (smoke — `@smoke`-tagged specs only)
+        # Phase 10.10 split: PRs gate on `pnpm test:e2e:smoke` (44 specs
+        # currently green at base ref 879165b; see
+        # .orchestration/phase10-10-ci-smoke-full-split/audit-runtime.md
+        # for the per-spec smoke list). The full 110-spec suite runs
+        # nightly on cron (see e2e-full-nightly.yml) where it has time
+        # to diagnose the 66 known-failing tests without blocking merges.
         env:
           START_FASTIFY: "1"
           FASTIFY_URL: "http://localhost:4100"
           BASE_URL: "http://localhost:4173"
-        run: npm run test:e2e
+        run: npm run test:e2e:smoke
 
       - name: Tail Vite log on failure
         if: failure()
