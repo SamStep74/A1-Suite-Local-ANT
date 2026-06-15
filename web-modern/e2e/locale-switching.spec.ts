@@ -183,11 +183,27 @@ async function installI18nWorkarounds(context: BrowserContext): Promise<void> {
   });
   for (const locale of ["hy", "ru", "en"] as const) {
     // Vite appends `?import` / `?t=<hash>` for cache-bust — match the
-    // bare path AND any query string suffix.
+    // bare path AND any query string suffix. CRITICAL: skip `?raw`
+    // (with or without `=`) — that's what the bundle's `loadCJS()`
+    // uses to fetch the file content as a string and
+    // `new Function("module", raw)(mod)` to extract
+    // `module.exports.messages`. If we replaced the response with
+    // our ESM stub, that eval would throw on the `export` keyword
+    // and the catalog would never load. The negative-lookahead
+    // regex trick alone isn't safe here because Vite's `?raw`
+    // import literally appends `?raw` (no `=`, so `(?!(raw=))`
+    // still matches `?raw`). Guard on the URL string in the
+    // handler instead.
     const urlPattern = new RegExp(
       `/src/locales/${locale}/messages(\\.js|)(\\?.*)?$`,
     );
     await context.route(urlPattern, (route) => {
+      const url = route.request().url();
+      if (url.includes("?raw")) {
+        // Let Vite serve the real CJS source as a string for
+        // loadCJS's `new Function("module", raw)(mod)` eval.
+        return route.fallback();
+      }
       const body = messagesStub(locale);
       route.fulfill({
         status: 200,

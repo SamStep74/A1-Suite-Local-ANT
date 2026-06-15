@@ -8,7 +8,7 @@
 import { Link, useNavigate } from "@tanstack/react-router";
 import { X, Sparkles } from "lucide-react";
 import { useEffect, useRef } from "react";
-import { APPS, APP_IDS, type AppId } from "../../lib/apps";
+import { APPS, APP_IDS, appLinkTo, type AppId } from "../../lib/apps";
 import { cn } from "../../lib/utils/cn";
 
 const ACCENT_BG: Record<string, string> = {
@@ -101,7 +101,7 @@ export function AppLauncher({
                 key={id}
                 id={id}
                 onClick={() => {
-                  navigate({ to: "/app/$appId", params: { appId: id } });
+                  navigate(appLinkTo(id) as unknown as Parameters<typeof navigate>[0]);
                   onClose();
                 }}
               />
@@ -117,7 +117,7 @@ export function AppLauncher({
                 key={id}
                 id={id}
                 onClick={() => {
-                  navigate({ to: "/app/$appId", params: { appId: id } });
+                  navigate(appLinkTo(id) as unknown as Parameters<typeof navigate>[0]);
                   onClose();
                 }}
               />

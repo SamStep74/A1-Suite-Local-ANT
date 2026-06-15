@@ -219,10 +219,10 @@ function InvoiceCreateWizard() {
    *  Centralised here so the lib never imports Lingui. */
   const formatError = useCallback(
     (key: string, code: string): string => {
-      const friendly = validationMessage(t, code);
+      const friendly = validationMessage(code);
       return `${friendly} (${key})`;
     },
-    [t],
+    [],
   );
 
   /* ─── render helpers ─── */
