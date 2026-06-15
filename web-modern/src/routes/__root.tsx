@@ -16,9 +16,8 @@
  * The QueryClient IS a real provider — every page that uses `useQuery`
  * needs it above in the tree. See lib/api/queryClient.ts for the defaults.
  */
-import { Link, Outlet, createRootRoute, HeadContent, Scripts } from "@tanstack/react-router";
+import { Link, Outlet, createRootRoute } from "@tanstack/react-router";
 import { QueryClientProvider } from "@tanstack/react-query";
-import type { ReactNode } from "react";
 import { useEffect } from "react";
 
 import { Toaster } from "../components/feedback/Toaster";
@@ -89,7 +88,7 @@ function NotFoundRoot() {
 
 function RootComponent() {
   // Keep `<html lang>` in sync with the active Lingui locale. The
-  // hard-coded `lang="hy"` in `RootDocument` is the SSR default;
+  // hard-coded `lang="hy"` in `index.html` is the SPA-shell default;
   // once the client activates a different locale (via `?lang=`,
   // localStorage, or the Topbar switcher), we re-set the
   // attribute here so React's next render doesn't clobber it
@@ -106,29 +105,21 @@ function RootComponent() {
     const unsubscribe = i18n.on("change", sync);
     return unsubscribe;
   }, []);
+  // SPA mode: the document is the static `index.html` (served by
+  // Vite); this React tree is mounted on `<div id="root">` which
+  // already lives inside the real `<body>`. Rendering `<html>` or
+  // `<body>` from here would nest a second `<html>` inside the
+  // real one, and React 19 fires a hydration error + enters
+  // recovery mode on every state change, wedging the page. Keep
+  // this component a thin wrapper around the query client + body
+  // content.
   return (
-    <RootDocument>
-      <QueryClientProvider client={queryClient}>
-        <a className="skip-to-content" href="#main">
-          Skip to main content
-        </a>
-        <Outlet />
-        <Toaster />
-      </QueryClientProvider>
-    </RootDocument>
-  );
-}
-
-function RootDocument({ children }: Readonly<{ children: ReactNode }>) {
-  return (
-    <html lang="hy" data-theme="light" data-density="comfortable">
-      <head>
-        <HeadContent />
-      </head>
-      <body>
-        {children}
-        <Scripts />
-      </body>
-    </html>
+    <QueryClientProvider client={queryClient}>
+      <a className="skip-to-content" href="#main">
+        Skip to main content
+      </a>
+      <Outlet />
+      <Toaster />
+    </QueryClientProvider>
   );
 }

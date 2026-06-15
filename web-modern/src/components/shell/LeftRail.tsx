@@ -10,7 +10,7 @@ import { useEffect, useState } from "react";
 import { Link, useLocation } from "@tanstack/react-router";
 import { Grid3x3 } from "lucide-react";
 import { Button } from "../ui/Button";
-import { APP_IDS, APPS, type AppId } from "../../lib/apps";
+import { APP_IDS, APPS, appLinkTo, type AppId } from "../../lib/apps";
 import { cn } from "../../lib/utils/cn";
 
 const STORAGE_KEY = "ant.lefRail.collapsed";
@@ -64,8 +64,8 @@ export function LeftRail({ onOpenAppLauncher }: { onOpenAppLauncher: () => void 
         return (
           <Link
             key={id}
-            to="/app/$appId"
-            params={{ appId: id }}
+            to={appLinkTo(id).to}
+            params={appLinkTo(id).params}
             aria-current={isActive ? "page" : undefined}
             title={meta.label}
             className={cn(
