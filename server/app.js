@@ -503,7 +503,7 @@ function registerApi(app, db, options = {}) {
   // Ollama /api/tags probe. NO API key is included; only the
   // provider name, base URL host, model list, ok flag, and
   // error. The SPA renders a "local LLM" surface so the
-  // operator knows whether the sovereign model is reachable.
+  // operator knows whether the souverain model is reachable.
   app.get("/api/ai/status", async request => {
     const user = await app.auth(request);
     requireIntegrationReader(user);
@@ -515,6 +515,38 @@ function registerApi(app, db, options = {}) {
       models: probe.models,
       ok: probe.ok,
       error: probe.error || null
+    };
+  });
+
+  // POST /api/ai/chat — text-in / text-out chat. Body:
+  //   { system, user, temperature?, maxTokens? }
+  // Returns the discriminated {ok, data, error, provider,
+  // model} from the provider. NEVER throws on a provider
+  // failure (the wrapper returns the error result instead).
+  // The audit hook records the call (user_id, org_id,
+  // provider, model, ok, error) so we have a per-tenant
+  // paper trail.
+  app.post("/api/ai/chat", async request => {
+    const user = await app.auth(request);
+    requireIntegrationWriter(user);
+    const aiChat = require("./lib/ai/chat");
+    const result = await aiChat.chatText(request.body || {}, { env: process.env });
+    audit(db, user.org_id, user.id, "ai.chat", {
+      provider: result.provider,
+      model: result.model || null,
+      ok: result.ok === true,
+      error: result.ok === true ? null : (result.error || "unknown")
+    });
+    return {
+      ok: result.ok === true,
+      provider: result.provider,
+      model: result.model || null,
+      // Trim the data so the SPA doesn't accidentally render
+      // a multi-MB LLM response. The discriminated result
+      // already returns data on success; the route just
+      // re-exports it.
+      data: result.ok === true ? result.data : null,
+      error: result.ok === true ? null : (result.error || "unknown")
     };
   });
 
