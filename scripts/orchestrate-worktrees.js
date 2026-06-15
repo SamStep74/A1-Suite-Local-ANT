@@ -189,6 +189,7 @@ function mergePlan(orchestration, plan) {
   const mergeOrder = Array.isArray(plan.mergeOrder) && plan.mergeOrder.length > 0
     ? plan.mergeOrder
     : orchestration.workerPlans.map(w => w.workerSlug);
+  const mergeTarget = resolveMergeTarget(plan.baseRef);
 
   // Resolve slugs to worker plans
   const bySlug = new Map(orchestration.workerPlans.map(w => [w.workerSlug, w]));
@@ -202,22 +203,21 @@ function mergePlan(orchestration, plan) {
     ordered.push(w);
   }
 
-  // Pre-flight: fetch ant
-  const fetch = spawnSync('git', ['fetch', 'ant'], { cwd: repoRoot, encoding: 'utf8' });
-  if (fetch.status !== 0) {
-    process.stderr.write(`git fetch ant failed:\n${fetch.stderr}\n`);
-    process.exit(1);
-  }
-  process.stdout.write('Fetched ant.\n');
-
   for (let i = 0; i < ordered.length; i++) {
     const w = ordered[i];
-    process.stdout.write(`\n=== [${i + 1}/${ordered.length}] Merging ${w.branchName} → ant/main ===\n`);
+    process.stdout.write(`\n=== [${i + 1}/${ordered.length}] Merging ${w.branchName} → ${mergeTarget.remoteHead} ===\n`);
 
-    // Ensure we're on ant/main and up to date
-    const co = spawnSync('git', ['checkout', 'ant/main'], { cwd: repoRoot, encoding: 'utf8' });
+    // Ensure every merge starts from the current explicit remote-tracking ref.
+    const fetch = spawnSync('git', ['fetch', 'ant', mergeTarget.fetchRefspec], { cwd: repoRoot, encoding: 'utf8' });
+    if (fetch.status !== 0) {
+      process.stderr.write(`git fetch ant ${mergeTarget.fetchRefspec} failed:\n${fetch.stderr}\n`);
+      process.exit(1);
+    }
+    process.stdout.write(`Fetched ${mergeTarget.remoteHead} into ${mergeTarget.trackingRef}.\n`);
+
+    const co = spawnSync('git', ['checkout', '-B', mergeTarget.localBranch, mergeTarget.trackingRef], { cwd: repoRoot, encoding: 'utf8' });
     if (co.status !== 0) {
-      process.stderr.write(`git checkout ant/main failed:\n${co.stderr}\n`);
+      process.stderr.write(`git checkout -B ${mergeTarget.localBranch} ${mergeTarget.trackingRef} failed:\n${co.stderr}\n`);
       process.exit(1);
     }
 
@@ -242,12 +242,12 @@ function mergePlan(orchestration, plan) {
     process.stdout.write(`  ✓ merge commit created\n`);
 
     // Push
-    const push = spawnSync('git', ['push', 'ant', 'main'], { cwd: repoRoot, encoding: 'utf8' });
+    const push = spawnSync('git', ['push', 'ant', `HEAD:${mergeTarget.remoteHead}`], { cwd: repoRoot, encoding: 'utf8' });
     if (push.status !== 0) {
-      process.stderr.write(`git push ant main failed:\n${push.stderr}\n`);
+      process.stderr.write(`git push ant HEAD:${mergeTarget.remoteHead} failed:\n${push.stderr}\n`);
       process.exit(1);
     }
-    process.stdout.write(`  ✓ pushed to ant/main\n`);
+    process.stdout.write(`  ✓ pushed to ${mergeTarget.remoteHead}\n`);
 
     // Tag
     if (w.tagName) {
@@ -260,7 +260,25 @@ function mergePlan(orchestration, plan) {
     }
   }
 
-  process.stdout.write(`\nAll ${ordered.length} merges complete. ant/main is up to date.\n`);
+  process.stdout.write(`\nAll ${ordered.length} merges complete. ${mergeTarget.remoteHead} is up to date.\n`);
+}
+
+function resolveMergeTarget(baseRef = '') {
+  if (baseRef === 'refs/remotes/ant/main') {
+    return {
+      remoteHead: 'refs/heads/main',
+      trackingRef: 'refs/remotes/ant/main',
+      fetchRefspec: 'refs/heads/main:refs/remotes/ant/main',
+      localBranch: '__orchestration_merge_main'
+    };
+  }
+
+  return {
+    remoteHead: 'refs/heads/ant/main',
+    trackingRef: 'refs/remotes/ant/ant/main',
+    fetchRefspec: 'refs/heads/ant/main:refs/remotes/ant/ant/main',
+    localBranch: '__orchestration_merge_ant_main'
+  };
 }
 
 function main() {
