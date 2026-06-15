@@ -154,6 +154,33 @@ test("POST /api/ai/ask rejects users without the requested app assignment", asyn
   }
 });
 
+test("POST /api/ai/ask maps extension routes to assigned apps", async () => {
+  const previousProvider = process.env.AI_PROVIDER;
+  process.env.AI_PROVIDER = "disabled";
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local", DEFAULT_PASSWORD);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai/ask",
+      headers: { cookie: operator },
+      payload: {
+        question: "Help me finish this form",
+        context: { app: "forms", rawPath: "/app/forms" },
+      },
+    });
+    assert.strictEqual(res.statusCode, 200, res.body);
+  } finally {
+    if (previousProvider === undefined) {
+      delete process.env.AI_PROVIDER;
+    } else {
+      process.env.AI_PROVIDER = previousProvider;
+    }
+    await app.close();
+  }
+});
+
 test("POST /api/ai/ask lets app users use saved OpenRouter settings and filters blank citations", async () => {
   const previousAllowEgress = process.env.ARMOSPHERA_ONE_ALLOW_EGRESS;
   const previousAllowlist = process.env.ARMOSPHERA_ONE_EGRESS_ALLOWLIST;

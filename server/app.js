@@ -10342,13 +10342,20 @@ function requireIntegrationWriter(user) {
 function requireAskAiAccess(db, user, context) {
   if (["Owner", "Admin"].includes(user.role)) return;
   if (user.role === "Auditor") return;
-  const appId = isPlainObject(context) && typeof context.app === "string"
+  const rawAppId = isPlainObject(context) && typeof context.app === "string"
     ? context.app.trim()
     : "";
+  const appId = askAiAssignmentAppId(rawAppId);
   if (appId && hasAppAccess(db, user, appId)) return;
   const err = new Error("Ask AI app access required");
   err.statusCode = 403;
   throw err;
+}
+
+function askAiAssignmentAppId(appId) {
+  return {
+    forms: "campaigns"
+  }[appId] || appId;
 }
 
 function requirePilotTemplateReader(user) {
