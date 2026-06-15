@@ -240,7 +240,7 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
         page.getByTestId("wizard-review-line"),
       ).toHaveCount(1);
       // Tick the confirmation checkbox and click primary.
-      await checkTestId(page, "wizard-review-confirm");
+      await checkTestId(page, "wizard-review-confirm", true);
       await clickTestId(page, "wizard-primary");
 
       /* Step 4 — Submit */
@@ -522,7 +522,7 @@ test.describe("document-steppers — Phase 10.5 r2 W5 wizard", () => {
       ).toHaveText("800");
 
       // Tick the confirmation box and advance to Submit.
-      await checkTestId(page, "wizard-review-confirm");
+      await checkTestId(page, "wizard-review-confirm", true);
       await clickTestId(page, "wizard-primary");
 
       /* Step 4 — Submit. Click primary to finalize. */
