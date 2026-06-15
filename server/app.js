@@ -527,7 +527,6 @@ function registerApi(app, db, options = {}) {
   // when a real provider is configured.
   app.post("/api/ai/ask", async request => {
     const user = await app.auth(request);
-    requireAskAiAccess(user);
     const body = request.body && typeof request.body === "object" ? request.body : {};
     const question = typeof body.question === "string" ? body.question.trim() : "";
     if (!question) {
@@ -537,6 +536,7 @@ function registerApi(app, db, options = {}) {
     }
 
     const context = body.context && typeof body.context === "object" ? body.context : {};
+    requireAskAiAccess(db, user, context);
     const idempotencyKey = typeof body.idempotencyKey === "string" && body.idempotencyKey.trim()
       ? body.idempotencyKey.trim()
       : undefined;
@@ -10339,12 +10339,23 @@ function requireIntegrationWriter(user) {
   }
 }
 
-function requireAskAiAccess(user) {
-  if (!["Owner", "Admin", "Salesperson", "Operator", "Accountant", "Auditor"].includes(user.role)) {
-    const err = new Error("Ask AI role required");
-    err.statusCode = 403;
-    throw err;
-  }
+function requireAskAiAccess(db, user, context) {
+  if (["Owner", "Admin"].includes(user.role)) return;
+  if (user.role === "Auditor") return;
+  const rawAppId = isPlainObject(context) && typeof context.app === "string"
+    ? context.app.trim()
+    : "";
+  const appId = askAiAssignmentAppId(rawAppId);
+  if (appId && hasAppAccess(db, user, appId)) return;
+  const err = new Error("Ask AI app access required");
+  err.statusCode = 403;
+  throw err;
+}
+
+function askAiAssignmentAppId(appId) {
+  return {
+    forms: "campaigns"
+  }[appId] || appId;
 }
 
 function requirePilotTemplateReader(user) {
@@ -63699,7 +63710,7 @@ function coerceAskAiResponse(result, fallback, idempotencyKey) {
     ? data.answer.trim()
     : fallback.answer;
   const citations = Array.isArray(data.citations)
-    ? data.citations.filter(isAskAiCitation)
+    ? data.citations.map(coerceAskAiCitation).filter(Boolean)
     : fallback.citations;
   const tokensUsed = Number.isInteger(data.tokensUsed) && data.tokensUsed >= 0
     ? data.tokensUsed
@@ -63731,13 +63742,26 @@ function askAiCitationsForContext(context) {
 }
 
 function isAskAiCitation(value) {
+  return Boolean(coerceAskAiCitation(value));
+}
+
+function coerceAskAiCitation(value) {
   if (!isPlainObject(value)) return false;
   if (value.kind !== "route" && value.kind !== "document") return false;
-  if (typeof value.id !== "string" || !value.id.trim()) return false;
-  if (typeof value.label !== "string" || !value.label.trim()) return false;
-  if (value.kind === "route" && (typeof value.app !== "string" || !value.app.trim())) return false;
-  if (value.href !== undefined && (typeof value.href !== "string" || !value.href.trim())) return false;
-  return true;
+  const id = typeof value.id === "string" ? value.id.trim() : "";
+  const label = typeof value.label === "string" ? value.label.trim() : "";
+  if (!id || !label) return false;
+  const citation = { kind: value.kind, id, label };
+  if (value.kind === "route") {
+    const app = typeof value.app === "string" ? value.app.trim() : "";
+    if (!app) return false;
+    citation.app = app;
+  }
+  if (value.href !== undefined) {
+    if (typeof value.href !== "string" || !value.href.trim()) return false;
+    citation.href = value.href.trim();
+  }
+  return citation;
 }
 
 module.exports = { buildApp };
