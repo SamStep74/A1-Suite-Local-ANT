@@ -518,6 +518,71 @@ function registerApi(app, db, options = {}) {
     };
   });
 
+  // POST /api/ai/ask — Ask AI sidebar contract used by
+  // web-modern/src/lib/ai/client.ts. Body:
+  //   { question, context, idempotencyKey? }
+  // Returns { answer, citations, tokensUsed, idempotencyKey? } so
+  // the SPA does not have to fall back to the canned client stub
+  // when a real provider is configured.
+  app.post("/api/ai/ask", async request => {
+    const user = await app.auth(request);
+    requireIntegrationWriter(user);
+    const body = request.body && typeof request.body === "object" ? request.body : {};
+    const question = typeof body.question === "string" ? body.question.trim() : "";
+    if (!question) {
+      const err = new Error("Ask AI question is required");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const context = body.context && typeof body.context === "object" ? body.context : {};
+    const idempotencyKey = typeof body.idempotencyKey === "string" && body.idempotencyKey.trim()
+      ? body.idempotencyKey.trim()
+      : undefined;
+    const aiChat = require("./lib/ai/chat");
+    const fallback = buildAskAiFallback(question, context, idempotencyKey);
+    const result = await aiChat.chatJson(
+      {
+        system:
+          "You answer A1 Suite in-app questions. Return only JSON matching " +
+          "{answer:string,citations:array,tokensUsed:number}. Keep citations to route links from the supplied context.",
+        user: JSON.stringify({ question, context }),
+        jsonSchema: {
+          type: "object",
+          additionalProperties: false,
+          required: ["answer", "citations", "tokensUsed"],
+          properties: {
+            answer: { type: "string" },
+            citations: {
+              type: "array",
+              items: {
+                type: "object",
+                additionalProperties: true,
+                required: ["kind", "id", "label"],
+                properties: {
+                  kind: { type: "string" },
+                  id: { type: "string" },
+                  label: { type: "string" },
+                  app: { type: "string" },
+                  href: { type: "string" }
+                }
+              }
+            },
+            tokensUsed: { type: "integer", minimum: 0 }
+          }
+        }
+      },
+      { env: process.env }
+    );
+    audit(db, user.org_id, user.id, "ai.ask", {
+      provider: result.provider,
+      model: result.model || null,
+      ok: result.ok === true,
+      error: result.ok === true ? null : (result.error || "unknown")
+    });
+    return coerceAskAiResponse(result, fallback, idempotencyKey);
+  });
+
   // POST /api/ai/chat — text-in / text-out chat. Body:
   //   { system, user, temperature?, maxTokens? }
   // Returns the discriminated {ok, data, error, provider,
@@ -63573,6 +63638,68 @@ function safeJson(value) {
   } catch {
     return [];
   }
+}
+
+function buildAskAiFallback(question, context, idempotencyKey) {
+  const response = {
+    answer:
+      "AI provider output is unavailable, so this is a server-side fallback for the Ask AI request: " +
+      question,
+    citations: askAiCitationsForContext(context),
+    tokensUsed: 0
+  };
+  if (idempotencyKey) response.idempotencyKey = idempotencyKey;
+  return response;
+}
+
+function coerceAskAiResponse(result, fallback, idempotencyKey) {
+  if (!result || result.ok !== true || !isPlainObject(result.data)) {
+    return fallback;
+  }
+  const data = result.data;
+  const answer = typeof data.answer === "string" && data.answer.trim()
+    ? data.answer.trim()
+    : fallback.answer;
+  const citations = Array.isArray(data.citations)
+    ? data.citations.filter(isAskAiCitation)
+    : fallback.citations;
+  const tokensUsed = Number.isInteger(data.tokensUsed) && data.tokensUsed >= 0
+    ? data.tokensUsed
+    : 0;
+  const response = { answer, citations, tokensUsed };
+  if (idempotencyKey) response.idempotencyKey = idempotencyKey;
+  return response;
+}
+
+function askAiCitationsForContext(context) {
+  if (!isPlainObject(context) || typeof context.app !== "string" || !context.app.trim()) {
+    return [];
+  }
+  const app = context.app.trim();
+  const entity = typeof context.entity === "string" ? context.entity.trim() : "";
+  const id = typeof context.id === "string" ? context.id.trim() : "";
+  const href = id
+    ? `/app/${app}/${entity}/${id}`
+    : entity
+      ? `/app/${app}/${entity}`
+      : `/app/${app}`;
+  return [{
+    kind: "route",
+    id: `${app}${entity ? `:${entity}` : ""}${id ? `:${id}` : ""}`,
+    app,
+    label: entity || app,
+    href
+  }];
+}
+
+function isAskAiCitation(value) {
+  if (!isPlainObject(value)) return false;
+  if (value.kind !== "route" && value.kind !== "document") return false;
+  if (typeof value.id !== "string" || !value.id.trim()) return false;
+  if (typeof value.label !== "string" || !value.label.trim()) return false;
+  if (value.kind === "route" && typeof value.app !== "string") return false;
+  if (value.href !== undefined && typeof value.href !== "string") return false;
+  return true;
 }
 
 module.exports = { buildApp };

@@ -78,6 +78,53 @@ test("GET /api/ai/models always returns a non-empty menu (fallback when egress o
   }
 });
 
+test("POST /api/ai/ask returns the existing Ask AI response contract", async () => {
+  const previousProvider = process.env.AI_PROVIDER;
+  process.env.AI_PROVIDER = "disabled";
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai/ask",
+      headers: { cookie },
+      payload: {
+        question: "What should I review?",
+        context: {
+          app: "finance",
+          entity: "invoices",
+          rawPath: "/app/finance/invoices",
+        },
+        idempotencyKey: "ask-contract-1",
+      },
+    });
+
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const body = res.json();
+    assert.strictEqual(typeof body.answer, "string");
+    assert.ok(body.answer.includes("What should I review?"));
+    assert.deepStrictEqual(body.citations, [
+      {
+        kind: "route",
+        id: "finance:invoices",
+        app: "finance",
+        label: "invoices",
+        href: "/app/finance/invoices",
+      },
+    ]);
+    assert.strictEqual(body.tokensUsed, 0);
+    assert.strictEqual(body.idempotencyKey, "ask-contract-1");
+  } finally {
+    if (previousProvider === undefined) {
+      delete process.env.AI_PROVIDER;
+    } else {
+      process.env.AI_PROVIDER = previousProvider;
+    }
+    await app.close();
+  }
+});
+
 test("PUT /api/ai/settings validates input (400 on bad baseUrl and non-string key)", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
