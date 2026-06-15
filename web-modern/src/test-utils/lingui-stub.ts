@@ -36,6 +36,14 @@ export const i18n = {
   // We accept any args so call sites that pass a messages object
   // (as `i18n.activate("en", { Hello: "Hello" })`) still typecheck.
   activate: (..._args: unknown[]) => {},
+  // Lingui v5: `loadAndActivate({ locale, messages })` is the API
+  // that sets BOTH the locale AND the messages catalog in one call.
+  // The real `src/i18n/lingui.ts` invokes this eagerly at module
+  // load (so any `t({...})` macro evaluated at module-eval time
+  // doesn't throw "Attempted to call a translation function without
+  // setting a locale"). Tests that import lingui.ts would crash
+  // at module load without this no-op.
+  loadAndActivate: (..._args: unknown[]) => {},
   load: async (..._args: unknown[]) => {},
 };
 

@@ -87,43 +87,32 @@ export const getActiveLocale = (): Locale => {
  * pull all three into the initial bundle (worst case) or trip
  * `vite:dynamic-import-vars`' "file extension required" rule.
  *
- * Dev-mode CJS workaround: `lingui compile` emits CJS
- * (`module.exports = { messages: ... }`), but Vite's dev server
- * serves the file verbatim to the browser, where `module` is
- * undefined. We sidestep that with `import.meta.glob`, which
- * tells Vite to bundle the matching files as raw strings
- * (`?raw`). We then evaluate the CJS in an isolated `Function`
- * scope to extract `module.exports`. The production build
- * bundles the catalogs into proper ESM chunks, so the raw path
- * is only hit in dev.
- *
- * Security note: the `raw` string is a build artifact from
- * `lingui compile` (derived from the committed `.po` files in
- * the source tree) — not user input. The content is
- * deterministic and reviewed via the `.po` files in git.
+ * `lingui compile` emits CJS (`module.exports = { messages: ... }`),
+ * which the browser can't parse as ESM. The `ant-lingui-catalogs`
+ * Vite plugin (see vite.config.ts) rewrites the CJS into a clean
+ * `export default { messages: ... }` at the dev/build layer, so
+ * we can `import.meta.glob` them as plain ESM. No `?raw`, no
+ * `new Function`, no string-of-code evaluation.
  */
-const RAW_CATALOGS = import.meta.glob<string>(
+const CATALOGS = import.meta.glob<{ messages: Record<string, string> }>(
   "/src/locales/*/messages.js",
-  { query: "?raw", import: "default" },
+  { import: "default" },
 );
 
-const loadCJS = async (
+const loadCatalog = async (
   localeKey: string,
 ): Promise<{ messages: Record<string, string> }> => {
-  const loader = RAW_CATALOGS[`/src/locales/${localeKey}/messages.js`];
+  const loader = CATALOGS[`/src/locales/${localeKey}/messages.js`];
   if (!loader) {
     throw new Error(`No compiled catalog for locale "${localeKey}"`);
   }
-  const raw: string = await loader();
-  const mod: { exports: unknown } = { exports: {} };
-  new Function("module", raw)(mod);
-  return mod.exports as { messages: Record<string, string> };
+  return await loader();
 };
 
 const CATALOG_LOADERS: Record<Locale, () => Promise<{ messages: Record<string, string> }>> = {
-  hy: () => loadCJS("hy"),
-  ru: () => loadCJS("ru"),
-  en: () => loadCJS("en"),
+  hy: () => loadCatalog("hy"),
+  ru: () => loadCatalog("ru"),
+  en: () => loadCatalog("en"),
 };
 
 export const activateLocale = async (l: Locale): Promise<void> => {

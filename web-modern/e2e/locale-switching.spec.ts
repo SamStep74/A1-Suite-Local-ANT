@@ -108,8 +108,13 @@ export const DEFAULT_TOURS_BY_ID = {};`;
 
 /** Build an ESM-wrapped stub for a `messages.js` locale catalog.
  *  Reads the JSON out of the source CJS file and emits it as a
- *  named `messages` export — the shape `activateLocale()` expects
- *  (`const { messages } = await CATALOG_LOADERS[l]()`).
+ *  DEFAULT export — the shape that the
+ *  `ant-lingui-catalogs` Vite plugin emits AND that
+ *  `import.meta.glob(..., { import: "default" })` in
+ *  `src/i18n/lingui.ts` unwraps. The shim must match the plugin's
+ *  output exactly; otherwise `.default` is `undefined` and the
+ *  loader returns `undefined`, which then throws in
+ *  `activateLocale()` and the authed shell never mounts.
  *
  *  The CJS file's shape is
  *  `module.exports={messages:JSON.parse("<escaped JSON>")};`.
@@ -138,10 +143,12 @@ function messagesStub(locale: "hy" | "ru" | "en"): string {
   return `// Stubbed locale catalog — the real CJS file uses
 // \`module.exports = { messages: ... }\` which the browser can't
 // evaluate under the project's \`"type": "module"\` setup. We
-// pre-parse the JSON at the Node side and re-emit it as a NAMED
-// \`messages\` export, matching the shape that
-// \`activateLocale()\` destructures from the dynamic import.
-export const messages = ${messagesJson};`;
+// pre-parse the JSON at the Node side and re-emit it as a DEFAULT
+// export of \`{ messages: ... }\`, matching the shape that the
+// \`ant-lingui-catalogs\` Vite plugin emits and that
+// \`import.meta.glob(..., { import: "default" })\` in
+// \`src/i18n/lingui.ts\` unwraps.
+export default { messages: ${messagesJson} };`;
 }
 
 /** Install the route-level workarounds on a browser context. The
