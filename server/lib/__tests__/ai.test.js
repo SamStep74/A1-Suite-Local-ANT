@@ -72,12 +72,12 @@ const FAKE_ENV_DISABLED = {
 
 const FAKE_ENV_ANTHROPIC = {
   AI_PROVIDER: 'anthropic',
-  ANTHROPIC_API_KEY: 'sk-ant-fake-test-key'
+  ANTHROPIC_API_KEY: 'fake-anthropic-key'
 };
 
 const FAKE_ENV_AUTO_OPENAI = {
   AI_PROVIDER: 'auto',
-  OPENAI_API_KEY: 'sk-openai-fake-test-key'
+  OPENAI_API_KEY: 'fake-openai-key'
 };
 
 const FAKE_ENV_AUTO_OLLAMA = {

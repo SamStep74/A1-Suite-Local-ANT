@@ -330,12 +330,12 @@ test("smb-crm integration: rotateSecret hashes + clears plaintext", () => {
   integration.upsertIntegration(db, o.org_id, {
     integrationKey: "stripe", displayName: "Stripe"
   });
-  const result = integration.rotateSecret(db, o.org_id, "stripe", "sk_live_abc123", o.id);
-  assert.equal(result.fingerprint, require("node:crypto").createHash("sha256").update("sk_live_abc123").digest("hex").slice(0, 8));
+  const result = integration.rotateSecret(db, o.org_id, "stripe", "fixture", o.id);
+  assert.equal(result.fingerprint, require("node:crypto").createHash("sha256").update("fixture").digest("hex").slice(0, 8));
   // The hash is sha256 hex (64 chars).
   const cred = db.prepare("SELECT * FROM smb_crm_integration_credentials WHERE integration_id = ?").get(result.view.id);
   assert.equal(cred.secret_hash.length, 64);
-  assert.notEqual(cred.secret_hash, "sk_live_abc123", "plaintext is NOT stored");
+  assert.notEqual(cred.secret_hash, "fixture", "secret hash is not plaintext");
   assert.equal(cred.rotated_by_user_id, o.id);
   // After rotation, status is "connected".
   assert.equal(result.view.status, "connected");

@@ -214,7 +214,7 @@ test("smb-crm integration: POST /api/smb-crm/integrations/:key/secret hashes + r
     });
     assert.equal(create.statusCode, 200, create.body);
     const before = app.db.prepare("SELECT COUNT(*) AS c FROM audit_events").get().c;
-    const secret = "sk_test_abcdef123456";
+    const secret = "fixture";
     const rotate = await app.inject({
       method: "POST",
       url: "/api/smb-crm/integrations/whatsapp-cloud/secret",
