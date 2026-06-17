@@ -220,7 +220,27 @@ test("POST /api/ai/ask preserves general Ask AI page access for legacy roles", a
   const app = buildApp({ dbPath: ":memory:" });
   try {
     await app.ready();
+    const owner = await login(app);
+    const disabled = await app.inject({
+      method: "POST",
+      url: "/api/apps/copilot/assign",
+      headers: { cookie: owner },
+      payload: { role: "Operator", enabled: false },
+    });
+    assert.strictEqual(disabled.statusCode, 200, disabled.body);
+
     const operator = await login(app, "operator@armosphera.local", DEFAULT_PASSWORD);
+    const copilotRes = await app.inject({
+      method: "POST",
+      url: "/api/ai/ask",
+      headers: { cookie: operator },
+      payload: {
+        question: "Summarize this advisory context",
+        context: { app: "copilot", rawPath: "/app/copilot" },
+      },
+    });
+    assert.strictEqual(copilotRes.statusCode, 403, copilotRes.body);
+
     const res = await app.inject({
       method: "POST",
       url: "/api/ai/ask",

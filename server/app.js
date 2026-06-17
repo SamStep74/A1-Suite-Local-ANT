@@ -10345,7 +10345,10 @@ function requireAskAiAccess(db, user, context) {
   const rawAppId = isPlainObject(context) && typeof context.app === "string"
     ? context.app.trim()
     : "";
-  const appId = askAiAssignmentAppId(rawAppId);
+  const rawPath = isPlainObject(context) && typeof context.rawPath === "string"
+    ? context.rawPath.trim()
+    : "";
+  const appId = askAiAssignmentAppId(rawAppId, rawPath);
   if (appId && hasAppAccess(db, user, appId)) return;
   if (!appId && canUseGeneralAskAi(user)) return;
   const err = new Error("Ask AI app access required");
@@ -10353,11 +10356,10 @@ function requireAskAiAccess(db, user, context) {
   throw err;
 }
 
-function askAiAssignmentAppId(appId) {
+function askAiAssignmentAppId(appId, rawPath = "") {
+  if (appId === "ask-ai" || rawPath === "/app/ask-ai") return "";
   return {
     "": "",
-    "ask-ai": "",
-    copilot: "",
     cabinet: "docs",
     forms: "campaigns"
   }[appId] ?? appId;
