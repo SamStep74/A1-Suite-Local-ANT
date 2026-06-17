@@ -10347,6 +10347,7 @@ function requireAskAiAccess(db, user, context) {
     : "";
   const appId = askAiAssignmentAppId(rawAppId);
   if (appId && hasAppAccess(db, user, appId)) return;
+  if (!appId && canUseGeneralAskAi(user)) return;
   const err = new Error("Ask AI app access required");
   err.statusCode = 403;
   throw err;
@@ -10354,8 +10355,16 @@ function requireAskAiAccess(db, user, context) {
 
 function askAiAssignmentAppId(appId) {
   return {
+    "": "",
+    "ask-ai": "",
+    copilot: "",
+    cabinet: "docs",
     forms: "campaigns"
-  }[appId] || appId;
+  }[appId] ?? appId;
+}
+
+function canUseGeneralAskAi(user) {
+  return ["Salesperson", "Operator", "Accountant"].includes(user.role);
 }
 
 function requirePilotTemplateReader(user) {

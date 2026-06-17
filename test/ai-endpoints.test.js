@@ -184,6 +184,66 @@ test("POST /api/ai/ask maps extension routes to assigned apps", async () => {
   }
 });
 
+test("POST /api/ai/ask maps cabinet routes to Docs app access", async () => {
+  const previousProvider = process.env.AI_PROVIDER;
+  process.env.AI_PROVIDER = "disabled";
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const salesperson = await login(app, "sales@armosphera.local", DEFAULT_PASSWORD);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai/ask",
+      headers: { cookie: salesperson },
+      payload: {
+        question: "Summarize this cabinet document",
+        context: { app: "cabinet", rawPath: "/app/cabinet" },
+        idempotencyKey: "ask-cabinet-docs-route-1",
+      },
+    });
+
+    assert.strictEqual(res.statusCode, 200, res.body);
+    assert.strictEqual(res.json().idempotencyKey, "ask-cabinet-docs-route-1");
+  } finally {
+    if (previousProvider === undefined) {
+      delete process.env.AI_PROVIDER;
+    } else {
+      process.env.AI_PROVIDER = previousProvider;
+    }
+    await app.close();
+  }
+});
+
+test("POST /api/ai/ask preserves general Ask AI page access for legacy roles", async () => {
+  const previousProvider = process.env.AI_PROVIDER;
+  process.env.AI_PROVIDER = "disabled";
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local", DEFAULT_PASSWORD);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai/ask",
+      headers: { cookie: operator },
+      payload: {
+        question: "What can I ask from here?",
+        context: { app: "copilot", rawPath: "/app/ask-ai" },
+        idempotencyKey: "ask-general-page-operator-1",
+      },
+    });
+
+    assert.strictEqual(res.statusCode, 200, res.body);
+    assert.strictEqual(res.json().idempotencyKey, "ask-general-page-operator-1");
+  } finally {
+    if (previousProvider === undefined) {
+      delete process.env.AI_PROVIDER;
+    } else {
+      process.env.AI_PROVIDER = previousProvider;
+    }
+    await app.close();
+  }
+});
+
 test("POST /api/ai/ask lets app users use saved OpenRouter settings and filters blank citations", async () => {
   const previousAllowEgress = process.env.ARMOSPHERA_ONE_ALLOW_EGRESS;
   const previousAllowlist = process.env.ARMOSPHERA_ONE_EGRESS_ALLOWLIST;
