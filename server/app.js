@@ -10357,7 +10357,8 @@ function requireAskAiAccess(db, user, context) {
 }
 
 function askAiAssignmentAppId(appId, rawPath = "") {
-  if (appId === "ask-ai" || rawPath === "/app/ask-ai") return "";
+  if (appId === "ask-ai" || (!appId && rawPath === "/app/ask-ai")) return "";
+  if (appId === "copilot" && rawPath === "/app/ask-ai") return "";
   return {
     "": "",
     cabinet: "docs",

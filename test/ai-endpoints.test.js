@@ -145,7 +145,7 @@ test("POST /api/ai/ask rejects users without the requested app assignment", asyn
       headers: { cookie: operator },
       payload: {
         question: "Show finance health",
-        context: { app: "finance" },
+        context: { app: "finance", rawPath: "/app/ask-ai" },
       },
     });
     assert.strictEqual(res.statusCode, 403, res.body);
