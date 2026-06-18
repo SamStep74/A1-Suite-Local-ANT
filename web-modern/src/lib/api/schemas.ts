@@ -4827,6 +4827,11 @@ export const SmbCrmCustomerSchema = z.object({
 });
 export type SmbCrmCustomer = z.infer<typeof SmbCrmCustomerSchema>;
 
+export const SmbCrmCustomerListResponseSchema = z.object({
+  customers: z.array(SmbCrmCustomerSchema),
+});
+export type SmbCrmCustomerListResponse = z.infer<typeof SmbCrmCustomerListResponseSchema>;
+
 /** Request body for POST /api/smb-crm/customers. */
 export const SmbCrmCreateCustomerRequestSchema = z.object({
   idempotencyKey: z.string().min(1),

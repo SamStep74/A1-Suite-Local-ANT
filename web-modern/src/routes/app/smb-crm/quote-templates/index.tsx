@@ -37,8 +37,10 @@ import {
   QuoteTemplateListResponseSchema,
   QuoteFromTemplateRequestSchema,
   QuoteFromTemplateResponseSchema,
+  SmbCrmCustomerListResponseSchema,
   type QuoteTemplate,
   type QuoteFromTemplateRequest,
+  type SmbCrmCustomer,
 } from "../../../../lib/api/schemas";
 import { cn } from "../../../../lib/utils/cn";
 
@@ -50,6 +52,11 @@ function QuoteTemplatesPage() {
   const templatesQ = useQuery({
     queryKey: ["smb-crm-quote-templates"],
     queryFn: () => getJson("/api/smb-crm/quote-templates", QuoteTemplateListResponseSchema),
+    staleTime: 5 * 60_000,
+  });
+  const customersQ = useQuery({
+    queryKey: ["smb-crm-customers"],
+    queryFn: () => getJson("/api/smb-crm/customers", SmbCrmCustomerListResponseSchema),
     staleTime: 5 * 60_000,
   });
 
@@ -156,6 +163,8 @@ function QuoteTemplatesPage() {
             onNumberChange={setNumber}
             customerId={customerId}
             onCustomerIdChange={setCustomerId}
+            customers={customersQ.data?.customers ?? []}
+            customersIsLoading={customersQ.isLoading}
             issueDate={issueDate}
             onIssueDateChange={setIssueDate}
             expiryDate={expiryDate}
@@ -300,6 +309,8 @@ function MetadataEditor({
   onNumberChange,
   customerId,
   onCustomerIdChange,
+  customers,
+  customersIsLoading,
   issueDate,
   onIssueDateChange,
   expiryDate,
@@ -311,6 +322,8 @@ function MetadataEditor({
   onNumberChange: (v: string) => void;
   customerId: string;
   onCustomerIdChange: (v: string) => void;
+  customers: ReadonlyArray<SmbCrmCustomer>;
+  customersIsLoading: boolean;
   issueDate: string;
   onIssueDateChange: (v: string) => void;
   expiryDate: string;
@@ -336,15 +349,31 @@ function MetadataEditor({
         />
       </label>
       <label className="block text-[var(--text-sm)]">
-        <span className="text-[var(--color-muted)]">Customer ID (optional)</span>
-        <input
-          type="text"
+        <span className="text-[var(--color-muted)]">Customer (optional)</span>
+        <select
           value={customerId}
           onChange={(e) => onCustomerIdChange(e.target.value)}
-          placeholder="cust-…"
+          disabled={customersIsLoading}
           className="mt-0.5 w-full rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-canvas)] px-2 py-1 text-[var(--text-sm)]"
           data-testid="smb-crm-quote-template-customer"
-        />
+        >
+          <option value="">
+            {customersIsLoading ? "Loading customers…" : "— select customer —"}
+          </option>
+          {customers.map((c) => (
+            <option key={c.id} value={c.id}>
+              {c.companyName || c.fullName}{c.email ? ` · ${c.email}` : ""}
+            </option>
+          ))}
+        </select>
+        {customers.length === 0 && !customersIsLoading && (
+          <p
+            className="mt-1 text-[10px] text-[var(--color-muted)]"
+            data-testid="smb-crm-quote-template-customer-empty"
+          >
+            No customers yet. Create one in the Customers app first.
+          </p>
+        )}
       </label>
       <label className="block text-[var(--text-sm)]">
         <span className="text-[var(--color-muted)]">Issue date</span>

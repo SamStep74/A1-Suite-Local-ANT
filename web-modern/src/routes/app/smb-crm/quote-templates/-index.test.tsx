@@ -64,6 +64,28 @@ const mocks = vi.hoisted(() => ({
       builtin: boolean;
       createdAt: string;
     }>;
+  },
+  // Pre-seedable /api/smb-crm/customers result. null =
+  // "loading" (matches the production default before the
+  // query resolves).
+  customersData: null as null | {
+    customers: Array<{
+      id: string;
+      orgId: string;
+      fullName: string;
+      email: string | null;
+      phone: string | null;
+      companyName: string | null;
+      address: string | null;
+      locale: string;
+      status: string;
+      branchId: string | null;
+      tags: string[];
+      custom: Record<string, unknown>;
+      mergedIntoId: string | null;
+      createdAt: string;
+      updatedAt?: string;
+    }>;
   }
 }));
 
@@ -88,14 +110,24 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
-    useQuery: (_opts: { queryKey: string[] }) => {
-      if (mocks.templatesData === null) {
-        return { data: undefined, isLoading: true, isError: false };
+    useQuery: (opts: { queryKey: string[] }) => {
+      const key = opts.queryKey[0];
+      if (key === "smb-crm-quote-templates") {
+        if (mocks.templatesData === null) {
+          return { data: undefined, isLoading: true, isError: false };
+        }
+        if ("_error" in mocks.templatesData) {
+          return { data: undefined, isLoading: false, isError: true };
+        }
+        return { data: mocks.templatesData, isLoading: false, isError: false };
       }
-      if ("_error" in mocks.templatesData) {
-        return { data: undefined, isLoading: false, isError: true };
+      if (key === "smb-crm-customers") {
+        if (mocks.customersData === null) {
+          return { data: undefined, isLoading: true, isError: false };
+        }
+        return { data: mocks.customersData, isLoading: false, isError: false };
       }
-      return { data: mocks.templatesData, isLoading: false, isError: false };
+      return { data: undefined, isLoading: false, isError: false };
     },
     useMutation: (cfg: { mutationFn: (input: unknown) => Promise<unknown>; onSuccess?: (data: unknown, input: unknown) => void; onError?: (err: unknown) => void }) => {
       const fire = (input: unknown) => {
@@ -150,6 +182,43 @@ beforeEach(() => {
       { id: "tpl-service-3", orgId: "_builtin", name: "Service quote · 3 lines", description: "3 service lines.", lineItems: [{ name: "Setup", description: "Onboarding", quantity: 1, unitPrice: 0 }, { name: "Monthly", description: "Recurring", quantity: 1, unitPrice: 0 }, { name: "Training", description: "One-time", quantity: 1, unitPrice: 0 }], builtin: true, createdAt: "2026-06-01T00:00:00Z" },
       { id: "tpl-subscription-annual", orgId: "_builtin", name: "Annual subscription", description: "12 months (1 free).", lineItems: [{ name: "Annual license", description: "12 months", quantity: 12, unitPrice: 0 }], builtin: true, createdAt: "2026-06-01T00:00:00Z" },
       { id: "tpl-consulting-blank", orgId: "_builtin", name: "Consulting (blank lines)", description: "5 blank consulting lines.", lineItems: [{ name: "Consulting 1", description: "", quantity: 1, unitPrice: 0 }, { name: "Consulting 2", description: "", quantity: 1, unitPrice: 0 }, { name: "Consulting 3", description: "", quantity: 1, unitPrice: 0 }, { name: "Consulting 4", description: "", quantity: 1, unitPrice: 0 }, { name: "Consulting 5", description: "", quantity: 1, unitPrice: 0 }], builtin: true, createdAt: "2026-06-01T00:00:00Z" }
+    ]
+  };
+  // Default: 2 customers available for the picker.
+  mocks.customersData = {
+    customers: [
+      {
+        id: "cust-1",
+        orgId: "org-1",
+        fullName: "Petros Petrosyan",
+        email: "info@acme.am",
+        phone: null,
+        companyName: "Acme LLC",
+        address: null,
+        locale: "hy-AM",
+        status: "active",
+        branchId: null,
+        tags: [],
+        custom: {},
+        mergedIntoId: null,
+        createdAt: "2026-06-01T00:00:00Z"
+      },
+      {
+        id: "cust-2",
+        orgId: "org-1",
+        fullName: "Anna Sahakyan",
+        email: "anna@brightfuture.am",
+        phone: null,
+        companyName: "Bright Future",
+        address: null,
+        locale: "en",
+        status: "active",
+        branchId: null,
+        tags: [],
+        custom: {},
+        mergedIntoId: null,
+        createdAt: "2026-06-01T00:00:00Z"
+      }
     ]
   };
   mocks.postJsonMock.mockReset();
@@ -298,6 +367,9 @@ describe("Quote templates — create + open PDF", () => {
     renderRoute();
     fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
     fireEvent.change(screen.getByTestId("smb-crm-quote-template-number"), { target: { value: "Q-1" } });
+    // The customer field is now a <select> populated from
+    // /api/smb-crm/customers. Use selectOption (not
+    // fireEvent.change) so React's change event fires.
     fireEvent.change(screen.getByTestId("smb-crm-quote-template-customer"), { target: { value: "cust-1" } });
     fireEvent.click(screen.getByTestId("smb-crm-quote-template-create"));
     await waitFor(() => expect(mocks.postJsonMock).toHaveBeenCalledTimes(1));
@@ -375,5 +447,65 @@ describe("Quote templates — edge cases", () => {
     renderRoute();
     const back = screen.getByTestId("smb-crm-quote-template-back");
     expect(back.getAttribute("data-href")).toBe("/app/smb-crm");
+  });
+});
+
+describe("Quote templates — customer picker (slice 16)", () => {
+  it("renders the customer picker as a <select> with one option per customer", () => {
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    const sel = screen.getByTestId("smb-crm-quote-template-customer") as HTMLSelectElement;
+    expect(sel.tagName).toBe("SELECT");
+    // 1 placeholder option + 2 real customers.
+    expect(sel.options).toHaveLength(3);
+    const values = Array.from(sel.options).map((o) => o.value);
+    expect(values).toEqual(["", "cust-1", "cust-2"]);
+    // The placeholder option is selected by default.
+    expect(sel.value).toBe("");
+  });
+
+  it("uses companyName over fullName when both are present", () => {
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    const sel = screen.getByTestId("smb-crm-quote-template-customer") as HTMLSelectElement;
+    const cust1 = Array.from(sel.options).find((o) => o.value === "cust-1");
+    expect(cust1?.textContent).toMatch(/Acme LLC/);
+    // The email appears as a secondary indicator.
+    expect(cust1?.textContent).toMatch(/info@acme\.am/);
+  });
+
+  it("the customer value flows into the outbound body on create", async () => {
+    mocks.postJsonMock.mockResolvedValue({
+      ok: true,
+      quote: { id: "quote-c-1", org_id: "org-1", number: "Q-1", customer_id: "cust-1", deal_id: null, issue_date: "2026-06-15", expiry_date: null, status: "draft", total_amount: 0, currency: "AMD", line_items_json: "[]", created_at: "2026-06-15T00:00:00Z", updated_at: "2026-06-15T00:00:00Z" },
+      lineItems: [],
+      totalAmount: 0
+    });
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    fireEvent.change(screen.getByTestId("smb-crm-quote-template-number"), { target: { value: "Q-1" } });
+    fireEvent.change(screen.getByTestId("smb-crm-quote-template-customer"), { target: { value: "cust-2" } });
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-create"));
+    await waitFor(() => expect(mocks.postJsonMock).toHaveBeenCalledTimes(1));
+    const body = mocks.postJsonMock.mock.calls[0]![1];
+    expect(body.customerId).toBe("cust-2");
+  });
+
+  it("renders an empty-state hint when no customers exist", () => {
+    mocks.customersData = { customers: [] };
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    expect(screen.getByTestId("smb-crm-quote-template-customer-empty")).toBeTruthy();
+    expect(screen.getByTestId("smb-crm-quote-template-customer-empty").textContent).toMatch(/No customers yet/);
+  });
+
+  it("the select is disabled while customers are still loading", () => {
+    mocks.customersData = null;
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    const sel = screen.getByTestId("smb-crm-quote-template-customer") as HTMLSelectElement;
+    expect(sel.disabled).toBe(true);
+    // The placeholder text mentions "Loading customers…"
+    expect(sel.options[0]?.textContent).toMatch(/Loading/);
   });
 });
