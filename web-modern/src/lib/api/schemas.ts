@@ -159,10 +159,25 @@ export const WorkflowRuleSchema = z.object({
 export type WorkflowRule = z.infer<typeof WorkflowRuleSchema>;
 
 /** Top-level /api/service/console response — feeds the Today page and
- *  the Desk list/detail. Source: server/app.js:4612. */
+ *  the Desk list/detail. Source: server/app.js:4612.
+ *
+ * Shape: most fields are arrays; `queue` is a SUMMARY OBJECT
+ * (not an array) with the by-status / by-sla / counters.
+ * Schema mirrors `getServiceQueue()` in server/app.js:50525
+ * (the `byStatus` / `bySla` / `pendingApprovals` etc.). */
+export const ServiceQueueSchema = z.object({
+  byStatus: z.array(z.object({ status: z.string(), count: z.number() })),
+  bySla: z.array(z.object({ slaStatus: z.string(), count: z.number() })),
+  pendingApprovals: z.number(),
+  highPriorityOpen: z.number(),
+  escalatedOpen: z.number(),
+  averageSatisfaction: z.number()
+});
+export type ServiceQueue = z.infer<typeof ServiceQueueSchema>;
+
 export const ServiceConsoleSchema = z.object({
   cases: z.array(ServiceCaseSchema),
-  queue: z.array(z.unknown()),
+  queue: ServiceQueueSchema,
   escalations: z.array(z.unknown()),
   resolutions: z.array(z.unknown()),
   approvals: z.array(WorkflowApprovalSchema),

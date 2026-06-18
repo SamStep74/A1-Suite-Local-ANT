@@ -8871,7 +8871,7 @@ function seedServiceCases(db, orgId) {
     "ticket-van-catalog": [
       "case-van-catalog",
       "AO-CASE-1003",
-      "waiting-customer",
+      "on-track",
       "Request the seasonal package CSV, then map package price and VAT fields before import.",
       "KB-TOURISM-CATALOG-IMPORT"
     ]
