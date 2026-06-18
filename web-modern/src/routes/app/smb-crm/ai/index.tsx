@@ -27,8 +27,8 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { ChevronLeft, Send, Sparkles, AlertCircle, RefreshCw } from "lucide-react";
-import { getJson, postJson } from "../../../../lib/api/client";
+import { ChevronLeft, Send, Sparkles, AlertCircle, RefreshCw, Zap } from "lucide-react";
+import { getJson, postJson, streamNdjson } from "../../../../lib/api/client";
 import {
   AiStatusResponseSchema,
   AiChatRequestSchema,
@@ -74,7 +74,8 @@ function AskAiPage() {
   const [userText, setUserText] = useState<string>("");
   const [temperature, setTemperature] = useState<number>(0.2);
   const [maxTokens, setMaxTokens] = useState<number>(1024);
-  const [history, setHistory] = useState<Array<{ kind: "user" | "ai"; text: string; provider?: string; model?: string; ok?: boolean; error?: string | null }>>([]);
+  const [streaming, setStreaming] = useState<boolean>(true);
+  const [history, setHistory] = useState<Array<{ kind: "user" | "ai"; text: string; provider?: string; model?: string; ok?: boolean; error?: string | null; streaming?: boolean }>>([]);
 
   const statusQ = useQuery({
     queryKey: ["ai-status"],
@@ -118,13 +119,101 @@ function AskAiPage() {
     },
   });
 
+  // Streaming variant: NDJSON token-by-token. Each `token`
+  // event appends to the in-progress AI message in real
+  // time. The `done` event marks the message complete; the
+  // `error` event flips the message to an error state.
+  const chatStreamMut = useMutation<void, Error, void>({
+    mutationFn: async () => {
+      const req = {
+        system: systemPrompt || "You are a helpful assistant.",
+        user: userText,
+        temperature,
+        maxTokens
+      };
+      // Validate via Zod before opening the stream.
+      AiChatRequestSchema.parse(req);
+
+      // Append a placeholder "ai" entry that we'll update
+      // on every token event. The streaming flag is true
+      // so the UI can show a "thinking…" cursor.
+      const userMsg = { kind: "user" as const, text: userText };
+      const aiMsgIndex = history.length + 1; // after the user msg we'll append
+      setHistory((h) => [
+        ...h,
+        userMsg,
+        { kind: "ai" as const, text: "", streaming: true }
+      ]);
+
+      let accumulated = "";
+      let meta: { provider?: string; model?: string } = {};
+      let streamError: string | null = null;
+      let aborted = false;
+
+      for await (const ev of streamNdjson("/api/ai/chat/stream", req)) {
+        if (aborted) break;
+        if (ev.type === "token" && typeof ev.data === "string") {
+          accumulated += ev.data;
+          // Update the ai message in-place.
+          setHistory((h) => {
+            const next = h.slice();
+            const target = next[aiMsgIndex];
+            if (target) next[aiMsgIndex] = { ...target, text: accumulated };
+            return next;
+          });
+        } else if (ev.type === "done" && ev.data && typeof ev.data === "object") {
+          const d = ev.data as { model?: string };
+          if (d.model) meta = { ...meta, model: d.model };
+        } else if (ev.type === "error") {
+          const d = ev.data as { code?: string; message?: string };
+          streamError = d?.message || d?.code || "stream error";
+          break;
+        }
+      }
+
+      // Finalize the message.
+      setHistory((h) => {
+        const next = h.slice();
+        const target = next[aiMsgIndex];
+        if (target) {
+          if (streamError) {
+            next[aiMsgIndex] = { ...target, ok: false, error: streamError, streaming: false };
+          } else {
+            next[aiMsgIndex] = {
+              ...target,
+              ok: true,
+              streaming: false,
+              provider: "ollama",
+              model: meta.model,
+              text: accumulated
+            };
+          }
+        }
+        return next;
+      });
+      if (!streamError) {
+        setUserText("");
+      }
+      // Make the unused-var linter happy.
+      void aborted;
+    }
+  });
+
   const onPresetChange = (id: string) => {
     setPresetId(id);
     const p = SYSTEM_PROMPT_PRESETS.find((x) => x.id === id);
     if (p) setSystemPrompt(p.prompt);
   };
 
-  const canSend = userText.trim().length > 0 && !chatMut.isPending;
+  const canSend = userText.trim().length > 0 && !chatMut.isPending && !chatStreamMut.isPending;
+
+  const handleSend = () => {
+    if (streaming) {
+      chatStreamMut.mutate();
+    } else {
+      chatMut.mutate();
+    }
+  };
 
   return (
     <div
@@ -139,19 +228,21 @@ function AskAiPage() {
 
       <HistoryView history={history} />
 
+      <StreamingToggle enabled={streaming} onChange={setStreaming} />
+
       <PromptInput
         value={userText}
         onChange={setUserText}
-        onSend={() => chatMut.mutate()}
+        onSend={handleSend}
         disabled={!canSend}
         temperature={temperature}
         onTemperatureChange={setTemperature}
         maxTokens={maxTokens}
         onMaxTokensChange={setMaxTokens}
-        isSending={chatMut.isPending}
+        isSending={chatMut.isPending || chatStreamMut.isPending}
       />
 
-      {chatMut.isError && (
+      {(chatMut.isError || chatStreamMut.isError) && (
         <p
           role="alert"
           className="rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--color-ruby,#b23a48)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-ruby,#b23a48)_5%,transparent)] px-3 py-2 text-[var(--text-sm)] text-[var(--color-ruby,#b23a48)]"
@@ -268,6 +359,28 @@ function PresetPicker({ value, onChange }: { value: string; onChange: (id: strin
   );
 }
 
+function StreamingToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
+  return (
+    <label
+      className="inline-flex items-center gap-2 text-[var(--text-sm)] text-[var(--color-muted)]"
+      data-testid="smb-crm-ai-streaming-toggle"
+    >
+      <input
+        type="checkbox"
+        checked={enabled}
+        onChange={(e) => onChange(e.target.checked)}
+        className="size-3.5"
+        data-testid="smb-crm-ai-streaming-checkbox"
+      />
+      <Zap className="size-3.5" aria-hidden />
+      <span>
+        Stream tokens (NDJSON, sovereign local Ollama)
+        <span className="ml-1 text-[10px]">— watch the reply build in real time</span>
+      </span>
+    </label>
+  );
+}
+
 function SystemPromptEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
   return (
     <label className="block text-[var(--text-sm)]">
@@ -283,7 +396,7 @@ function SystemPromptEditor({ value, onChange }: { value: string; onChange: (v: 
   );
 }
 
-function HistoryView({ history }: { history: ReadonlyArray<{ kind: "user" | "ai"; text: string; provider?: string; model?: string; ok?: boolean; error?: string | null }> }) {
+function HistoryView({ history }: { history: ReadonlyArray<{ kind: "user" | "ai"; text: string; provider?: string; model?: string; ok?: boolean; error?: string | null; streaming?: boolean }> }) {
   if (history.length === 0) {
     return (
       <div
@@ -324,6 +437,13 @@ function HistoryView({ history }: { history: ReadonlyArray<{ kind: "user" | "ai"
             <>
               <p className="whitespace-pre-wrap text-[var(--color-ink)]" data-testid="smb-crm-ai-history-ai">
                 {entry.text}
+                {entry.streaming && (
+                  <span
+                    className="ml-1 inline-block h-3 w-2 animate-pulse bg-[var(--color-brand)] align-middle"
+                    data-testid="smb-crm-ai-streaming-cursor"
+                    aria-label="streaming"
+                  />
+                )}
               </p>
               {entry.provider && (
                 <p className="mt-1 text-[10px] text-[var(--color-muted)]">

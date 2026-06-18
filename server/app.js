@@ -590,6 +590,23 @@ function registerApi(app, db, options = {}) {
     };
   });
 
+  // POST /api/ai/chat/stream — NDJSON streaming variant of
+  // /api/ai/chat. The SPA consumes the body with a streaming
+  // reader and renders each token as it arrives. On ANT only
+  // ollama is wired for streaming; anthropic/openai/disabled
+  // return a single error NDJSON line. The audit hook fires
+  // once per request (regardless of stream errors).
+  app.post("/api/ai/chat/stream", async (request, reply) => {
+    const { buildStreamChatHandler } = require("./lib/ai/stream-handler");
+    const handler = buildStreamChatHandler({
+      requireIntegrationWriter,
+      audit: (a, orgId, userId, type, payload) => audit(db, orgId, userId, type, payload)
+    });
+    // Bind the handler's `this` to the Fastify app instance so
+    // `this.auth(request)` works.
+    return handler.call(app, request, reply);
+  });
+
   app.get("/api/catalog/categories", async request => {
     const user = await app.auth(request);
     requireCatalogReader(user);

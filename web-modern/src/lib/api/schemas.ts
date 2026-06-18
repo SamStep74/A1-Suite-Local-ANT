@@ -6376,5 +6376,21 @@ export const QuoteFromTemplateResponseSchema = z.object({
 });
 export type QuoteFromTemplateResponse = z.infer<typeof QuoteFromTemplateResponseSchema>;
 
+/* ── AI streaming (Phase 10.13 / slice 14) ─────────────────────────
+ *
+ * Source: server/app.js
+ *   - POST /api/ai/chat/stream  →  Content-Type: application/x-ndjson
+ *
+ * Each NDJSON line is one event. The schema is intentionally
+ * permissive (`data: unknown`) because token events carry
+ * strings, done events carry metadata objects, and error
+ * events carry {code, message}.
+ */
+
+export const AiStreamEventSchema = z.object({
+  type: z.string(),
+  data: z.unknown(),
+});
+export type AiStreamEvent = z.infer<typeof AiStreamEventSchema>;
 
 

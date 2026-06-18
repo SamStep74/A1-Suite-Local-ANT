@@ -41,6 +41,7 @@ import * as React from "react";
 const mocks = vi.hoisted(() => ({
   fullPath: "/app/smb-crm/ai/",
   postJsonMock: vi.fn(),
+  streamNdjsonMock: vi.fn(),
   // Pre-seedable /api/ai/status result. null = "loading".
   statusData: null as null | {
     provider: string;
@@ -92,7 +93,8 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 
 vi.mock("../../../../lib/api/client", () => ({
   getJson: vi.fn(),
-  postJson: (...args: unknown[]) => mocks.postJsonMock(...args)
+  postJson: (...args: unknown[]) => mocks.postJsonMock(...args),
+  streamNdjson: (...args: unknown[]) => mocks.streamNdjsonMock(...args)
 }));
 
 import { Route } from "./index";
@@ -118,7 +120,18 @@ beforeEach(() => {
     error: null
   };
   mocks.postJsonMock.mockReset();
+  mocks.streamNdjsonMock.mockReset();
 });
+
+/**
+ * Uncheck the streaming toggle. Slice 14 (V2.6 AI streaming)
+ * turned streaming on by default; the old postJson-based
+ * tests need to opt out to hit the original /api/ai/chat path.
+ */
+function disableStreaming() {
+  const cb = screen.getByTestId("smb-crm-ai-streaming-checkbox") as HTMLInputElement;
+  if (cb.checked) fireEvent.click(cb);
+}
 
 afterEach(() => {
   cleanup();
@@ -187,6 +200,7 @@ describe("Ask AI — input + send", () => {
       error: null
     });
     renderRoute();
+    disableStreaming();
     const ta = screen.getByTestId("smb-crm-ai-user-input") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "hi" } });
     const sendBtn = screen.getByTestId("smb-crm-ai-send") as HTMLButtonElement;
@@ -213,6 +227,7 @@ describe("Ask AI — input + send", () => {
       error: null
     });
     renderRoute();
+    disableStreaming();
     const ta = screen.getByTestId("smb-crm-ai-user-input") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "hi" } });
     fireEvent.click(screen.getByTestId("smb-crm-ai-send"));
@@ -233,6 +248,7 @@ describe("Ask AI — input + send", () => {
       error: "no_provider"
     });
     renderRoute();
+    disableStreaming();
     const ta = screen.getByTestId("smb-crm-ai-user-input") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "hi" } });
     fireEvent.click(screen.getByTestId("smb-crm-ai-send"));
@@ -254,6 +270,7 @@ describe("Ask AI — input + send", () => {
       error: null
     });
     renderRoute();
+    disableStreaming();
     const ta = screen.getByTestId("smb-crm-ai-user-input") as HTMLTextAreaElement;
     const armenian = "Բարև աշխարհ 🇦🇲";
     fireEvent.change(ta, { target: { value: armenian } });
@@ -272,6 +289,7 @@ describe("Ask AI — input + send", () => {
       error: null
     });
     renderRoute();
+    disableStreaming();
     const ta = screen.getByTestId("smb-crm-ai-user-input") as HTMLTextAreaElement;
     fireEvent.change(ta, { target: { value: "hi" } });
     fireEvent.click(screen.getByTestId("smb-crm-ai-send"));
@@ -281,6 +299,103 @@ describe("Ask AI — input + send", () => {
     expect(html).not.toMatch(/sk-ant-/);
     expect(html).not.toMatch(/sk-openai-/);
     expect(html).not.toMatch(/ghp_/);
+  });
+});
+
+describe("Ask AI — streaming (slice 14)", () => {
+  // Helper: a fake streamNdjson that yields a sequence of events.
+  function mkStream(events: Array<{ type: string; data: unknown }>) {
+    return async function* () {
+      for (const ev of events) yield ev;
+    };
+  }
+
+  it("calls streamNdjson (not postJson) when the streaming toggle is on (default)", async () => {
+    mocks.streamNdjsonMock.mockImplementation(mkStream([
+      { type: "token", data: "hello " },
+      { type: "token", data: "world" },
+      { type: "done", data: { model: "llama3.1:8b" } }
+    ]));
+    renderRoute();
+    const ta = screen.getByTestId("smb-crm-ai-user-input") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "hi" } });
+    fireEvent.click(screen.getByTestId("smb-crm-ai-send"));
+    await waitFor(() => expect(mocks.streamNdjsonMock).toHaveBeenCalledTimes(1));
+    expect(mocks.postJsonMock).not.toHaveBeenCalled();
+    const [url] = mocks.streamNdjsonMock.mock.calls[0]!;
+    expect(url).toBe("/api/ai/chat/stream");
+  });
+
+  it("accumulates token events into the in-progress AI history entry", async () => {
+    mocks.streamNdjsonMock.mockImplementation(mkStream([
+      { type: "token", data: "Hello, " },
+      { type: "token", data: "world!" },
+      { type: "done", data: { model: "llama3.1:8b" } }
+    ]));
+    renderRoute();
+    const ta = screen.getByTestId("smb-crm-ai-user-input") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "greet me" } });
+    fireEvent.click(screen.getByTestId("smb-crm-ai-send"));
+    await waitFor(() => {
+      const ai = screen.getByTestId("smb-crm-ai-history-ai");
+      expect(ai.textContent).toMatch(/Hello, world!/);
+    });
+  });
+
+  it("renders a streaming cursor while tokens are arriving", async () => {
+    // Hold the stream open: yield one token, then wait until the
+    // test ends (we never yield "done"). Use a deferred.
+    let release!: () => void;
+    const done = new Promise<void>((r) => { release = r; });
+    mocks.streamNdjsonMock.mockImplementation(async function* () {
+      yield { type: "token", data: "part " };
+      await done;
+    });
+    renderRoute();
+    const ta = screen.getByTestId("smb-crm-ai-user-input") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "x" } });
+    fireEvent.click(screen.getByTestId("smb-crm-ai-send"));
+    await waitFor(() => expect(screen.getByTestId("smb-crm-ai-streaming-cursor")).toBeTruthy());
+    // Cleanup: release the stream so the test ends.
+    release();
+  });
+
+  it("renders the error message when the stream emits a single error event", async () => {
+    mocks.streamNdjsonMock.mockImplementation(mkStream([
+      { type: "error", data: { code: "no_provider", message: "no_provider" } }
+    ]));
+    renderRoute();
+    const ta = screen.getByTestId("smb-crm-ai-user-input") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "hi" } });
+    fireEvent.click(screen.getByTestId("smb-crm-ai-send"));
+    await waitFor(() => expect(screen.getByTestId("smb-crm-ai-history-err")).toBeTruthy());
+    expect(screen.getByTestId("smb-crm-ai-history-err").textContent).toMatch(/no_provider/);
+  });
+
+  it("the streaming toggle is visible and defaults to on", () => {
+    renderRoute();
+    const cb = screen.getByTestId("smb-crm-ai-streaming-checkbox") as HTMLInputElement;
+    expect(cb.checked).toBe(true);
+  });
+
+  it("unchecking the toggle routes the next send through postJson", async () => {
+    mocks.postJsonMock.mockResolvedValue({
+      ok: true,
+      provider: "ollama",
+      model: "llama3.1:8b",
+      data: "x",
+      error: null
+    });
+    renderRoute();
+    const cb = screen.getByTestId("smb-crm-ai-streaming-checkbox") as HTMLInputElement;
+    expect(cb.checked).toBe(true);
+    fireEvent.click(cb);
+    expect(cb.checked).toBe(false);
+    const ta = screen.getByTestId("smb-crm-ai-user-input") as HTMLTextAreaElement;
+    fireEvent.change(ta, { target: { value: "hi" } });
+    fireEvent.click(screen.getByTestId("smb-crm-ai-send"));
+    await waitFor(() => expect(mocks.postJsonMock).toHaveBeenCalledTimes(1));
+    expect(mocks.streamNdjsonMock).not.toHaveBeenCalled();
   });
 });
 
