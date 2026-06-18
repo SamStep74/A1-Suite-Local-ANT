@@ -6406,6 +6406,30 @@ export const SaveAsTemplateResponseSchema = z.object({
 });
 export type SaveAsTemplateResponse = z.infer<typeof SaveAsTemplateResponseSchema>;
 
+/* ── Update + delete template (slice 24) ──────────────────────────
+ *
+ * Source: server/app.js
+ *   - PUT    /api/smb-crm/quote-templates/:id  → UpdateTemplateResponseSchema
+ *   - DELETE /api/smb-crm/quote-templates/:id  → DeleteTemplateResponseSchema
+ */
+export const UpdateTemplateRequestSchema = z.object({
+  name: z.string().min(1).max(100).optional(),
+  description: z.string().max(500).optional(),
+  lineItems: z.array(QuoteTemplateLineItemSchema).min(1).max(50).optional(),
+});
+export type UpdateTemplateRequest = z.infer<typeof UpdateTemplateRequestSchema>;
+
+export const UpdateTemplateResponseSchema = z.object({
+  ok: z.boolean(),
+  template: QuoteTemplateSchema,
+});
+export type UpdateTemplateResponse = z.infer<typeof UpdateTemplateResponseSchema>;
+
+export const DeleteTemplateResponseSchema = z.object({
+  ok: z.boolean(),
+});
+export type DeleteTemplateResponse = z.infer<typeof DeleteTemplateResponseSchema>;
+
 /* ── AI streaming (Phase 10.13 / slice 14) ─────────────────────────
  *
  * Source: server/app.js

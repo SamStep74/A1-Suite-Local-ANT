@@ -3815,6 +3815,51 @@ function registerApi(app, db, options = {}) {
     return { ok: true, template: result.template };
   });
 
+  // PUT /api/smb-crm/quote-templates/:id — update a custom
+  // (non-builtin) template's name, description, and/or line
+  // items (slice 24). Built-ins are immutable; trying to
+  // edit one returns 400.
+  app.put("/api/smb-crm/quote-templates/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    const qt = require("./lib/quote-templates");
+    const body = request.body || {};
+    const result = qt.updateTemplate(db, user.org_id, request.params.id, {
+      name: body.name,
+      description: body.description,
+      lineItems: body.lineItems
+    });
+    if (!result.ok) {
+      const err = new Error(result.error || "could not update template");
+      err.statusCode = result.error && /not found/i.test(result.error) ? 404 : 400;
+      throw err;
+    }
+    audit(db, user.org_id, user.id, "smb_crm.quote_template.updated", {
+      template_id: result.template.id,
+      name: result.template.name
+    });
+    return { ok: true, template: result.template };
+  });
+
+  // DELETE /api/smb-crm/quote-templates/:id — delete a custom
+  // (non-builtin) template (slice 24). Cross-tenant impossible
+  // by design (the WHERE clause filters by org_id).
+  app.delete("/api/smb-crm/quote-templates/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    const qt = require("./lib/quote-templates");
+    const result = qt.deleteTemplate(db, user.org_id, request.params.id);
+    if (!result.ok) {
+      const err = new Error(result.error || "could not delete template");
+      err.statusCode = result.error && /not found/i.test(result.error) ? 404 : 400;
+      throw err;
+    }
+    audit(db, user.org_id, user.id, "smb_crm.quote_template.deleted", {
+      template_id: request.params.id
+    });
+    return { ok: true };
+  });
+
   // ── Activities (5 routes) ──────────────────────────────────────
   app.get("/api/smb-crm/activities", request => recordsListRoute(request, activityEntity));
   app.post("/api/smb-crm/activities", request => recordsCreateRoute(request, activityEntity, "smb_crm.activity.created"));

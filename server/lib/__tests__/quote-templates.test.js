@@ -716,3 +716,153 @@ test('saveAsTemplate: Armenian names + emoji round-trip into the JSON blob', () 
   assert.equal(found.lineItems[0].description, 'Մոդել X1');
   assert.equal(found.lineItems[1].unitPrice, 2500);
 });
+
+/* ── updateTemplate + deleteTemplate (slice 24) ──────────────────── */
+
+test('pure: updateTemplate + deleteTemplate are exported', () => {
+  assert.equal(typeof qt.updateTemplate, 'function');
+  assert.equal(typeof qt.deleteTemplate, 'function');
+});
+
+test('updateTemplate: updates name + description on a custom template', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  const r = qt.saveAsTemplate(db, 'org-1', {
+    name: 'Original name',
+    description: 'Original desc',
+    lineItems: [{ name: 'L1', quantity: 1, unitPrice: 100 }]
+  });
+  assert.equal(r.ok, true);
+  const r2 = qt.updateTemplate(db, 'org-1', r.template.id, {
+    name: 'Updated name',
+    description: 'Updated desc'
+  });
+  assert.equal(r2.ok, true);
+  assert.equal(r2.template.name, 'Updated name');
+  assert.equal(r2.template.description, 'Updated desc');
+  // Line items untouched
+  assert.equal(r2.template.lineItems.length, 1);
+  assert.equal(r2.template.lineItems[0].name, 'L1');
+});
+
+test('updateTemplate: updates line items with full validation', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  const r = qt.saveAsTemplate(db, 'org-1', {
+    name: 'X',
+    lineItems: [{ name: 'A', quantity: 1, unitPrice: 10 }]
+  });
+  const r2 = qt.updateTemplate(db, 'org-1', r.template.id, {
+    lineItems: [
+      { name: 'A', description: 'first', quantity: 5, unitPrice: 20 },
+      { name: 'B', quantity: 2, unitPrice: 30 }
+    ]
+  });
+  assert.equal(r2.ok, true);
+  assert.equal(r2.template.lineItems.length, 2);
+  assert.equal(r2.template.lineItems[0].name, 'A');
+  assert.equal(r2.template.lineItems[0].description, 'first');
+  assert.equal(r2.template.lineItems[0].quantity, 5);
+  assert.equal(r2.template.lineItems[0].unitPrice, 20);
+  assert.equal(r2.template.lineItems[1].name, 'B');
+});
+
+test('updateTemplate: rejects updates to a built-in template', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  const r = qt.updateTemplate(db, 'org-1', 'tpl-standard-product', { name: 'Hacked' });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /builtin templates are immutable/);
+  // The built-in was not modified
+  const tpl = qt.getTemplate(db, 'org-1', 'tpl-standard-product');
+  assert.equal(tpl.name, 'Standard product quote');
+});
+
+test('updateTemplate: cross-tenant isolation — org-2 cannot edit org-1 custom template', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  const r = qt.saveAsTemplate(db, 'org-1', { name: 'Org 1', lineItems: [{ name: 'X', quantity: 1, unitPrice: 1 }] });
+  // org-2 tries to edit org-1's template — should fail with "not found"
+  // (the WHERE clause filters by org_id so the row is invisible).
+  const r2 = qt.updateTemplate(db, 'org-2', r.template.id, { name: 'Stolen' });
+  assert.equal(r2.ok, false);
+  assert.match(r2.error, /template not found/);
+  // The org-1 template is unchanged
+  const tpl = qt.getTemplate(db, 'org-1', r.template.id);
+  assert.equal(tpl.name, 'Org 1');
+});
+
+test('updateTemplate: invalid input returns {ok:false, error} without touching the row', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  const r = qt.saveAsTemplate(db, 'org-1', { name: 'Stable', lineItems: [{ name: 'L', quantity: 1, unitPrice: 10 }] });
+  // Empty patch
+  let r2 = qt.updateTemplate(db, 'org-1', r.template.id, {});
+  assert.equal(r2.ok, false);
+  assert.match(r2.error, /no fields to update/);
+  // Name too long
+  r2 = qt.updateTemplate(db, 'org-1', r.template.id, { name: 'x'.repeat(101) });
+  assert.equal(r2.ok, false);
+  assert.match(r2.error, /1-100 characters/);
+  // Negative quantity in lineItems
+  r2 = qt.updateTemplate(db, 'org-1', r.template.id, {
+    lineItems: [{ name: 'X', quantity: -5, unitPrice: 1 }]
+  });
+  assert.equal(r2.ok, false);
+  assert.match(r2.error, /quantity must be a finite number/);
+  // Empty lineItems array
+  r2 = qt.updateTemplate(db, 'org-1', r.template.id, { lineItems: [] });
+  assert.equal(r2.ok, false);
+  assert.match(r2.error, /1-50 entries/);
+  // The template is still intact
+  const tpl = qt.getTemplate(db, 'org-1', r.template.id);
+  assert.equal(tpl.name, 'Stable');
+  assert.equal(tpl.lineItems.length, 1);
+});
+
+test('deleteTemplate: removes a custom template from the DB and from listTemplates', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  const r = qt.saveAsTemplate(db, 'org-1', { name: 'To delete', lineItems: [{ name: 'X', quantity: 1, unitPrice: 1 }] });
+  // Confirm it's there
+  const before = qt.listTemplates(db, 'org-1');
+  assert.equal(before.length, 5);
+  // Delete
+  const r2 = qt.deleteTemplate(db, 'org-1', r.template.id);
+  assert.equal(r2.ok, true);
+  // Confirm it's gone
+  const after = qt.listTemplates(db, 'org-1');
+  assert.equal(after.length, 4);
+  assert.equal(after.find((t) => t.id === r.template.id), undefined);
+  // getTemplate returns null
+  assert.equal(qt.getTemplate(db, 'org-1', r.template.id), null);
+});
+
+test('deleteTemplate: rejects deletion of a built-in template', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  const r = qt.deleteTemplate(db, 'org-1', 'tpl-standard-product');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /builtin templates cannot be deleted/);
+  // The built-in is still there
+  assert.equal(qt.listTemplates(db, 'org-1').length, 4);
+});
+
+test('deleteTemplate: cross-tenant isolation — org-2 cannot delete org-1 custom template', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  const r = qt.saveAsTemplate(db, 'org-1', { name: 'Org 1', lineItems: [{ name: 'X', quantity: 1, unitPrice: 1 }] });
+  const r2 = qt.deleteTemplate(db, 'org-2', r.template.id);
+  assert.equal(r2.ok, false);
+  assert.match(r2.error, /template not found/);
+  // The org-1 template is still there
+  assert.equal(qt.listTemplates(db, 'org-1').length, 5);
+});
+
+test('deleteTemplate: returns error for unknown id', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  const r = qt.deleteTemplate(db, 'org-1', 'tpl-does-not-exist');
+  assert.equal(r.ok, false);
+  assert.match(r.error, /template not found/);
+});

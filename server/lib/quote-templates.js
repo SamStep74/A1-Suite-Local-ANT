@@ -425,12 +425,140 @@ function saveAsTemplate(db, orgId, input) {
     : { ok: false, error: 'saved but template not found' };
 }
 
+/**
+ * Update a custom (non-builtin) template's name, description,
+ * and/or line items. Built-in templates are immutable; trying
+ * to edit one returns `{ok:false, error: "builtin templates are
+ * immutable"}`. At least one of name/description/lineItems
+ * must be provided. The orgId scoping is enforced — a caller
+ * cannot edit another org's templates.
+ *
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {string} orgId
+ * @param {string} templateId
+ * @param {{
+ *   name?: string,
+ *   description?: string,
+ *   lineItems?: Array<{ name: string, description?: string, quantity: number, unitPrice: number }>,
+ * }} patch
+ * @returns {{ ok: boolean, template?: QuoteTemplate, error?: string }}
+ */
+function updateTemplate(db, orgId, templateId, patch) {
+  if (!orgId) return { ok: false, error: 'orgId is required' };
+  if (!templateId) return { ok: false, error: 'templateId is required' };
+  if (!patch || typeof patch !== 'object') return { ok: false, error: 'patch must be an object' };
+
+  // Fetch the existing template, scoped to the calling org OR
+  // the _builtin sentinel. Built-ins are visible to all orgs
+  // but immutable.
+  const existing = db.prepare(`
+    SELECT id, org_id, name, description, line_items_json, builtin
+      FROM smb_crm_quote_templates
+     WHERE id = ? AND (org_id = '_builtin' OR org_id = ?)
+  `).get(templateId, orgId);
+  if (!existing) return { ok: false, error: `template not found: ${templateId}` };
+  if (existing.builtin === 1) {
+    return { ok: false, error: 'builtin templates are immutable' };
+  }
+  // Cross-tenant: if the row's org_id is different from the
+  // caller's AND not _builtin, reject. (This branch is
+  // unreachable given the WHERE clause above, but it's
+  // defensive in case the schema ever changes.)
+  if (existing.org_id !== '_builtin' && existing.org_id !== orgId) {
+    return { ok: false, error: 'cross-tenant access denied' };
+  }
+
+  const updates = [];
+  const params = [];
+  if (typeof patch.name === 'string') {
+    const name = patch.name.trim();
+    if (name.length < 1 || name.length > 100) {
+      return { ok: false, error: 'name must be 1-100 characters' };
+    }
+    updates.push('name = ?');
+    params.push(name);
+  }
+  if (typeof patch.description === 'string') {
+    const desc = patch.description.trim().slice(0, 500);
+    updates.push('description = ?');
+    params.push(desc);
+  }
+  if (Array.isArray(patch.lineItems)) {
+    if (patch.lineItems.length < 1 || patch.lineItems.length > 50) {
+      return { ok: false, error: 'lineItems must have 1-50 entries' };
+    }
+    // Normalise + validate each line item (same rules as
+    // saveAsTemplate).
+    const lineItems = [];
+    for (let i = 0; i < patch.lineItems.length; i++) {
+      const raw = patch.lineItems[i];
+      if (!raw || typeof raw !== 'object') {
+        return { ok: false, error: `lineItems[${i}] must be an object` };
+      }
+      const ln = String((raw && raw.name) || '').trim();
+      if (ln.length < 1 || ln.length > 200) {
+        return { ok: false, error: `lineItems[${i}].name must be 1-200 characters` };
+      }
+      const desc = typeof raw.description === 'string' ? raw.description.trim().slice(0, 500) : '';
+      const quantity = Number(raw.quantity);
+      const unitPrice = Number(raw.unitPrice);
+      if (!Number.isFinite(quantity) || quantity < 0 || quantity > 1_000_000) {
+        return { ok: false, error: `lineItems[${i}].quantity must be a finite number in [0, 1_000_000]` };
+      }
+      if (!Number.isFinite(unitPrice) || unitPrice < 0 || unitPrice > 1_000_000_000) {
+        return { ok: false, error: `lineItems[${i}].unitPrice must be a finite number in [0, 1_000_000_000]` };
+      }
+      lineItems.push({ name: ln, description: desc, quantity, unitPrice });
+    }
+    updates.push('line_items_json = ?');
+    params.push(JSON.stringify(lineItems));
+  }
+  if (updates.length === 0) {
+    return { ok: false, error: 'no fields to update' };
+  }
+  params.push(templateId);
+  db.prepare(`UPDATE smb_crm_quote_templates SET ${updates.join(', ')} WHERE id = ?`).run(...params);
+  return getTemplate(db, orgId, templateId)
+    ? { ok: true, template: getTemplate(db, orgId, templateId) }
+    : { ok: false, error: 'updated but template not found' };
+}
+
+/**
+ * Delete a custom (non-builtin) template. Built-in templates
+ * cannot be deleted. Cross-tenant deletion is impossible by
+ * design (the template is org-scoped).
+ *
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {string} orgId
+ * @param {string} templateId
+ * @returns {{ ok: boolean, error?: string }}
+ */
+function deleteTemplate(db, orgId, templateId) {
+  if (!orgId) return { ok: false, error: 'orgId is required' };
+  if (!templateId) return { ok: false, error: 'templateId is required' };
+  const existing = db.prepare(`
+    SELECT id, org_id, builtin FROM smb_crm_quote_templates
+     WHERE id = ? AND (org_id = '_builtin' OR org_id = ?)
+  `).get(templateId, orgId);
+  if (!existing) return { ok: false, error: `template not found: ${templateId}` };
+  if (existing.builtin === 1) {
+    return { ok: false, error: 'builtin templates cannot be deleted' };
+  }
+  if (existing.org_id !== orgId) {
+    return { ok: false, error: 'cross-tenant access denied' };
+  }
+  db.prepare('DELETE FROM smb_crm_quote_templates WHERE id = ?').run(templateId);
+  return { ok: true };
+}
+
 module.exports = {
   ensureQuoteTemplatesSchema,
   listTemplates,
   getTemplate,
   createQuoteFromTemplate,
   saveAsTemplate,
+  updateTemplate,
+  deleteTemplate,
   // exported for tests
   applyOverrides,
   computeTotalAmount,

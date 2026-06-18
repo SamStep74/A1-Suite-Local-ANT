@@ -146,7 +146,9 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 
 vi.mock("../../../../lib/api/client", () => ({
   getJson: (...args: unknown[]) => mocks.getJsonMock(...args),
-  postJson: (...args: unknown[]) => mocks.postJsonMock(...args)
+  postJson: (...args: unknown[]) => mocks.postJsonMock(...args),
+  putJson: (...args: unknown[]) => mocks.postJsonMock(...args),
+  deleteJson: (...args: unknown[]) => mocks.postJsonMock(...args)
 }));
 
 // Stub window.open so we can assert the PDF URL.
@@ -621,6 +623,121 @@ describe("Quote templates — save as new template (slice 23)", () => {
     expect(screen.getByTestId("smb-crm-quote-template-save-as-modal")).toBeTruthy();
     fireEvent.click(screen.getByTestId("smb-crm-quote-template-save-as-cancel"));
     expect(screen.queryByTestId("smb-crm-quote-template-save-as-modal")).toBeNull();
+    expect(mocks.postJsonMock).not.toHaveBeenCalled();
+  });
+});
+
+describe("Quote templates — edit + delete custom template (slice 24)", () => {
+  it("the Edit + Delete buttons are hidden for built-in templates", () => {
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!); // built-in
+    expect(screen.queryByTestId("smb-crm-quote-template-edit")).toBeNull();
+    expect(screen.queryByTestId("smb-crm-quote-template-delete")).toBeNull();
+  });
+
+  it("the Edit + Delete buttons are visible for custom templates", () => {
+    mocks.templatesData = {
+      templates: [
+        { id: "tpl-custom-1", orgId: "org-1", name: "My custom", description: "X", lineItems: [{ name: "L", description: "", quantity: 1, unitPrice: 100 }], builtin: false, createdAt: "2026-06-18T00:00:00Z" }
+      ]
+    };
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    expect(screen.getByTestId("smb-crm-quote-template-edit")).toBeTruthy();
+    expect(screen.getByTestId("smb-crm-quote-template-delete")).toBeTruthy();
+  });
+
+  it("clicking Edit opens a modal prefilled with the current name + description", () => {
+    mocks.templatesData = {
+      templates: [
+        { id: "tpl-custom-1", orgId: "org-1", name: "My custom", description: "Custom desc", lineItems: [{ name: "L", description: "", quantity: 1, unitPrice: 100 }], builtin: false, createdAt: "2026-06-18T00:00:00Z" }
+      ]
+    };
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-edit"));
+    const modal = screen.getByTestId("smb-crm-quote-template-edit-modal");
+    expect(modal).toBeTruthy();
+    const nameInput = screen.getByTestId("smb-crm-quote-template-edit-name") as HTMLInputElement;
+    expect(nameInput.value).toBe("My custom");
+    const descInput = screen.getByTestId("smb-crm-quote-template-edit-description") as HTMLTextAreaElement;
+    expect(descInput.value).toBe("Custom desc");
+  });
+
+  it("submitting the edit modal PUTs to /api/smb-crm/quote-templates/:id", async () => {
+    mocks.postJsonMock.mockResolvedValue({
+      ok: true,
+      template: {
+        id: "tpl-custom-1",
+        orgId: "org-1",
+        name: "Renamed",
+        description: "New desc",
+        lineItems: [{ name: "L", description: "", quantity: 1, unitPrice: 100 }],
+        builtin: false,
+        createdAt: "2026-06-18T00:00:00Z"
+      }
+    });
+    mocks.templatesData = {
+      templates: [
+        { id: "tpl-custom-1", orgId: "org-1", name: "Original", description: "", lineItems: [{ name: "L", description: "", quantity: 1, unitPrice: 100 }], builtin: false, createdAt: "2026-06-18T00:00:00Z" }
+      ]
+    };
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-edit"));
+    fireEvent.change(screen.getByTestId("smb-crm-quote-template-edit-name"), { target: { value: "Renamed" } });
+    fireEvent.change(screen.getByTestId("smb-crm-quote-template-edit-description"), { target: { value: "New desc" } });
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-edit-submit"));
+    await waitFor(() => expect(mocks.postJsonMock).toHaveBeenCalledTimes(1));
+    const [url, body] = mocks.postJsonMock.mock.calls[0]!;
+    expect(url).toBe("/api/smb-crm/quote-templates/tpl-custom-1");
+    expect(body.name).toBe("Renamed");
+    expect(body.description).toBe("New desc");
+    expect(body.lineItems).toHaveLength(1);
+  });
+
+  it("clicking Delete opens a confirmation dialog with the template name", () => {
+    mocks.templatesData = {
+      templates: [
+        { id: "tpl-custom-1", orgId: "org-1", name: "My coffee quote", description: "X", lineItems: [{ name: "L", description: "", quantity: 1, unitPrice: 100 }], builtin: false, createdAt: "2026-06-18T00:00:00Z" }
+      ]
+    };
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-delete"));
+    const dialog = screen.getByTestId("smb-crm-quote-template-delete-dialog");
+    expect(dialog).toBeTruthy();
+    expect(dialog.textContent).toMatch(/My coffee quote/);
+  });
+
+  it("confirming the delete DELETEs to /api/smb-crm/quote-templates/:id", async () => {
+    mocks.postJsonMock.mockResolvedValue({ ok: true });
+    mocks.templatesData = {
+      templates: [
+        { id: "tpl-custom-1", orgId: "org-1", name: "To delete", description: "X", lineItems: [{ name: "L", description: "", quantity: 1, unitPrice: 100 }], builtin: false, createdAt: "2026-06-18T00:00:00Z" }
+      ]
+    };
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-delete"));
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-delete-confirm"));
+    await waitFor(() => expect(mocks.postJsonMock).toHaveBeenCalledTimes(1));
+    const [url] = mocks.postJsonMock.mock.calls[0]!;
+    expect(url).toBe("/api/smb-crm/quote-templates/tpl-custom-1");
+  });
+
+  it("the Cancel button in the delete dialog closes without calling deleteJson", () => {
+    mocks.templatesData = {
+      templates: [
+        { id: "tpl-custom-1", orgId: "org-1", name: "X", description: "", lineItems: [{ name: "L", description: "", quantity: 1, unitPrice: 100 }], builtin: false, createdAt: "2026-06-18T00:00:00Z" }
+      ]
+    };
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-delete"));
+    expect(screen.getByTestId("smb-crm-quote-template-delete-dialog")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-delete-cancel"));
+    expect(screen.queryByTestId("smb-crm-quote-template-delete-dialog")).toBeNull();
     expect(mocks.postJsonMock).not.toHaveBeenCalled();
   });
 });

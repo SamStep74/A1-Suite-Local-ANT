@@ -31,18 +31,22 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { ChevronLeft, ListChecks, Save, Send, X } from "lucide-react";
-import { getJson, postJson } from "../../../../lib/api/client";
+import { ChevronLeft, ListChecks, Pencil, Save, Send, Trash2, X } from "lucide-react";
+import { deleteJson, getJson, postJson, putJson } from "../../../../lib/api/client";
 import {
   QuoteTemplateListResponseSchema,
   QuoteFromTemplateRequestSchema,
   QuoteFromTemplateResponseSchema,
   SaveAsTemplateRequestSchema,
   SaveAsTemplateResponseSchema,
+  UpdateTemplateRequestSchema,
+  UpdateTemplateResponseSchema,
+  DeleteTemplateResponseSchema,
   SmbCrmCustomerListResponseSchema,
   type QuoteTemplate,
   type QuoteFromTemplateRequest,
   type SaveAsTemplateRequest,
+  type UpdateTemplateRequest,
   type SmbCrmCustomer,
 } from "../../../../lib/api/schemas";
 import { cn } from "../../../../lib/utils/cn";
@@ -193,8 +197,78 @@ function QuoteTemplatesPage() {
     }
   });
 
+  // Edit template state. The modal pre-fills with the current
+  // template's name + description; the user can change them.
+  // The server re-validates everything (including the line
+  // items, which we send as the merged-with-overrides form).
+  const [editOpen, setEditOpen] = useState(false);
+  const [editName, setEditName] = useState("");
+  const [editDescription, setEditDescription] = useState("");
+  const [confirmDelete, setConfirmDelete] = useState(false);
+
+  const updateMut = useMutation({
+    mutationFn: async () => {
+      if (!selected) throw new Error("no template selected");
+      const lineItems = selected.lineItems.map((it, idx) => {
+        const ov = overrides[idx] || { quantity: 0, unitPrice: 0 };
+        return {
+          name: it.name,
+          description: it.description || "",
+          quantity: Number(ov.quantity) || 0,
+          unitPrice: Number(ov.unitPrice) || 0
+        };
+      });
+      const req: UpdateTemplateRequest = UpdateTemplateRequestSchema.parse({
+        name: editName.trim() || undefined,
+        description: editDescription.trim() || undefined,
+        lineItems
+      });
+      return putJson(
+        `/api/smb-crm/quote-templates/${encodeURIComponent(selected.id)}`,
+        req,
+        UpdateTemplateResponseSchema
+      );
+    },
+    onSuccess: (resp) => {
+      if (resp.ok) {
+        void qc.invalidateQueries({ queryKey: ["smb-crm-quote-templates"] });
+        setEditOpen(false);
+      }
+    }
+  });
+
+  const deleteMut = useMutation({
+    mutationFn: async () => {
+      if (!selected) throw new Error("no template selected");
+      return deleteJson(
+        `/api/smb-crm/quote-templates/${encodeURIComponent(selected.id)}`,
+        DeleteTemplateResponseSchema
+      );
+    },
+    onSuccess: (resp) => {
+      if (resp.ok) {
+        void qc.invalidateQueries({ queryKey: ["smb-crm-quote-templates"] });
+        setSelectedId(null);
+        setConfirmDelete(false);
+      }
+    }
+  });
+
+  // When the edit modal opens, prefill with the current values.
+  useEffect(() => {
+    if (editOpen && selected) {
+      setEditName(selected.name);
+      setEditDescription(selected.description || "");
+    } else if (!editOpen) {
+      setEditName("");
+      setEditDescription("");
+    }
+  }, [editOpen, selected]);
+
   const canCreate = Boolean(selected) && number.trim().length > 0 && !createMut.isPending;
   const canSaveAs = Boolean(selected) && saveAsName.trim().length > 0 && !saveAsMut.isPending;
+  const canEdit = Boolean(selected) && editName.trim().length > 0 && !updateMut.isPending;
+  const showEditDelete = Boolean(selected && !selected.builtin);
 
   return (
     <div
@@ -243,6 +317,9 @@ function QuoteTemplatesPage() {
             previewTotal={previewTotal}
             currency={currency}
             onSaveAsClick={() => setSaveAsOpen(true)}
+            onEditClick={selected.builtin ? undefined : () => setEditOpen(true)}
+            onDeleteClick={selected.builtin ? undefined : () => setConfirmDelete(true)}
+            showEditDelete={showEditDelete}
           />
 
           <CreateBar
@@ -265,6 +342,30 @@ function QuoteTemplatesPage() {
           canSave={canSaveAs}
           onSave={() => saveAsMut.mutate()}
           onClose={() => setSaveAsOpen(false)}
+        />
+      )}
+
+      {editOpen && selected && !selected.builtin && (
+        <EditTemplateModal
+          name={editName}
+          onNameChange={setEditName}
+          description={editDescription}
+          onDescriptionChange={setEditDescription}
+          isPending={updateMut.isPending}
+          error={updateMut.error?.message}
+          canSave={canEdit}
+          onSave={() => updateMut.mutate()}
+          onClose={() => setEditOpen(false)}
+        />
+      )}
+
+      {confirmDelete && selected && !selected.builtin && (
+        <ConfirmDeleteDialog
+          templateName={selected.name}
+          isPending={deleteMut.isPending}
+          error={deleteMut.error?.message}
+          onConfirm={() => deleteMut.mutate()}
+          onClose={() => setConfirmDelete(false)}
         />
       )}
 
@@ -499,6 +600,9 @@ function LineItemEditor({
   previewTotal,
   currency,
   onSaveAsClick,
+  onEditClick,
+  onDeleteClick,
+  showEditDelete,
 }: {
   template: QuoteTemplate;
   overrides: Array<{ quantity: number; unitPrice: number }>;
@@ -506,6 +610,9 @@ function LineItemEditor({
   previewTotal: number;
   currency: string;
   onSaveAsClick: () => void;
+  onEditClick?: () => void;
+  onDeleteClick?: () => void;
+  showEditDelete: boolean;
 }) {
   const updateRow = (idx: number, patch: Partial<{ quantity: number; unitPrice: number }>) => {
     onChange(overrides.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
@@ -594,7 +701,29 @@ function LineItemEditor({
       >
         The server recomputes the total from quantity × unit price. The value above is a preview.
       </p>
-      <div className="flex justify-end pt-1">
+      <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
+        {showEditDelete && (
+          <>
+            <button
+              type="button"
+              onClick={onEditClick}
+              className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1 text-[var(--text-sm)] text-[var(--color-ink)] hover:border-[var(--color-brand)]"
+              data-testid="smb-crm-quote-template-edit"
+            >
+              <Pencil className="size-3.5" />
+              Edit template
+            </button>
+            <button
+              type="button"
+              onClick={onDeleteClick}
+              className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1 text-[var(--text-sm)] text-[var(--color-ink)] hover:border-[var(--color-ruby,#b23a48)]"
+              data-testid="smb-crm-quote-template-delete"
+            >
+              <Trash2 className="size-3.5" />
+              Delete
+            </button>
+          </>
+        )}
         <button
           type="button"
           onClick={onSaveAsClick}
@@ -768,5 +897,180 @@ function BackLink() {
       <ChevronLeft className="size-3.5" />
       Back to SMB-CRM
     </Link>
+  );
+}
+
+function EditTemplateModal({
+  name,
+  onNameChange,
+  description,
+  onDescriptionChange,
+  isPending,
+  error,
+  canSave,
+  onSave,
+  onClose,
+}: {
+  name: string;
+  onNameChange: (v: string) => void;
+  description: string;
+  onDescriptionChange: (v: string) => void;
+  isPending: boolean;
+  error: string | undefined;
+  canSave: boolean;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="smb-crm-edit-template-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-ink,#0f1115)_50%,transparent)] p-4"
+      data-testid="smb-crm-quote-template-edit-modal"
+    >
+      <div className="w-full max-w-md space-y-3 rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-surface)] p-4 shadow-lg">
+        <div className="flex items-center justify-between">
+          <h2
+            id="smb-crm-edit-template-title"
+            className="text-[var(--text-lg)] font-semibold text-[var(--color-ink)]"
+          >
+            Edit template
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+            data-testid="smb-crm-quote-template-edit-close"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        <p className="text-[var(--text-sm)] text-[var(--color-muted)]">
+          Rename the template or update its description. The current line items (including any
+          quantity / price overrides you've entered above) will be saved with the new name +
+          description.
+        </p>
+        <label className="block text-[var(--text-sm)]">
+          <span className="text-[var(--color-muted)]">Template name</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
+            maxLength={100}
+            className="mt-0.5 w-full rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-canvas)] px-2 py-1 text-[var(--text-sm)]"
+            data-testid="smb-crm-quote-template-edit-name"
+          />
+        </label>
+        <label className="block text-[var(--text-sm)]">
+          <span className="text-[var(--color-muted)]">Description (optional)</span>
+          <textarea
+            value={description}
+            onChange={(e) => onDescriptionChange(e.target.value)}
+            maxLength={500}
+            rows={3}
+            className="mt-0.5 w-full rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-canvas)] px-2 py-1 text-[var(--text-sm)]"
+            data-testid="smb-crm-quote-template-edit-description"
+          />
+        </label>
+        {error && (
+          <p
+            role="alert"
+            className="rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--color-ruby,#b23a48)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-ruby,#b23a48)_5%,transparent)] px-3 py-2 text-[var(--text-sm)] text-[var(--color-ruby,#b23a48)]"
+            data-testid="smb-crm-quote-template-edit-error"
+          >
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1 text-[var(--text-sm)] text-[var(--color-ink)] hover:border-[var(--color-brand)]"
+            data-testid="smb-crm-quote-template-edit-cancel"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={!canSave}
+            className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-3 py-1 text-[var(--text-sm)] font-semibold text-white disabled:opacity-60"
+            data-testid="smb-crm-quote-template-edit-submit"
+          >
+            <Save className="size-3.5" />
+            {isPending ? "Saving…" : "Save changes"}
+          </button>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function ConfirmDeleteDialog({
+  templateName,
+  isPending,
+  error,
+  onConfirm,
+  onClose,
+}: {
+  templateName: string;
+  isPending: boolean;
+  error: string | undefined;
+  onConfirm: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="smb-crm-confirm-delete-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-ink,#0f1115)_50%,transparent)] p-4"
+      data-testid="smb-crm-quote-template-delete-dialog"
+    >
+      <div className="w-full max-w-md space-y-3 rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-surface)] p-4 shadow-lg">
+        <h2
+          id="smb-crm-confirm-delete-title"
+          className="text-[var(--text-lg)] font-semibold text-[var(--color-ink)]"
+        >
+          Delete template?
+        </h2>
+        <p className="text-[var(--text-sm)] text-[var(--color-muted)]">
+          Are you sure you want to delete{" "}
+          <span className="font-medium text-[var(--color-ink)]">{templateName}</span>?
+          This cannot be undone.
+        </p>
+        {error && (
+          <p
+            role="alert"
+            className="rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--color-ruby,#b23a48)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-ruby,#b23a48)_5%,transparent)] px-3 py-2 text-[var(--text-sm)] text-[var(--color-ruby,#b23a48)]"
+            data-testid="smb-crm-quote-template-delete-error"
+          >
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1 text-[var(--text-sm)] text-[var(--color-ink)] hover:border-[var(--color-brand)]"
+            data-testid="smb-crm-quote-template-delete-cancel"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onConfirm}
+            disabled={isPending}
+            className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--color-ruby,#b23a48)] px-3 py-1 text-[var(--text-sm)] font-semibold text-white disabled:opacity-60"
+            data-testid="smb-crm-quote-template-delete-confirm"
+          >
+            <Trash2 className="size-3.5" />
+            {isPending ? "Deleting…" : "Delete template"}
+          </button>
+        </div>
+      </div>
+    </div>
   );
 }

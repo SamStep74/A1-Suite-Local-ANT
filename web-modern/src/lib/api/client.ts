@@ -136,6 +136,16 @@ export function patchJson<T>(path: string, body: JsonBody, schema?: z.ZodType<T>
   return api(path, schema ?? null, { method: "PATCH", body, signal } as RequestInit & ApiOptions);
 }
 
+/** Convenience: PUT JSON. Mirrors postJson but with method PUT. */
+export function putJson<T>(path: string, body: JsonBody, schema?: z.ZodType<T>, signal?: AbortSignal) {
+  return api(path, schema ?? null, { method: "PUT", body, signal } as RequestInit & ApiOptions);
+}
+
+/** Convenience: DELETE. No body; the response is validated against an optional schema. */
+export function deleteJson<T>(path: string, schema?: z.ZodType<T>, signal?: AbortSignal) {
+  return api(path, schema ?? null, { method: "DELETE", signal });
+}
+
 /** Convenience: POST that returns nothing (e.g. logout). */
 export function postVoid(path: string, body?: JsonBody) {
   return api(path, null, { method: "POST", body, noParse: true } as RequestInit & ApiOptions);
