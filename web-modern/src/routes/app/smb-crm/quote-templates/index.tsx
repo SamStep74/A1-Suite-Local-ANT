@@ -32,6 +32,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { ChevronLeft, ListChecks, Pencil, Save, Send, Trash2, X } from "lucide-react";
+import { useLingui } from "@lingui/react/macro";
 import { deleteJson, getJson, postJson, putJson } from "../../../../lib/api/client";
 import {
   QuoteTemplateListResponseSchema,
@@ -56,6 +57,7 @@ export const Route = createFileRoute("/app/smb-crm/quote-templates/")({
 });
 
 function QuoteTemplatesPage() {
+  const { t } = useLingui();
   const qc = useQueryClient();
   const templatesQ = useQuery({
     queryKey: ["smb-crm-quote-templates"],
@@ -282,7 +284,7 @@ function QuoteTemplatesPage() {
           role="alert"
           className="rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--color-ruby,#b23a48)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-ruby,#b23a48)_5%,transparent)] px-3 py-2 text-[var(--text-sm)] text-[var(--color-ruby,#b23a48)]"
         >
-          Could not load quote templates.
+          {t`Could not load quote templates.`}
         </p>
       )}
 
@@ -375,6 +377,7 @@ function QuoteTemplatesPage() {
 }
 
 function Header() {
+  const { t } = useLingui();
   return (
     <header className="flex items-end justify-between gap-3">
       <div className="flex items-center gap-2">
@@ -386,21 +389,19 @@ function Header() {
             className="text-[var(--text-2xl)] font-semibold text-[var(--color-ink)]"
             data-testid="smb-crm-quote-templates-h1"
           >
-            Quote templates
+            {t`Quote templates`}
           </h1>
           <p
             className="text-[var(--text-sm)] text-[var(--color-muted)]"
             data-testid="smb-crm-quote-templates-subtitle"
           >
-            {ARM_SUBTITLE}
+            {t`Pick a template, fill qty + price, generate a printable PDF.`}
           </p>
         </div>
       </div>
     </header>
   );
 }
-
-const ARM_SUBTITLE = "Pick a template, fill qty + price, generate a printable PDF.";
 
 function TemplateList({
   templates,
@@ -413,13 +414,22 @@ function TemplateList({
   selectedId: string | null;
   onSelect: (id: string) => void;
 }) {
+  const { t } = useLingui();
+  // Pre-compute the line-items-count string with the macro so it gets
+  // a stable message id in the catalog (pluralisation is `0/1/n` —
+  // Lingui's _\`<count> {0, plural, one {# line item} other {# line items}}\``
+  // form is the proper plural form; for the "1 item" vs "N items" fork
+  // here we keep two separate strings for simplicity).
+  const tplBuiltIn = t`built-in`;
+  const tplLineItem = t`line item`;
+  const tplLineItems = t`line items`;
   if (isLoading) {
     return (
       <p
         className="rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] p-3 text-[var(--text-sm)] text-[var(--color-muted)]"
         data-testid="smb-crm-quote-templates-loading"
       >
-        Loading templates…
+        {t`Loading templates…`}
       </p>
     );
   }
@@ -429,7 +439,7 @@ function TemplateList({
         className="rounded-[var(--radius-md)] border border-dashed border-[var(--color-line)] bg-[var(--color-surface-soft)] p-4 text-center text-[var(--text-sm)] text-[var(--color-muted)]"
         data-testid="smb-crm-quote-templates-empty"
       >
-        No templates available.
+        {t`No templates available.`}
       </p>
     );
   }
@@ -463,7 +473,7 @@ function TemplateList({
                     className="rounded-[var(--radius-pill)] bg-[var(--color-surface-soft)] px-1.5 py-0.5 text-[10px] text-[var(--color-muted)]"
                     data-testid="smb-crm-quote-template-builtin"
                   >
-                    built-in
+                    {tplBuiltIn}
                   </span>
                 )}
               </div>
@@ -473,7 +483,7 @@ function TemplateList({
                 </span>
               )}
               <span className="text-[10px] text-[var(--color-muted)]">
-                {t.lineItems.length} line item{t.lineItems.length === 1 ? "" : "s"}
+                {t.lineItems.length} {t.lineItems.length === 1 ? tplLineItem : tplLineItems}
               </span>
             </button>
           </li>
@@ -510,13 +520,14 @@ function MetadataEditor({
   currency: string;
   onCurrencyChange: (v: string) => void;
 }) {
+  const { t } = useLingui();
   return (
     <div
       className="grid grid-cols-1 gap-2 sm:grid-cols-2"
       data-testid="smb-crm-quote-template-meta"
     >
       <label className="block text-[var(--text-sm)]">
-        <span className="text-[var(--color-muted)]">Quote number</span>
+        <span className="text-[var(--color-muted)]">{t`Quote number`}</span>
         <input
           type="text"
           value={number}
@@ -528,7 +539,7 @@ function MetadataEditor({
         />
       </label>
       <label className="block text-[var(--text-sm)]">
-        <span className="text-[var(--color-muted)]">Customer (optional)</span>
+        <span className="text-[var(--color-muted)]">{t`Customer (optional)`}</span>
         <select
           value={customerId}
           onChange={(e) => onCustomerIdChange(e.target.value)}
@@ -537,7 +548,7 @@ function MetadataEditor({
           data-testid="smb-crm-quote-template-customer"
         >
           <option value="">
-            {customersIsLoading ? "Loading customers…" : "— select customer —"}
+            {customersIsLoading ? t`Loading customers…` : t`— select customer —`}
           </option>
           {customers.map((c) => (
             <option key={c.id} value={c.id}>
@@ -550,12 +561,12 @@ function MetadataEditor({
             className="mt-1 text-[10px] text-[var(--color-muted)]"
             data-testid="smb-crm-quote-template-customer-empty"
           >
-            No customers yet. Create one in the Customers app first.
+            {t`No customers yet. Create one in the Customers app first.`}
           </p>
         )}
       </label>
       <label className="block text-[var(--text-sm)]">
-        <span className="text-[var(--color-muted)]">Issue date</span>
+        <span className="text-[var(--color-muted)]">{t`Issue date`}</span>
         <input
           type="date"
           value={issueDate}
@@ -565,7 +576,7 @@ function MetadataEditor({
         />
       </label>
       <label className="block text-[var(--text-sm)]">
-        <span className="text-[var(--color-muted)]">Valid until (optional)</span>
+        <span className="text-[var(--color-muted)]">{t`Valid until (optional)`}</span>
         <input
           type="date"
           value={expiryDate}
@@ -575,7 +586,7 @@ function MetadataEditor({
         />
       </label>
       <label className="block text-[var(--text-sm)]">
-        <span className="text-[var(--color-muted)]">Currency</span>
+        <span className="text-[var(--color-muted)]">{t`Currency`}</span>
         <select
           value={currency}
           onChange={(e) => onCurrencyChange(e.target.value)}
@@ -614,6 +625,7 @@ function LineItemEditor({
   onDeleteClick?: () => void;
   showEditDelete: boolean;
 }) {
+  const { t } = useLingui();
   const updateRow = (idx: number, patch: Partial<{ quantity: number; unitPrice: number }>) => {
     onChange(overrides.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
   };
@@ -624,7 +636,7 @@ function LineItemEditor({
       data-testid="smb-crm-quote-template-lines"
     >
       <h2 className="text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
-        {template.name} · {template.lineItems.length} line item{template.lineItems.length === 1 ? "" : "s"}
+        {template.name} · {template.lineItems.length} {template.lineItems.length === 1 ? t`line item` : t`line items`}
       </h2>
       <ol className="space-y-2">
         {template.lineItems.map((it, idx) => {
@@ -647,7 +659,7 @@ function LineItemEditor({
               </div>
               <div className="mt-1 grid grid-cols-3 gap-2 text-[var(--text-sm)]">
                 <label className="block">
-                  <span className="text-[10px] text-[var(--color-muted)]">Quantity</span>
+                  <span className="text-[10px] text-[var(--color-muted)]">{t`Quantity`}</span>
                   <input
                     type="number"
                     min="0"
@@ -659,7 +671,7 @@ function LineItemEditor({
                   />
                 </label>
                 <label className="block">
-                  <span className="text-[10px] text-[var(--color-muted)]">Unit price</span>
+                  <span className="text-[10px] text-[var(--color-muted)]">{t`Unit price`}</span>
                   <input
                     type="number"
                     min="0"
@@ -671,7 +683,7 @@ function LineItemEditor({
                   />
                 </label>
                 <div className="text-right">
-                  <span className="text-[10px] text-[var(--color-muted)]">Line total</span>
+                  <span className="text-[10px] text-[var(--color-muted)]">{t`Line total`}</span>
                   <p
                     className="mt-0.5 font-mono text-[var(--text-sm)]"
                     data-testid="smb-crm-quote-template-line-total"
@@ -689,7 +701,7 @@ function LineItemEditor({
         data-testid="smb-crm-quote-template-total"
       >
         <span className="text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
-          Preview total
+          {t`Preview total`}
         </span>
         <span className="font-mono text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
           {previewTotal.toFixed(2)} {currency}
@@ -699,7 +711,7 @@ function LineItemEditor({
         className="text-[10px] text-[var(--color-muted)]"
         data-testid="smb-crm-quote-template-total-note"
       >
-        The server recomputes the total from quantity × unit price. The value above is a preview.
+        {t`The server recomputes the total from quantity × unit price. The value above is a preview.`}
       </p>
       <div className="flex flex-wrap items-center justify-end gap-2 pt-1">
         {showEditDelete && (
@@ -711,7 +723,7 @@ function LineItemEditor({
               data-testid="smb-crm-quote-template-edit"
             >
               <Pencil className="size-3.5" />
-              Edit template
+              {t`Edit template`}
             </button>
             <button
               type="button"
@@ -720,7 +732,7 @@ function LineItemEditor({
               data-testid="smb-crm-quote-template-delete"
             >
               <Trash2 className="size-3.5" />
-              Delete
+              {t`Delete`}
             </button>
           </>
         )}
@@ -731,7 +743,7 @@ function LineItemEditor({
           data-testid="smb-crm-quote-template-save-as"
         >
           <Save className="size-3.5" />
-          Save as template
+          {t`Save as template`}
         </button>
       </div>
     </div>
@@ -759,6 +771,7 @@ function SaveAsTemplateModal({
   onSave: () => void;
   onClose: () => void;
 }) {
+  const { t } = useLingui();
   return (
     <div
       role="dialog"
@@ -773,12 +786,12 @@ function SaveAsTemplateModal({
             id="smb-crm-save-as-title"
             className="text-[var(--text-lg)] font-semibold text-[var(--color-ink)]"
           >
-            Save as new template
+            {t`Save as new template`}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t`Close`}
             className="text-[var(--color-muted)] hover:text-[var(--color-ink)]"
             data-testid="smb-crm-quote-template-save-as-close"
           >
@@ -786,23 +799,22 @@ function SaveAsTemplateModal({
           </button>
         </div>
         <p className="text-[var(--text-sm)] text-[var(--color-muted)]">
-          The current line items (with your quantity + price overrides) will be saved as a new template
-          scoped to your organization.
+          {t`The current line items (with your quantity + price overrides) will be saved as a new template scoped to your organization.`}
         </p>
         <label className="block text-[var(--text-sm)]">
-          <span className="text-[var(--color-muted)]">Template name</span>
+          <span className="text-[var(--color-muted)]">{t`Template name`}</span>
           <input
             type="text"
             value={name}
             onChange={(e) => onNameChange(e.target.value)}
-            placeholder="My custom quote"
+            placeholder={t`My custom quote`}
             maxLength={100}
             className="mt-0.5 w-full rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-canvas)] px-2 py-1 text-[var(--text-sm)]"
             data-testid="smb-crm-quote-template-save-as-name"
           />
         </label>
         <label className="block text-[var(--text-sm)]">
-          <span className="text-[var(--color-muted)]">Description (optional)</span>
+          <span className="text-[var(--color-muted)]">{t`Description (optional)`}</span>
           <textarea
             value={description}
             onChange={(e) => onDescriptionChange(e.target.value)}
@@ -828,7 +840,7 @@ function SaveAsTemplateModal({
             className="rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1 text-[var(--text-sm)] text-[var(--color-ink)] hover:border-[var(--color-brand)]"
             data-testid="smb-crm-quote-template-save-as-cancel"
           >
-            Cancel
+            {t`Cancel`}
           </button>
           <button
             type="button"
@@ -838,7 +850,7 @@ function SaveAsTemplateModal({
             data-testid="smb-crm-quote-template-save-as-submit"
           >
             <Save className="size-3.5" />
-            {isPending ? "Saving…" : "Save template"}
+            {isPending ? t`Saving…` : t`Save template`}
           </button>
         </div>
       </div>
@@ -857,6 +869,7 @@ function CreateBar({
   error: string | undefined;
   onCreate: () => void;
 }) {
+  const { t } = useLingui();
   return (
     <nav
       className="flex flex-col gap-1"
@@ -880,7 +893,7 @@ function CreateBar({
           data-testid="smb-crm-quote-template-create"
         >
           <Send className="size-3.5" />
-          {isPending ? "Creating…" : "Create quote + open PDF"}
+          {isPending ? t`Creating…` : t`Create quote + open PDF`}
         </button>
       </div>
     </nav>
@@ -888,6 +901,7 @@ function CreateBar({
 }
 
 function BackLink() {
+  const { t } = useLingui();
   return (
     <Link
       to="/app/smb-crm"
@@ -895,7 +909,7 @@ function BackLink() {
       data-testid="smb-crm-quote-template-back"
     >
       <ChevronLeft className="size-3.5" />
-      Back to SMB-CRM
+      {t`Back to SMB-CRM`}
     </Link>
   );
 }
@@ -921,6 +935,7 @@ function EditTemplateModal({
   onSave: () => void;
   onClose: () => void;
 }) {
+  const { t } = useLingui();
   return (
     <div
       role="dialog"
@@ -935,12 +950,12 @@ function EditTemplateModal({
             id="smb-crm-edit-template-title"
             className="text-[var(--text-lg)] font-semibold text-[var(--color-ink)]"
           >
-            Edit template
+            {t`Edit template`}
           </h2>
           <button
             type="button"
             onClick={onClose}
-            aria-label="Close"
+            aria-label={t`Close`}
             className="text-[var(--color-muted)] hover:text-[var(--color-ink)]"
             data-testid="smb-crm-quote-template-edit-close"
           >
@@ -948,12 +963,10 @@ function EditTemplateModal({
           </button>
         </div>
         <p className="text-[var(--text-sm)] text-[var(--color-muted)]">
-          Rename the template or update its description. The current line items (including any
-          quantity / price overrides you've entered above) will be saved with the new name +
-          description.
+          {t`Rename the template or update its description. The current line items (including any quantity / price overrides you've entered above) will be saved with the new name + description.`}
         </p>
         <label className="block text-[var(--text-sm)]">
-          <span className="text-[var(--color-muted)]">Template name</span>
+          <span className="text-[var(--color-muted)]">{t`Template name`}</span>
           <input
             type="text"
             value={name}
@@ -964,7 +977,7 @@ function EditTemplateModal({
           />
         </label>
         <label className="block text-[var(--text-sm)]">
-          <span className="text-[var(--color-muted)]">Description (optional)</span>
+          <span className="text-[var(--color-muted)]">{t`Description (optional)`}</span>
           <textarea
             value={description}
             onChange={(e) => onDescriptionChange(e.target.value)}
@@ -990,7 +1003,7 @@ function EditTemplateModal({
             className="rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1 text-[var(--text-sm)] text-[var(--color-ink)] hover:border-[var(--color-brand)]"
             data-testid="smb-crm-quote-template-edit-cancel"
           >
-            Cancel
+            {t`Cancel`}
           </button>
           <button
             type="button"
@@ -1000,7 +1013,7 @@ function EditTemplateModal({
             data-testid="smb-crm-quote-template-edit-submit"
           >
             <Save className="size-3.5" />
-            {isPending ? "Saving…" : "Save changes"}
+            {isPending ? t`Saving…` : t`Save changes`}
           </button>
         </div>
       </div>
@@ -1021,6 +1034,7 @@ function ConfirmDeleteDialog({
   onConfirm: () => void;
   onClose: () => void;
 }) {
+  const { t } = useLingui();
   return (
     <div
       role="dialog"
@@ -1034,12 +1048,12 @@ function ConfirmDeleteDialog({
           id="smb-crm-confirm-delete-title"
           className="text-[var(--text-lg)] font-semibold text-[var(--color-ink)]"
         >
-          Delete template?
+          {t`Delete template?`}
         </h2>
         <p className="text-[var(--text-sm)] text-[var(--color-muted)]">
-          Are you sure you want to delete{" "}
+          {t`Are you sure you want to delete`}{" "}
           <span className="font-medium text-[var(--color-ink)]">{templateName}</span>?
-          This cannot be undone.
+          {t`This cannot be undone.`}
         </p>
         {error && (
           <p
@@ -1057,7 +1071,7 @@ function ConfirmDeleteDialog({
             className="rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1 text-[var(--text-sm)] text-[var(--color-ink)] hover:border-[var(--color-brand)]"
             data-testid="smb-crm-quote-template-delete-cancel"
           >
-            Cancel
+            {t`Cancel`}
           </button>
           <button
             type="button"
@@ -1067,7 +1081,7 @@ function ConfirmDeleteDialog({
             data-testid="smb-crm-quote-template-delete-confirm"
           >
             <Trash2 className="size-3.5" />
-            {isPending ? "Deleting…" : "Delete template"}
+            {isPending ? t`Deleting…` : t`Delete template`}
           </button>
         </div>
       </div>

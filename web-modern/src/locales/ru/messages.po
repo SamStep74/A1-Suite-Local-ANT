@@ -13,6 +13,10 @@ msgstr ""
 "Language-Team: \n"
 "Plural-Forms: \n"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:551
+msgid "— select customer —"
+msgstr ""
+
 #: src/routes/app/documents/invoice-create/index.tsx:468
 #: src/routes/app/documents/invoice-create/index.tsx:472
 msgid "(missing)"
@@ -109,6 +113,10 @@ msgstr ""
 msgid "Amount"
 msgstr "Сумма"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:1054
+msgid "Are you sure you want to delete"
+msgstr ""
+
 #: src/components/ai/AskAiPanel.tsx:310
 #: src/routes/app/ask-ai/index.tsx:218
 msgid "Ask"
@@ -158,6 +166,7 @@ msgid "Back"
 msgstr "Назад"
 
 #: src/routes/app/smb-crm/ai/index.tsx:592
+#: src/routes/app/smb-crm/quote-templates/index.tsx:912
 msgid "Back to SMB-CRM"
 msgstr ""
 
@@ -173,7 +182,14 @@ msgstr ""
 msgid "Bucket"
 msgstr "Категория"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:423
+msgid "built-in"
+msgstr ""
+
 #: src/components/shared/SavedViews.tsx:255
+#: src/routes/app/smb-crm/quote-templates/index.tsx:843
+#: src/routes/app/smb-crm/quote-templates/index.tsx:1006
+#: src/routes/app/smb-crm/quote-templates/index.tsx:1074
 msgid "Cancel"
 msgstr "Отмена"
 
@@ -204,6 +220,8 @@ msgid "Click the Sparkles button in the Topbar (or press its shortcut). Type a q
 msgstr "Нажмите кнопку Sparkles в верхней панели (или используйте горячую клавишу). Введите вопрос и нажмите «Отправить». Под ответом появятся метки цитат."
 
 #: src/components/shared/PeekPanel.tsx:123
+#: src/routes/app/smb-crm/quote-templates/index.tsx:794
+#: src/routes/app/smb-crm/quote-templates/index.tsx:958
 msgid "Close"
 msgstr "Закрыть"
 
@@ -244,6 +262,10 @@ msgstr "Контекстная метка"
 msgid "Context:"
 msgstr "Контекст:"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:287
+msgid "Could not load quote templates."
+msgstr ""
+
 #: src/routes/app/smb-crm/ai/index.tsx:253
 msgid "Could not reach the AI route. Is the API server up?"
 msgstr ""
@@ -264,6 +286,18 @@ msgstr "Создать ещё один счёт"
 msgid "Create invoice"
 msgstr "Создать счёт"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:896
+msgid "Create quote + open PDF"
+msgstr ""
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:896
+msgid "Creating…"
+msgstr ""
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:589
+msgid "Currency"
+msgstr ""
+
 #: src/routes/app/fiscal-gates/index.tsx:208
 msgid "Current period"
 msgstr "Текущий период"
@@ -276,6 +310,10 @@ msgstr ""
 #: src/routes/app/documents/invoice-create/index.tsx:467
 msgid "Customer"
 msgstr "Клиент"
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:542
+msgid "Customer (optional)"
+msgstr ""
 
 #: src/routes/app/documents/invoice-create/index.tsx:239
 msgid "Customer ID"
@@ -304,17 +342,35 @@ msgid "Dashboard"
 msgstr "Сводка"
 
 #: src/components/shared/BulkActionBar.tsx:39
+#: src/routes/app/smb-crm/quote-templates/index.tsx:735
 msgid "Delete"
 msgstr "Удалить"
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:1084
+msgid "Delete template"
+msgstr ""
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:1051
+msgid "Delete template?"
+msgstr ""
 
 #: src/components/shared/SavedViews.tsx:214
 msgid "Delete view"
 msgstr "Удалить представление"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:1084
+msgid "Deleting…"
+msgstr ""
+
 #: src/routes/app/documents/invoice-create/index.tsx:358
 #: src/routes/app/documents/invoice-create/index.tsx:483
 msgid "Description"
 msgstr "Описание"
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:817
+#: src/routes/app/smb-crm/quote-templates/index.tsx:980
+msgid "Description (optional)"
+msgstr ""
 
 #: src/routes/app/triage-inbox/index.tsx:198
 msgid "Detail"
@@ -343,6 +399,11 @@ msgstr ""
 #: src/routes/app/fiscal-gates/index.tsx:300
 msgid "Due"
 msgstr "Срок"
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:726
+#: src/routes/app/smb-crm/quote-templates/index.tsx:953
+msgid "Edit template"
+msgstr ""
 
 #: src/routes/app/ask-ai/index.tsx:205
 msgid "Enter to ask · Shift+Enter for newline"
@@ -475,6 +536,7 @@ msgstr "Счета"
 
 #: src/routes/app/documents/invoice-create/index.tsx:275
 #: src/routes/app/documents/invoice-create/index.tsx:471
+#: src/routes/app/smb-crm/quote-templates/index.tsx:569
 msgid "Issue date"
 msgstr "Дата выпуска"
 
@@ -486,18 +548,40 @@ msgstr "Горячие клавиши"
 msgid "Label"
 msgstr "Метка"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:424
+#: src/routes/app/smb-crm/quote-templates/index.tsx:639
+msgid "line item"
+msgstr ""
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:425
+#: src/routes/app/smb-crm/quote-templates/index.tsx:639
+msgid "line items"
+msgstr ""
+
 #: src/routes/app/documents/invoice-create/index.tsx:87
 #: src/routes/app/documents/invoice-create/index.tsx:305
 msgid "Line items"
 msgstr "Строки счёта"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:686
+msgid "Line total"
+msgstr ""
+
 #: src/components/keyboard/ShortcutCheatsheet.tsx:172
 msgid "Lists"
 msgstr "Списки"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:551
+msgid "Loading customers…"
+msgstr ""
+
 #: src/lib/analytics/panels/AnalyticsReceivablesTable.tsx:177
 msgid "Loading receivables…"
 msgstr "Загрузка задолженности…"
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:432
+msgid "Loading templates…"
+msgstr ""
 
 #: src/lib/onboarding/tours.ts:39
 msgid "Mark a gate as filed"
@@ -547,6 +631,10 @@ msgstr ""
 msgid "Must be greater than zero"
 msgstr ""
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:810
+msgid "My custom quote"
+msgstr ""
+
 #: src/components/shared/SavedViews.tsx:235
 msgid "Name this view"
 msgstr "Назовите это представление"
@@ -576,6 +664,10 @@ msgstr "Далее: проверка"
 msgid "No buckets in this period"
 msgstr "Нет категорий за этот период"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:564
+msgid "No customers yet. Create one in the Customers app first."
+msgstr ""
+
 #: src/lib/fiscal/labels.tsx:75
 #: src/lib/fiscal/labels.tsx:98
 msgid "No description"
@@ -603,6 +695,10 @@ msgstr "Сохранённых представлений пока нет"
 
 #: src/routes/app/period-close/index.tsx:313
 msgid "No steps in this checklist."
+msgstr ""
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:442
+msgid "No templates available."
 msgstr ""
 
 #: src/routes/app/smb-crm/ai/index.tsx:308
@@ -723,6 +819,10 @@ msgstr "Период"
 msgid "Period close"
 msgstr "Закрытие периода"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:398
+msgid "Pick a template, fill qty + price, generate a printable PDF."
+msgstr ""
+
 #: src/lib/onboarding/tours.ts:154
 msgid "Pick the customer (or supplier) the invoice is for."
 msgstr "Выберите клиента (или поставщика), для которого выставляется счёт."
@@ -779,6 +879,10 @@ msgstr "Предпросмотр"
 msgid "Preview · ships in 10.5 r2"
 msgstr "Предпросмотр · выйдет в 10.5 r2"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:704
+msgid "Preview total"
+msgstr ""
+
 #: src/routes/app/period-close/index.tsx:379
 msgid "Previous month"
 msgstr ""
@@ -788,12 +892,21 @@ msgid "Qty"
 msgstr "Кол-во"
 
 #: src/routes/app/documents/invoice-create/index.tsx:378
+#: src/routes/app/smb-crm/quote-templates/index.tsx:662
 msgid "Quantity"
 msgstr "Количество"
 
 #: src/components/onboarding/OnboardingLauncher.tsx:173
 msgid "Quick walkthroughs of the 5 product differentiators."
 msgstr "Краткие обзоры 5 продуктовых преимуществ."
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:530
+msgid "Quote number"
+msgstr ""
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:392
+msgid "Quote templates"
+msgstr ""
 
 #: src/routes/app/triage-inbox/index.tsx:221
 #: src/routes/app/triage-inbox/index.tsx:411
@@ -815,6 +928,10 @@ msgstr "Перечислите налог, удержанный при выпл�
 #: src/routes/app/documents/invoice-create/index.tsx:430
 msgid "Remove line item"
 msgstr "Удалить строку"
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:966
+msgid "Rename the template or update its description. The current line items (including any quantity / price overrides you've entered above) will be saved with the new name + description."
+msgstr ""
 
 #: src/components/shared/SavedViews.tsx:178
 #: src/components/shared/SavedViews.tsx:205
@@ -846,13 +963,34 @@ msgstr "Проверьте черновик"
 msgid "Save"
 msgstr "Сохранить"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:789
+msgid "Save as new template"
+msgstr ""
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:746
+msgid "Save as template"
+msgstr ""
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:1016
+msgid "Save changes"
+msgstr ""
+
 #: src/components/shared/SavedViews.tsx:266
 msgid "Save current view"
 msgstr "Сохранить текущее представление"
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:853
+msgid "Save template"
+msgstr ""
+
 #: src/components/shared/SavedViews.tsx:147
 msgid "Saved views"
 msgstr "Сохранённые представления"
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:853
+#: src/routes/app/smb-crm/quote-templates/index.tsx:1016
+msgid "Saving…"
+msgstr ""
 
 #: src/lib/onboarding/tours.ts:55
 msgid "Select an overdue gate"
@@ -1004,9 +1142,18 @@ msgstr "Пройти тур"
 msgid "temperature"
 msgstr ""
 
+#: src/routes/app/smb-crm/quote-templates/index.tsx:805
+#: src/routes/app/smb-crm/quote-templates/index.tsx:969
+msgid "Template name"
+msgstr ""
+
 #: src/components/ai/AskAiPanel.tsx:401
 msgid "The answer is a UI-only stub in Phase 10.5 — no data leaves your browser."
 msgstr "Ответ в Phase 10.5 — это только UI-заглушка; данные не покидают ваш браузер."
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:802
+msgid "The current line items (with your quantity + price overrides) will be saved as a new template scoped to your organization."
+msgstr ""
 
 #: src/routes/app/documents/invoice-create/index.tsx:601
 msgid "the customer"
@@ -1032,6 +1179,14 @@ msgstr "Мастер создания счёта состоит из 4 шаго�
 #: src/lib/onboarding/tours.ts:190
 msgid "The keyboard cheatsheet (10.5 r2 W6) lists every shortcut. Use the locale switcher in the Topbar to pick РУ."
 msgstr "Шпаргалка горячих клавиш (10.5 r2 W6) содержит все сочетания. Используйте переключатель языка в верхней панели, чтобы выбрать РУ."
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:714
+msgid "The server recomputes the total from quantity × unit price. The value above is a preview."
+msgstr ""
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:1056
+msgid "This cannot be undone."
+msgstr ""
 
 #: src/lib/wizard/state.tsx:383
 msgid "This field is required"
@@ -1094,6 +1249,7 @@ msgstr "Отменить"
 
 #: src/routes/app/documents/invoice-create/index.tsx:402
 #: src/routes/app/documents/invoice-create/index.tsx:489
+#: src/routes/app/smb-crm/quote-templates/index.tsx:674
 msgid "Unit price"
 msgstr "Цена за единицу"
 
@@ -1111,6 +1267,10 @@ msgstr "Используйте эти сочетания, чтобы перем�
 
 #: src/lib/wizard/state.tsx:385
 msgid "Use YYYY-MM-DD"
+msgstr ""
+
+#: src/routes/app/smb-crm/quote-templates/index.tsx:579
+msgid "Valid until (optional)"
 msgstr ""
 
 #: src/lib/fiscal/labels.tsx:121
