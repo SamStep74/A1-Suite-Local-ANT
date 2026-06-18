@@ -55,6 +55,7 @@ import { Route as AppCrmTubeInboxRouteImport } from './routes/app/crm-tube/inbox
 import { Route as AppCopilotChatIdRouteImport } from './routes/app/copilot/$chatId'
 import { Route as AppCfoLoanIdRouteImport } from './routes/app/cfo/$loanId'
 import { Route as AppAnalyticsMetricIdRouteImport } from './routes/app/analytics/$metricId'
+import { Route as AppSmbCrmQuoteTemplatesIndexRouteImport } from './routes/app/smb-crm/quote-templates/index'
 import { Route as AppSmbCrmIntegrationsIndexRouteImport } from './routes/app/smb-crm/integrations/index'
 import { Route as AppSmbCrmDealsIndexRouteImport } from './routes/app/smb-crm/deals/index'
 import { Route as AppSmbCrmCustomersIndexRouteImport } from './routes/app/smb-crm/customers/index'
@@ -308,6 +309,12 @@ const AppAnalyticsMetricIdRoute = AppAnalyticsMetricIdRouteImport.update({
   path: '/analytics/$metricId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppSmbCrmQuoteTemplatesIndexRoute =
+  AppSmbCrmQuoteTemplatesIndexRouteImport.update({
+    id: '/smb-crm/quote-templates/',
+    path: '/smb-crm/quote-templates/',
+    getParentRoute: () => AppRouteRoute,
+  } as any)
 const AppSmbCrmIntegrationsIndexRoute =
   AppSmbCrmIntegrationsIndexRouteImport.update({
     id: '/smb-crm/integrations/',
@@ -502,6 +509,7 @@ export interface FileRoutesByFullPath {
   '/app/smb-crm/customers/': typeof AppSmbCrmCustomersIndexRoute
   '/app/smb-crm/deals/': typeof AppSmbCrmDealsIndexRoute
   '/app/smb-crm/integrations/': typeof AppSmbCrmIntegrationsIndexRoute
+  '/app/smb-crm/quote-templates/': typeof AppSmbCrmQuoteTemplatesIndexRoute
   '/app/smb-crm/integrations/oauth/': typeof AppSmbCrmIntegrationsOauthIndexRoute
 }
 export interface FileRoutesByTo {
@@ -570,6 +578,7 @@ export interface FileRoutesByTo {
   '/app/smb-crm/customers': typeof AppSmbCrmCustomersIndexRoute
   '/app/smb-crm/deals': typeof AppSmbCrmDealsIndexRoute
   '/app/smb-crm/integrations': typeof AppSmbCrmIntegrationsIndexRoute
+  '/app/smb-crm/quote-templates': typeof AppSmbCrmQuoteTemplatesIndexRoute
   '/app/smb-crm/integrations/oauth': typeof AppSmbCrmIntegrationsOauthIndexRoute
 }
 export interface FileRoutesById {
@@ -641,6 +650,7 @@ export interface FileRoutesById {
   '/app/smb-crm/customers/': typeof AppSmbCrmCustomersIndexRoute
   '/app/smb-crm/deals/': typeof AppSmbCrmDealsIndexRoute
   '/app/smb-crm/integrations/': typeof AppSmbCrmIntegrationsIndexRoute
+  '/app/smb-crm/quote-templates/': typeof AppSmbCrmQuoteTemplatesIndexRoute
   '/app/smb-crm/integrations/oauth/': typeof AppSmbCrmIntegrationsOauthIndexRoute
 }
 export interface FileRouteTypes {
@@ -713,6 +723,7 @@ export interface FileRouteTypes {
     | '/app/smb-crm/customers/'
     | '/app/smb-crm/deals/'
     | '/app/smb-crm/integrations/'
+    | '/app/smb-crm/quote-templates/'
     | '/app/smb-crm/integrations/oauth/'
   fileRoutesByTo: FileRoutesByTo
   to:
@@ -781,6 +792,7 @@ export interface FileRouteTypes {
     | '/app/smb-crm/customers'
     | '/app/smb-crm/deals'
     | '/app/smb-crm/integrations'
+    | '/app/smb-crm/quote-templates'
     | '/app/smb-crm/integrations/oauth'
   id:
     | '__root__'
@@ -851,6 +863,7 @@ export interface FileRouteTypes {
     | '/app/smb-crm/customers/'
     | '/app/smb-crm/deals/'
     | '/app/smb-crm/integrations/'
+    | '/app/smb-crm/quote-templates/'
     | '/app/smb-crm/integrations/oauth/'
   fileRoutesById: FileRoutesById
 }
@@ -1184,6 +1197,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppAnalyticsMetricIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/smb-crm/quote-templates/': {
+      id: '/app/smb-crm/quote-templates/'
+      path: '/smb-crm/quote-templates'
+      fullPath: '/app/smb-crm/quote-templates/'
+      preLoaderRoute: typeof AppSmbCrmQuoteTemplatesIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/smb-crm/integrations/': {
       id: '/app/smb-crm/integrations/'
       path: '/smb-crm/integrations'
@@ -1418,6 +1438,7 @@ interface AppRouteRouteChildren {
   AppSmbCrmCustomersIndexRoute: typeof AppSmbCrmCustomersIndexRoute
   AppSmbCrmDealsIndexRoute: typeof AppSmbCrmDealsIndexRoute
   AppSmbCrmIntegrationsIndexRoute: typeof AppSmbCrmIntegrationsIndexRoute
+  AppSmbCrmQuoteTemplatesIndexRoute: typeof AppSmbCrmQuoteTemplatesIndexRoute
   AppSmbCrmIntegrationsOauthIndexRoute: typeof AppSmbCrmIntegrationsOauthIndexRoute
 }
 
@@ -1482,6 +1503,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppSmbCrmCustomersIndexRoute: AppSmbCrmCustomersIndexRoute,
   AppSmbCrmDealsIndexRoute: AppSmbCrmDealsIndexRoute,
   AppSmbCrmIntegrationsIndexRoute: AppSmbCrmIntegrationsIndexRoute,
+  AppSmbCrmQuoteTemplatesIndexRoute: AppSmbCrmQuoteTemplatesIndexRoute,
   AppSmbCrmIntegrationsOauthIndexRoute: AppSmbCrmIntegrationsOauthIndexRoute,
 }
 

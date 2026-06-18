@@ -70,7 +70,7 @@ export class ChordParseError extends Error {
   }
 }
 
-const TOKEN_RE = /^[a-z0-9?]+$/;
+const TOKEN_RE = /^[a-z0-9?/]+$/;
 
 export function parseChord(chord: string): ParsedChord {
   if (typeof chord !== "string" || chord.length === 0) {
@@ -143,7 +143,11 @@ export function matchesEvent(event: KeyboardEvent, parsed: ParsedChord): boolean
   if (!parsed.modifiers.has("ctrl") && event.ctrlKey) return false;
   if (!parsed.modifiers.has("meta") && event.metaKey) return false;
   if (!parsed.modifiers.has("alt") && event.altKey) return false;
-  if (!parsed.modifiers.has("shift") && event.shiftKey) return false;
+  // Printable symbols like "?" are reported as event.key="?" with
+  // shiftKey=true on US keyboards. Treat the produced symbol as the
+  // key contract so "?" can be registered as "?" instead of leaking
+  // physical-key details into shortcut definitions.
+  if (!parsed.modifiers.has("shift") && event.shiftKey && parsed.key !== "?") return false;
   return true;
 }
 

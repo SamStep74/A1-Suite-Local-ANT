@@ -60,28 +60,48 @@ const RECEIPT_ID = "receipt-e2e-005";
 /** Install route handlers that reply to the five flat procurement
  *  POSTs the modern route issues. Each handler returns the
  *  `ok: true` envelope the route's Zod schema expects. */
-function installProcurementApiMocks(route: Route): void {
+async function installProcurementApiMocks(route: Route): Promise<void> {
   // Requisition — body is { neededBy, justification?, idempotencyKey }
   if (requestMatchesPath(route.request(), "/api/procurement/requisitions")) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ ok: true, requisition: { id: REQUISITION_ID } }),
+      body: JSON.stringify({
+        ok: true,
+        requisition: {
+          id: REQUISITION_ID,
+          neededBy: "2026-07-01",
+          justification: null,
+          lines: [],
+          createdAt: "2026-06-17T00:00:00Z",
+          status: "open",
+        },
+      }),
     });
     return;
   }
   // RFQ — body is { neededBy, justification?, idempotencyKey }
   if (requestMatchesPath(route.request(), "/api/procurement/rfqs")) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ ok: true, rfq: { id: RFQ_ID } }),
+      body: JSON.stringify({
+        ok: true,
+        rfq: {
+          id: RFQ_ID,
+          requisitionId: REQUISITION_ID,
+          shortlistedVendors: [],
+          quotes: [],
+          award: null,
+          createdAt: "2026-06-17T00:00:00Z",
+        },
+      }),
     });
     return;
   }
   // Quote — body is { rfqId, amount, idempotencyKey }
   if (requestMatchesPath(route.request(), "/api/procurement/quotes")) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ ok: true, quote: { id: QUOTE_ID } }),
@@ -90,7 +110,7 @@ function installProcurementApiMocks(route: Route): void {
   }
   // PO — body is { quoteId, idempotencyKey }
   if (requestMatchesPath(route.request(), "/api/procurement/purchase-orders")) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
@@ -102,7 +122,7 @@ function installProcurementApiMocks(route: Route): void {
   }
   // Receipt — body is { poId, idempotencyKey }
   if (requestMatchesPath(route.request(), "/api/procurement/receipts")) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ ok: true, receipt: { id: RECEIPT_ID } }),
@@ -112,7 +132,7 @@ function installProcurementApiMocks(route: Route): void {
   // Anything else under /api/procurement passes through to the
   // live backend unchanged (so the e2e can still observe a
   // missing-route regression if the Fastify handler disappears).
-  route.continue();
+  await route.continue();
 }
 
 /** The Vite dev proxy forwards /api/* to Fastify as-is, so the
@@ -129,15 +149,12 @@ test.describe("Procurement — Phase 8.4 Pattern A skeleton", () => {
   test("loads, renders 5 tabs, defaults to Requisition, and points back to /app/purchase", async ({
     browser,
     request,
-    page,
   }) => {
-    // Mock the five flat procurement POSTs so the page works
-    // without depending on a server-side migration of the
-    // procurement tier.
-    await page.route("**/api/procurement/**", installProcurementApiMocks);
-
     const ctx = await authedPage(browser, request);
     try {
+      // Mock the five flat procurement POSTs on the actual page under test.
+      await ctx.page.route("**/api/procurement/**", installProcurementApiMocks);
+
       const response = await ctx.page.goto("/app/purchase/procurement");
       expect(
         response,
@@ -200,7 +217,7 @@ test.describe("Procurement — Phase 8.4 Pattern A skeleton", () => {
       const back = ctx.page.getByTestId("procurement-back-link");
       await expect(back).toBeVisible();
       const href = await back.getAttribute("href");
-      expect(href).toBe("/app/purchase");
+      expect(href).toBe("/app/purchase?view=vendors");
     } finally {
       await ctx.page.context().close();
     }
@@ -211,12 +228,11 @@ test.describe("Procurement — cross-tab POST flow", () => {
   test("chains Requisition → RFQ → Quote → PO → Receipt and fills all 5 id pills", async ({
     browser,
     request,
-    page,
   }) => {
-    await page.route("**/api/procurement/**", installProcurementApiMocks);
-
     const ctx = await authedPage(browser, request);
     try {
+      await ctx.page.route("**/api/procurement/**", installProcurementApiMocks);
+
       await ctx.page.goto("/app/purchase/procurement");
       await waitForHydration(ctx.page);
 
@@ -283,7 +299,6 @@ test.describe("Procurement — 403 access gate", () => {
   test("does not render the 403 card for a default authenticated user @smoke", async ({
     browser,
     request,
-    page,
   }) => {
     // The 403 path is a no-op for the live route today: the
     // default `ProcurementRoutePage` hardcodes
@@ -295,10 +310,10 @@ test.describe("Procurement — 403 access gate", () => {
     // will fail loudly and the maintainer can decide whether
     // to (a) keep the 403 visible in the e2e (preferred) or
     // (b) update the assertion to match the new behavior.
-    await page.route("**/api/procurement/**", installProcurementApiMocks);
-
     const ctx = await authedPage(browser, request);
     try {
+      await ctx.page.route("**/api/procurement/**", installProcurementApiMocks);
+
       await ctx.page.goto("/app/purchase/procurement");
       await waitForHydration(ctx.page);
 

@@ -60,7 +60,8 @@ test.describe("apps smoke — every registered app loads and shows its H1", () =
         expect([200, 304]).toContain(status);
 
         await waitForHydration(page);
-        await expect(page.getByRole("heading", { level: 1, name: meta.label })).toBeVisible();
+        const headingName = appId === "assets" ? meta.labelAm : meta.label;
+        await expect(page.getByRole("heading", { level: 1, name: headingName })).toBeVisible();
       } finally {
         await page.context().close();
       }

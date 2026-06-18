@@ -29,7 +29,7 @@
  * i18n-canary.spec.ts and spa-mode.spec.ts).
  */
 import { test, expect } from "@playwright/test";
-import { authedPage } from "./_helpers";
+import { authenticatePage, authedPage, FASTIFY_URL } from "./_helpers";
 
 /**
  * The Phase 10.5 stub returns exactly one citation (the route chip)
@@ -49,20 +49,19 @@ const STUB_ANSWER_PHRASE = "Phase 10.5 stub answer";
 const EN_EMPTY_STATE_COPY = "Ask anything about this page.";
 const EN_TOGGLE_ARIA = "Open the Ask AI assistant sidebar";
 
-/** A route that gives the parser an `entity` segment. We use
- *  `/app/finance/invoices` so the stub returns the "Invoices"
- *  citation chip; `/app/finance` alone yields entity=undefined and
- *  0 chips (not useful for the citation-click flow). */
-const ENTITY_ROUTE = "/app/finance/invoices";
+/** A mounted route that gives the parser an `entity` segment.
+ *  `/app/crm-tube/contacts` yields the "Contacts" citation chip;
+ *  `/app/crm-tube` alone yields entity=undefined and 0 chips. */
+const ENTITY_ROUTE = "/app/crm-tube/contacts";
 
 test.describe("Ask AI — surface e2e (Phase 10.7)", () => {
   test.beforeEach(async ({ request }, testInfo) => {
     const probe = await request
-      .get("http://localhost:4100/api/health", { timeout: 2_000 })
+      .get(`${FASTIFY_URL}/api/health`, { timeout: 2_000 })
       .catch(() => null);
     testInfo.skip(
       !probe || !probe.ok(),
-      "Fastify backend not reachable on :4100 — skipping authed ask-ai e2e (CI runs with START_FASTIFY=1).",
+      `Fastify backend not reachable at ${FASTIFY_URL} — skipping authed ask-ai e2e (CI runs with START_FASTIFY=1).`,
     );
   });
 
@@ -143,8 +142,8 @@ test.describe("Ask AI — surface e2e (Phase 10.7)", () => {
 
       // Click the chip → AskAiPanel's onCitationClick handler
       // closes the panel, then citations.tsx navigates to the
-      // stub's href. For /app/finance/invoices that href is
-      // `/app/finance/invoices` (entity present, no id) — the
+      // stub's href. For /app/crm-tube/contacts that href is
+      // `/app/crm-tube/contacts` (entity present, no id) — the
       // route is already mounted, so the URL stays the same but
       // the panel is gone. We assert the panel unmounts.
       const beforePath = new URL(page.url()).pathname;
@@ -156,9 +155,9 @@ test.describe("Ask AI — surface e2e (Phase 10.7)", () => {
       // path is preserved (in-app nav to current URL) or it
       // changed to a deeper citation (entity/id). Both are valid
       // for the stub. The non-regression contract is: panel is
-      // closed and we are still inside the finance app surface.
+      // closed and we are still inside the CRM Tube app surface.
       const afterPath = new URL(page.url()).pathname;
-      expect(afterPath.startsWith("/app/finance")).toBe(true);
+      expect(afterPath.startsWith("/app/crm-tube")).toBe(true);
       // The path can stay the same when we navigate to our own
       // URL (TanStack Router no-ops), but we still want to
       // assert we didn't somehow get bounced to an unrelated app.
@@ -169,59 +168,58 @@ test.describe("Ask AI — surface e2e (Phase 10.7)", () => {
   });
 
   test("reset / clear: close + reopen drops prior question, answer, and input", async ({
-    browser,
+    page,
     request,
   }) => {
-    const { page } = await authedPage(browser, request);
-    try {
-      await page.goto(ENTITY_ROUTE);
-      await expect(page.getByTestId("app-shell")).toBeVisible();
+    await authenticatePage(page, request);
+    await page.goto(ENTITY_ROUTE);
+    await expect(page.getByTestId("app-shell")).toBeVisible();
 
-      const toggle = page.getByTestId("topbar-ask-ai-toggle");
-      await toggle.click();
-      const panel = page.getByTestId("ask-ai-panel");
-      await expect(panel).toHaveAttribute("data-state", "open");
+    const toggle = page.getByTestId("topbar-ask-ai-toggle");
+    await toggle.click();
+    const panel = page.getByTestId("ask-ai-panel");
+    await expect(panel).toHaveAttribute("data-state", "open");
 
-      // Empty state visible on first open.
-      await expect(page.getByTestId("ask-ai-empty")).toBeVisible();
+    // Empty state visible on first open.
+    await expect(page.getByTestId("ask-ai-empty")).toBeVisible();
 
-      // Submit a question and wait for the answer to land.
-      const input = page.getByTestId("ask-ai-input");
-      await input.fill("this question should be cleared by reset");
-      await page.getByTestId("ask-ai-submit").click();
-      const answer = page.getByTestId("ask-ai-answer");
-      await expect(answer).toBeVisible({ timeout: 15_000 });
-      await expect(answer).toContainText(STUB_ANSWER_PHRASE, {
-        timeout: 15_000,
-      });
-      // Empty state is gone now that we have an answer.
-      await expect(page.getByTestId("ask-ai-empty")).toHaveCount(0);
+    // Submit a question and wait for the answer to land.
+    const input = page.getByTestId("ask-ai-input");
+    await input.fill("this question should be cleared by reset");
+    await page.getByTestId("ask-ai-submit").click();
+    const answer = page.getByTestId("ask-ai-answer");
+    await expect(answer).toBeVisible({ timeout: 15_000 });
+    await expect(answer).toContainText(STUB_ANSWER_PHRASE, {
+      timeout: 15_000,
+    });
+    // Empty state is gone now that we have an answer.
+    await expect(page.getByTestId("ask-ai-empty")).toHaveCount(0);
 
-      // "Reset" UX: there is no explicit Reset button in the
-      // sidebar (Phase 10.5). The canonical way to clear state is
-      // to close the panel and reopen — the body is conditionally
-      // rendered (`if (!open) return null`), so component-local
-      // state (input value, last answer) is dropped on unmount.
-      await toggle.click();
-      await expect(page.getByTestId("ask-ai-panel")).toHaveCount(0, {
-        timeout: 5_000,
-      });
-      await toggle.click();
-      await expect(page.getByTestId("ask-ai-panel")).toHaveAttribute(
-        "data-state",
-        "open",
-      );
+    // "Reset" UX: there is no explicit Reset button in the
+    // sidebar (Phase 10.5). The canonical way to clear state is
+    // to close the panel and reopen — closing clears local
+    // question/answer state.
+    await page.getByLabel("Close Ask AI panel").click();
+    await expect(page.getByTestId("ask-ai-panel")).toHaveCount(0, {
+      timeout: 5_000,
+    });
+    await toggle.click();
+    await expect(page.getByTestId("ask-ai-panel")).toHaveAttribute(
+      "data-state",
+      "open",
+    );
 
-      // After reopen: input is empty, answer is gone, empty-state
-      // is back. This is the reset contract.
-      const resetInput = page.getByTestId("ask-ai-input");
-      await expect(resetInput).toBeVisible();
-      await expect(resetInput).toHaveValue("");
-      await expect(page.getByTestId("ask-ai-answer")).toHaveCount(0);
-      await expect(page.getByTestId("ask-ai-empty")).toBeVisible();
-    } finally {
-      await page.context().close();
-    }
+    // After reopen: input is empty, answer is gone, empty-state
+    // is back. This is the reset contract.
+    const resetInput = page.getByTestId("ask-ai-input");
+    await expect(resetInput).toBeVisible();
+    await expect(resetInput).toHaveValue("");
+    await expect(page.getByTestId("ask-ai-answer")).toHaveCount(0);
+    await expect(page.getByTestId("ask-ai-empty")).toBeVisible();
+    await page.getByLabel("Close Ask AI panel").click();
+    await expect(page.getByTestId("ask-ai-panel")).toHaveCount(0, {
+      timeout: 5_000,
+    });
   });
 
   test("locale (en): loads with ?lang=en, English copy renders, stub still streams", async ({

@@ -31,7 +31,7 @@
  * logs in so the cfo toolbar can fetch its (auth-required) data.
  */
 import { test, expect } from "@playwright/test";
-import { authedPage } from "./_helpers";
+import { authedPage, FASTIFY_URL } from "./_helpers";
 
 test.describe("SPA mode — D1 invariants", () => {
   test("GET / returns the SPA shell with a title @smoke", async ({ page }) => {
@@ -82,12 +82,12 @@ test.describe("SPA mode — D1 invariants", () => {
     // a false negative when a developer is iterating on the SPA
     // shell alone. The pre-existing apps.spec.ts has the same
     // coupling; we mirror its skip behaviour here.
-    const probe = await request.get("http://localhost:4100/api/health", {
+    const probe = await request.get(`${FASTIFY_URL}/api/health`, {
       timeout: 2_000,
     }).catch(() => null);
     test.skip(
       !probe || !probe.ok(),
-      "Fastify backend not reachable on :4100 — skipping authed route render (CI runs with START_FASTIFY=1).",
+      `Fastify backend not reachable at ${FASTIFY_URL} — skipping authed route render (CI runs with START_FASTIFY=1).`,
     );
 
     const { page, context } = await authedPage(browser, request);

@@ -123,10 +123,10 @@ function requestMatchesAnalyticsYield(req: Request): boolean {
 
 /** Route the 6 mutation POSTs + 3 analytics GETs + 1 AI POST
  *  to stable mock payloads. */
-function installGreenhouseApiMocks(route: Route): void {
+async function installGreenhouseApiMocks(route: Route): Promise<void> {
   if (requestMatchesPath(route.request(), "/api/greenhouse/houses")) {
     if (route.request().method() === "POST") {
-      route.fulfill({
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
@@ -147,7 +147,7 @@ function installGreenhouseApiMocks(route: Route): void {
   }
   if (requestMatchesPath(route.request(), "/api/greenhouse/zones")) {
     if (route.request().method() === "POST") {
-      route.fulfill({
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
@@ -167,7 +167,7 @@ function installGreenhouseApiMocks(route: Route): void {
   }
   if (requestMatchesPath(route.request(), "/api/greenhouse/crops")) {
     if (route.request().method() === "POST") {
-      route.fulfill({
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
@@ -190,7 +190,7 @@ function installGreenhouseApiMocks(route: Route): void {
   }
   if (requestMatchesPath(route.request(), "/api/greenhouse/bioprotection")) {
     if (route.request().method() === "POST") {
-      route.fulfill({
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
@@ -213,7 +213,7 @@ function installGreenhouseApiMocks(route: Route): void {
   }
   if (requestMatchesPath(route.request(), "/api/greenhouse/harvests")) {
     if (route.request().method() === "POST") {
-      route.fulfill({
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
@@ -234,7 +234,7 @@ function installGreenhouseApiMocks(route: Route): void {
   }
   if (requestMatchesPath(route.request(), "/api/greenhouse/ai/yield-forecast")) {
     if (route.request().method() === "POST") {
-      route.fulfill({
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
@@ -252,7 +252,7 @@ function installGreenhouseApiMocks(route: Route): void {
     }
   }
   if (requestMatchesAnalyticsGdd(route.request())) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
@@ -264,7 +264,7 @@ function installGreenhouseApiMocks(route: Route): void {
     return;
   }
   if (requestMatchesAnalyticsEnergy(route.request())) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
@@ -280,7 +280,7 @@ function installGreenhouseApiMocks(route: Route): void {
     return;
   }
   if (requestMatchesAnalyticsYield(route.request())) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
@@ -300,7 +300,7 @@ function installGreenhouseApiMocks(route: Route): void {
   // Anything else under /api/greenhouse passes through to the live
   // backend (so the e2e can still observe a missing-route
   // regression if the Fastify handler disappears).
-  route.continue();
+  await route.continue();
 }
 
 /* ────────── page shell + tab switch ────────── */
@@ -309,11 +309,9 @@ test.describe("Greenhouse — Phase 8.7 Pattern A skeleton", () => {
   test("loads, renders the H1 + 7 tabs, defaults to House, and points back to /app", async ({
     browser,
     request,
-    page,
   }) => {
-    await page.route("**/api/greenhouse/**", installGreenhouseApiMocks);
-
     const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/greenhouse/**", installGreenhouseApiMocks);
     try {
       const response = await ctx.page.goto("/app/greenhouse");
       expect(
@@ -385,7 +383,6 @@ test.describe("Greenhouse — sequential create flow (House → Zone → Crop �
   test("submitting each form in order POSTs the right envelope and renders the ID pill", async ({
     browser,
     request,
-    page,
   }) => {
     interface HousePostBody {
       name: string;
@@ -425,8 +422,8 @@ test.describe("Greenhouse — sequential create flow (House → Zone → Crop �
     const zoneCapture: { body: ZonePostBody | null } = { body: null };
     const cropCapture: { body: CropPostBody | null } = { body: null };
     const harvestCapture: { body: HarvestPostBody | null } = { body: null };
-
-    await page.route("**/api/greenhouse/**", async (route) => {
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/greenhouse/**", async (route) => {
       if (
         requestMatchesPath(route.request(), "/api/greenhouse/houses") &&
         route.request().method() === "POST"
@@ -443,7 +440,7 @@ test.describe("Greenhouse — sequential create flow (House → Zone → Crop �
         } catch {
           houseCapture.body = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
@@ -477,7 +474,7 @@ test.describe("Greenhouse — sequential create flow (House → Zone → Crop �
         } catch {
           zoneCapture.body = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
@@ -513,7 +510,7 @@ test.describe("Greenhouse — sequential create flow (House → Zone → Crop �
         } catch {
           cropCapture.body = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
@@ -549,7 +546,7 @@ test.describe("Greenhouse — sequential create flow (House → Zone → Crop �
         } catch {
           harvestCapture.body = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
@@ -567,10 +564,8 @@ test.describe("Greenhouse — sequential create flow (House → Zone → Crop �
         });
         return;
       }
-      installGreenhouseApiMocks(route);
+      await installGreenhouseApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/greenhouse");
       await waitForHydration(ctx.page);
@@ -674,16 +669,16 @@ test.describe("Greenhouse — Climate (GDD) GET", () => {
   test("submitting the climate form GETs /api/greenhouse/:id/analytics/gdd and renders the Armenian-formatted row", async ({
     browser,
     request,
-    page,
   }) => {
     let gddPath: string | null = null;
     let gddPeriodKey: string | null = null;
-    await page.route("**/api/greenhouse/**", async (route) => {
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/greenhouse/**", async (route) => {
       if (requestMatchesAnalyticsGdd(route.request())) {
         const url = new URL(route.request().url());
         gddPath = url.pathname;
         gddPeriodKey = url.searchParams.get("periodKey");
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
@@ -694,10 +689,8 @@ test.describe("Greenhouse — Climate (GDD) GET", () => {
         });
         return;
       }
-      installGreenhouseApiMocks(route);
+      await installGreenhouseApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/greenhouse");
       await waitForHydration(ctx.page);
@@ -742,16 +735,16 @@ test.describe("Greenhouse — Energy GET", () => {
   test("submitting the energy form GETs /api/greenhouse/:id/analytics/energy and renders the Armenian-formatted row", async ({
     browser,
     request,
-    page,
   }) => {
     let energyPath: string | null = null;
     let energyPeriodKey: string | null = null;
-    await page.route("**/api/greenhouse/**", async (route) => {
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/greenhouse/**", async (route) => {
       if (requestMatchesAnalyticsEnergy(route.request())) {
         const url = new URL(route.request().url());
         energyPath = url.pathname;
         energyPeriodKey = url.searchParams.get("periodKey");
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
@@ -766,10 +759,8 @@ test.describe("Greenhouse — Energy GET", () => {
         });
         return;
       }
-      installGreenhouseApiMocks(route);
+      await installGreenhouseApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/greenhouse");
       await waitForHydration(ctx.page);
@@ -808,16 +799,16 @@ test.describe("Greenhouse — Yield GET", () => {
   test("submitting the yield form GETs /api/greenhouse/:id/analytics/yield and renders the Armenian-formatted row", async ({
     browser,
     request,
-    page,
   }) => {
     let yieldPath: string | null = null;
     let yieldPeriodKey: string | null = null;
-    await page.route("**/api/greenhouse/**", async (route) => {
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/greenhouse/**", async (route) => {
       if (requestMatchesAnalyticsYield(route.request())) {
         const url = new URL(route.request().url());
         yieldPath = url.pathname;
         yieldPeriodKey = url.searchParams.get("periodKey");
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
@@ -834,10 +825,8 @@ test.describe("Greenhouse — Yield GET", () => {
         });
         return;
       }
-      installGreenhouseApiMocks(route);
+      await installGreenhouseApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/greenhouse");
       await waitForHydration(ctx.page);
@@ -875,7 +864,6 @@ test.describe("Greenhouse — AI yield-forecast POST", () => {
   test("clicking the AI button POSTs to /api/greenhouse/ai/yield-forecast and renders the AI block", async ({
     browser,
     request,
-    page,
   }) => {
     interface AiPostBody {
       periodKey: string;
@@ -883,7 +871,8 @@ test.describe("Greenhouse — AI yield-forecast POST", () => {
       idempotencyKey: string;
     }
     const aiCapture: { body: AiPostBody | null } = { body: null };
-    await page.route("**/api/greenhouse/**", async (route) => {
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/greenhouse/**", async (route) => {
       if (
         requestMatchesPath(route.request(), "/api/greenhouse/ai/yield-forecast") &&
         route.request().method() === "POST"
@@ -898,7 +887,7 @@ test.describe("Greenhouse — AI yield-forecast POST", () => {
         } catch {
           aiCapture.body = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
@@ -914,10 +903,8 @@ test.describe("Greenhouse — AI yield-forecast POST", () => {
         });
         return;
       }
-      installGreenhouseApiMocks(route);
+      await installGreenhouseApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/greenhouse");
       await waitForHydration(ctx.page);
@@ -955,7 +942,6 @@ test.describe("Greenhouse — 403 access gate", () => {
   test("does not render the 403 card for a default authenticated user", async ({
     browser,
     request,
-    page,
   }) => {
     // The 403 path is a no-op for the live route today: the
     // workspace does not yet read a `userAccess` from the
@@ -967,9 +953,8 @@ test.describe("Greenhouse — 403 access gate", () => {
     // workspace to read a role from the session and defaults
     // it to "none" for unprivileged users, this test will
     // fail loudly.
-    await page.route("**/api/greenhouse/**", installGreenhouseApiMocks);
-
     const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/greenhouse/**", installGreenhouseApiMocks);
     try {
       await ctx.page.goto("/app/greenhouse");
       await waitForHydration(ctx.page);

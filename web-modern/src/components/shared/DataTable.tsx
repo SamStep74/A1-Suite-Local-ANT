@@ -331,31 +331,31 @@ export function DataTable<TData>({
                       }
                       className="px-3 py-2 text-left font-semibold"
                     >
-                      {header.isPlaceholder ? null : (
+                      {header.isPlaceholder ? null : canSort ? (
                         <button
                           type="button"
-                          onClick={canSort ? header.column.getToggleSortingHandler() : undefined}
-                          disabled={!canSort}
-                          className={cn(
-                            "inline-flex items-center gap-1",
-                            canSort && "cursor-pointer hover:text-[var(--color-ink)]",
-                            !canSort && "cursor-default",
-                          )}
+                          onClick={header.column.getToggleSortingHandler()}
+                          className="inline-flex cursor-pointer items-center gap-1 hover:text-[var(--color-ink)]"
                           data-testid={`data-table-sort-${header.column.id}`}
                         >
                           {flexRender(header.column.columnDef.header, header.getContext())}
-                          {canSort && (
-                            <span aria-hidden="true">
-                              {sortDir === "asc" ? (
-                                <ArrowUp className="size-3" />
-                              ) : sortDir === "desc" ? (
-                                <ArrowDown className="size-3" />
-                              ) : (
-                                <ArrowUpDown className="size-3 opacity-40" />
-                              )}
-                            </span>
-                          )}
+                          <span aria-hidden="true">
+                            {sortDir === "asc" ? (
+                              <ArrowUp className="size-3" />
+                            ) : sortDir === "desc" ? (
+                              <ArrowDown className="size-3" />
+                            ) : (
+                              <ArrowUpDown className="size-3 opacity-40" />
+                            )}
+                          </span>
                         </button>
+                      ) : (
+                        <span
+                          className="inline-flex items-center gap-1"
+                          data-testid={`data-table-sort-${header.column.id}`}
+                        >
+                          {flexRender(header.column.columnDef.header, header.getContext())}
+                        </span>
                       )}
                     </th>
                   );

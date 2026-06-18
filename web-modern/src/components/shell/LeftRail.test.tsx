@@ -67,10 +67,15 @@ describe("LeftRail", () => {
     render(<LeftRail onOpenAppLauncher={() => {}} />);
     // We test against the real APPS catalog, not a mock, so a regression
     // that drops an app from lib/apps.ts is caught here too.
+    // TanStack Router normalizes path segments: routes with file-based
+    // paths under routes/app/<id>/index.tsx render with a trailing
+    // slash, routes with a single segment (e.g. /app/copilot) render
+    // without. Accept either form — the catalog's APP_IDS is the
+    // authoritative source.
     for (const id of APP_IDS) {
-      expect(
-        screen.getByRole("link", { name: APPS[id].label }),
-      ).toHaveAttribute("href", `/app/${id}`);
+      const link = screen.getByRole("link", { name: APPS[id].label });
+      const href = link.getAttribute("href") || "";
+      expect([`/app/${id}`, `/app/${id}/`]).toContain(href);
     }
   });
 

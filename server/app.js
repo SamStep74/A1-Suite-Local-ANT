@@ -207,6 +207,13 @@ function buildApp(options = {}) {
   registerApi(app, db, { ...options, env });
   registerStatic(app);
   require("./localizationRoutes").registerLocalizationRoutes(app);
+  app.setNotFoundHandler((_request, reply) => {
+    reply.code(404).send({
+      message: "Route not found",
+      error: "Not Found",
+      statusCode: 404
+    });
+  });
 
   app.addHook("onClose", () => {
     if (!options.db && typeof db.close === "function") db.close();
@@ -3750,7 +3757,7 @@ function registerApi(app, db, options = {}) {
     });
     if (!result.ok) {
       const err = new Error(result.error || "could not create quote from template");
-      err.statusCode = err.error && err.error.startsWith("template not found") ? 404 : 400;
+      err.statusCode = result.error && result.error.startsWith("template not found") ? 404 : 400;
       throw err;
     }
     audit(db, user.org_id, user.id, "smb_crm.quote.created_from_template", {

@@ -20,6 +20,42 @@
  */
 import "@testing-library/jest-dom/vitest";
 
+function createMemoryStorage(): Storage {
+  const values = new Map<string, string>();
+  return {
+    get length() {
+      return values.size;
+    },
+    clear() {
+      values.clear();
+    },
+    getItem(key: string) {
+      return values.has(key) ? values.get(key)! : null;
+    },
+    key(index: number) {
+      return Array.from(values.keys())[index] ?? null;
+    },
+    removeItem(key: string) {
+      values.delete(key);
+    },
+    setItem(key: string, value: string) {
+      values.set(key, String(value));
+    },
+  };
+}
+
+if (typeof window !== "undefined" && !window.localStorage) {
+  const storage = createMemoryStorage();
+  Object.defineProperty(window, "localStorage", {
+    configurable: true,
+    value: storage,
+  });
+  Object.defineProperty(globalThis, "localStorage", {
+    configurable: true,
+    value: storage,
+  });
+}
+
 // Vite's resolve.alias maps every @lingui/* spec to
 // src/test-utils/lingui-stub.ts. That stub exports `i18n`,
 // `useLingui`, `Trans`, `t`, `defineMessage`, `I18nProvider`.

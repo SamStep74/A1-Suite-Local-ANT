@@ -87,6 +87,11 @@ export default defineConfig({
       ["src/lib/api/**", "node"],
     ],
     environment: "jsdom",
+    environmentOptions: {
+      jsdom: {
+        url: "http://localhost/",
+      },
+    },
     globals: false,
     include: ["src/**/*.test.{ts,tsx}"],
     setupFiles: ["./vitest.setup.tsx"],

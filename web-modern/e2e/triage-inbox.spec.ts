@@ -35,7 +35,7 @@
  * action + undo cycle goes through.
  */
 import { test, expect } from "@playwright/test";
-import { waitForHydration } from "./_helpers";
+import { FASTIFY_URL, waitForHydration } from "./_helpers";
 import {
   authedTriagePage,
   gotoTriageInbox,
@@ -142,11 +142,11 @@ test.describe("triage inbox — cross-feature work queue", () => {
 test.describe("triage inbox — Phase 10.7 e2e coverage expansion", () => {
   test.beforeEach(async ({ request }, testInfo) => {
     const probe = await request
-      .get("http://localhost:4100/api/health", { timeout: 2_000 })
+      .get(`${FASTIFY_URL}/api/health`, { timeout: 2_000 })
       .catch(() => null);
     testInfo.skip(
       !probe || !probe.ok(),
-      "Fastify backend not reachable on :4100 — skipping authed canary render (CI runs with START_FASTIFY=1).",
+      `Fastify backend not reachable at ${FASTIFY_URL} — skipping authed canary render (CI runs with START_FASTIFY=1).`,
     );
   });
 

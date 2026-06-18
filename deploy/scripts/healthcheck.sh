@@ -32,12 +32,26 @@ probe() {
   return 1
 }
 
+probe_expect() {
+  local label="$1" url="$2" expected="$3"
+  local code rc=0
+  code=$(curl -sS -o /dev/null -w '%{http_code}' "$url" 2>/dev/null) || rc=$?
+
+  if [ "$rc" -ne 0 ] || [ -z "$code" ] || [ "$code" = "000" ]; then
+    printf "  %-50s health: connection refused to %s\n" "$label" "$url"
+    return 1
+  fi
+
+  printf "  %-50s health: HTTP %s from %s (expected %s)\n" "$label" "$code" "$url" "$expected"
+  [ "$code" = "$expected" ]
+}
+
 echo "==> Backend health ($HOST:$BACKEND_PORT/api/health):"
 probe "/api/health"             "http://$HOST:$BACKEND_PORT/api/health" || FAIL=1
 echo "==> SPA ($HOST:$SPA_PORT/):"
 probe "/"                       "http://$HOST:$SPA_PORT/" || FAIL=1
 echo "==> API sentinel (must 404, not SPA fallback) ($HOST:$BACKEND_PORT/api/foo):"
-probe "/api/foo"                "http://$HOST:$BACKEND_PORT/api/foo" || FAIL=1
+probe_expect "/api/foo"         "http://$HOST:$BACKEND_PORT/api/foo" "404" || FAIL=1
 
 echo
 echo "==> DEPLOY_DEFAULT hint:"

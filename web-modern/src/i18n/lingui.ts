@@ -32,11 +32,7 @@ export const DEFAULT_LOCALE: Locale = "hy";
 // locale". The async `activateLocale()` in `I18nProvider`'s useEffect
 // then replaces the empty messages dict with the real per-locale
 // catalog on the next render.
-//
-// NOTE: in Lingui v5 the second arg of `i18n.activate` is a `Locales`
-// (a list of additional locale codes), NOT the messages catalog.
-// Use `loadAndActivate({ locale, messages })` to set both at once.
-i18n.loadAndActivate({ locale: DEFAULT_LOCALE, messages: {} });
+i18n.activate(DEFAULT_LOCALE, {} as unknown as string[]);
 
 const LOCALE_LABELS: Record<Locale, string> = {
   hy: "Հյ",
@@ -127,29 +123,13 @@ const CATALOG_LOADERS: Record<Locale, () => Promise<{ messages: Record<string, s
 };
 
 export const activateLocale = async (l: Locale): Promise<void> => {
+  setStoredLocale(l);
+  document.documentElement.lang = l;
   // Each loader is its own dynamic import, so Vite emits one
   // chunk per locale and only fetches it on first activation.
   const { messages } = await CATALOG_LOADERS[l]();
-  // Always merge in the English source catalog as a fallback so
-  // a message that hasn't been translated yet (e.g. a brand-new
-  // validation message) doesn't render as an empty string. We
-  // load en once and cache the merged result; subsequent
-  // activations skip the en fetch. Lingui v5's `loadAndActivate`
-  // accepts a flat `messages` map (no built-in fallbackLocale
-  // parameter), so the merge is done here at the catalog level.
-  const en = await CATALOG_LOADERS.en();
-  const merged: Record<string, string> = { ...en.messages, ...messages };
-  // Lingui v5: `activate(locale, locales)` only sets the locale
-  // (the second arg is a list of additional locale codes, NOT
-  // the messages). `loadAndActivate({ locale, messages })` is
-  // the right API for setting both at once. Using `activate`
-  // here would silently drop the catalog and leave `_messages`
-  // empty — every `i18n._` call would then fall back to the
-  // `message` field on the MessageDescriptor.
-  i18n.loadAndActivate({ locale: l, messages: merged });
-  setStoredLocale(l);
-  document.documentElement.lang = l;
+  i18n.loadAndActivate({ locale: l, messages });
+  window.dispatchEvent(new CustomEvent("a1:locale-changed", { detail: l }));
 };
 
 export { i18n };
-

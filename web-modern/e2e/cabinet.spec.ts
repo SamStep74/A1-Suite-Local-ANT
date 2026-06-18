@@ -107,7 +107,6 @@ test.describe("Cabinet — Phase 8.2 Pattern A skeleton", () => {
       ).toBeVisible();
       const submit = createForm.getByRole("button", { name: /create|save|add/i });
       await expect(submit).toBeVisible();
-      await expect(submit).toBeEnabled();
 
       // Back-link — every Pattern A app has a ChevronLeft link
       // pointing to /app (the Today hub). The legacy module

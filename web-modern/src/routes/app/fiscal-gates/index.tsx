@@ -108,6 +108,7 @@ function FiscalGatesWorkspace() {
 
   // Selected row ids (mirrors DataTable.onSelectionChange).
   const [selectedRowIds, setSelectedRowIds] = useState<ReadonlyArray<string>>([]);
+  const [activeView, setActiveView] = useState<ViewKey>(VIEW_KEYS.CurrentPeriod);
 
   // Peek panel: the row to show in the side drawer.
   const [peekRow, setPeekRow] = useState<FiscalGate | null>(null);
@@ -137,18 +138,12 @@ function FiscalGatesWorkspace() {
     [dispatch, gates],
   );
 
-  // Filtered rows for the current view. The DataTable itself does
-  // sort/filter; we do view-level filtering here so it composes
-  // with the user's sort/page.
+  // Filtered rows for the current saved view. DataTable owns text
+  // search via globalFilter; the saved-view key lives separately so
+  // selecting "current" does not also search for the word "current".
   const visibleRows = useMemo<ReadonlyArray<FiscalGate>>(() => {
-    // Pull the active view from the toolbar's SavedView (if any).
-    // SavedViews doesn't expose the loaded view up to us as a
-    // state key — it pushes a `DataTableState`. We piggy-back on
-    // `globalFilter` to round-trip the view key, since the
-    // defaultDataTable already round-trips that field.
-    const viewKey = viewKeyFromState(tableState);
-    return applyView(gates, viewKey, now);
-  }, [gates, tableState, now]);
+    return applyView(gates, activeView, now);
+  }, [gates, activeView, now]);
 
   /* ────────── column defs ────────── */
 
@@ -229,17 +224,18 @@ function FiscalGatesWorkspace() {
             tableId={TABLE_ID}
             state={{
               sort: null,
-              filter: viewKeyFromState(tableState),
+              filter: activeView,
               page: tableState.pagination.pageIndex,
               pageSize: tableState.pagination.pageSize,
               columns: [],
             }}
             onLoad={(next) => {
-              // Re-derive the view key from the loaded SavedView.
-              const nextView = (next.filter || VIEW_KEYS.CurrentPeriod) as ViewKey;
+              const nextView = viewKeyFromSavedFilter(next.filter);
+              setActiveView(nextView);
+              setSelectedRowIds([]);
               setTableState((s) => ({
                 ...s,
-                globalFilter: nextView,
+                rowSelection: {},
                 pagination: {
                   pageIndex: next.page ?? 0,
                   pageSize: next.pageSize ?? 25,
@@ -416,8 +412,7 @@ function FiscalBulkBar({ selectedRowIds, onAction, onClear }: FiscalBulkBarProps
 
 /* ────────── helpers ────────── */
 
-function viewKeyFromState(s: DataTableState): ViewKey {
-  const f = s.globalFilter;
+function viewKeyFromSavedFilter(f: string | null | undefined): ViewKey {
   if (f === VIEW_KEYS.AllOverdue || f === VIEW_KEYS.AwaitingCustomer) return f;
   return VIEW_KEYS.CurrentPeriod;
 }

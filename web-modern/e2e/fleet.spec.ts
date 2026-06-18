@@ -135,10 +135,145 @@ function requestMatchesColdChainCompliance(req: Request): boolean {
  *  (fl-server) will have added the 7 missing list GETs to
  *  server/app.js, so the e2e will exercise the real list
  *  endpoints too. */
-function installFleetApiMocks(route: Route): void {
+async function installFleetApiMocks(route: Route): Promise<void> {
+  if (requestMatchesPath(route.request(), "/api/fleet/vehicles")) {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          vehicles: [
+            {
+              id: VEHICLE_ID,
+              plate: "00AA111",
+              make: "MAN",
+              model: "TGE",
+              year: 2024,
+              kind: "truck",
+            },
+          ],
+        }),
+      });
+      return;
+    }
+  }
+  if (requestMatchesPath(route.request(), "/api/fleet/drivers")) {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          drivers: [
+            {
+              id: DRIVER_ID,
+              fullName: "Արամ Հայկականյան",
+              phone: "+37499000111",
+              licenseNumber: "AM-2026-001",
+            },
+          ],
+        }),
+      });
+      return;
+    }
+  }
+  if (requestMatchesPath(route.request(), "/api/fleet/trips")) {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          trips: [
+            {
+              id: TRIP_ID,
+              status: "planned",
+              origin: "Yerevan",
+              destination: "Gyumri",
+              scheduledDeparture: "2026-06-13T08:00",
+              actualDeparture: null,
+              actualArrival: null,
+              vehicleId: VEHICLE_ID,
+              driverId: DRIVER_ID,
+              createdAt: "2026-06-12T00:00:00Z",
+            },
+          ],
+        }),
+      });
+      return;
+    }
+  }
+  if (requestMatchesPath(route.request(), "/api/fleet/fuel-logs")) {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ fuelLogs: [] }),
+      });
+      return;
+    }
+  }
+  if (requestMatchesPath(route.request(), "/api/fleet/repairs")) {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ repairs: [] }),
+      });
+      return;
+    }
+  }
+  if (requestMatchesPath(route.request(), "/api/fleet/tires")) {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ tires: [] }),
+      });
+      return;
+    }
+  }
+  if (requestMatchesPath(route.request(), "/api/fleet/cold-chain-logs")) {
+    if (route.request().method() === "GET") {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({ logs: [] }),
+      });
+      return;
+    }
+  }
+  if (requestMatchesPath(
+    route.request(),
+    "/api/fleet/analytics/fuel-efficiency",
+  )) {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        efficiency: [
+          { vehicleId: VEHICLE_ID, liters: 120, km: 1500, lPer100km: 8, kmPerL: 12.5 },
+        ],
+      }),
+    });
+    return;
+  }
+  if (requestMatchesPath(
+    route.request(),
+    "/api/fleet/analytics/maintenance-backlog",
+  )) {
+    await route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        backlog: [
+          { vehicleId: VEHICLE_ID, kind: "oil-change", overdueDays: 14 },
+        ],
+      }),
+    });
+    return;
+  }
   if (requestMatchesPath(route.request(), "/api/fleet/vehicles")) {
     if (route.request().method() === "POST") {
-      route.fulfill({
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ ok: true, vehicle: { id: VEHICLE_ID } }),
@@ -148,7 +283,7 @@ function installFleetApiMocks(route: Route): void {
   }
   if (requestMatchesPath(route.request(), "/api/fleet/drivers")) {
     if (route.request().method() === "POST") {
-      route.fulfill({
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ ok: true, driver: { id: DRIVER_ID } }),
@@ -158,7 +293,7 @@ function installFleetApiMocks(route: Route): void {
   }
   if (requestMatchesPath(route.request(), "/api/fleet/trips")) {
     if (route.request().method() === "POST") {
-      route.fulfill({
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ ok: true, trip: { id: TRIP_ID } }),
@@ -167,7 +302,7 @@ function installFleetApiMocks(route: Route): void {
     }
   }
   if (requestMatchesTripStatusPatch(route.request())) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ ok: true, trip: { id: TRIP_ID, status: "in_transit" } }),
@@ -176,7 +311,7 @@ function installFleetApiMocks(route: Route): void {
   }
   if (requestMatchesPath(route.request(), "/api/fleet/fuel-logs")) {
     if (route.request().method() === "POST") {
-      route.fulfill({
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ ok: true, log: { id: FUEL_ID } }),
@@ -186,7 +321,7 @@ function installFleetApiMocks(route: Route): void {
   }
   if (requestMatchesPath(route.request(), "/api/fleet/repairs")) {
     if (route.request().method() === "POST") {
-      route.fulfill({
+      await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({ ok: true, repair: { id: REPAIR_ID } }),
@@ -195,7 +330,7 @@ function installFleetApiMocks(route: Route): void {
     }
   }
   if (requestMatchesPath(route.request(), "/api/fleet/tires/install")) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ ok: true, tire: { id: TIRE_ID } }),
@@ -203,7 +338,7 @@ function installFleetApiMocks(route: Route): void {
     return;
   }
   if (requestMatchesColdChainCompliance(route.request())) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
@@ -223,7 +358,7 @@ function installFleetApiMocks(route: Route): void {
   // Anything else under /api/fleet passes through to the live
   // backend (so the e2e can still observe a missing-route
   // regression if the Fastify handler disappears).
-  route.continue();
+  await route.continue();
 }
 
 /* ────────── page shell + tab switch ────────── */
@@ -232,11 +367,9 @@ test.describe("Fleet — Phase 8.6 Pattern A skeleton", () => {
   test("loads, renders the H1 + 7 tabs, defaults to Vehicles, and points back to /app @smoke", async ({
     browser,
     request,
-    page,
   }) => {
-    await page.route("**/api/fleet/**", installFleetApiMocks);
-
     const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/fleet/**", installFleetApiMocks);
     try {
       const response = await ctx.page.goto("/app/fleet");
       expect(
@@ -305,7 +438,6 @@ test.describe("Fleet — Vehicles POST", () => {
   test("filling the form + clicking submit POSTs to /api/fleet/vehicles with the idempotency key", async ({
     browser,
     request,
-    page,
   }) => {
     interface VehiclePostBody {
       plate: string;
@@ -316,7 +448,8 @@ test.describe("Fleet — Vehicles POST", () => {
       idempotencyKey: string;
     }
     let postBody: VehiclePostBody | null = null;
-    await page.route("**/api/fleet/**", async (route) => {
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/fleet/**", async (route) => {
       if (
         requestMatchesPath(route.request(), "/api/fleet/vehicles") &&
         route.request().method() === "POST"
@@ -334,17 +467,15 @@ test.describe("Fleet — Vehicles POST", () => {
         } catch {
           postBody = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({ ok: true, vehicle: { id: VEHICLE_ID } }),
         });
         return;
       }
-      installFleetApiMocks(route);
+      await installFleetApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/fleet");
       await waitForHydration(ctx.page);
@@ -393,7 +524,6 @@ test.describe("Fleet — Drivers POST", () => {
   test("filling the form + clicking submit POSTs to /api/fleet/drivers with the idempotency key", async ({
     browser,
     request,
-    page,
   }) => {
     interface DriverPostBody {
       fullName: string;
@@ -402,7 +532,8 @@ test.describe("Fleet — Drivers POST", () => {
       idempotencyKey: string;
     }
     let postBody: DriverPostBody | null = null;
-    await page.route("**/api/fleet/**", async (route) => {
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/fleet/**", async (route) => {
       if (
         requestMatchesPath(route.request(), "/api/fleet/drivers") &&
         route.request().method() === "POST"
@@ -418,17 +549,15 @@ test.describe("Fleet — Drivers POST", () => {
         } catch {
           postBody = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({ ok: true, driver: { id: DRIVER_ID } }),
         });
         return;
       }
-      installFleetApiMocks(route);
+      await installFleetApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/fleet");
       await waitForHydration(ctx.page);
@@ -466,7 +595,6 @@ test.describe("Fleet — Trips POST + PATCH status", () => {
   test("submitting a trip then clicking Departed POSTs + PATCHes the status envelope", async ({
     browser,
     request,
-    page,
   }) => {
     interface TripPostBody {
       vehicleId: string;
@@ -483,7 +611,8 @@ test.describe("Fleet — Trips POST + PATCH status", () => {
     let postBody: TripPostBody | null = null;
     let patchBody: TripPatchBody | null = null;
     let patchPath: string | null = null;
-    await page.route("**/api/fleet/**", async (route) => {
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/fleet/**", async (route) => {
       if (
         requestMatchesPath(route.request(), "/api/fleet/trips") &&
         route.request().method() === "POST"
@@ -501,7 +630,7 @@ test.describe("Fleet — Trips POST + PATCH status", () => {
         } catch {
           postBody = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({ ok: true, trip: { id: TRIP_ID } }),
@@ -519,17 +648,15 @@ test.describe("Fleet — Trips POST + PATCH status", () => {
         } catch {
           patchBody = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({ ok: true, trip: { id: TRIP_ID, status: "in_transit" } }),
         });
         return;
       }
-      installFleetApiMocks(route);
+      await installFleetApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/fleet");
       await waitForHydration(ctx.page);
@@ -539,8 +666,8 @@ test.describe("Fleet — Trips POST + PATCH status", () => {
 
       // The trip form has 5 inputs: vehicleId, driverId, origin,
       // destination, scheduledDeparture.
-      await ctx.page.getByTestId("fleet-trips-vehicle").fill(VEHICLE_ID);
-      await ctx.page.getByTestId("fleet-trips-driver").fill(DRIVER_ID);
+      await ctx.page.getByTestId("fleet-trips-vehicle").selectOption(VEHICLE_ID);
+      await ctx.page.getByTestId("fleet-trips-driver").selectOption(DRIVER_ID);
       await ctx.page.getByTestId("fleet-trips-origin").fill("Yerevan");
       await ctx.page.getByTestId("fleet-trips-destination").fill("Gyumri");
       await ctx.page
@@ -595,7 +722,6 @@ test.describe("Fleet — Fuel POST + efficiency analytics", () => {
   test("submitting a fuel log + the efficiency rollup table renders", async ({
     browser,
     request,
-    page,
   }) => {
     interface FuelPostBody {
       vehicleId: string;
@@ -605,7 +731,8 @@ test.describe("Fleet — Fuel POST + efficiency analytics", () => {
       idempotencyKey: string;
     }
     let postBody: FuelPostBody | null = null;
-    await page.route("**/api/fleet/**", async (route) => {
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/fleet/**", async (route) => {
       if (
         requestMatchesPath(route.request(), "/api/fleet/fuel-logs") &&
         route.request().method() === "POST"
@@ -623,7 +750,7 @@ test.describe("Fleet — Fuel POST + efficiency analytics", () => {
         } catch {
           postBody = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({ ok: true, log: { id: FUEL_ID } }),
@@ -637,7 +764,7 @@ test.describe("Fleet — Fuel POST + efficiency analytics", () => {
         route.request(),
         "/api/fleet/analytics/fuel-efficiency",
       )) {
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
@@ -649,10 +776,8 @@ test.describe("Fleet — Fuel POST + efficiency analytics", () => {
         });
         return;
       }
-      installFleetApiMocks(route);
+      await installFleetApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/fleet");
       await waitForHydration(ctx.page);
@@ -660,7 +785,7 @@ test.describe("Fleet — Fuel POST + efficiency analytics", () => {
       await ctx.page.getByTestId("fleet-tab-fuel").click();
       await expect(ctx.page.getByTestId("fleet-fuel-form")).toBeVisible();
 
-      await ctx.page.getByTestId("fleet-fuel-vehicle").fill(VEHICLE_ID);
+      await ctx.page.getByTestId("fleet-fuel-vehicle").selectOption(VEHICLE_ID);
       await ctx.page.getByTestId("fleet-fuel-liters").fill("60.5");
       await ctx.page.getByTestId("fleet-fuel-odometer").fill("75000");
       await ctx.page.getByTestId("fleet-fuel-cost").fill("510");
@@ -685,7 +810,7 @@ test.describe("Fleet — Fuel POST + efficiency analytics", () => {
       await expect(effTable).toBeVisible();
       const rows = effTable.locator("[data-testid='fleet-fuel-eff-row']");
       await expect(rows).toHaveCount(1);
-      await expect(rows.nth(0)).toContainText(VEHICLE_ID);
+      await expect(rows.nth(0)).toHaveAttribute("data-vehicle-id", VEHICLE_ID);
       await expect(rows.nth(0)).toContainText("8");
     } finally {
       await ctx.page.context().close();
@@ -699,7 +824,6 @@ test.describe("Fleet — Repairs POST + maintenance-backlog analytics", () => {
   test("submitting a repair + the backlog rollup table renders", async ({
     browser,
     request,
-    page,
   }) => {
     interface RepairPostBody {
       vehicleId: string;
@@ -710,7 +834,8 @@ test.describe("Fleet — Repairs POST + maintenance-backlog analytics", () => {
       idempotencyKey: string;
     }
     let postBody: RepairPostBody | null = null;
-    await page.route("**/api/fleet/**", async (route) => {
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/fleet/**", async (route) => {
       if (
         requestMatchesPath(route.request(), "/api/fleet/repairs") &&
         route.request().method() === "POST"
@@ -729,7 +854,7 @@ test.describe("Fleet — Repairs POST + maintenance-backlog analytics", () => {
         } catch {
           postBody = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({ ok: true, repair: { id: REPAIR_ID } }),
@@ -741,7 +866,7 @@ test.describe("Fleet — Repairs POST + maintenance-backlog analytics", () => {
         route.request(),
         "/api/fleet/analytics/maintenance-backlog",
       )) {
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
@@ -753,10 +878,8 @@ test.describe("Fleet — Repairs POST + maintenance-backlog analytics", () => {
         });
         return;
       }
-      installFleetApiMocks(route);
+      await installFleetApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/fleet");
       await waitForHydration(ctx.page);
@@ -764,8 +887,8 @@ test.describe("Fleet — Repairs POST + maintenance-backlog analytics", () => {
       await ctx.page.getByTestId("fleet-tab-repairs").click();
       await expect(ctx.page.getByTestId("fleet-repairs-form")).toBeVisible();
 
-      await ctx.page.getByTestId("fleet-repairs-vehicle").fill(VEHICLE_ID);
-      await ctx.page.getByTestId("fleet-repairs-kind").selectOption("oil-change");
+      await ctx.page.getByTestId("fleet-repairs-vehicle").selectOption(VEHICLE_ID);
+      await ctx.page.getByTestId("fleet-repairs-kind").fill("oil-change");
       await ctx.page.getByTestId("fleet-repairs-odometer").fill("75500");
       await ctx.page.getByTestId("fleet-repairs-cost").fill("45000");
       await ctx.page.getByTestId("fleet-repairs-next-due").fill("2026-09-01");
@@ -791,7 +914,7 @@ test.describe("Fleet — Repairs POST + maintenance-backlog analytics", () => {
       await expect(backlog).toBeVisible();
       const rows = backlog.locator("[data-testid='fleet-backlog-row']");
       await expect(rows).toHaveCount(1);
-      await expect(rows.nth(0)).toContainText(VEHICLE_ID);
+      await expect(rows.nth(0)).toHaveAttribute("data-vehicle-id", VEHICLE_ID);
       await expect(rows.nth(0)).toContainText("oil-change");
       await expect(rows.nth(0)).toContainText("14");
     } finally {
@@ -806,7 +929,6 @@ test.describe("Fleet — Tires POST", () => {
   test("filling the form + clicking submit POSTs to /api/fleet/tires/install with the idempotency key", async ({
     browser,
     request,
-    page,
   }) => {
     interface TirePostBody {
       vehicleId: string;
@@ -819,7 +941,8 @@ test.describe("Fleet — Tires POST", () => {
     }
     let postBody: TirePostBody | null = null;
     let postPath: string | null = null;
-    await page.route("**/api/fleet/**", async (route) => {
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/fleet/**", async (route) => {
       if (requestMatchesPath(route.request(), "/api/fleet/tires/install")) {
         postPath = new URL(route.request().url()).pathname;
         try {
@@ -842,17 +965,15 @@ test.describe("Fleet — Tires POST", () => {
         } catch {
           postBody = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({ ok: true, tire: { id: TIRE_ID } }),
         });
         return;
       }
-      installFleetApiMocks(route);
+      await installFleetApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/fleet");
       await waitForHydration(ctx.page);
@@ -860,8 +981,8 @@ test.describe("Fleet — Tires POST", () => {
       await ctx.page.getByTestId("fleet-tab-tires").click();
       await expect(ctx.page.getByTestId("fleet-tires-form")).toBeVisible();
 
-      await ctx.page.getByTestId("fleet-tires-vehicle").fill(VEHICLE_ID);
-      await ctx.page.getByTestId("fleet-tires-position").selectOption("front-left");
+      await ctx.page.getByTestId("fleet-tires-vehicle").selectOption(VEHICLE_ID);
+      await ctx.page.getByTestId("fleet-tires-position").fill("front-left");
       await ctx.page.getByTestId("fleet-tires-brand").fill("Michelin");
       await ctx.page.getByTestId("fleet-tires-installed").fill("2026-06-01");
       await ctx.page.getByTestId("fleet-tires-odometer").fill("75000");
@@ -895,16 +1016,16 @@ test.describe("Fleet — ColdChain compliance GET", () => {
   test("selecting vehicle + category + clicking compute GETs the compliance report and the breaches list renders", async ({
     browser,
     request,
-    page,
   }) => {
     let compliancePath: string | null = null;
     let complianceCategory: string | null = null;
-    await page.route("**/api/fleet/**", async (route) => {
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/fleet/**", async (route) => {
       if (requestMatchesColdChainCompliance(route.request())) {
         const url = new URL(route.request().url());
         compliancePath = url.pathname;
         complianceCategory = url.searchParams.get("category");
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
@@ -925,10 +1046,8 @@ test.describe("Fleet — ColdChain compliance GET", () => {
         });
         return;
       }
-      installFleetApiMocks(route);
+      await installFleetApiMocks(route);
     });
-
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/fleet");
       await waitForHydration(ctx.page);
@@ -948,7 +1067,7 @@ test.describe("Fleet — ColdChain compliance GET", () => {
         .getByTestId("fleet-coldchain-category")
         .selectOption("dairy");
 
-      const compute = ctx.page.getByTestId("fleet-coldchain-submit");
+      const compute = ctx.page.getByTestId("fleet-coldchain-compliance-check");
       await expect(compute).toBeEnabled();
       await compute.click();
 
@@ -979,7 +1098,6 @@ test.describe("Fleet — 403 access gate", () => {
   test("does not render the 403 card for a default authenticated user @smoke", async ({
     browser,
     request,
-    page,
   }) => {
     // The 403 path is a no-op for the live route today: the
     // workspace does not yet read a `userAccess` from the
@@ -991,9 +1109,8 @@ test.describe("Fleet — 403 access gate", () => {
     // workspace to read a role from the session and defaults
     // it to "none" for unprivileged users, this test will
     // fail loudly.
-    await page.route("**/api/fleet/**", installFleetApiMocks);
-
     const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/fleet/**", installFleetApiMocks);
     try {
       await ctx.page.goto("/app/fleet");
       await waitForHydration(ctx.page);

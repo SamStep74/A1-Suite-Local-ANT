@@ -14,7 +14,7 @@
     "dev": "NODE_ENV=development node --watch server/index.js",
     "dev:lan": "HOST=0.0.0.0 NODE_ENV=development node --watch server/index.js",
     "build:ui": "npm --prefix web-modern install && npm --prefix web-modern run build",
-    "test": "node --test --test-concurrency=4 --test-timeout=180000",
+    "test": "node scripts/run-node-tests.js",
     "smoke": "node scripts/smoke.js",
     "install:server": "bash deploy/install.sh",
     "health": "bash deploy/scripts/healthcheck.sh",

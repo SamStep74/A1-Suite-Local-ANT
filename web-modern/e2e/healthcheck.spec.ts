@@ -43,7 +43,7 @@ test.describe("Healthcheck — Pattern A skeleton", () => {
       const panel = page.getByTestId("healthcheck-panel");
       await expect(panel).toBeVisible();
       await expect(
-        panel.getByText(/Pattern A|ստուգում/),
+        page.locator("main").getByText(/Pattern A|ստուգում/),
       ).toBeVisible();
 
       // Input has the default value "skeleton".

@@ -158,9 +158,14 @@ export function isAllocationMethod(value: string): value is AllocationMethod {
 
 /* ────────── formatting ────────── */
 
-const hyAMPrice = new Intl.NumberFormat("hy-AM", {
-  maximumFractionDigits: 0,
-});
+const NBSP = "\u00A0";
+
+function groupInteger(value: number): string {
+  const rounded = Math.round(value);
+  const sign = rounded < 0 ? "-" : "";
+  const digits = String(Math.abs(rounded));
+  return `${sign}${digits.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP)}`;
+}
 
 /**
  * Format a vendor score (a 0..100 float from the AI ranking engine)
@@ -184,7 +189,7 @@ export function formatPrice(price: number, currency: string): string {
   if (!Number.isFinite(price)) return "—";
   const ccy = (currency || "").toUpperCase();
   const suffix = ccy.length > 0 ? ` ${ccy}` : "";
-  return `${hyAMPrice.format(price)}${suffix}`;
+  return `${groupInteger(price)}${suffix}`;
 }
 
 /* ────────── deep-linking helpers (tab ↔ URL hash) ────────── */

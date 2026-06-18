@@ -64,6 +64,7 @@ export function AskCommandPalette({ open, onOpenChange, onSignOut }: PaletteProp
       role="dialog"
       aria-modal="true"
       aria-label="Ask / Command palette"
+      data-testid="ask-command-palette"
       className="fixed inset-0 z-50 flex items-start justify-center pt-[15vh]"
     >
       <div

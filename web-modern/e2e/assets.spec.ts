@@ -129,9 +129,9 @@ function requestMatchesPath(req: Request, path: string): boolean {
 /** Route the four assets endpoints to stable mock payloads. The
  *  Vite dev proxy forwards /api/* to Fastify as-is, so the
  *  browser-side pathname is what we match. */
-function installAssetsApiMocks(route: Route): void {
+async function installAssetsApiMocks(route: Route): Promise<void> {
   if (requestMatchesPath(route.request(), "/api/assets/report/value")) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(ROLLUP_RESPONSE),
@@ -139,7 +139,7 @@ function installAssetsApiMocks(route: Route): void {
     return;
   }
   if (requestMatchesPath(route.request(), "/api/assets/asset-1/depreciation")) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(DEPR_RESPONSE),
@@ -150,7 +150,7 @@ function installAssetsApiMocks(route: Route): void {
     route.request(),
     "/api/assets/asset-1/maintenance-history",
   )) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(MAINT_RESPONSE),
@@ -158,7 +158,7 @@ function installAssetsApiMocks(route: Route): void {
     return;
   }
   if (requestMatchesPath(route.request(), "/api/assets/asset-99/assign")) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ ok: true, assignment: { id: "asg-1" } }),
@@ -168,7 +168,7 @@ function installAssetsApiMocks(route: Route): void {
   // Anything else under /api/assets passes through to the live
   // backend (so the e2e can still observe a missing-route regression
   // if the Fastify handler disappears).
-  route.continue();
+  await route.continue();
 }
 
 /* ────────── 1-5, 9. page shell + tab switch + registry GET ────────── */
@@ -177,15 +177,14 @@ test.describe("Assets — Phase 8.5 Pattern A skeleton", () => {
   test("loads, renders the H1 + 4 tabs, defaults to Registry, and points back to /app", async ({
     browser,
     request,
-    page,
   }) => {
-    // Mock the rollup GET so the registry table renders without
-    // depending on the asset tier being fully provisioned in
-    // the dev server.
-    await page.route("**/api/assets/**", installAssetsApiMocks);
-
     const ctx = await authedPage(browser, request);
     try {
+      // Mock the rollup GET on the actual page under test. authedPage()
+      // creates a fresh BrowserContext+Page, so fixture-page routes would
+      // never see this route's requests.
+      await ctx.page.route("**/api/assets/**", installAssetsApiMocks);
+
       const response = await ctx.page.goto("/app/assets");
       expect(
         response,
@@ -243,7 +242,11 @@ test.describe("Assets — Phase 8.5 Pattern A skeleton", () => {
         const tab = ctx.page.getByTestId(`assets-tab-${t}`);
         expect(await tab.getAttribute("data-active")).toBe("true");
         const panelTestid =
-          t === "assignment" ? "assets-assignment-panel" : `assets-${t}`;
+          t === "registry"
+            ? "assets-registry-table"
+            : t === "assignment"
+              ? "assets-assignment-form"
+              : `assets-${t}`;
         await expect(ctx.page.getByTestId(panelTestid)).toBeVisible();
       }
 
@@ -266,14 +269,13 @@ test.describe("Assets — depreciation form", () => {
   test("exposes the Asset ID input + submit button and the submit is initially disabled", async ({
     browser,
     request,
-    page,
   }) => {
-    // Mock the rollup + depreciation endpoints so the route
-    // doesn't 500 if the user types into the input.
-    await page.route("**/api/assets/**", installAssetsApiMocks);
-
     const ctx = await authedPage(browser, request);
     try {
+      // Mock the rollup + depreciation endpoints so the route
+      // doesn't 500 if the user types into the input.
+      await ctx.page.route("**/api/assets/**", installAssetsApiMocks);
+
       await ctx.page.goto("/app/assets");
       await waitForHydration(ctx.page);
 
@@ -302,11 +304,12 @@ test.describe("Assets — depreciation form", () => {
       // route constructs the path via the parent state's assetId;
       // for the e2e we exercise the same shape against the
       // mocked API to confirm the URL format is well-formed.
-      const deprRes = await ctx.page.request.get(
-        "http://localhost:4173/api/assets/asset-1/depreciation",
-      );
-      expect([200, 304]).toContain(deprRes.status());
-      const deprBody = await deprRes.json();
+      const deprRes = await ctx.page.evaluate(async () => {
+        const response = await fetch("/api/assets/asset-1/depreciation");
+        return { status: response.status, body: await response.json() };
+      });
+      expect([200, 304]).toContain(deprRes.status);
+      const deprBody = deprRes.body;
       expect(deprBody.ok).toBe(true);
       expect(deprBody.assetId).toBe("asset-1");
       expect(Array.isArray(deprBody.schedule)).toBe(true);
@@ -322,12 +325,11 @@ test.describe("Assets — maintenance form", () => {
   test("exposes the Asset ID input + submit button and the maintenance-history endpoint is reachable", async ({
     browser,
     request,
-    page,
   }) => {
-    await page.route("**/api/assets/**", installAssetsApiMocks);
-
     const ctx = await authedPage(browser, request);
     try {
+      await ctx.page.route("**/api/assets/**", installAssetsApiMocks);
+
       await ctx.page.goto("/app/assets");
       await waitForHydration(ctx.page);
 
@@ -348,11 +350,12 @@ test.describe("Assets — maintenance form", () => {
       // Contract check: the maintenance-history endpoint is
       // well-formed and returns the shape the route's Zod
       // schema expects.
-      const maintRes = await ctx.page.request.get(
-        "http://localhost:4173/api/assets/asset-1/maintenance-history",
-      );
-      expect([200, 304]).toContain(maintRes.status());
-      const maintBody = await maintRes.json();
+      const maintRes = await ctx.page.evaluate(async () => {
+        const response = await fetch("/api/assets/asset-1/maintenance-history");
+        return { status: response.status, body: await response.json() };
+      });
+      expect([200, 304]).toContain(maintRes.status);
+      const maintBody = maintRes.body;
       expect(maintBody.ok).toBe(true);
       expect(maintBody.assetId).toBe("asset-1");
       expect(Array.isArray(maintBody.logs)).toBe(true);
@@ -368,7 +371,6 @@ test.describe("Assets — assignment POST", () => {
   test("filling the form + clicking submit POSTs to /api/assets/:id/assign with the idempotency key", async ({
     browser,
     request,
-    page,
   }) => {
     // Track the assignment POST so we can assert its shape. The
     // body matches the route's AssetsAssignRequest schema (Zod
@@ -381,36 +383,36 @@ test.describe("Assets — assignment POST", () => {
     }
     let assignPostBody: AssignPostBody | null = null;
     let assignPostPath: string | null = null;
-    await page.route("**/api/assets/**", async (route) => {
-      if (
-        requestMatchesPath(route.request(), "/api/assets/asset-99/assign")
-      ) {
-        assignPostPath = new URL(route.request().url()).pathname;
-        try {
-          const raw = JSON.parse(
-            route.request().postData() ?? "{}",
-          ) as Partial<AssignPostBody>;
-          assignPostBody = {
-            assigneeType: String(raw.assigneeType ?? ""),
-            assigneeId: String(raw.assigneeId ?? ""),
-            idempotencyKey: String(raw.idempotencyKey ?? ""),
-          };
-        } catch {
-          assignPostBody = null;
-        }
-        route.fulfill({
-          status: 200,
-          contentType: "application/json",
-          body: JSON.stringify({ ok: true, assignment: { id: "asg-1" } }),
-        });
-        return;
-      }
-      // Fall through to the other endpoint mocks.
-      installAssetsApiMocks(route);
-    });
-
     const ctx = await authedPage(browser, request);
     try {
+      await ctx.page.route("**/api/assets/**", async (route) => {
+        if (
+          requestMatchesPath(route.request(), "/api/assets/asset-99/assign")
+        ) {
+          assignPostPath = new URL(route.request().url()).pathname;
+          try {
+            const raw = JSON.parse(
+              route.request().postData() ?? "{}",
+            ) as Partial<AssignPostBody>;
+            assignPostBody = {
+              assigneeType: String(raw.assigneeType ?? ""),
+              assigneeId: String(raw.assigneeId ?? ""),
+              idempotencyKey: String(raw.idempotencyKey ?? ""),
+            };
+          } catch {
+            assignPostBody = null;
+          }
+          await route.fulfill({
+            status: 200,
+            contentType: "application/json",
+            body: JSON.stringify({ ok: true, assignment: { id: "asg-1" } }),
+          });
+          return;
+        }
+        // Fall through to the other endpoint mocks.
+        await installAssetsApiMocks(route);
+      });
+
       await ctx.page.goto("/app/assets");
       await waitForHydration(ctx.page);
 
@@ -468,7 +470,6 @@ test.describe("Assets — 403 access gate", () => {
   test("does not render the 403 card for a default authenticated user", async ({
     browser,
     request,
-    page,
   }) => {
     // The 403 path is a no-op for the live route today: the
     // workspace does not yet read a user role from the session
@@ -484,10 +485,10 @@ test.describe("Assets — 403 access gate", () => {
     // will fail loudly and the maintainer can decide whether
     // to (a) keep the 403 visible in the e2e (preferred) or
     // (b) update the assertion to match the new behavior.
-    await page.route("**/api/assets/**", installAssetsApiMocks);
-
     const ctx = await authedPage(browser, request);
     try {
+      await ctx.page.route("**/api/assets/**", installAssetsApiMocks);
+
       await ctx.page.goto("/app/assets");
       await waitForHydration(ctx.page);
 

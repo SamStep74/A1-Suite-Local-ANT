@@ -21,18 +21,31 @@ const DEPS = [
   "motion",
   "mode-watcher",
 ];
+const pkg = JSON.parse(readFileSync(join(REPO_ROOT, "package.json"), "utf8"));
+const declaredDeps = new Set([
+  ...Object.keys(pkg.dependencies ?? {}),
+  ...Object.keys(pkg.devDependencies ?? {}),
+  ...Object.keys(pkg.optionalDependencies ?? {}),
+  ...Object.keys(pkg.peerDependencies ?? {}),
+]);
+const ORPHAN_DEPS = DEPS.filter((dep) => !declaredDeps.has(dep));
 // Bare-module matcher: matches `from "dep"`, `from 'dep'`, `require("dep")`,
 // `require('dep')`, and dynamic `import("dep")` / `import('dep')`.
 // We accept the dep name as a token (so e.g. "motion/react" wouldn't slip
 // through by mistake — but we do allow "motion/react" intentionally because
 // the motion package is a single dep that re-exports subpaths).
-const DEPS_ALT = DEPS.map((d) => d.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
+const DEPS_ALT = ORPHAN_DEPS.map((d) => d.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"));
 const IMPORT_RE = new RegExp(
   `(?:from|require|import)\\s*[(\\[\\s]*["'](${DEPS_ALT.join("|")})(?:/[^"'\\s]*)?["']`,
   "g",
 );
 
 const hits = [];
+
+if (ORPHAN_DEPS.length === 0) {
+  console.log(`✓ no removed deps remain absent from package.json`);
+  process.exit(0);
+}
 
 function* walk(dir) {
   let entries;
@@ -79,7 +92,7 @@ for (const root of SCAN_ROOTS) {
 }
 
 if (hits.length === 0) {
-  console.log(`✓ no orphan imports of [${DEPS.join(", ")}] in web-modern/{src,e2e,scripts}`);
+  console.log(`✓ no orphan imports of [${ORPHAN_DEPS.join(", ")}] in web-modern/{src,e2e,scripts}`);
   process.exit(0);
 }
 

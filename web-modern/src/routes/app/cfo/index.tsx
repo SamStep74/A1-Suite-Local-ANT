@@ -168,7 +168,7 @@ function CfoWorkspace() {
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <ViewSwitcher options={VIEW_OPTIONS} value={view} onChange={setView} />
-        <div className="flex items-center gap-3">
+        <div className="flex items-center gap-3" data-testid="cfo-toolbar">
           <Link
             to="/app/cfo/reports"
             search={{ period: "2026-06", statement: "p-and-l" }}

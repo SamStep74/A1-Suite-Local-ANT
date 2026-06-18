@@ -23,16 +23,16 @@
  * suite skips just like `spa-mode.spec.ts` does.
  */
 import { test, expect } from "@playwright/test";
-import { authedPage } from "./_helpers";
+import { authedPage, FASTIFY_URL } from "./_helpers";
 
 test.describe("i18n canary — analytics route under each locale (10.3)", () => {
   test.beforeEach(async ({ request }, testInfo) => {
     const probe = await request
-      .get("http://localhost:4100/api/health", { timeout: 2_000 })
+      .get(`${FASTIFY_URL}/api/health`, { timeout: 2_000 })
       .catch(() => null);
     testInfo.skip(
       !probe || !probe.ok(),
-      "Fastify backend not reachable on :4100 — skipping authed canary render (CI runs with START_FASTIFY=1).",
+      `Fastify backend not reachable at ${FASTIFY_URL} — skipping authed canary render (CI runs with START_FASTIFY=1).`,
     );
   });
 

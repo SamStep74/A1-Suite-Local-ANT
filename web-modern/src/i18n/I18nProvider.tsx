@@ -32,6 +32,7 @@ interface Props {
 
 export const I18nProvider = ({ children }: Props) => {
   const [ready, setReady] = useState(false);
+  const [version, setVersion] = useState(0);
 
   useEffect(() => {
     let cancelled = false;
@@ -46,8 +47,16 @@ export const I18nProvider = ({ children }: Props) => {
     };
   }, []);
 
+  useEffect(() => {
+    const onLocaleChanged = () => setVersion((v) => v + 1);
+    window.addEventListener("a1:locale-changed", onLocaleChanged);
+    return () => window.removeEventListener("a1:locale-changed", onLocaleChanged);
+  }, []);
+
   // Avoid a flash of untranslated text: render nothing until the catalog is loaded
   if (!ready) return null;
+
+  void version;
 
   return (
     <LinguiProvider i18n={i18n}>

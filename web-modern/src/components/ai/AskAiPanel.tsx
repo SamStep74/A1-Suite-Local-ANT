@@ -94,12 +94,14 @@ export function AskAiPanel({ open, onOpenChange, onCitationClick }: AskAiPanelPr
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const scrollRef = useRef<HTMLDivElement | null>(null);
+  const openRef = useRef(open);
 
   // ── Effects ─────────────────────────────────────────────
   // Focus the input when the panel opens; reset conversation
   // when it closes. We deliberately keep history per-session
   // (the brief doesn't ask for persistence).
   useEffect(() => {
+    openRef.current = open;
     if (open) {
       // Microtask so the textarea is in the DOM.
       const id = window.setTimeout(() => inputRef.current?.focus(), 0);
@@ -109,6 +111,10 @@ export function AskAiPanel({ open, onOpenChange, onCitationClick }: AskAiPanelPr
     abortRef.current?.abort();
     abortRef.current = null;
     setIsStreaming(false);
+    setQuestion("");
+    setStreamedText("");
+    setResponse(null);
+    setError(null);
     return undefined;
   }, [open]);
 
@@ -167,13 +173,16 @@ export function AskAiPanel({ open, onOpenChange, onCitationClick }: AskAiPanelPr
       );
       let acc = "";
       for (const chunk of chunks) {
-        if (ctrl.signal.aborted) break;
+        if (ctrl.signal.aborted || !openRef.current) break;
         acc += chunk;
         // eslint-disable-next-line no-await-in-loop -- sequential stream
         await new Promise<void>((r) => setTimeout(r, 0));
+        if (ctrl.signal.aborted || !openRef.current) break;
         setStreamedText(acc);
       }
-      setResponse(final);
+      if (!ctrl.signal.aborted && openRef.current) {
+        setResponse(final);
+      }
     } catch (e: unknown) {
       const msg = e instanceof Error ? e.message : "Unknown error";
       setError(msg);

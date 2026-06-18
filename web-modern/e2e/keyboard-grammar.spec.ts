@@ -22,16 +22,16 @@
  * i18n-canary.spec.ts).
  */
 import { test, expect } from "@playwright/test";
-import { authedPage } from "./_helpers";
+import { authedPage, FASTIFY_URL } from "./_helpers";
 
 test.describe("Keyboard grammar — global keymap + cheatsheet (10.5 r2)", () => {
   test.beforeEach(async ({ request }, testInfo) => {
     const probe = await request
-      .get("http://localhost:4100/api/health", { timeout: 2_000 })
+      .get(`${FASTIFY_URL}/api/health`, { timeout: 2_000 })
       .catch(() => null);
     testInfo.skip(
       !probe || !probe.ok(),
-      "Fastify backend not reachable on :4100 — skipping authed keyboard e2e (CI runs with START_FASTIFY=1).",
+      `Fastify backend not reachable at ${FASTIFY_URL} — skipping authed keyboard e2e (CI runs with START_FASTIFY=1).`,
     );
   });
 
@@ -69,8 +69,11 @@ test.describe("Keyboard grammar — global keymap + cheatsheet (10.5 r2)", () =>
 
       // 5. Press "j" to move to the next row of the DataTable.
       //    The first row should become selected.
-      const firstRow = page.getByTestId("data-table-row-0");
-      const secondRow = page.getByTestId("data-table-row-1");
+      const tableRows = page.locator(
+        '[data-testid^="data-table-row-"]:not([data-testid^="data-table-row-select-"])',
+      );
+      const firstRow = tableRows.first();
+      const secondRow = tableRows.nth(1);
       await expect(firstRow).toBeVisible();
       // Move down — the global handler doesn't auto-bind to
       // the table's row selection in Phase 1 (the table has

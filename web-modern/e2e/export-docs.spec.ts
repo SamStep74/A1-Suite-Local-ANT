@@ -96,7 +96,8 @@ const FINALIZED_AT = "2026-06-12T10:00:00Z";
  *  parser to avoid string-prefix false positives. */
 function requestMatchesPath(req: Request, path: string): boolean {
   const url = new URL(req.url());
-  return url.pathname === path;
+  const normalized = url.pathname.replace(/\/$/, "") || "/";
+  return normalized === path;
 }
 
 /** Match a POST to the finalize endpoint with the
@@ -109,12 +110,12 @@ function requestMatchesFinalize(req: Request): boolean {
 
 /** Route the two AI endpoints + the create + finalize endpoints to
  *  stable mock payloads. */
-function installExportDocsApiMocks(route: Route): void {
+async function installExportDocsApiMocks(route: Route): Promise<void> {
   if (
     requestMatchesPath(route.request(), "/api/export-docs/ai/auto-fill") &&
     route.request().method() === "POST"
   ) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({ ok: true, draft: DRAFT }),
@@ -125,7 +126,7 @@ function installExportDocsApiMocks(route: Route): void {
     requestMatchesPath(route.request(), "/api/export-docs/ai/country-check") &&
     route.request().method() === "GET"
   ) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify(VALIDATION),
@@ -136,7 +137,7 @@ function installExportDocsApiMocks(route: Route): void {
     requestMatchesPath(route.request(), "/api/export-docs") &&
     route.request().method() === "POST"
   ) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
@@ -156,7 +157,7 @@ function installExportDocsApiMocks(route: Route): void {
     return;
   }
   if (requestMatchesFinalize(route.request())) {
-    route.fulfill({
+    await route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
@@ -171,7 +172,7 @@ function installExportDocsApiMocks(route: Route): void {
   // Anything else under /api/export-docs passes through to the live
   // backend (so the e2e can still observe a missing-route
   // regression if the Fastify handler disappears).
-  route.continue();
+  await route.continue();
 }
 
 /* ────────── page shell + H1 + 4 steps + back link + 403 absence ────────── */
@@ -251,7 +252,7 @@ test.describe("Export Docs — Phase 8.9 Pattern A skeleton", () => {
       // hub uses. We assert the visible label + the href.
       const back = page.getByTestId("export-docs-back");
       await expect(back).toBeVisible();
-      await expect(back).toHaveAttribute("href", "/app/cfo");
+      await expect(back).toHaveAttribute("href", "/app/cfo?view=cash-flow");
 
       // 403 — the route is permissive in the browser e2e because
       // the useUserAccess("cfo") hook defaults to true when no
@@ -272,14 +273,14 @@ test.describe("Export Docs — 4-step wizard flow", () => {
   test("selecting a template, validating, finalizing, and starting new walks the full 4-step state machine", async ({
     browser,
     request,
-    page,
   }) => {
     let autoFillBody: { destinationCountry?: string } | null = null;
     let countryCheckUrl: string | null = null;
     let createBody: { kind?: string; idempotencyKey?: string } | null = null;
     let finalizePath: string | null = null;
 
-    await page.route("**/api/export-docs/**", async (route) => {
+    const ctx = await authedPage(browser, request);
+    await ctx.page.route("**/api/export-docs**", async (route) => {
       const req = route.request();
 
       // Capture the auto-fill POST body for the destinationCountry
@@ -295,7 +296,7 @@ test.describe("Export Docs — 4-step wizard flow", () => {
         } catch {
           autoFillBody = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({ ok: true, draft: DRAFT }),
@@ -310,7 +311,7 @@ test.describe("Export Docs — 4-step wizard flow", () => {
         req.method() === "GET"
       ) {
         countryCheckUrl = req.url();
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify(VALIDATION),
@@ -332,7 +333,7 @@ test.describe("Export Docs — 4-step wizard flow", () => {
         } catch {
           createBody = null;
         }
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
@@ -355,7 +356,7 @@ test.describe("Export Docs — 4-step wizard flow", () => {
       // Capture the finalize POST path for the {id} assertion.
       if (requestMatchesFinalize(req)) {
         finalizePath = new URL(req.url()).pathname;
-        route.fulfill({
+        await route.fulfill({
           status: 200,
           contentType: "application/json",
           body: JSON.stringify({
@@ -368,10 +369,9 @@ test.describe("Export Docs — 4-step wizard flow", () => {
         return;
       }
 
-      installExportDocsApiMocks(route);
+      await installExportDocsApiMocks(route);
     });
 
-    const ctx = await authedPage(browser, request);
     try {
       await ctx.page.goto("/app/cfo/export-docs");
       await waitForHydration(ctx.page);
@@ -447,7 +447,7 @@ test.describe("Export Docs — 4-step wizard flow", () => {
 
       // The create POST landed on /api/export-docs with the
       // expected kind + idempotency-key prefix.
-      expect(createBody).not.toBeNull();
+      await expect.poll(() => createBody).not.toBeNull();
       const create: { kind?: string; idempotencyKey?: string } = createBody!;
       expect(create.kind).toBe(TEMPLATE_KIND);
       expect(typeof create.idempotencyKey).toBe("string");
@@ -455,9 +455,9 @@ test.describe("Export Docs — 4-step wizard flow", () => {
 
       // The finalize POST landed on /api/export-docs/{id}/finalize
       // with the created exportDoc's id.
-      expect(finalizePath).toBe(
-        `/api/export-docs/${EXPORT_DOC_ID}/finalize`,
-      );
+      await expect
+        .poll(() => finalizePath)
+        .toBe(`/api/export-docs/${EXPORT_DOC_ID}/finalize`);
 
       /* ── step 4: finalized + Start new ─────────────────────── */
       const step4 = ctx.page.getByTestId("export-docs-step-4-panel");
@@ -467,9 +467,9 @@ test.describe("Export Docs — 4-step wizard flow", () => {
       ).toHaveAttribute("aria-current", "step");
       const finalized = ctx.page.getByTestId("export-docs-finalized");
       await expect(finalized).toBeVisible();
-      // The finalized panel renders the "Document finalized"
-      // heading + the Armenian-formatted status label.
-      await expect(finalized).toContainText("Document finalized");
+      // The finalized panel renders the created document id +
+      // the Armenian-formatted status label.
+      await expect(finalized).toContainText(EXPORT_DOC_ID);
       // The Armenian status label for "finalized" is "Ավարտված".
       await expect(finalized).toContainText("Ավարտված");
 

@@ -7,7 +7,7 @@
  * the backdrop-close path.
  */
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { cleanup, fireEvent, render, screen } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import * as React from "react";
 
 import { PeekPanel } from "./PeekPanel";
@@ -79,7 +79,7 @@ describe("PeekPanel — open / close", () => {
     expect(screen.getByTestId("peek-body").textContent).toBe("Acme");
   });
 
-  it("close button fires onClose", () => {
+  it("close button fires onClose", async () => {
     const onClose = vi.fn();
     const row: Row = { id: "1", name: "Acme" };
     render(
@@ -90,10 +90,10 @@ describe("PeekPanel — open / close", () => {
       />,
     );
     fireEvent.click(screen.getByTestId("peek-panel-close"));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
-  it("ESC dispatches the native 'close' event, which triggers onClose", () => {
+  it("ESC dispatches the native 'cancel' event, which triggers onClose", async () => {
     const onClose = vi.fn();
     const row: Row = { id: "1", name: "Acme" };
     render(
@@ -104,14 +104,14 @@ describe("PeekPanel — open / close", () => {
       />,
     );
     const dialog = screen.getByTestId("peek-panel");
-    // Simulate the native ESC → close() path: set open=false, fire
-    // the close event the browser would normally dispatch.
-    Object.defineProperty(dialog, "open", { configurable: true, value: false });
-    dialog.dispatchEvent(new Event("close"));
-    expect(onClose).toHaveBeenCalledTimes(1);
+    // Simulate the native ESC path: browsers dispatch a cancel event
+    // before closing the dialog. PeekPanel prevents the native close
+    // and lets parent state drive dismissal.
+    fireEvent(dialog, new Event("cancel", { bubbles: true, cancelable: true }));
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
-  it("clicking the dialog backdrop (target=dialog) closes the panel", () => {
+  it("clicking the dialog backdrop (target=dialog) closes the panel", async () => {
     const onClose = vi.fn();
     const row: Row = { id: "1", name: "Acme" };
     render(
@@ -124,7 +124,7 @@ describe("PeekPanel — open / close", () => {
     const dialog = screen.getByTestId("peek-panel");
     // A click on the dialog itself (backdrop) → target is the dialog
     fireEvent.click(dialog, { target: dialog });
-    expect(onClose).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(onClose).toHaveBeenCalledTimes(1));
   });
 
   it("clicking inside the content does NOT close the panel", () => {

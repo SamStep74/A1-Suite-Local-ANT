@@ -15,7 +15,8 @@ export const DEFAULT_PASSWORD = "change-me-now";
  *  but `/api/*` is forwarded to this port. We hit the Fastify
  *  port directly for `/api/login` because the Vite dev server's
  *  `apiProxy` is configured for browser traffic only. */
-const FASTIFY = process.env.FASTIFY_URL ?? "http://localhost:4100";
+export const FASTIFY_URL = process.env.FASTIFY_URL ?? "http://localhost:4100";
+export const BASE_URL = process.env.BASE_URL ?? "http://localhost:4173";
 
 /** Extract the `sid` cookie value from a `set-cookie` response header.
  *  The current /api/login response sets the session in an HttpOnly
@@ -42,7 +43,7 @@ export async function login(
   email = DEFAULT_EMAIL,
   password = DEFAULT_PASSWORD,
 ): Promise<string> {
-  const res = await request.post(`${FASTIFY}/api/login`, {
+  const res = await request.post(`${FASTIFY_URL}/api/login`, {
     data: { email, password },
     headers: { "Content-Type": "application/json" },
   });
@@ -109,6 +110,26 @@ export async function authedPage(
   const context = await newAuthedContext(browser, sid);
   const page = await context.newPage();
   return { page, context, sid };
+}
+
+/** Authenticate an existing Playwright page fixture before its
+ *  first navigation. This keeps tests on runner-owned context
+ *  teardown while preserving the same Bearer/sessionStorage setup
+ *  as authedPage(). */
+export async function authenticatePage(
+  page: Page,
+  request: APIRequestContext,
+): Promise<string> {
+  const sid = await login(request);
+  await page.context().setExtraHTTPHeaders({ Authorization: `Bearer ${sid}` });
+  await page.addInitScript((token: string) => {
+    try {
+      window.sessionStorage.setItem("ant.bearerSid", token);
+    } catch {
+      // See newAuthedContext(): the Authorization header still covers /api/*.
+    }
+  }, sid);
+  return sid;
 }
 
 /** Wait until the page has painted SOMETHING (heading or primary
