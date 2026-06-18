@@ -241,13 +241,24 @@ test("POST /api/ai/ask preserves general Ask AI page access for legacy roles", a
     });
     assert.strictEqual(copilotRes.statusCode, 403, copilotRes.body);
 
+    const blankAppRes = await app.inject({
+      method: "POST",
+      url: "/api/ai/ask",
+      headers: { cookie: operator },
+      payload: {
+        question: "Summarize this advisory context",
+        context: { app: "", rawPath: "/app/copilot" },
+      },
+    });
+    assert.strictEqual(blankAppRes.statusCode, 403, blankAppRes.body);
+
     const res = await app.inject({
       method: "POST",
       url: "/api/ai/ask",
       headers: { cookie: operator },
       payload: {
         question: "What can I ask from here?",
-        context: { app: "copilot", rawPath: "/app/ask-ai" },
+        context: { app: "ask-ai", rawPath: "/app/ask-ai" },
         idempotencyKey: "ask-general-page-operator-1",
       },
     });
