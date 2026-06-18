@@ -28,6 +28,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronLeft, Send, Sparkles, AlertCircle, RefreshCw, Zap } from "lucide-react";
+import { useLingui } from "@lingui/react/macro";
 import { getJson, postJson, streamNdjson } from "../../../../lib/api/client";
 import {
   AiStatusResponseSchema,
@@ -69,6 +70,7 @@ const SYSTEM_PROMPT_PRESETS: ReadonlyArray<{ id: string; label: string; prompt: 
 ];
 
 function AskAiPage() {
+  const { t } = useLingui();
   const [systemPrompt, setSystemPrompt] = useState<string>(SYSTEM_PROMPT_PRESETS[0]!.prompt);
   const [presetId, setPresetId] = useState<string>("summarise");
   const [userText, setUserText] = useState<string>("");
@@ -110,7 +112,7 @@ function AskAiPage() {
           provider: resp.provider,
           model: resp.model || undefined,
           ok: resp.ok,
-          error: resp.ok ? null : resp.error || "unknown error",
+          error: resp.ok ? null : resp.error || t`unknown error`,
         },
       ]);
       if (resp.ok) {
@@ -166,7 +168,7 @@ function AskAiPage() {
           if (d.model) meta = { ...meta, model: d.model };
         } else if (ev.type === "error") {
           const d = ev.data as { code?: string; message?: string };
-          streamError = d?.message || d?.code || "stream error";
+          streamError = d?.message || d?.code || t`stream error`;
           break;
         }
       }
@@ -248,7 +250,7 @@ function AskAiPage() {
           className="rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--color-ruby,#b23a48)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-ruby,#b23a48)_5%,transparent)] px-3 py-2 text-[var(--text-sm)] text-[var(--color-ruby,#b23a48)]"
           data-testid="smb-crm-ai-error"
         >
-          Could not reach the AI route. Is the API server up?
+          {t`Could not reach the AI route. Is the API server up?`}
         </p>
       )}
 
@@ -258,6 +260,7 @@ function AskAiPage() {
 }
 
 function Header({ status, isLoading }: { status?: AiStatusResponse; isLoading: boolean }) {
+  const { t } = useLingui();
   return (
     <header className="flex items-end justify-between gap-3">
       <div className="flex items-center gap-2">
@@ -269,13 +272,13 @@ function Header({ status, isLoading }: { status?: AiStatusResponse; isLoading: b
             className="text-[var(--text-2xl)] font-semibold text-[var(--color-ink)]"
             data-testid="smb-crm-ai-h1"
           >
-            Ask AI
+            {t`Ask AI`}
           </h1>
           <p
             className="text-[var(--text-sm)] text-[var(--color-muted)]"
             data-testid="smb-crm-ai-subtitle"
           >
-            {ARM_SUBTITLE}
+            {t`Sovereign local LLM · 0 outbound network`}
           </p>
         </div>
       </div>
@@ -284,9 +287,8 @@ function Header({ status, isLoading }: { status?: AiStatusResponse; isLoading: b
   );
 }
 
-const ARM_SUBTITLE = "Sovereign local LLM · 0 outbound network";
-
 function ProviderBadge({ status, isLoading }: { status?: AiStatusResponse; isLoading: boolean }) {
+  const { t } = useLingui();
   if (isLoading) {
     return (
       <span
@@ -303,7 +305,7 @@ function ProviderBadge({ status, isLoading }: { status?: AiStatusResponse; isLoa
         className="rounded-[var(--radius-pill)] bg-[color-mix(in_srgb,var(--color-ruby,#b23a48)_15%,transparent)] px-2 py-0.5 text-[11px] text-[var(--color-ruby,#b23a48)]"
         data-testid="smb-crm-ai-status"
       >
-        offline
+        {t`offline`}
       </span>
     );
   }
@@ -324,12 +326,22 @@ function ProviderBadge({ status, isLoading }: { status?: AiStatusResponse; isLoa
       data-testid="smb-crm-ai-status"
     >
       <Sparkles className="size-3" aria-hidden />
-      {status.provider} · {status.models[0] || "model"}
+      {status.provider} · {status.models[0] || t`model`}
     </span>
   );
 }
 
 function PresetPicker({ value, onChange }: { value: string; onChange: (id: string) => void }) {
+  const { t } = useLingui();
+  // Macro `t` only accepts literal template strings at compile time.
+  // The 4 labels are a fixed closed set, so pre-compute them with
+  // the macro so each gets a stable message id in the catalog.
+  const labels: Record<string, string> = {
+    summarise: t`Summarise`,
+    translate: t`Translate to Armenian`,
+    draft: t`Draft a customer email`,
+    none: t`Custom`
+  };
   return (
     <div
       className="flex flex-wrap gap-1.5"
@@ -351,7 +363,7 @@ function PresetPicker({ value, onChange }: { value: string; onChange: (id: strin
             data-testid="smb-crm-ai-preset"
             data-preset-id={p.id}
           >
-            {p.label}
+            {labels[p.id]}
           </button>
         );
       })}
@@ -360,6 +372,7 @@ function PresetPicker({ value, onChange }: { value: string; onChange: (id: strin
 }
 
 function StreamingToggle({ enabled, onChange }: { enabled: boolean; onChange: (v: boolean) => void }) {
+  const { t } = useLingui();
   return (
     <label
       className="inline-flex items-center gap-2 text-[var(--text-sm)] text-[var(--color-muted)]"
@@ -374,17 +387,18 @@ function StreamingToggle({ enabled, onChange }: { enabled: boolean; onChange: (v
       />
       <Zap className="size-3.5" aria-hidden />
       <span>
-        Stream tokens (NDJSON, sovereign local Ollama)
-        <span className="ml-1 text-[10px]">— watch the reply build in real time</span>
+        {t`Stream tokens (NDJSON, sovereign local Ollama)`}
+        <span className="ml-1 text-[10px]">— {t`watch the reply build in real time`}</span>
       </span>
     </label>
   );
 }
 
 function SystemPromptEditor({ value, onChange }: { value: string; onChange: (v: string) => void }) {
+  const { t } = useLingui();
   return (
     <label className="block text-[var(--text-sm)]">
-      <span className="text-[var(--color-muted)]">System prompt</span>
+      <span className="text-[var(--color-muted)]">{t`System prompt`}</span>
       <textarea
         value={value}
         onChange={(e) => onChange(e.target.value)}
@@ -397,13 +411,14 @@ function SystemPromptEditor({ value, onChange }: { value: string; onChange: (v: 
 }
 
 function HistoryView({ history }: { history: ReadonlyArray<{ kind: "user" | "ai"; text: string; provider?: string; model?: string; ok?: boolean; error?: string | null; streaming?: boolean }> }) {
+  const { t } = useLingui();
   if (history.length === 0) {
     return (
       <div
         className="rounded-[var(--radius-md)] border border-dashed border-[var(--color-line)] bg-[var(--color-surface-soft)] p-4 text-center text-[var(--text-sm)] text-[var(--color-muted)]"
         data-testid="smb-crm-ai-history-empty"
       >
-        Ask anything. Your prompt + the model's reply will appear here.
+        {t`Ask anything. Your prompt + the model's reply will appear here.`}
       </div>
     );
   }
@@ -431,7 +446,7 @@ function HistoryView({ history }: { history: ReadonlyArray<{ kind: "user" | "ai"
             </p>
           ) : entry.ok === false ? (
             <p className="text-[var(--color-ruby,#b23a48)]" data-testid="smb-crm-ai-history-err">
-              {entry.error || "AI call failed"}
+              {entry.error || t`AI call failed`}
             </p>
           ) : (
             <>
@@ -447,7 +462,7 @@ function HistoryView({ history }: { history: ReadonlyArray<{ kind: "user" | "ai"
               </p>
               {entry.provider && (
                 <p className="mt-1 text-[10px] text-[var(--color-muted)]">
-                  via {entry.provider} {entry.model ? `(${entry.model})` : ""}
+                  {t`via`} {entry.provider} {entry.model ? `(${entry.model})` : ""}
                 </p>
               )}
             </>
@@ -479,10 +494,11 @@ function PromptInput({
   onMaxTokensChange: (n: number) => void;
   isSending: boolean;
 }) {
+  const { t } = useLingui();
   return (
     <div className="space-y-2" data-testid="smb-crm-ai-input-row">
       <label className="block text-[var(--text-sm)]">
-        <span className="text-[var(--color-muted)]">Your message</span>
+        <span className="text-[var(--color-muted)]">{t`Your message`}</span>
         <textarea
           value={value}
           onChange={(e) => onChange(e.target.value)}
@@ -493,7 +509,7 @@ function PromptInput({
             }
           }}
           rows={4}
-          placeholder="Type your question (Armenian / English / Russian). Cmd/Ctrl+Enter to send."
+          placeholder={t`Type your question (Armenian / English / Russian). Cmd/Ctrl+Enter to send.`}
           className="mt-0.5 w-full rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-canvas)] px-2 py-1 text-[var(--text-sm)]"
           data-testid="smb-crm-ai-user-input"
         />
@@ -513,7 +529,7 @@ function PromptInput({
           data-testid="smb-crm-ai-send"
         >
           {isSending ? <RefreshCw className="size-3.5 animate-spin" /> : <Send className="size-3.5" />}
-          Send
+          {t`Send`}
         </button>
       </div>
     </div>
@@ -531,10 +547,11 @@ function Sliders({
   maxTokens: number;
   onMaxTokensChange: (n: number) => void;
 }) {
+  const { t } = useLingui();
   return (
     <div className="flex flex-wrap gap-3 text-[11px] text-[var(--color-muted)]">
       <label className="flex items-center gap-1">
-        temperature
+        {t`temperature`}
         <input
           type="range"
           min="0"
@@ -548,7 +565,7 @@ function Sliders({
         <span className="font-mono">{temperature.toFixed(1)}</span>
       </label>
       <label className="flex items-center gap-1">
-        max tokens
+        {t`max tokens`}
         <input
           type="number"
           min="1"
@@ -564,6 +581,7 @@ function Sliders({
 }
 
 function BackLink() {
+  const { t } = useLingui();
   return (
     <Link
       to="/app/smb-crm"
@@ -571,7 +589,7 @@ function BackLink() {
       data-testid="smb-crm-ai-back"
     >
       <ChevronLeft className="size-3.5" />
-      Back to SMB-CRM
+      {t`Back to SMB-CRM`}
     </Link>
   );
 }

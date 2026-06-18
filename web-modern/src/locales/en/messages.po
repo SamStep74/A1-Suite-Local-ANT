@@ -43,7 +43,7 @@ msgid "{blocked} blocked"
 msgstr ""
 
 #: src/components/shared/BulkActionBar.tsx:98
-#: src/routes/app/fiscal-gates/index.tsx:390
+#: src/routes/app/fiscal-gates/index.tsx:386
 #: src/routes/app/period-close/index.tsx:526
 msgid "{count} selected"
 msgstr "{count} selected"
@@ -64,10 +64,6 @@ msgstr ""
 msgid "{skipped} skipped"
 msgstr ""
 
-#: src/routes/app/period-close/index.tsx:43
-#~ msgid "0 of {total} done for {period}. The full wizard ships in Phase 10.5 r2."
-#~ msgstr "0 of {total} done for {period}. The full wizard ships in Phase 10.5 r2."
-
 #: src/components/shell/Topbar.tsx:146
 msgid "A1 Suite"
 msgstr "A1 Suite"
@@ -86,6 +82,10 @@ msgstr "Acknowledged"
 msgid "Actions"
 msgstr "Actions"
 
+#: src/lib/wizard/state.tsx:391
+msgid "Add at least one line item"
+msgstr ""
+
 #: src/routes/app/documents/invoice-create/index.tsx:320
 msgid "Add row"
 msgstr "Add row"
@@ -98,14 +98,18 @@ msgstr "Add the SKU / service lines, quantity, and unit price."
 msgid "AI"
 msgstr "AI"
 
-#: src/routes/app/fiscal-gates/index.tsx:188
-#: src/routes/app/fiscal-gates/index.tsx:310
+#: src/routes/app/smb-crm/ai/index.tsx:449
+msgid "AI call failed"
+msgstr ""
+
+#: src/routes/app/fiscal-gates/index.tsx:183
+#: src/routes/app/fiscal-gates/index.tsx:306
 #: src/routes/app/triage-inbox/index.tsx:208
 #: src/routes/app/triage-inbox/index.tsx:419
 msgid "Amount"
 msgstr "Amount"
 
-#: src/components/ai/AskAiPanel.tsx:301
+#: src/components/ai/AskAiPanel.tsx:310
 #: src/routes/app/ask-ai/index.tsx:218
 msgid "Ask"
 msgstr "Ask"
@@ -114,14 +118,15 @@ msgstr "Ask"
 msgid "Ask a question"
 msgstr "Ask a question"
 
-#: src/components/ai/AskAiPanel.tsx:277
+#: src/components/ai/AskAiPanel.tsx:286
 msgid "Ask about this page, the data, or what to do next…"
 msgstr "Ask about this page, the data, or what to do next…"
 
-#: src/components/ai/AskAiPanel.tsx:196
+#: src/components/ai/AskAiPanel.tsx:205
 #: src/components/shell/Topbar.tsx:263
 #: src/lib/onboarding/tours.ts:110
 #: src/routes/app/ask-ai/index.tsx:98
+#: src/routes/app/smb-crm/ai/index.tsx:275
 msgid "Ask AI"
 msgstr "Ask AI"
 
@@ -129,7 +134,7 @@ msgstr "Ask AI"
 msgid "Ask AI works from anywhere in /app/*. Land on the finance workspace for this tour."
 msgstr "Ask AI works from anywhere in /app/*. Land on the finance workspace for this tour."
 
-#: src/components/ai/AskAiPanel.tsx:389
+#: src/components/ai/AskAiPanel.tsx:398
 msgid "Ask anything about this page."
 msgstr "Ask anything about this page."
 
@@ -137,7 +142,11 @@ msgstr "Ask anything about this page."
 msgid "Ask anything about your business. Phase 10.5 ships a UI-only stub — answers come from your browser, no LLM is contacted."
 msgstr "Ask anything about your business. Phase 10.5 ships a UI-only stub — answers come from your browser, no LLM is contacted."
 
-#: src/components/ai/AskAiPanel.tsx:263
+#: src/routes/app/smb-crm/ai/index.tsx:421
+msgid "Ask anything. Your prompt + the model's reply will appear here."
+msgstr ""
+
+#: src/components/ai/AskAiPanel.tsx:272
 #: src/routes/app/ask-ai/index.tsx:183
 msgid "Ask the AI a question"
 msgstr "Ask the AI a question"
@@ -147,6 +156,10 @@ msgstr "Ask the AI a question"
 #: src/routes/app/period-close/index.tsx:367
 msgid "Back"
 msgstr "Back"
+
+#: src/routes/app/smb-crm/ai/index.tsx:592
+msgid "Back to SMB-CRM"
+msgstr ""
 
 #: src/routes/app/ask-ai/index.tsx:229
 msgid "Back to today"
@@ -164,13 +177,17 @@ msgstr "Bucket"
 msgid "Cancel"
 msgstr "Cancel"
 
-#: src/routes/app/fiscal-gates/index.tsx:167
-#: src/routes/app/fiscal-gates/index.tsx:288
+#: src/lib/wizard/state.tsx:389
+msgid "Cannot be negative"
+msgstr ""
+
+#: src/routes/app/fiscal-gates/index.tsx:162
+#: src/routes/app/fiscal-gates/index.tsx:284
 #: src/routes/app/period-close/index.tsx:237
 msgid "Category"
 msgstr "Category"
 
-#: src/routes/app/fiscal-gates/index.tsx:410
+#: src/routes/app/fiscal-gates/index.tsx:406
 msgid "Clear"
 msgstr "Clear"
 
@@ -186,11 +203,11 @@ msgstr "Click an overdue row"
 msgid "Click the Sparkles button in the Topbar (or press its shortcut). Type a question and press Submit. Citations appear under the answer."
 msgstr "Click the Sparkles button in the Topbar (or press its shortcut). Type a question and press Submit. Citations appear under the answer."
 
-#: src/components/shared/PeekPanel.tsx:119
+#: src/components/shared/PeekPanel.tsx:123
 msgid "Close"
 msgstr "Close"
 
-#: src/components/ai/AskAiPanel.tsx:205
+#: src/components/ai/AskAiPanel.tsx:214
 msgid "Close Ask AI panel"
 msgstr "Close Ask AI panel"
 
@@ -211,6 +228,10 @@ msgstr "Confirm and submit"
 msgid "Confirm before submitting"
 msgstr "Confirm before submitting"
 
+#: src/lib/wizard/state.tsx:393
+msgid "Confirm the draft before submitting"
+msgstr ""
+
 #: src/lib/onboarding/tours.ts:173
 msgid "Confirm the totals, then click Issue to post the invoice to the ledger."
 msgstr "Confirm the totals, then click Issue to post the invoice to the ledger."
@@ -219,11 +240,15 @@ msgstr "Confirm the totals, then click Issue to post the invoice to the ledger."
 msgid "Context anchor"
 msgstr "Context anchor"
 
-#: src/components/ai/AskAiPanel.tsx:413
+#: src/components/ai/AskAiPanel.tsx:422
 msgid "Context:"
 msgstr "Context:"
 
-#: src/components/ai/AskAiPanel.tsx:247
+#: src/routes/app/smb-crm/ai/index.tsx:253
+msgid "Could not reach the AI route. Is the API server up?"
+msgstr ""
+
+#: src/components/ai/AskAiPanel.tsx:256
 msgid "Couldn't reach the AI. Showing a stub answer instead."
 msgstr "Couldn't reach the AI. Showing a stub answer instead."
 
@@ -239,9 +264,13 @@ msgstr "Create another invoice"
 msgid "Create invoice"
 msgstr "Create invoice"
 
-#: src/routes/app/fiscal-gates/index.tsx:213
+#: src/routes/app/fiscal-gates/index.tsx:208
 msgid "Current period"
 msgstr "Current period"
+
+#: src/routes/app/smb-crm/ai/index.tsx:343
+msgid "Custom"
+msgstr ""
 
 #: src/routes/app/documents/invoice-create/index.tsx:82
 #: src/routes/app/documents/invoice-create/index.tsx:467
@@ -291,7 +320,7 @@ msgstr "Description"
 msgid "Detail"
 msgstr "Detail"
 
-#: src/components/shared/PeekPanel.tsx:114
+#: src/components/shared/PeekPanel.tsx:118
 #: src/routes/app/triage-inbox/index.tsx:383
 msgid "Details"
 msgstr "Details"
@@ -306,8 +335,12 @@ msgstr "Documents"
 msgid "Done"
 msgstr "Done"
 
-#: src/routes/app/fiscal-gates/index.tsx:174
-#: src/routes/app/fiscal-gates/index.tsx:304
+#: src/routes/app/smb-crm/ai/index.tsx:342
+msgid "Draft a customer email"
+msgstr ""
+
+#: src/routes/app/fiscal-gates/index.tsx:169
+#: src/routes/app/fiscal-gates/index.tsx:300
 msgid "Due"
 msgstr "Due"
 
@@ -383,7 +416,7 @@ msgid "Finalizing will lock the draft and queue the invoice."
 msgstr "Finalizing will lock the draft and queue the invoice."
 
 #: src/lib/onboarding/tours.ts:38
-#: src/routes/app/fiscal-gates/index.tsx:207
+#: src/routes/app/fiscal-gates/index.tsx:202
 msgid "Fiscal gates"
 msgstr "Fiscal gates"
 
@@ -395,11 +428,11 @@ msgstr "Fiscal gates is the per-period tax-action list. Click below to land on t
 msgid "Format: YYYY-MM-DD"
 msgstr "Format: YYYY-MM-DD"
 
-#: src/routes/app/fiscal-gates/index.tsx:160
+#: src/routes/app/fiscal-gates/index.tsx:155
 msgid "Gate"
 msgstr "Gate"
 
-#: src/routes/app/fiscal-gates/index.tsx:277
+#: src/routes/app/fiscal-gates/index.tsx:273
 msgid "Gate details"
 msgstr "Gate details"
 
@@ -488,7 +521,7 @@ msgid "Mark resolved"
 msgstr "Mark resolved"
 
 #. placeholder {0}: ids.length
-#: src/routes/app/fiscal-gates/index.tsx:133
+#: src/routes/app/fiscal-gates/index.tsx:134
 msgid "Marked {0} gate(s) as filed"
 msgstr "Marked {0} gate(s) as filed"
 
@@ -498,9 +531,21 @@ msgstr "Marked {0} gate(s) as filed"
 msgid "Marked {0} item{1} as resolved"
 msgstr "Marked {0} of {1} item(s) as resolved"
 
+#: src/routes/app/smb-crm/ai/index.tsx:568
+msgid "max tokens"
+msgstr ""
+
 #: src/routes/app/analytics/index.tsx:112
 msgid "Metrics"
 msgstr "Metrics"
+
+#: src/routes/app/smb-crm/ai/index.tsx:329
+msgid "model"
+msgstr ""
+
+#: src/lib/wizard/state.tsx:387
+msgid "Must be greater than zero"
+msgstr ""
 
 #: src/components/shared/SavedViews.tsx:235
 msgid "Name this view"
@@ -560,6 +605,10 @@ msgstr "No saved views yet"
 msgid "No steps in this checklist."
 msgstr ""
 
+#: src/routes/app/smb-crm/ai/index.tsx:308
+msgid "offline"
+msgstr ""
+
 #: src/routes/app/triage-inbox/index.tsx:325
 msgid "One queue for every \"needs your attention\" item across invoices, tax gates, approvals, customer replies, fleet, and purchase orders."
 msgstr "One queue for every \"needs your attention\" item across invoices, tax gates, approvals, customer replies, fleet, and purchase orders."
@@ -589,7 +638,7 @@ msgstr "Open onboarding tour launcher"
 msgid "Open the Ask AI assistant sidebar"
 msgstr "Open the Ask AI assistant sidebar"
 
-#: src/components/ai/AskAiPanel.tsx:326
+#: src/components/ai/AskAiPanel.tsx:335
 msgid "Open the full page"
 msgstr "Open the full page"
 
@@ -666,7 +715,7 @@ msgstr "Pension"
 msgid "Pension contribution (quarterly)"
 msgstr "Pension contribution (quarterly)"
 
-#: src/routes/app/fiscal-gates/index.tsx:342
+#: src/routes/app/fiscal-gates/index.tsx:338
 msgid "Period"
 msgstr "Period"
 
@@ -706,7 +755,7 @@ msgstr "Press ? to show keyboard shortcuts"
 msgid "Press ⌘K to open the cheatsheet"
 msgstr "Press ⌘K to open the cheatsheet"
 
-#: src/components/ai/AskAiPanel.tsx:292
+#: src/components/ai/AskAiPanel.tsx:301
 msgid "Press Enter to ask · Shift+Enter for newline"
 msgstr "Press Enter to ask · Shift+Enter for newline"
 
@@ -809,6 +858,10 @@ msgstr "Saved views"
 msgid "Select an overdue gate"
 msgstr "Select an overdue gate"
 
+#: src/routes/app/smb-crm/ai/index.tsx:532
+msgid "Send"
+msgstr ""
+
 #: src/lib/onboarding/tours.ts:181
 msgid "Settings"
 msgstr "Settings"
@@ -845,6 +898,10 @@ msgstr "Social contribution (monthly)"
 msgid "Source"
 msgstr "Source"
 
+#: src/routes/app/smb-crm/ai/index.tsx:281
+msgid "Sovereign local LLM · 0 outbound network"
+msgstr ""
+
 #: src/lib/fiscal/labels.tsx:131
 #: src/lib/fiscal/labels.tsx:189
 msgid "Statistical"
@@ -855,8 +912,8 @@ msgstr "Statistical"
 msgid "Statistical return (monthly)"
 msgstr "Statistical return (monthly)"
 
-#: src/routes/app/fiscal-gates/index.tsx:181
-#: src/routes/app/fiscal-gates/index.tsx:296
+#: src/routes/app/fiscal-gates/index.tsx:176
+#: src/routes/app/fiscal-gates/index.tsx:292
 #: src/routes/app/period-close/index.tsx:230
 #: src/routes/app/triage-inbox/index.tsx:244
 #: src/routes/app/triage-inbox/index.tsx:407
@@ -887,9 +944,17 @@ msgstr "Step 3: Tax + dates"
 msgid "Step 4: Review + submit"
 msgstr "Step 4: Review + submit"
 
-#: src/components/ai/AskAiPanel.tsx:300
+#: src/components/ai/AskAiPanel.tsx:309
 msgid "Stop generating"
 msgstr "Stop generating"
+
+#: src/routes/app/smb-crm/ai/index.tsx:171
+msgid "stream error"
+msgstr ""
+
+#: src/routes/app/smb-crm/ai/index.tsx:390
+msgid "Stream tokens (NDJSON, sovereign local Ollama)"
+msgstr ""
 
 #: src/routes/app/documents/invoice-create/index.tsx:97
 msgid "Submit"
@@ -915,9 +980,17 @@ msgstr "Submit the monthly statistical report to the statistical office."
 msgid "Subtotal"
 msgstr "Subtotal"
 
+#: src/routes/app/smb-crm/ai/index.tsx:340
+msgid "Summarise"
+msgstr ""
+
 #: src/lib/onboarding/tours.ts:182
 msgid "Switch locale"
 msgstr "Switch locale"
+
+#: src/routes/app/smb-crm/ai/index.tsx:401
+msgid "System prompt"
+msgstr ""
 
 #: src/components/shared/BulkActionBar.tsx:51
 msgid "Tag"
@@ -927,7 +1000,11 @@ msgstr "Tag"
 msgid "Take a tour"
 msgstr "Take a tour"
 
-#: src/components/ai/AskAiPanel.tsx:392
+#: src/routes/app/smb-crm/ai/index.tsx:554
+msgid "temperature"
+msgstr ""
+
+#: src/components/ai/AskAiPanel.tsx:401
 msgid "The answer is a UI-only stub in Phase 10.5 — no data leaves your browser."
 msgstr "The answer is a UI-only stub in Phase 10.5 — no data leaves your browser."
 
@@ -952,13 +1029,13 @@ msgstr "The invoice is ready to be sent. Click the button below to finalize it."
 msgid "The invoice-create wizard is a 4-step stepper. Pick a customer, add line items, set tax + dates, then review and submit."
 msgstr "The invoice-create wizard is a 4-step stepper. Pick a customer, add line items, set tax + dates, then review and submit."
 
-#: src/lib/onboarding/tours.ts:152
-#~ msgid "The invoice-create wizard is a 4-step stepper. The full wizard ships in 10.5 r2 W5; this tour is a preview."
-#~ msgstr "The invoice-create wizard is a 4-step stepper. The full wizard ships in 10.5 r2 W5; this tour is a preview."
-
 #: src/lib/onboarding/tours.ts:190
 msgid "The keyboard cheatsheet (10.5 r2 W6) lists every shortcut. Use the locale switcher in the Topbar to pick РУ."
 msgstr "The keyboard cheatsheet (10.5 r2 W6) lists every shortcut. Use the locale switcher in the Topbar to pick РУ."
+
+#: src/lib/wizard/state.tsx:383
+msgid "This field is required"
+msgstr ""
 
 #: src/routes/app/documents/invoice-create/index.tsx:651
 msgid "Tick the box to confirm before continuing."
@@ -985,9 +1062,9 @@ msgstr "Total"
 msgid "Tours"
 msgstr "Tours"
 
-#: src/i18n/I18nProvider.tsx:92
-#~ msgid "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
-#~ msgstr "Translations for this language are still in progress — some text may appear in Armenian. Switch back to Հյ for the full experience."
+#: src/routes/app/smb-crm/ai/index.tsx:341
+msgid "Translate to Armenian"
+msgstr ""
 
 #: src/lib/onboarding/tours.ts:74
 #: src/routes/app/triage-inbox/index.tsx:322
@@ -1001,6 +1078,10 @@ msgstr "Triage inbox is the cross-feature work queue. Click below to land on the
 #: src/routes/app/ask-ai/index.tsx:189
 msgid "Type a question — the stub echoes a canned answer with citation chips for the current context."
 msgstr "Type a question — the stub echoes a canned answer with citation chips for the current context."
+
+#: src/routes/app/smb-crm/ai/index.tsx:512
+msgid "Type your question (Armenian / English / Russian). Cmd/Ctrl+Enter to send."
+msgstr ""
 
 #: src/routes/app/triage-inbox/index.tsx:238
 #: src/routes/app/triage-inbox/index.tsx:404
@@ -1016,6 +1097,10 @@ msgstr "Undo"
 msgid "Unit price"
 msgstr "Unit price"
 
+#: src/routes/app/smb-crm/ai/index.tsx:115
+msgid "unknown error"
+msgstr ""
+
 #: src/lib/onboarding/tours.ts:56
 msgid "Use the row checkbox to pick a gate from the 'All overdue' saved view. The bulk action bar appears at the bottom."
 msgstr "Use the row checkbox to pick a gate from the 'All overdue' saved view. The bulk action bar appears at the bottom."
@@ -1023,6 +1108,10 @@ msgstr "Use the row checkbox to pick a gate from the 'All overdue' saved view. T
 #: src/components/keyboard/ShortcutCheatsheet.tsx:95
 msgid "Use these shortcuts to move around the app without touching the mouse."
 msgstr "Use these shortcuts to move around the app without touching the mouse."
+
+#: src/lib/wizard/state.tsx:385
+msgid "Use YYYY-MM-DD"
+msgstr ""
 
 #: src/lib/fiscal/labels.tsx:121
 #: src/lib/fiscal/labels.tsx:179
@@ -1033,6 +1122,10 @@ msgstr "VAT"
 #: src/lib/fiscal/labels.tsx:215
 msgid "VAT return (monthly)"
 msgstr "VAT return (monthly)"
+
+#: src/routes/app/smb-crm/ai/index.tsx:465
+msgid "via"
+msgstr ""
 
 #: src/components/shared/SavedViews.tsx:236
 msgid "View name"
@@ -1045,6 +1138,10 @@ msgstr "Views"
 #: src/routes/app/documents/invoice-create/index.tsx:675
 msgid "Walk through customer, line items, and review before submitting the draft."
 msgstr "Walk through customer, line items, and review before submitting the draft."
+
+#: src/routes/app/smb-crm/ai/index.tsx:391
+msgid "watch the reply build in real time"
+msgstr ""
 
 #: src/routes/app/documents/invoice-create/index.tsx:88
 msgid "What was sold or delivered"
@@ -1067,3 +1164,7 @@ msgstr "Wizard"
 #: src/routes/app/ask-ai/index.tsx:252
 msgid "You"
 msgstr "You"
+
+#: src/routes/app/smb-crm/ai/index.tsx:501
+msgid "Your message"
+msgstr ""

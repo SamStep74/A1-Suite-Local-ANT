@@ -38,6 +38,16 @@ import { cleanup, render, screen, fireEvent, waitFor } from "@testing-library/re
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import * as React from "react";
 
+vi.mock("@lingui/react/macro", () => ({
+  Trans: ({ children, id }: { children?: React.ReactNode; id?: string }) => (
+    <>{children ?? id ?? null}</>
+  ),
+  useLingui: () => ({
+    t: (s: string | TemplateStringsArray) => (Array.isArray(s) ? s[0] : s),
+    i18n: { _: (s: string) => s, locale: "hy" },
+  }),
+}));
+
 const mocks = vi.hoisted(() => ({
   fullPath: "/app/smb-crm/ai/",
   postJsonMock: vi.fn(),
