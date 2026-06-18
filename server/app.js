@@ -10369,17 +10369,32 @@ function requireAskAiAccess(db, user, context) {
   const rawAppId = isPlainObject(context) && typeof context.app === "string"
     ? context.app.trim()
     : "";
-  const appId = askAiAssignmentAppId(rawAppId);
+  const rawPath = isPlainObject(context) && typeof context.rawPath === "string"
+    ? context.rawPath.trim()
+    : "";
+  const appId = askAiAssignmentAppId(rawAppId, rawPath);
   if (appId && hasAppAccess(db, user, appId)) return;
+  if (!appId && canUseGeneralAskAi(user)) return;
   const err = new Error("Ask AI app access required");
   err.statusCode = 403;
   throw err;
 }
 
-function askAiAssignmentAppId(appId) {
+function askAiAssignmentAppId(appId, rawPath = "") {
+  if (appId === "ask-ai" || (!appId && rawPath === "/app/ask-ai")) return "";
+  if (appId === "copilot" && rawPath === "/app/ask-ai") return "";
+  if (!appId) {
+    const pathAppId = rawPath.split("/").filter(Boolean)[1];
+    return pathAppId || "copilot";
+  }
   return {
+    cabinet: "docs",
     forms: "campaigns"
-  }[appId] || appId;
+  }[appId] ?? appId;
+}
+
+function canUseGeneralAskAi(user) {
+  return ["Salesperson", "Operator", "Accountant"].includes(user.role);
 }
 
 function requirePilotTemplateReader(user) {

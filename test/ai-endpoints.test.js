@@ -145,7 +145,7 @@ test("POST /api/ai/ask rejects users without the requested app assignment", asyn
       headers: { cookie: operator },
       payload: {
         question: "Show finance health",
-        context: { app: "finance" },
+        context: { app: "finance", rawPath: "/app/ask-ai" },
       },
     });
     assert.strictEqual(res.statusCode, 403, res.body);
@@ -174,6 +174,97 @@ test("POST /api/ai/ask maps extension routes to assigned apps", async () => {
 
     assert.strictEqual(res.statusCode, 200, res.body);
     assert.strictEqual(res.json().idempotencyKey, "ask-forms-role-route-1");
+  } finally {
+    if (previousProvider === undefined) {
+      delete process.env.AI_PROVIDER;
+    } else {
+      process.env.AI_PROVIDER = previousProvider;
+    }
+    await app.close();
+  }
+});
+
+test("POST /api/ai/ask maps cabinet routes to Docs app access", async () => {
+  const previousProvider = process.env.AI_PROVIDER;
+  process.env.AI_PROVIDER = "disabled";
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const salesperson = await login(app, "sales@armosphera.local", DEFAULT_PASSWORD);
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai/ask",
+      headers: { cookie: salesperson },
+      payload: {
+        question: "Summarize this cabinet document",
+        context: { app: "cabinet", rawPath: "/app/cabinet" },
+        idempotencyKey: "ask-cabinet-docs-route-1",
+      },
+    });
+
+    assert.strictEqual(res.statusCode, 200, res.body);
+    assert.strictEqual(res.json().idempotencyKey, "ask-cabinet-docs-route-1");
+  } finally {
+    if (previousProvider === undefined) {
+      delete process.env.AI_PROVIDER;
+    } else {
+      process.env.AI_PROVIDER = previousProvider;
+    }
+    await app.close();
+  }
+});
+
+test("POST /api/ai/ask preserves general Ask AI page access for legacy roles", async () => {
+  const previousProvider = process.env.AI_PROVIDER;
+  process.env.AI_PROVIDER = "disabled";
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const disabled = await app.inject({
+      method: "POST",
+      url: "/api/apps/copilot/assign",
+      headers: { cookie: owner },
+      payload: { role: "Operator", enabled: false },
+    });
+    assert.strictEqual(disabled.statusCode, 200, disabled.body);
+
+    const operator = await login(app, "operator@armosphera.local", DEFAULT_PASSWORD);
+    const copilotRes = await app.inject({
+      method: "POST",
+      url: "/api/ai/ask",
+      headers: { cookie: operator },
+      payload: {
+        question: "Summarize this advisory context",
+        context: { app: "copilot", rawPath: "/app/copilot" },
+      },
+    });
+    assert.strictEqual(copilotRes.statusCode, 403, copilotRes.body);
+
+    const blankAppRes = await app.inject({
+      method: "POST",
+      url: "/api/ai/ask",
+      headers: { cookie: operator },
+      payload: {
+        question: "Summarize this advisory context",
+        context: { app: "", rawPath: "/app/copilot" },
+      },
+    });
+    assert.strictEqual(blankAppRes.statusCode, 403, blankAppRes.body);
+
+    const res = await app.inject({
+      method: "POST",
+      url: "/api/ai/ask",
+      headers: { cookie: operator },
+      payload: {
+        question: "What can I ask from here?",
+        context: { app: "ask-ai", rawPath: "/app/ask-ai" },
+        idempotencyKey: "ask-general-page-operator-1",
+      },
+    });
+
+    assert.strictEqual(res.statusCode, 200, res.body);
+    assert.strictEqual(res.json().idempotencyKey, "ask-general-page-operator-1");
   } finally {
     if (previousProvider === undefined) {
       delete process.env.AI_PROVIDER;
