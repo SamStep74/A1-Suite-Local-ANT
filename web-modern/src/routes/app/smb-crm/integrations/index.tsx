@@ -10,7 +10,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useState } from "react";
 import { useMutation } from "@tanstack/react-query";
-import { ChevronLeft, Plug, RefreshCw, ShieldCheck, Sparkles } from "lucide-react";
+import { ChevronLeft, Plug, RefreshCw, ShieldCheck, Sparkles, ListChecks } from "lucide-react";
 import { postJson } from "../../../../lib/api/client";
 import { cn } from "../../../../lib/utils/cn";
 
@@ -139,6 +139,20 @@ function IntegrationsHealth() {
           <span>
             <strong className="font-medium">Ask AI</strong>
             <span className="ml-1 text-[var(--color-muted)]">— sovereign local LLM, 0 outbound network</span>
+          </span>
+        </Link>
+      </div>
+
+      <div>
+        <Link
+          to="/app/smb-crm/quote-templates"
+          className="mb-2 inline-flex items-center gap-2 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] px-3 py-2 text-[var(--text-sm)] text-[var(--color-ink)] hover:bg-[var(--color-surface)]"
+          data-testid="smb-crm-integration-templates-link"
+        >
+          <ListChecks className="size-4 text-[var(--color-brand)]" aria-hidden />
+          <span>
+            <strong className="font-medium">Quote templates</strong>
+            <span className="ml-1 text-[var(--color-muted)]">— 4 built-ins (Standard, Service 3-line, Annual subscription, Consulting)</span>
           </span>
         </Link>
       </div>

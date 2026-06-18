@@ -6289,5 +6289,92 @@ export const AiChatResponseSchema = z.object({
 });
 export type AiChatResponse = z.infer<typeof AiChatResponseSchema>;
 
+/* ── Quote templates (Phase 10.13 / slice 13) ──────────────────────
+ *
+ * Source: server/app.js
+ *   - GET  /api/smb-crm/quote-templates    →  QuoteTemplateListResponseSchema
+ *   - POST /api/smb-crm/quotes/from-template  →  QuoteFromTemplateResponseSchema
+ *
+ * The template list returns the 4 built-in Armenian SMB
+ * templates (org_id = "_builtin") unioned with the tenant's
+ * custom templates. The created quote carries the template_id
+ * + template_name metadata so the SPA can show the lineage.
+ */
+
+export const QuoteTemplateLineItemSchema = z.object({
+  name: z.string(),
+  description: z.string().default(""),
+  quantity: z.number().nonnegative(),
+  unitPrice: z.number().nonnegative(),
+});
+export type QuoteTemplateLineItem = z.infer<typeof QuoteTemplateLineItemSchema>;
+
+export const QuoteTemplateSchema = z.object({
+  id: z.string(),
+  orgId: z.string(),
+  name: z.string(),
+  description: z.string().default(""),
+  lineItems: z.array(QuoteTemplateLineItemSchema),
+  builtin: z.boolean(),
+  createdAt: z.string(),
+});
+export type QuoteTemplate = z.infer<typeof QuoteTemplateSchema>;
+
+export const QuoteTemplateListResponseSchema = z.object({
+  templates: z.array(QuoteTemplateSchema),
+});
+export type QuoteTemplateListResponse = z.infer<typeof QuoteTemplateListResponseSchema>;
+
+export const QuoteFromTemplateRequestSchema = z.object({
+  templateId: z.string().min(1),
+  number: z.string().min(1),
+  customerId: z.string().optional(),
+  dealId: z.string().optional(),
+  issueDate: z.string().optional(),
+  expiryDate: z.string().optional(),
+  currency: z.string().optional(),
+  status: z.string().optional(),
+  /**
+   * Positional overrides. Same length as the template's
+   * line items; missing fields fall back to the template
+   * defaults. The server always recomputes the total from
+   * quantity * unitPrice (client `total` is ignored).
+   */
+  overrides: z.array(
+    z.object({
+      quantity: z.number().nonnegative().optional(),
+      unitPrice: z.number().nonnegative().optional(),
+    })
+  ).optional(),
+  /** Same-key dedupe. If the (org_id, number) already exists, the server returns it. */
+  idempotencyKey: z.string().optional(),
+});
+export type QuoteFromTemplateRequest = z.infer<typeof QuoteFromTemplateRequestSchema>;
+
+export const QuoteFromTemplateResponseSchema = z.object({
+  ok: z.boolean(),
+  quote: z.object({
+    id: z.string(),
+    org_id: z.string(),
+    number: z.string(),
+    customer_id: z.string().nullable(),
+    deal_id: z.string().nullable(),
+    issue_date: z.string().nullable(),
+    expiry_date: z.string().nullable(),
+    status: z.string(),
+    total_amount: z.number(),
+    currency: z.string(),
+    line_items_json: z.string(),
+    created_at: z.string(),
+    updated_at: z.string(),
+    template_id: z.string().optional(),
+    template_name: z.string().optional(),
+  }).passthrough(),
+  lineItems: z.array(QuoteTemplateLineItemSchema).optional(),
+  totalAmount: z.number().optional(),
+  idempotent: z.boolean().optional(),
+});
+export type QuoteFromTemplateResponse = z.infer<typeof QuoteFromTemplateResponseSchema>;
+
 
 
