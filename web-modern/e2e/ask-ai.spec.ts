@@ -27,9 +27,115 @@
  * `authedPage()` helper and skip the test cleanly if the Fastify
  * backend is not reachable (matches the convention in
  * i18n-canary.spec.ts and spa-mode.spec.ts).
+ *
+ * Slice 26 (2026-06-18): the previous spec assumed the server
+ * always returned the "Phase 10.5 stub answer" when no real
+ * LLM was configured. After the V2.7 streaming refactor (slice
+ * 14), the production code now returns the
+ * "AI provider output is unavailable..." fallback when the
+ * OpenRouter key is missing (which is the case on this dev
+ * box). The test spec was therefore failing in CI. The fix is
+ * to stub the AI response directly via `page.route()` so the
+ * SPA gets a deterministic answer matching the documented
+ * Phase 10.5 stub shape — the test is no longer coupled to
+ * which provider the dev box happens to be configured for.
  */
-import { test, expect } from "@playwright/test";
+import { test, expect, type Page } from "@playwright/test";
 import { authenticatePage, authedPage, FASTIFY_URL } from "./_helpers";
+
+/**
+ * Stub the AI response on a given page so the SPA gets a
+ * deterministic Phase 10.5-shaped answer. Catches both the
+ * non-streaming (`/api/ai/chat`) and the streaming
+ * (`/api/ai/chat/stream`) endpoints. The streaming response
+ * is sent as NDJSON with 4-char chunks (matching the original
+ * stub shape) so the cursor-then-text rendering is exercised.
+ */
+async function stubAskAiResponse(page: Page): Promise<void> {
+  // Stubs both the legacy `/api/ai/ask` endpoint (used by the
+  // Phase 10.5 / 10.7 ask-ai panel that these tests exercise)
+  // and the V2.7 streaming endpoint (used by the new
+  // `/app/smb-crm/ai` page from slice 11+14). The two endpoints
+  // return different response shapes; we dispatch by URL.
+  await page.route(/\/api\/ai\/(ask|chat(\/stream)?)$/, async (route) => {
+    const url = route.request().url();
+    // V2.7 streaming: NDJSON with 4-char tokens.
+    if (url.endsWith("/api/ai/chat/stream")) {
+      const tokens = [
+        "Phase",
+        " 10.",
+        "5 st",
+        "ub a",
+        "nswe",
+        "r fo",
+        "r th",
+        "e e2",
+        "e s",
+        "uite",
+        "."
+      ];
+      const ndjson = tokens
+        .map((t) => JSON.stringify({ type: "token", data: t }))
+        .concat([
+          JSON.stringify({
+            type: "done",
+            data: { model: "stub-1", total_duration: 280, eval_count: 1 }
+          })
+        ])
+        .join("\n");
+      return route.fulfill({
+        status: 200,
+        contentType: "application/x-ndjson",
+        body: ndjson
+      });
+    }
+    // V2.3 /api/chat: discriminated `{ok, provider, model, data, error}`.
+    if (url.endsWith("/api/ai/chat")) {
+      const stub = "Phase 10.5 stub answer for the e2e suite.";
+      return route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          provider: "stub",
+          model: "stub-1",
+          data: {
+            answer: stub,
+            citations: [
+              {
+                id: "stub-citation-1",
+                label: "Stub citation",
+                href: "/app/crm-tube/contacts"
+              }
+            ],
+            tokensUsed: stub.length
+          }
+        })
+      });
+    }
+    // Phase 10.5 /api/ai/ask: direct `{answer, citations, tokensUsed}`.
+    // The client schema is a discriminated union on `kind: "route" | "document"`,
+    // so the citation MUST include `kind: "route"`.
+    const stub = "Phase 10.5 stub answer for the e2e suite.";
+    return route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        answer: stub,
+        citations: [
+          {
+            kind: "route",
+            id: "stub-citation-1",
+            label: "Stub citation",
+            app: "crm-tube",
+            href: "/app/crm-tube/contacts"
+          }
+        ],
+        tokensUsed: stub.length
+      })
+    });
+  });
+}
 
 /**
  * The Phase 10.5 stub returns exactly one citation (the route chip)
@@ -70,6 +176,7 @@ test.describe("Ask AI — surface e2e (Phase 10.7)", () => {
     request,
   }) => {
     const { page } = await authedPage(browser, request);
+    await stubAskAiResponse(page);
     try {
       await page.goto(ENTITY_ROUTE);
       await expect(page.getByTestId("app-shell")).toBeVisible();
@@ -116,6 +223,7 @@ test.describe("Ask AI — surface e2e (Phase 10.7)", () => {
     request,
   }) => {
     const { page } = await authedPage(browser, request);
+    await stubAskAiResponse(page);
     try {
       await page.goto(ENTITY_ROUTE);
       await expect(page.getByTestId("app-shell")).toBeVisible();
@@ -172,6 +280,7 @@ test.describe("Ask AI — surface e2e (Phase 10.7)", () => {
     request,
   }) => {
     await authenticatePage(page, request);
+    await stubAskAiResponse(page);
     await page.goto(ENTITY_ROUTE);
     await expect(page.getByTestId("app-shell")).toBeVisible();
 
@@ -227,6 +336,7 @@ test.describe("Ask AI — surface e2e (Phase 10.7)", () => {
     request,
   }) => {
     const { page } = await authedPage(browser, request);
+    await stubAskAiResponse(page);
     try {
       await page.goto(`${ENTITY_ROUTE}/?lang=en`);
       await expect(page.getByTestId("app-shell")).toBeVisible();
