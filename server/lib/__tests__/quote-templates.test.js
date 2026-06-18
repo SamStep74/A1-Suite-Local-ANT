@@ -591,3 +591,128 @@ test('edge: the "from-template" flow works end-to-end with the PDF route (smoke 
   assert.equal(items[0].quantity, 12);
   assert.equal(items[0].unitPrice, 9900);
 });
+
+/* ── saveAsTemplate (slice 23) ────────────────────────────────────── */
+
+test('pure: saveAsTemplate is exported', () => {
+  assert.equal(typeof qt.saveAsTemplate, 'function');
+});
+
+test('saveAsTemplate: creates an org-scoped custom template with the documented shape', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  const result = qt.saveAsTemplate(db, 'org-1', {
+    name: 'My coffee shop quote',
+    description: 'Internal template for the SMB coffee line',
+    lineItems: [
+      { name: 'Espresso machine', description: 'Model X1', quantity: 1, unitPrice: 450000 },
+      { name: 'Beans', description: 'House blend 1kg', quantity: 24, unitPrice: 3500 }
+    ]
+  });
+  assert.equal(result.ok, true);
+  assert.ok(result.template);
+  assert.equal(result.template.orgId, 'org-1');
+  assert.equal(result.template.builtin, false);
+  assert.equal(result.template.name, 'My coffee shop quote');
+  assert.equal(result.template.description, 'Internal template for the SMB coffee line');
+  assert.equal(result.template.lineItems.length, 2);
+  assert.equal(result.template.lineItems[0].name, 'Espresso machine');
+  assert.equal(result.template.lineItems[0].quantity, 1);
+  assert.equal(result.template.lineItems[0].unitPrice, 450000);
+  assert.equal(result.template.lineItems[1].quantity, 24);
+  // The id starts with the tpl-custom- prefix so it sorts after
+  // the 4 built-ins alphabetically.
+  assert.match(result.template.id, /^tpl-custom-/);
+});
+
+test('saveAsTemplate: the new template shows up in listTemplates for the same org', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  const r = qt.saveAsTemplate(db, 'org-1', {
+    name: 'Custom 1',
+    lineItems: [{ name: 'Line', quantity: 1, unitPrice: 100 }]
+  });
+  assert.equal(r.ok, true);
+  const all = qt.listTemplates(db, 'org-1');
+  // 4 built-ins + 1 custom
+  assert.equal(all.length, 5);
+  // Custom template is in the list
+  const found = all.find((t) => t.id === r.template.id);
+  assert.ok(found, 'custom template not in list');
+  assert.equal(found.name, 'Custom 1');
+  assert.equal(found.builtin, false);
+});
+
+test('saveAsTemplate: cross-tenant isolation — org-2 cannot see org-1 custom templates', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  const r1 = qt.saveAsTemplate(db, 'org-1', {
+    name: 'Org 1 custom',
+    lineItems: [{ name: 'X', quantity: 1, unitPrice: 1 }]
+  });
+  assert.equal(r1.ok, true);
+  // org-2 sees only the 4 built-ins
+  const list2 = qt.listTemplates(db, 'org-2');
+  assert.equal(list2.length, 4);
+  for (const t of list2) assert.equal(t.builtin, true);
+  // org-1 sees 4 + 1
+  const list1 = qt.listTemplates(db, 'org-1');
+  assert.equal(list1.length, 5);
+});
+
+test('saveAsTemplate: invalid input returns { ok:false, error } and does NOT touch the DB', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  // No name
+  let r = qt.saveAsTemplate(db, 'org-1', { lineItems: [{ name: 'x', quantity: 1, unitPrice: 1 }] });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /name is required/);
+  // Empty lineItems
+  r = qt.saveAsTemplate(db, 'org-1', { name: 'x', lineItems: [] });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /non-empty array/);
+  // Name too long
+  r = qt.saveAsTemplate(db, 'org-1', {
+    name: 'x'.repeat(101),
+    lineItems: [{ name: 'x', quantity: 1, unitPrice: 1 }]
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /1-100 characters/);
+  // Negative quantity
+  r = qt.saveAsTemplate(db, 'org-1', {
+    name: 'x',
+    lineItems: [{ name: 'x', quantity: -1, unitPrice: 1 }]
+  });
+  assert.equal(r.ok, false);
+  assert.match(r.error, /quantity must be a finite number/);
+  // NaN unitPrice
+  r = qt.saveAsTemplate(db, 'org-1', {
+    name: 'x',
+    lineItems: [{ name: 'x', quantity: 1, unitPrice: 'NaN' }]
+  });
+  assert.equal(r.ok, false);
+  // No DB rows added (besides the 4 built-ins from ensureSchema).
+  const total = db.prepare('SELECT COUNT(*) as c FROM smb_crm_quote_templates').get();
+  assert.equal(total.c, 4);
+});
+
+test('saveAsTemplate: Armenian names + emoji round-trip into the JSON blob', () => {
+  const db = mkDb();
+  qt.ensureQuoteTemplatesSchema(db);
+  const r = qt.saveAsTemplate(db, 'org-arm', {
+    name: 'Արմենական ձևանմուշ 📋',
+    lineItems: [
+      { name: 'Սուրճի մեքենա ☕', description: 'Մոդել X1', quantity: 1, unitPrice: 450000 },
+      { name: 'Բանջարեղեն', description: 'Տեղական', quantity: 10, unitPrice: 2500 }
+    ]
+  });
+  assert.equal(r.ok, true);
+  // Re-fetch via listTemplates
+  const all = qt.listTemplates(db, 'org-arm');
+  const found = all.find((t) => t.id === r.template.id);
+  assert.ok(found);
+  assert.equal(found.name, 'Արմենական ձևանմուշ 📋');
+  assert.equal(found.lineItems[0].name, 'Սուրճի մեքենա ☕');
+  assert.equal(found.lineItems[0].description, 'Մոդել X1');
+  assert.equal(found.lineItems[1].unitPrice, 2500);
+});

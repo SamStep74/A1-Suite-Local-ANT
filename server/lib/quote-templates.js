@@ -336,11 +336,101 @@ function createQuoteFromTemplate(db, orgId, opts) {
   };
 }
 
+/**
+ * Save a line-item set as a NEW org-scoped custom template.
+ * Mirrors `createQuoteFromTemplate`'s "trust the source" rule:
+ * the line items are validated + normalised server-side; the
+ * template id is generated (not trusted from the client) and
+ * scoped to the calling org.
+ *
+ * @param {import('node:sqlite').DatabaseSync} db
+ * @param {string} orgId
+ * @param {{
+ *   name: string,
+ *   description?: string,
+ *   lineItems: Array<{ name: string, description?: string, quantity: number, unitPrice: number }>,
+ *   sourceTemplateId?: string  // optional metadata, NOT used to copy
+ * }} input
+ * @returns {{ ok: boolean, template?: QuoteTemplate, error?: string }}
+ */
+function saveAsTemplate(db, orgId, input) {
+  if (!orgId) return { ok: false, error: 'orgId is required' };
+  if (!input || typeof input !== 'object') return { ok: false, error: 'input must be an object' };
+  if (typeof input.name !== 'string') return { ok: false, error: 'name is required' };
+  const name = input.name.trim();
+  if (name.length < 1 || name.length > 100) {
+    return { ok: false, error: 'name must be 1-100 characters' };
+  }
+  const description = typeof input.description === 'string' ? input.description.trim().slice(0, 500) : '';
+  if (!Array.isArray(input.lineItems) || input.lineItems.length < 1) {
+    return { ok: false, error: 'lineItems must be a non-empty array' };
+  }
+  if (input.lineItems.length > 50) {
+    return { ok: false, error: 'lineItems must have at most 50 entries' };
+  }
+  // Normalise + validate each line item. The engine mirrors
+  // `applyOverrides`'s "missing field = 0" semantics.
+  const lineItems = [];
+  for (let i = 0; i < input.lineItems.length; i++) {
+    const raw = input.lineItems[i];
+    if (!raw || typeof raw !== 'object') {
+      return { ok: false, error: `lineItems[${i}] must be an object` };
+    }
+    const ln = String((raw && raw.name) || '').trim();
+    if (ln.length < 1 || ln.length > 200) {
+      return { ok: false, error: `lineItems[${i}].name must be 1-200 characters` };
+    }
+    const desc = typeof raw.description === 'string' ? raw.description.trim().slice(0, 500) : '';
+    const quantity = Number(raw.quantity);
+    const unitPrice = Number(raw.unitPrice);
+    if (!Number.isFinite(quantity) || quantity < 0 || quantity > 1_000_000) {
+      return { ok: false, error: `lineItems[${i}].quantity must be a finite number in [0, 1_000_000]` };
+    }
+    if (!Number.isFinite(unitPrice) || unitPrice < 0 || unitPrice > 1_000_000_000) {
+      return { ok: false, error: `lineItems[${i}].unitPrice must be a finite number in [0, 1_000_000_000]` };
+    }
+    lineItems.push({ name: ln, description: desc, quantity, unitPrice });
+  }
+
+  // Generate a custom template id. Use the "tpl-custom-" prefix
+  // so listTemplates's ORDER BY puts built-ins first by name
+  // (alphabetical: "tpl-consulting-blank" < "tpl-custom-...").
+  const id = `tpl-custom-${randomId('').replace(/^tpl-/, '')}`;
+  const now = new Date().toISOString();
+  try {
+    db.prepare(`
+      INSERT INTO smb_crm_quote_templates
+        (id, org_id, name, description, line_items_json, builtin, created_at)
+      VALUES (?, ?, ?, ?, ?, 0, ?)
+    `).run(id, orgId, name, description, JSON.stringify(lineItems), now);
+  } catch (err) {
+    // Uniqueness collision: retry once with a new id. The
+    // probability is astronomically low (12-char suffix over
+    // 36^12 = 4.7e18 space) but we handle it cleanly.
+    if (err && /UNIQUE/i.test(err.message)) {
+      const retryId = `tpl-custom-${randomId('').replace(/^tpl-/, '')}`;
+      db.prepare(`
+        INSERT INTO smb_crm_quote_templates
+          (id, org_id, name, description, line_items_json, builtin, created_at)
+        VALUES (?, ?, ?, ?, ?, 0, ?)
+      `).run(retryId, orgId, name, description, JSON.stringify(lineItems), now);
+      return getTemplate(db, orgId, retryId)
+        ? { ok: true, template: getTemplate(db, orgId, retryId) }
+        : { ok: false, error: 'failed to save template' };
+    }
+    return { ok: false, error: (err && err.message) || 'db insert failed' };
+  }
+  return getTemplate(db, orgId, id)
+    ? { ok: true, template: getTemplate(db, orgId, id) }
+    : { ok: false, error: 'saved but template not found' };
+}
+
 module.exports = {
   ensureQuoteTemplatesSchema,
   listTemplates,
   getTemplate,
   createQuoteFromTemplate,
+  saveAsTemplate,
   // exported for tests
   applyOverrides,
   computeTotalAmount,

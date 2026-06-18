@@ -30,16 +30,19 @@
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
-import { useMutation, useQuery } from "@tanstack/react-query";
-import { ChevronLeft, ListChecks, Send } from "lucide-react";
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { ChevronLeft, ListChecks, Save, Send, X } from "lucide-react";
 import { getJson, postJson } from "../../../../lib/api/client";
 import {
   QuoteTemplateListResponseSchema,
   QuoteFromTemplateRequestSchema,
   QuoteFromTemplateResponseSchema,
+  SaveAsTemplateRequestSchema,
+  SaveAsTemplateResponseSchema,
   SmbCrmCustomerListResponseSchema,
   type QuoteTemplate,
   type QuoteFromTemplateRequest,
+  type SaveAsTemplateRequest,
   type SmbCrmCustomer,
 } from "../../../../lib/api/schemas";
 import { cn } from "../../../../lib/utils/cn";
@@ -49,6 +52,7 @@ export const Route = createFileRoute("/app/smb-crm/quote-templates/")({
 });
 
 function QuoteTemplatesPage() {
+  const qc = useQueryClient();
   const templatesQ = useQuery({
     queryKey: ["smb-crm-quote-templates"],
     queryFn: () => getJson("/api/smb-crm/quote-templates", QuoteTemplateListResponseSchema),
@@ -71,6 +75,13 @@ function QuoteTemplatesPage() {
   // line item shape on submit.
   const [overrides, setOverrides] = useState<Array<{ quantity: number; unitPrice: number }>>([]);
 
+  // Save-as-template modal state. The modal opens when the
+  // user clicks "Save as template" below the preview total.
+  // The fields are local state until the user clicks "Save".
+  const [saveAsOpen, setSaveAsOpen] = useState(false);
+  const [saveAsName, setSaveAsName] = useState("");
+  const [saveAsDescription, setSaveAsDescription] = useState("");
+
   const selected = useMemo<QuoteTemplate | undefined>(
     () => templatesQ.data?.templates.find((t) => t.id === selectedId),
     [templatesQ.data, selectedId]
@@ -90,6 +101,18 @@ function QuoteTemplatesPage() {
       setOverrides([]);
     }
   }, [selected]);
+
+  // When the modal opens, prefill the name with the current
+  // template's name (the user can edit it). Reset on close.
+  useEffect(() => {
+    if (saveAsOpen && selected) {
+      setSaveAsName(`${selected.name} (copy)`);
+      setSaveAsDescription(selected.description || "");
+    } else if (!saveAsOpen) {
+      setSaveAsName("");
+      setSaveAsDescription("");
+    }
+  }, [saveAsOpen, selected]);
 
   // Live preview total (matches what the server will compute).
   const previewTotal = useMemo(
@@ -131,7 +154,47 @@ function QuoteTemplatesPage() {
     }
   });
 
+  // saveAsMut — POST the current line items (with the user's
+  // qty/price overrides) to /api/smb-crm/quote-templates as a
+  // NEW org-scoped custom template. On success: close the modal,
+  // invalidate the templates list, and select the new template.
+  const saveAsMut = useMutation({
+    mutationFn: async () => {
+      if (!selected) throw new Error("no template selected");
+      // Build the line items by merging the template's name +
+      // description with the user's overrides (server still
+      // validates + normalises).
+      const lineItems = selected.lineItems.map((it, idx) => {
+        const ov = overrides[idx] || { quantity: 0, unitPrice: 0 };
+        return {
+          name: it.name,
+          description: it.description || "",
+          quantity: Number(ov.quantity) || 0,
+          unitPrice: Number(ov.unitPrice) || 0
+        };
+      });
+      const req: SaveAsTemplateRequest = SaveAsTemplateRequestSchema.parse({
+        name: saveAsName.trim(),
+        description: saveAsDescription.trim() || undefined,
+        lineItems,
+        sourceTemplateId: selected.id
+      });
+      return postJson("/api/smb-crm/quote-templates", req, SaveAsTemplateResponseSchema);
+    },
+    onSuccess: (resp) => {
+      if (resp.ok && resp.template?.id) {
+        // Invalidate the templates list so the new template shows up.
+        void qc.invalidateQueries({ queryKey: ["smb-crm-quote-templates"] });
+        setSaveAsOpen(false);
+        // Auto-select the new template so the user can immediately
+        // start editing it.
+        setSelectedId(resp.template.id);
+      }
+    }
+  });
+
   const canCreate = Boolean(selected) && number.trim().length > 0 && !createMut.isPending;
+  const canSaveAs = Boolean(selected) && saveAsName.trim().length > 0 && !saveAsMut.isPending;
 
   return (
     <div
@@ -179,6 +242,7 @@ function QuoteTemplatesPage() {
             onChange={setOverrides}
             previewTotal={previewTotal}
             currency={currency}
+            onSaveAsClick={() => setSaveAsOpen(true)}
           />
 
           <CreateBar
@@ -188,6 +252,20 @@ function QuoteTemplatesPage() {
             onCreate={() => createMut.mutate()}
           />
         </>
+      )}
+
+      {saveAsOpen && selected && (
+        <SaveAsTemplateModal
+          name={saveAsName}
+          onNameChange={setSaveAsName}
+          description={saveAsDescription}
+          onDescriptionChange={setSaveAsDescription}
+          isPending={saveAsMut.isPending}
+          error={saveAsMut.error?.message}
+          canSave={canSaveAs}
+          onSave={() => saveAsMut.mutate()}
+          onClose={() => setSaveAsOpen(false)}
+        />
       )}
 
       <BackLink />
@@ -420,12 +498,14 @@ function LineItemEditor({
   onChange,
   previewTotal,
   currency,
+  onSaveAsClick,
 }: {
   template: QuoteTemplate;
   overrides: Array<{ quantity: number; unitPrice: number }>;
   onChange: (rows: Array<{ quantity: number; unitPrice: number }>) => void;
   previewTotal: number;
   currency: string;
+  onSaveAsClick: () => void;
 }) {
   const updateRow = (idx: number, patch: Partial<{ quantity: number; unitPrice: number }>) => {
     onChange(overrides.map((r, i) => (i === idx ? { ...r, ...patch } : r)));
@@ -514,6 +594,125 @@ function LineItemEditor({
       >
         The server recomputes the total from quantity × unit price. The value above is a preview.
       </p>
+      <div className="flex justify-end pt-1">
+        <button
+          type="button"
+          onClick={onSaveAsClick}
+          className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1 text-[var(--text-sm)] text-[var(--color-ink)] hover:border-[var(--color-brand)]"
+          data-testid="smb-crm-quote-template-save-as"
+        >
+          <Save className="size-3.5" />
+          Save as template
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function SaveAsTemplateModal({
+  name,
+  onNameChange,
+  description,
+  onDescriptionChange,
+  isPending,
+  error,
+  canSave,
+  onSave,
+  onClose,
+}: {
+  name: string;
+  onNameChange: (v: string) => void;
+  description: string;
+  onDescriptionChange: (v: string) => void;
+  isPending: boolean;
+  error: string | undefined;
+  canSave: boolean;
+  onSave: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <div
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="smb-crm-save-as-title"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-[color-mix(in_srgb,var(--color-ink,#0f1115)_50%,transparent)] p-4"
+      data-testid="smb-crm-quote-template-save-as-modal"
+    >
+      <div className="w-full max-w-md space-y-3 rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-surface)] p-4 shadow-lg">
+        <div className="flex items-center justify-between">
+          <h2
+            id="smb-crm-save-as-title"
+            className="text-[var(--text-lg)] font-semibold text-[var(--color-ink)]"
+          >
+            Save as new template
+          </h2>
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="text-[var(--color-muted)] hover:text-[var(--color-ink)]"
+            data-testid="smb-crm-quote-template-save-as-close"
+          >
+            <X className="size-4" />
+          </button>
+        </div>
+        <p className="text-[var(--text-sm)] text-[var(--color-muted)]">
+          The current line items (with your quantity + price overrides) will be saved as a new template
+          scoped to your organization.
+        </p>
+        <label className="block text-[var(--text-sm)]">
+          <span className="text-[var(--color-muted)]">Template name</span>
+          <input
+            type="text"
+            value={name}
+            onChange={(e) => onNameChange(e.target.value)}
+            placeholder="My custom quote"
+            maxLength={100}
+            className="mt-0.5 w-full rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-canvas)] px-2 py-1 text-[var(--text-sm)]"
+            data-testid="smb-crm-quote-template-save-as-name"
+          />
+        </label>
+        <label className="block text-[var(--text-sm)]">
+          <span className="text-[var(--color-muted)]">Description (optional)</span>
+          <textarea
+            value={description}
+            onChange={(e) => onDescriptionChange(e.target.value)}
+            maxLength={500}
+            rows={3}
+            className="mt-0.5 w-full rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-canvas)] px-2 py-1 text-[var(--text-sm)]"
+            data-testid="smb-crm-quote-template-save-as-description"
+          />
+        </label>
+        {error && (
+          <p
+            role="alert"
+            className="rounded-[var(--radius-md)] border border-[color-mix(in_srgb,var(--color-ruby,#b23a48)_30%,transparent)] bg-[color-mix(in_srgb,var(--color-ruby,#b23a48)_5%,transparent)] px-3 py-2 text-[var(--text-sm)] text-[var(--color-ruby,#b23a48)]"
+            data-testid="smb-crm-quote-template-save-as-error"
+          >
+            {error}
+          </p>
+        )}
+        <div className="flex justify-end gap-2 pt-1">
+          <button
+            type="button"
+            onClick={onClose}
+            className="rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 py-1 text-[var(--text-sm)] text-[var(--color-ink)] hover:border-[var(--color-brand)]"
+            data-testid="smb-crm-quote-template-save-as-cancel"
+          >
+            Cancel
+          </button>
+          <button
+            type="button"
+            onClick={onSave}
+            disabled={!canSave}
+            className="inline-flex items-center gap-1 rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-3 py-1 text-[var(--text-sm)] font-semibold text-white disabled:opacity-60"
+            data-testid="smb-crm-quote-template-save-as-submit"
+          >
+            <Save className="size-3.5" />
+            {isPending ? "Saving…" : "Save template"}
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

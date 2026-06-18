@@ -6381,6 +6381,31 @@ export const QuoteFromTemplateResponseSchema = z.object({
 });
 export type QuoteFromTemplateResponse = z.infer<typeof QuoteFromTemplateResponseSchema>;
 
+/* ── Save-as-template (Phase 10.13 / slice 23) ─────────────────────
+ *
+ * Source: server/app.js
+ *   - POST /api/smb-crm/quote-templates  →  SaveAsTemplateResponseSchema
+ *
+ * Lets the user snapshot the current template's line items
+ * (with the user's current qty/price overrides) as a NEW
+ * org-scoped custom template. The response is the created
+ * template, which the SPA appends to the templates list
+ * (or invalidates the query, depending on UX).
+ */
+export const SaveAsTemplateRequestSchema = z.object({
+  name: z.string().min(1).max(100),
+  description: z.string().max(500).optional(),
+  lineItems: z.array(QuoteTemplateLineItemSchema).min(1).max(50),
+  sourceTemplateId: z.string().optional(),
+});
+export type SaveAsTemplateRequest = z.infer<typeof SaveAsTemplateRequestSchema>;
+
+export const SaveAsTemplateResponseSchema = z.object({
+  ok: z.boolean(),
+  template: QuoteTemplateSchema,
+});
+export type SaveAsTemplateResponse = z.infer<typeof SaveAsTemplateResponseSchema>;
+
 /* ── AI streaming (Phase 10.13 / slice 14) ─────────────────────────
  *
  * Source: server/app.js

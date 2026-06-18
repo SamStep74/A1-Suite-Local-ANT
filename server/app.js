@@ -3785,6 +3785,36 @@ function registerApi(app, db, options = {}) {
     return { ok: true, quote: result.quote, lineItems: result.lineItems, totalAmount: result.totalAmount };
   });
 
+  // POST /api/smb-crm/quote-templates — save the current line
+  // item set as a NEW org-scoped custom template (slice 23).
+  // Mirrors the "trust the source" rule: name + line items are
+  // validated server-side; the template id is generated (not
+  // trusted from the client) and scoped to the calling org.
+  app.post("/api/smb-crm/quote-templates", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    const qt = require("./lib/quote-templates");
+    const body = request.body || {};
+    const result = qt.saveAsTemplate(db, user.org_id, {
+      name: body.name,
+      description: body.description,
+      lineItems: body.lineItems,
+      sourceTemplateId: body.sourceTemplateId
+    });
+    if (!result.ok) {
+      const err = new Error(result.error || "could not save template");
+      err.statusCode = 400;
+      throw err;
+    }
+    audit(db, user.org_id, user.id, "smb_crm.quote_template.created", {
+      template_id: result.template.id,
+      name: result.template.name,
+      line_item_count: result.template.lineItems.length,
+      source_template_id: body.sourceTemplateId || null
+    });
+    return { ok: true, template: result.template };
+  });
+
   // ── Activities (5 routes) ──────────────────────────────────────
   app.get("/api/smb-crm/activities", request => recordsListRoute(request, activityEntity));
   app.post("/api/smb-crm/activities", request => recordsCreateRoute(request, activityEntity, "smb_crm.activity.created"));

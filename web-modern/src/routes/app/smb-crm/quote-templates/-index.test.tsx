@@ -137,7 +137,10 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
           .catch((err) => cfg.onError && cfg.onError(err));
       };
       return { mutate: fire, isPending: false, error: undefined as Error | undefined };
-    }
+    },
+    useQueryClient: () => ({
+      invalidateQueries: vi.fn()
+    })
   };
 });
 
@@ -507,5 +510,117 @@ describe("Quote templates — customer picker (slice 16)", () => {
     expect(sel.disabled).toBe(true);
     // The placeholder text mentions "Loading customers…"
     expect(sel.options[0]?.textContent).toMatch(/Loading/);
+  });
+});
+
+describe("Quote templates — save as new template (slice 23)", () => {
+  it("the Save as template button is hidden when no template is selected", () => {
+    renderRoute();
+    // No card clicked → no editor → no save button.
+    expect(screen.queryByTestId("smb-crm-quote-template-save-as")).toBeNull();
+  });
+
+  it("the Save as template button is visible after picking a template", () => {
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    expect(screen.getByTestId("smb-crm-quote-template-save-as")).toBeTruthy();
+  });
+
+  it("clicking Save as template opens a modal prefilled with the template name + description", () => {
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-save-as"));
+    const modal = screen.getByTestId("smb-crm-quote-template-save-as-modal");
+    expect(modal).toBeTruthy();
+    const nameInput = screen.getByTestId("smb-crm-quote-template-save-as-name") as HTMLInputElement;
+    expect(nameInput.value).toMatch(/Standard product quote \(copy\)/);
+    // The submit button starts disabled (name is valid; but
+    // we still verify it as not disabled when pre-filled).
+    const submit = screen.getByTestId("smb-crm-quote-template-save-as-submit") as HTMLButtonElement;
+    expect(submit.disabled).toBe(false);
+  });
+
+  it("submitting the modal POSTs the current line items + name to /api/smb-crm/quote-templates", async () => {
+    mocks.postJsonMock.mockResolvedValue({
+      ok: true,
+      template: {
+        id: "tpl-custom-new",
+        orgId: "org-1",
+        name: "My custom quote",
+        description: "Internal template",
+        lineItems: [{ name: "Product", description: "Catalog item", quantity: 5, unitPrice: 100 }],
+        builtin: false,
+        createdAt: "2026-06-18T00:00:00Z"
+      }
+    });
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    // Adjust qty/price on the first line
+    const qty = screen.getByTestId("smb-crm-quote-template-qty") as HTMLInputElement;
+    const price = screen.getByTestId("smb-crm-quote-template-price") as HTMLInputElement;
+    fireEvent.change(qty, { target: { value: "5" } });
+    fireEvent.change(price, { target: { value: "100" } });
+    // Open the modal + change the name
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-save-as"));
+    const nameInput = screen.getByTestId("smb-crm-quote-template-save-as-name") as HTMLInputElement;
+    fireEvent.change(nameInput, { target: { value: "My custom quote" } });
+    const descInput = screen.getByTestId("smb-crm-quote-template-save-as-description") as HTMLTextAreaElement;
+    fireEvent.change(descInput, { target: { value: "Internal template" } });
+    // Submit
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-save-as-submit"));
+    await waitFor(() => expect(mocks.postJsonMock).toHaveBeenCalledTimes(1));
+    const [url, body] = mocks.postJsonMock.mock.calls[0]!;
+    expect(url).toBe("/api/smb-crm/quote-templates");
+    expect(body.name).toBe("My custom quote");
+    expect(body.description).toBe("Internal template");
+    expect(body.sourceTemplateId).toBe("tpl-standard-product");
+    expect(body.lineItems).toHaveLength(1);
+    expect(body.lineItems[0].name).toBe("Product");
+    expect(body.lineItems[0].quantity).toBe(5);
+    expect(body.lineItems[0].unitPrice).toBe(100);
+  });
+
+  it("the modal closes after a successful save", async () => {
+    mocks.postJsonMock.mockResolvedValue({
+      ok: true,
+      template: {
+        id: "tpl-custom-x",
+        orgId: "org-1",
+        name: "X",
+        description: "",
+        lineItems: [],
+        builtin: false,
+        createdAt: "2026-06-18T00:00:00Z"
+      }
+    });
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-save-as"));
+    expect(screen.getByTestId("smb-crm-quote-template-save-as-modal")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-save-as-submit"));
+    await waitFor(() => expect(mocks.postJsonMock).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(screen.queryByTestId("smb-crm-quote-template-save-as-modal")).toBeNull());
+  });
+
+  it("the modal stays open when the save fails", async () => {
+    mocks.postJsonMock.mockRejectedValue(new Error("name must be 1-100 characters"));
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-save-as"));
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-save-as-submit"));
+    await waitFor(() => expect(mocks.postJsonMock).toHaveBeenCalledTimes(1));
+    // The modal should still be open (no setSaveAsOpen(false) in the
+    // error path — the user can fix the name and retry).
+    expect(screen.getByTestId("smb-crm-quote-template-save-as-modal")).toBeTruthy();
+  });
+
+  it("the Cancel button closes the modal without calling postJson", () => {
+    renderRoute();
+    fireEvent.click(screen.getAllByTestId("smb-crm-quote-template-card")[0]!);
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-save-as"));
+    expect(screen.getByTestId("smb-crm-quote-template-save-as-modal")).toBeTruthy();
+    fireEvent.click(screen.getByTestId("smb-crm-quote-template-save-as-cancel"));
+    expect(screen.queryByTestId("smb-crm-quote-template-save-as-modal")).toBeNull();
+    expect(mocks.postJsonMock).not.toHaveBeenCalled();
   });
 });
