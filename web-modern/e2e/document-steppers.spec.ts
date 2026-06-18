@@ -41,16 +41,27 @@ import { authedPage, FASTIFY_URL } from "./_helpers";
 
 type WizardStep = "customer" | "line-items" | "review" | "submit";
 
-function stepTestId(step: WizardStep): string {
+function bodyTestId(step: WizardStep): string {
+  // The body step uses `wizard-step-${step}` (matches the
+  // invoice-create page: `data-testid="wizard-step-customer"`).
   return `wizard-step-${step}`;
 }
 
+function stepperButtonTestId(step: WizardStep): string {
+  // The stepper button uses `wizard-stepper-button-${step}`
+  // (matches the Stepper component: `wizard-stepper-button-${step.id}`).
+  // The previous test assumed the same testid for the stepper
+  // button and the body step, but they were renamed when the
+  // Stepper component was extracted from the inline implementation.
+  return `wizard-stepper-button-${step}`;
+}
+
 function stepperStep(page: Page, step: WizardStep) {
-  return page.getByTestId("wizard-stepper").getByTestId(stepTestId(step));
+  return page.getByTestId("wizard-stepper").getByTestId(stepperButtonTestId(step));
 }
 
 function bodyStep(page: Page, step: WizardStep) {
-  return page.getByTestId("wizard-step-body").getByTestId(stepTestId(step));
+  return page.getByTestId("wizard-step-body").getByTestId(bodyTestId(step));
 }
 
 /** Navigate to the wizard and wait for the StepperShell to
