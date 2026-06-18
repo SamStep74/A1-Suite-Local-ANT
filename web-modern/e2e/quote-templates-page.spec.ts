@@ -254,3 +254,268 @@ test.describe("Quote templates page (slice 13 + 16)", () => {
     }
   });
 });
+
+test.describe("Quote templates — save / edit / delete custom template (slice 23 + 24)", () => {
+  test.beforeAll(async ({ request }) => {
+    const probe = await request
+      .get(`${FASTIFY_URL}/api/health`, { timeout: 2_000 })
+      .catch(() => null);
+    if (!probe || !probe.ok()) {
+      test.skip(true, "Fastify backend is not reachable; skipping e2e suite.");
+    }
+  });
+
+  test("the Save as template button is hidden until a template is selected", async ({
+    browser,
+    request
+  }) => {
+    const { page } = await authedPage(browser, request);
+    try {
+      await page.goto(ROUTE);
+      // No card clicked yet → no save button visible.
+      await expect(page.getByTestId("smb-crm-quote-template-save-as")).toHaveCount(0);
+      // Pick a template → the button appears.
+      const card = page.locator('[data-testid="smb-crm-quote-template-card"][data-template-id="tpl-standard-product"]');
+      await card.click();
+      await expect(page.getByTestId("smb-crm-quote-template-save-as")).toBeVisible();
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  test("clicking Save as template opens the modal with the name prefilled", async ({
+    browser,
+    request
+  }) => {
+    const { page } = await authedPage(browser, request);
+    try {
+      await page.goto(ROUTE);
+      const card = page.locator('[data-testid="smb-crm-quote-template-card"][data-template-id="tpl-standard-product"]');
+      await card.click();
+      await page.getByTestId("smb-crm-quote-template-save-as").click();
+      const modal = page.getByTestId("smb-crm-quote-template-save-as-modal");
+      await expect(modal).toBeVisible();
+      const nameInput = page.getByTestId("smb-crm-quote-template-save-as-name");
+      await expect(nameInput).toHaveValue(/Standard product quote \(copy\)/);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  test("submitting the Save as modal POSTs the line items to /api/smb-crm/quote-templates", async ({
+    browser,
+    request
+  }) => {
+    const { page } = await authedPage(browser, request);
+    const calls: Array<{ url: string; body: string }> = [];
+    page.on("request", (req) => {
+      if (req.url().endsWith("/api/smb-crm/quote-templates") && req.method() === "POST") {
+        calls.push({ url: req.url(), body: req.postData() ?? "" });
+      }
+    });
+    // Stub the response so the SPA gets a new template id back.
+    await page.route("**/api/smb-crm/quote-templates", async (route) => {
+      if (route.request().method() === "POST") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            ok: true,
+            template: {
+              id: "tpl-custom-e2e-1",
+              orgId: "org-1",
+              name: "My e2e template",
+              description: "E2E desc",
+              lineItems: [{ name: "Product", description: "Catalog item", quantity: 1, unitPrice: 100 }],
+              builtin: false,
+              createdAt: "2026-06-18T00:00:00Z"
+            }
+          })
+        });
+      } else {
+        await route.continue();
+      }
+    });
+    try {
+      await page.goto(ROUTE);
+      const card = page.locator('[data-testid="smb-crm-quote-template-card"][data-template-id="tpl-standard-product"]');
+      await card.click();
+      await page.getByTestId("smb-crm-quote-template-save-as").click();
+      await page.getByTestId("smb-crm-quote-template-save-as-name").fill("My e2e template");
+      await page.getByTestId("smb-crm-quote-template-save-as-description").fill("E2E desc");
+      await page.getByTestId("smb-crm-quote-template-save-as-submit").click();
+      // The POST fires.
+      await expect.poll(() => calls.length, { timeout: 5_000 }).toBe(1);
+      expect(calls[0]!.body).toContain("My e2e template");
+      expect(calls[0]!.body).toContain("tpl-standard-product"); // sourceTemplateId
+      // The modal closes.
+      await expect(page.getByTestId("smb-crm-quote-template-save-as-modal")).not.toBeVisible();
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  test("the Cancel button in the Save as modal closes without POSTing", async ({
+    browser,
+    request
+  }) => {
+    const { page } = await authedPage(browser, request);
+    const calls: string[] = [];
+    page.on("request", (req) => {
+      if (req.url().endsWith("/api/smb-crm/quote-templates") && req.method() === "POST") {
+        calls.push(req.url());
+      }
+    });
+    try {
+      await page.goto(ROUTE);
+      const card = page.locator('[data-testid="smb-crm-quote-template-card"][data-template-id="tpl-standard-product"]');
+      await card.click();
+      await page.getByTestId("smb-crm-quote-template-save-as").click();
+      await page.getByTestId("smb-crm-quote-template-save-as-cancel").click();
+      await expect(page.getByTestId("smb-crm-quote-template-save-as-modal")).not.toBeVisible();
+      expect(calls).toHaveLength(0);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  test("the Edit + Delete buttons are hidden for built-in templates", async ({
+    browser,
+    request
+  }) => {
+    const { page } = await authedPage(browser, request);
+    try {
+      await page.goto(ROUTE);
+      const card = page.locator('[data-testid="smb-crm-quote-template-card"][data-template-id="tpl-standard-product"]');
+      await card.click();
+      // Built-in: no Edit, no Delete.
+      await expect(page.getByTestId("smb-crm-quote-template-edit")).toHaveCount(0);
+      await expect(page.getByTestId("smb-crm-quote-template-delete")).toHaveCount(0);
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  test("the Edit + Delete buttons are visible when a custom template is selected", async ({
+    browser,
+    request
+  }) => {
+    // Seed a custom template by intercepting the templates GET.
+    const { page } = await authedPage(browser, request);
+    await page.route("**/api/smb-crm/quote-templates", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            templates: [
+              {
+                id: "tpl-custom-x",
+                orgId: "org-1",
+                name: "My custom",
+                description: "X",
+                lineItems: [{ name: "L", description: "", quantity: 1, unitPrice: 100 }],
+                builtin: false,
+                createdAt: "2026-06-18T00:00:00Z"
+              }
+            ]
+          })
+        });
+      } else {
+        await route.continue();
+      }
+    });
+    try {
+      await page.goto(ROUTE);
+      const card = page.locator('[data-testid="smb-crm-quote-template-card"][data-template-id="tpl-custom-x"]');
+      await card.click();
+      await expect(page.getByTestId("smb-crm-quote-template-edit")).toBeVisible();
+      await expect(page.getByTestId("smb-crm-quote-template-delete")).toBeVisible();
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  test("clicking Edit opens a modal prefilled with the template's name + description", async ({
+    browser,
+    request
+  }) => {
+    const { page } = await authedPage(browser, request);
+    await page.route("**/api/smb-crm/quote-templates", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            templates: [
+              {
+                id: "tpl-custom-y",
+                orgId: "org-1",
+                name: "My custom Y",
+                description: "Desc Y",
+                lineItems: [{ name: "L", description: "", quantity: 1, unitPrice: 100 }],
+                builtin: false,
+                createdAt: "2026-06-18T00:00:00Z"
+              }
+            ]
+          })
+        });
+      } else {
+        await route.continue();
+      }
+    });
+    try {
+      await page.goto(ROUTE);
+      const card = page.locator('[data-testid="smb-crm-quote-template-card"][data-template-id="tpl-custom-y"]');
+      await card.click();
+      await page.getByTestId("smb-crm-quote-template-edit").click();
+      const modal = page.getByTestId("smb-crm-quote-template-edit-modal");
+      await expect(modal).toBeVisible();
+      await expect(page.getByTestId("smb-crm-quote-template-edit-name")).toHaveValue("My custom Y");
+      await expect(page.getByTestId("smb-crm-quote-template-edit-description")).toHaveValue("Desc Y");
+    } finally {
+      await page.context().close();
+    }
+  });
+
+  test("clicking Delete opens a confirmation dialog with the template name", async ({
+    browser,
+    request
+  }) => {
+    const { page } = await authedPage(browser, request);
+    await page.route("**/api/smb-crm/quote-templates", async (route) => {
+      if (route.request().method() === "GET") {
+        await route.fulfill({
+          status: 200,
+          contentType: "application/json",
+          body: JSON.stringify({
+            templates: [
+              {
+                id: "tpl-custom-z",
+                orgId: "org-1",
+                name: "Delete me",
+                description: "",
+                lineItems: [{ name: "L", description: "", quantity: 1, unitPrice: 100 }],
+                builtin: false,
+                createdAt: "2026-06-18T00:00:00Z"
+              }
+            ]
+          })
+        });
+      } else {
+        await route.continue();
+      }
+    });
+    try {
+      await page.goto(ROUTE);
+      const card = page.locator('[data-testid="smb-crm-quote-template-card"][data-template-id="tpl-custom-z"]');
+      await card.click();
+      await page.getByTestId("smb-crm-quote-template-delete").click();
+      const dialog = page.getByTestId("smb-crm-quote-template-delete-dialog");
+      await expect(dialog).toBeVisible();
+      await expect(dialog).toContainText("Delete me");
+    } finally {
+      await page.context().close();
+    }
+  });
+});
