@@ -89,11 +89,13 @@ function buildStreamChatHandler(deps = {}) {
     }
 
     // Resolve the ollama model + baseURL from env (same
-    // resolution as provider.callOllama).
-    const model = providerMod.embed ? providerMod.resolveChatModel(process.env) : 'llama3.1:8b';
-    const baseURL = (process.env.A1_SOVEREIGN_LLM_BASE_URL
-      || process.env.OLLAMA_BASE_URL
-      || 'http://127.0.0.1:11434').replace(/\/+$/, '');
+    // resolution as provider.callOllama → ollama-client). The
+    // provider module re-exports these via the ollama client
+    // (it doesn't expose `resolveChatModel` / `resolveBaseURL`
+    // directly — those live in `./ollama-client`).
+    const ollamaClient = require('./ollama-client');
+    const model = ollamaClient.resolveChatModel(process.env);
+    const baseURL = ollamaClient.resolveBaseURL(process.env).replace(/\/+$/, '');
 
     // Build the Ollama messages array (system + user).
     const messages = [
