@@ -32,6 +32,7 @@ import type {
   ProcurementAllocationMethod,
   ProcurementLandedCostKind,
 } from "../api/schemas";
+import { formatArmenianInteger } from "../utils/money";
 
 /* ────────── type re-exports (UI narrowing) ────────── */
 
@@ -158,10 +159,6 @@ export function isAllocationMethod(value: string): value is AllocationMethod {
 
 /* ────────── formatting ────────── */
 
-const hyAMPrice = new Intl.NumberFormat("hy-AM", {
-  maximumFractionDigits: 0,
-});
-
 /**
  * Format a vendor score (a 0..100 float from the AI ranking engine)
  * to two decimals, e.g. `0.85` → `"0.85"`. Stable for negative
@@ -184,7 +181,7 @@ export function formatPrice(price: number, currency: string): string {
   if (!Number.isFinite(price)) return "—";
   const ccy = (currency || "").toUpperCase();
   const suffix = ccy.length > 0 ? ` ${ccy}` : "";
-  return `${hyAMPrice.format(price)}${suffix}`;
+  return `${formatArmenianInteger(price)}${suffix}`;
 }
 
 /* ────────── deep-linking helpers (tab ↔ URL hash) ────────── */

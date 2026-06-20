@@ -1,14 +1,8 @@
 /**
  * money() — format Armenian Dram amounts the way the legacy app does.
- * Source: web/src/finance.jsx uses `Intl.NumberFormat("hy-AM", { style: "currency", currency: "AMD" })`.
- * AMD is a no-decimal currency; we drop the trailing .00 to match the legacy UX.
+ * AMD is a no-decimal currency; full amounts use deterministic NBSP grouping
+ * because some Node Intl builds do not group 4-digit hy-AM currency values.
  */
-const amd = new Intl.NumberFormat("hy-AM", {
-  style: "currency",
-  currency: "AMD",
-  maximumFractionDigits: 0,
-});
-
 const amdCompact = new Intl.NumberFormat("hy-AM", {
   style: "currency",
   currency: "AMD",
@@ -16,9 +10,18 @@ const amdCompact = new Intl.NumberFormat("hy-AM", {
   maximumFractionDigits: 1,
 });
 
+const NBSP = "\u00A0";
+
+export function formatArmenianInteger(amount: number): string {
+  const rounded = Math.round(amount);
+  const sign = rounded < 0 ? "-" : "";
+  const digits = Math.abs(rounded).toString();
+  return `${sign}${digits.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP)}`;
+}
+
 export function money(amount: number | null | undefined, opts?: { compact?: boolean }): string {
   if (amount == null || Number.isNaN(amount)) return "—";
-  return opts?.compact ? amdCompact.format(amount) : amd.format(amount);
+  return opts?.compact ? amdCompact.format(amount) : `${formatArmenianInteger(amount)}${NBSP}֏`;
 }
 
 /**

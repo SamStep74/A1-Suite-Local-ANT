@@ -15,6 +15,9 @@
     "dev:lan": "HOST=0.0.0.0 NODE_ENV=development node --watch server/index.js",
     "build:ui": "npm --prefix web-modern install && npm --prefix web-modern run build",
     "test": "node --test --test-concurrency=4 --test-timeout=180000",
+    "karpathy:list": "node scripts/karpathy-eval.mjs --list",
+    "karpathy:program": "node scripts/karpathy-eval.mjs --program",
+    "karpathy:run": "node scripts/karpathy-eval.mjs --run",
     "smoke": "node scripts/smoke.js",
     "install:server": "bash deploy/install.sh",
     "health": "bash deploy/scripts/healthcheck.sh",
@@ -29,7 +32,8 @@
     "fastify": "^5.0.0"
   },
   "devDependencies": {
+    "@a1/ai": "git+https://github.com/SamStep74/A1-AI-Core.git#cec47006254640e7c02aea07b375ea5d0d471cb8",
     "@playwright/test": "^1.60.0",
-    "concurrently": "^9.0.0"
+    "concurrently": "^9.2.3"
   }
 }

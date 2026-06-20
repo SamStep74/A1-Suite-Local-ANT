@@ -1,0 +1,46 @@
+{
+  "id": "egress-policy-contract",
+  "productName": "Armosphera A1 Suite Local ANT egress policy",
+  "runTag": "2026-06-20-egress-policy-contract",
+  "branchPrefix": "karpathy/",
+  "editableFiles": [
+    "server/config.js"
+  ],
+  "readOnlyFiles": [
+    "scripts/check-egress-policy-contract.mjs",
+    "package-lock.json",
+    "test/config.test.js",
+    "test/ai-config.test.js",
+    "test/ai-provider.test.js",
+    "test/open-notebook.test.js"
+  ],
+  "contextFiles": [
+    "README.md",
+    "docs/AI.md",
+    "server/config.js",
+    "server/aiProvider.js",
+    "server/openNotebook.js"
+  ],
+  "guardrails": [
+    "Keep outbound network off by default; loopback remains allowed for local-first IPC.",
+    "Keep external egress deny-until-listed: ARMOSPHERA_ONE_ALLOW_EGRESS=1 is not enough without an explicit host allowlist.",
+    "Keep OpenRouter gated by the same global egress flag and openrouter.ai allowlist entry.",
+    "Keep server/aiProvider.js and server/openNotebook.js using injected safeFetch/config gates; do not bypass them with direct fetch calls.",
+    "Do not introduce new cloud AI providers, secret reads, telemetry, or external fetches outside safeFetch.",
+    "Preserve A1_STUDIO_* aliases and local bge-m3/Ollama defaults for portable self-hosted deployments."
+  ],
+  "eval": {
+    "command": "node",
+    "args": [
+      "scripts/check-egress-policy-contract.mjs"
+    ],
+    "metric": {
+      "name": "failing_checks",
+      "direction": "minimize"
+    },
+    "successMetricValue": 0,
+    "failureMetricValue": 1,
+    "timeBudgetMinutes": 5,
+    "timeoutMinutes": 10
+  }
+}

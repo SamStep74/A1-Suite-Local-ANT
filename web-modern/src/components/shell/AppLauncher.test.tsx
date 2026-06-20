@@ -122,7 +122,7 @@ describe("AppLauncher", () => {
     fireEvent.click(screen.getByRole("button", { name: "CRM Quotes · deals · activities Հաճախորդներ" }));
     expect(navigateMock).toHaveBeenCalledTimes(1);
     expect(navigateMock).toHaveBeenCalledWith({
-      to: "/app/$appId",
+      to: "/app/crm/",
       params: { appId: "crm" },
     });
     expect(onClose).toHaveBeenCalledTimes(1);

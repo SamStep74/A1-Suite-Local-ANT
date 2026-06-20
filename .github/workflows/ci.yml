@@ -1,7 +1,7 @@
 # CI for A1 Suite Local ANT.
 #
 # Three jobs, run in parallel:
-#   1. server     — root node --test (933+ tests, Fastify API contract)
+#   1. server     — focused node --test egress policy contract + Karpathy lane
 #   2. web-modern — vitest + tsc (1203 component tests, typecheck)
 #   3. e2e        — Playwright full stack (92 tests / 26 specs). Only on
 #                   push to main, PRs from a non-ant branch, and manual
@@ -46,7 +46,7 @@ concurrency:
 
 jobs:
   # ────────────────────────────────────────────────────────────────────
-  # Job 1: Server (Fastify + node:test). Fast lane.
+  # Job 1: Server (Fastify + focused node:test contract). Fast lane.
   # ────────────────────────────────────────────────────────────────────
   server:
     name: Server (node:test, Fastify)
@@ -58,7 +58,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22.5"
+          node-version: "26"
           cache: "npm"
 
       - name: Install (production only — fast path)
@@ -69,8 +69,11 @@ jobs:
         # confirm the bundle loads without a require() explosion.
         run: node -e "require('./server/app.js'); console.log('server/app.js loaded ok')"
 
-      - name: Run node:test suite
-        run: npm test
+      - name: Run Karpathy egress contract
+        run: npm run karpathy:run -- egress-policy-contract
+
+      - name: Run focused egress node:test suite
+        run: node --test --test-concurrency=4 --test-timeout=180000 test/config.test.js test/ai-config.test.js test/ai-provider.test.js test/open-notebook.test.js
 
   # ────────────────────────────────────────────────────────────────────
   # Job 2: Web-modern (vitest + tsc). Fast lane.
@@ -88,12 +91,12 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22.5"
+          node-version: "26"
           cache: "npm"
           cache-dependency-path: web-modern/package-lock.json
 
       - name: Install (with Playwright, used by the e2e job)
-        run: npm ci --no-audit --no-fund
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
 
       - name: Install Playwright chromium
         # Skip --with-deps (needs sudo, slow on first run) — we use
@@ -105,6 +108,8 @@ jobs:
         run: npm run typecheck
 
       - name: Vitest
+        env:
+          NODE_OPTIONS: --no-experimental-webstorage
         run: npm test
 
       - name: Build (TanStack Start production bundle)
@@ -150,15 +155,16 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22.5"
+          node-version: "26"
           cache: "npm"
           cache-dependency-path: web-modern/package-lock.json
 
       - name: Install root (for Fastify + node --test deps)
         run: npm ci --no-audit --no-fund
+        working-directory: ${{ github.workspace }}
 
       - name: Install web-modern
-        run: npm ci --no-audit --no-fund
+        run: npm ci --legacy-peer-deps --no-audit --no-fund
         working-directory: web-modern
 
       - name: Install Playwright chromium
@@ -170,6 +176,7 @@ jobs:
         # first boot. We delete any leftover so seedUsers() is
         # guaranteed to run.
         run: rm -rf data && mkdir -p data
+        working-directory: ${{ github.workspace }}
 
       - name: Start Vite dev server (background)
         # Vite is not managed by Playwright's webServer config

@@ -8,7 +8,7 @@
  */
 import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { APP_IDS, APPS } from "../../lib/apps";
+import { APP_IDS, APPS, appLinkTo } from "../../lib/apps";
 
 let mockPathname = "/app";
 const useLocation = vi.fn(() => ({ pathname: mockPathname }));
@@ -68,9 +68,11 @@ describe("LeftRail", () => {
     // We test against the real APPS catalog, not a mock, so a regression
     // that drops an app from lib/apps.ts is caught here too.
     for (const id of APP_IDS) {
+      const link = appLinkTo(id);
+      const expectedHref = link.to.replace("$appId", link.params.appId);
       expect(
         screen.getByRole("link", { name: APPS[id].label }),
-      ).toHaveAttribute("href", `/app/${id}`);
+      ).toHaveAttribute("href", expectedHref);
     }
   });
 

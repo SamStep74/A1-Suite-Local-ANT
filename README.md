@@ -53,6 +53,22 @@ Demo owner:
   key configured or egress disabled, the model menu falls back to bundled entries
   and Copilot responses stay offline-deterministic. See `docs/AI.md`.
 
+## Karpathy evals
+
+Focused product-research evals live under `evals/karpathy/` and run through the
+shared `@a1/ai` runner declared in `package.json`:
+
+```bash
+npm run karpathy:list
+npm run karpathy:program -- egress-policy-contract
+npm run karpathy:run -- egress-policy-contract
+```
+
+The `egress-policy-contract` lane locks the local-first sovereignty boundary:
+outbound network stays off by default, external hosts are deny-until-listed,
+OpenRouter and Open Notebook adapters use the same injected egress gate, and
+loopback/local model defaults remain available for self-hosted deployments.
+
 ## Armenian localization & fiscal engines
 
 The Republic-of-Armenia fiscal logic — ՀՎՀՀ + AMD money, the 11 marzer + phone
