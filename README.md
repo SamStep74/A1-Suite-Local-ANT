@@ -74,7 +74,7 @@ loopback/local model defaults remain available for self-hosted deployments.
 The Republic-of-Armenia fiscal logic — ՀՎՀՀ + AMD money, the 11 marzer + phone
 formats, the 623-account chart of accounts, SRC e-invoice XML, the VAT return
 (decree N 298-Ն), and 2026 payroll — is owned by the standalone package
-**[a1-localization-am](https://github.com/SamStep74/A1-Localization-AM)** (the single
+**[a1-localization-am](https://github.com/Armosphera/A1-Localization-AM)** (the single
 source of truth, shared with HayHashvapah and future A1 products — sibling to the
 `a1-ai` extraction).
 
