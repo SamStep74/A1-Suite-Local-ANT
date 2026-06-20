@@ -175,3 +175,8 @@ The `egress-policy-contract` eval wraps the config, AI provider, and Open Notebo
 egress tests with `failing_checks` as a minimize metric. The eval keeps the editable
 surface limited to `server/config.js` and treats provider/search tests as read-only
 guardrails for offline-by-default, deny-until-listed behavior.
+
+The harness uses `@a1/ai` when installed, or a nearby `A1-AI-Core` checkout when
+present. In a clean clone it bootstraps the pinned public A1-AI-Core runner into
+the user cache; set `A1_AI_CORE_PATH` or `A1_AI_CORE_CACHE_DIR` to override that
+location for CI.
