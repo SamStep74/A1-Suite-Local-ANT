@@ -32,7 +32,7 @@
     "fastify": "^5.0.0"
   },
   "devDependencies": {
-    "@a1/ai": "git+https://github.com/SamStep74/A1-AI-Core.git#cec47006254640e7c02aea07b375ea5d0d471cb8",
+    "@a1/ai": "git+https://github.com/Armosphera/A1-AI-Core.git#cec47006254640e7c02aea07b375ea5d0d471cb8",
     "@playwright/test": "^1.60.0",
     "concurrently": "^9.2.3"
   }
