@@ -159,3 +159,19 @@ Mac or client machine.
 ```bash
 npm test
 ```
+
+## Karpathy Eval Harness
+
+This repo exposes a narrow product-research contract for the local-first egress
+policy surface:
+
+```bash
+npm run karpathy:list
+npm run karpathy:program -- egress-policy-contract
+npm run karpathy:run -- egress-policy-contract --best 0
+```
+
+The `egress-policy-contract` eval wraps the config, AI provider, and Open Notebook
+egress tests with `failing_checks` as a minimize metric. The eval keeps the editable
+surface limited to `server/config.js` and treats provider/search tests as read-only
+guardrails for offline-by-default, deny-until-listed behavior.
