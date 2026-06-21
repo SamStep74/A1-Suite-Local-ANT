@@ -37,11 +37,13 @@ import {
   ProjectsListResponseSchema,
   ProjectDetailResponseSchema,
   ProjectBillingPreviewResponseSchema,
+  ProjectProfitabilityResponseSchema,
   type ProjectListItem,
   type ProjectTask,
   type ProjectMilestone,
   type ProjectDetail,
   type ProjectBillingPreview,
+  type ProjectProfitability,
 } from "../../../lib/api/schemas";
 import { ViewSwitcher } from "../../../components/view-switcher/ViewSwitcher";
 import { cn } from "../../../lib/utils/cn";
@@ -57,6 +59,7 @@ import {
   billingGrossAmd,
   billingTotalAmd,
   formatCurrency,
+  formatPercent,
   formatProjectDurationHours,
   type ProjectTone,
   type TaskTone,
@@ -181,6 +184,17 @@ function ProjectsWorkspace() {
     enabled: Boolean(topProject?.id),
   });
 
+  const profitabilityQ = useQuery({
+    queryKey: ["project-profitability", topProject?.id ?? null],
+    queryFn: async () => {
+      const raw = await getJson(
+        `/api/projects/${encodeURIComponent(topProject!.id)}/profitability`,
+      );
+      return ProjectProfitabilityResponseSchema.parse(raw);
+    },
+    enabled: Boolean(topProject?.id),
+  });
+
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-6 [data-density=compact]:p-4 [data-density=spacious]:p-8">
       <PageHeader />
@@ -229,8 +243,9 @@ function ProjectsWorkspace() {
         <BillingView
           project={topProject}
           preview={billingQ.data?.preview}
-          loading={billingQ.isLoading}
-          error={billingQ.isError}
+          profitability={profitabilityQ.data?.profitability}
+          loading={billingQ.isLoading || profitabilityQ.isLoading}
+          error={billingQ.isError || profitabilityQ.isError}
         />
       )}
     </div>
@@ -692,11 +707,13 @@ function TimeView({
 function BillingView({
   project,
   preview,
+  profitability,
   loading,
   error,
 }: {
   project: ProjectListItem | undefined;
   preview: ProjectBillingPreview | undefined;
+  profitability: ProjectProfitability | undefined;
   loading: boolean;
   error: boolean;
 }) {
@@ -718,6 +735,10 @@ function BillingView({
   }
 
   const gross = billingGrossAmd(preview);
+  const marginLabel =
+    profitability?.grossMarginPct == null
+      ? "—"
+      : formatPercent(profitability.grossMarginPct);
 
   return (
     <div className="space-y-4">
@@ -744,6 +765,85 @@ function BillingView({
           tone="positive"
         />
       </div>
+
+      {profitability && (
+        <section
+          className="rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] p-4"
+          data-entity="projects-profitability"
+          data-count={String(profitability.invoiceCount)}
+        >
+          <div className="flex items-center gap-2">
+            <Banknote className="size-4 text-[var(--color-muted)]" />
+            <p className="text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+              Profitability - <span className="font-mono">{project.name}</span>
+            </p>
+          </div>
+          <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            <KpiCard
+              label="Billed revenue"
+              value={formatCurrency(profitability.billedRevenue, profitability.currency)}
+              hint={`${profitability.billedEntries} entries`}
+            />
+            <KpiCard
+              label="Unbilled estimate"
+              value={formatCurrency(profitability.unbilledRevenue, profitability.currency)}
+              hint={`${profitability.unbilledMinutes} min at current rate`}
+            />
+            <KpiCard
+              label="Gross profit"
+              value={formatCurrency(profitability.grossProfit, profitability.currency)}
+              hint={`Cost ${formatCurrency(profitability.costTotal, profitability.currency)}`}
+              tone={profitability.grossProfit >= 0 ? "positive" : "negative"}
+            />
+            <KpiCard
+              label="Gross margin"
+              value={marginLabel}
+              hint={`${profitability.totalEntries} total entries`}
+              tone={(profitability.grossMarginPct ?? 0) >= 0 ? "positive" : "negative"}
+            />
+          </div>
+          <div className="mt-4 overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-line)]">
+            <table className="w-full text-[var(--text-sm)]" role="table">
+              <thead className="bg-[var(--color-surface-soft)] text-[var(--text-xs)] uppercase tracking-wide text-[var(--color-muted)]">
+                <tr>
+                  <th scope="col" className="px-3 py-2 text-left font-semibold">
+                    Invoice
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-left font-semibold">
+                    Issue date
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-right font-semibold">
+                    Total
+                  </th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-[var(--color-line)]">
+                {profitability.invoices.length === 0 ? (
+                  <tr>
+                    <td colSpan={3} className="px-3 py-3 text-center text-[var(--color-muted)]">
+                      No billed invoice evidence yet.
+                    </td>
+                  </tr>
+                ) : (
+                  profitability.invoices.map((invoice) => (
+                    <tr key={invoice.id} className="hover:bg-[var(--color-surface-soft)]">
+                      <td className="px-3 py-2 text-[var(--color-ink)]">
+                        {invoice.number || invoice.id}
+                      </td>
+                      <td className="px-3 py-2 font-mono text-[var(--color-muted)]">
+                        {invoice.issueDate || "—"}
+                      </td>
+                      <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                        {formatCurrency(invoice.total, profitability.currency)}
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
+        </section>
+      )}
 
       <section
         className="rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] p-4"

@@ -84,6 +84,127 @@ test("project-billing: unbilled time → posted invoice → ledger; entries mark
   } finally { await app.close(); }
 });
 
+test("project-billing: project profitability reports billed and unbilled revenue evidence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const proj = await createBillableProject(app, owner);
+
+    const initial = await app.inject({
+      method: "GET",
+      url: `/api/projects/${proj}/profitability?hourlyRate=10000&asOf=2026-05-15`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(initial.statusCode, 200, initial.body);
+    assert.deepStrictEqual(Object.keys(initial.json()), ["profitability"]);
+    assert.deepStrictEqual(Object.keys(initial.json().profitability), [
+      "projectId", "customerId", "currency",
+      "hourlyRate",
+      "billedMinutes", "billedEntries",
+      "unbilledMinutes", "unbilledEntries",
+      "totalMinutes", "totalEntries",
+      "billedRevenue", "unbilledRevenue", "totalRevenue",
+      "costTotal", "grossProfit", "grossMarginPct",
+      "invoiceCount",
+      "invoices"
+    ]);
+    assert.deepStrictEqual(initial.json().profitability, {
+      projectId: proj,
+      customerId: "cust-ani",
+      currency: "AMD",
+      hourlyRate: 10000,
+      billedMinutes: 0,
+      billedEntries: 0,
+      unbilledMinutes: 180,
+      unbilledEntries: 2,
+      totalMinutes: 180,
+      totalEntries: 2,
+      billedRevenue: 0,
+      unbilledRevenue: 30000,
+      totalRevenue: 30000,
+      costTotal: 0,
+      grossProfit: 30000,
+      grossMarginPct: 100,
+      invoiceCount: 0,
+      invoices: []
+    });
+
+    const defaultRate = await app.inject({
+      method: "GET",
+      url: `/api/projects/${proj}/profitability`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(defaultRate.statusCode, 200, defaultRate.body);
+    assert.strictEqual(defaultRate.json().profitability.hourlyRate, 0);
+    assert.strictEqual(defaultRate.json().profitability.unbilledRevenue, 0);
+    assert.strictEqual(defaultRate.json().profitability.totalRevenue, 0);
+    assert.strictEqual(defaultRate.json().profitability.grossMarginPct, null);
+
+    const billed = await app.inject({
+      method: "POST",
+      url: `/api/projects/${proj}/bill-time`,
+      headers: { cookie: owner },
+      payload: { hourlyRate: 10000, issueDate: "2026-05-15" }
+    });
+    assert.strictEqual(billed.statusCode, 200, billed.body);
+    const invoice = billed.json().invoice;
+
+    const afterBill = await app.inject({
+      method: "GET",
+      url: `/api/projects/${proj}/profitability?hourlyRate=10000&asOf=2026-05-15`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(afterBill.statusCode, 200, afterBill.body);
+    assert.deepStrictEqual(afterBill.json().profitability, {
+      projectId: proj,
+      customerId: "cust-ani",
+      currency: "AMD",
+      hourlyRate: 10000,
+      billedMinutes: 180,
+      billedEntries: 2,
+      unbilledMinutes: 0,
+      unbilledEntries: 0,
+      totalMinutes: 180,
+      totalEntries: 2,
+      billedRevenue: 30000,
+      unbilledRevenue: 0,
+      totalRevenue: 30000,
+      costTotal: 0,
+      grossProfit: 30000,
+      grossMarginPct: 100,
+      invoiceCount: 1,
+      invoices: [{
+        id: invoice.id,
+        number: invoice.number,
+        status: "open",
+        total: 30000,
+        subtotal: 25000,
+        vat: 5000,
+        issueDate: "2026-05-15",
+        dueDate: "2026-05-29"
+      }]
+    });
+
+    await app.inject({
+      method: "POST",
+      url: `/api/projects/${proj}/time-entries`,
+      headers: { cookie: owner },
+      payload: { minutes: 30, entryDate: "2026-05-20", note: "extra" }
+    });
+    const mixed = await app.inject({
+      method: "GET",
+      url: `/api/projects/${proj}/profitability?hourlyRate=10000&asOf=2026-05-20`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(mixed.statusCode, 200, mixed.body);
+    assert.strictEqual(mixed.json().profitability.billedRevenue, 30000);
+    assert.strictEqual(mixed.json().profitability.unbilledMinutes, 30);
+    assert.strictEqual(mixed.json().profitability.unbilledRevenue, 5000);
+    assert.strictEqual(mixed.json().profitability.totalRevenue, 35000);
+  } finally { await app.close(); }
+});
+
 test("project-billing: RU billing stores kopecks while ledger reports rubles", async () => {
   await withLocale("ru", async () => {
     const app = buildApp({ dbPath: ":memory:" });
@@ -275,6 +396,31 @@ test("project-billing: rejects malformed billing-preview query before quoting", 
   } finally { await app.close(); }
 });
 
+test("project-billing: rejects malformed profitability query before reporting", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const proj = await createBillableProject(app, owner);
+    const rejectedUrls = [
+      `/api/projects/${proj}/profitability?hourlyRate=abc`,
+      `/api/projects/${proj}/profitability?hourlyRate=-1`,
+      `/api/projects/${proj}/profitability?hourlyRate=10000&asOf=not-a-date`,
+      `/api/projects/${proj}/profitability?hourlyRate=10000%0Asecret-project-profitability-query-token`
+    ];
+
+    for (const url of rejectedUrls) {
+      const rejected = await app.inject({
+        method: "GET",
+        url,
+        headers: { cookie: owner }
+      });
+      assert.strictEqual(rejected.statusCode, 400, rejected.body);
+      assert.doesNotMatch(rejected.body, /secret-project-profitability/);
+    }
+  } finally { await app.close(); }
+});
+
 test("project-billing: malformed project path ids are rejected before billing side effects", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -324,8 +470,10 @@ test("project-billing: malformed project path ids are rejected before billing si
 
     for (const request of [
       { method: "GET", url: "/api/projects/badAsecret-project-billing-path-preview-id-token/billing-preview?hourlyRate=10000" },
+      { method: "GET", url: "/api/projects/bad_secret-project-billing-path-profitability-id-token/profitability?hourlyRate=10000" },
       { method: "POST", url: "/api/projects/bad_secret-project-billing-path-bill-id-token/bill-time", payload: { hourlyRate: 10000, issueDate: "2026-05-15", note: "secret-project-billing-path-body-token" } },
       { method: "GET", url: `/api/projects/${"a".repeat(161)}/billing-preview?hourlyRate=10000`, statusCode: 404 },
+      { method: "GET", url: `/api/projects/${"a".repeat(161)}/profitability?hourlyRate=10000`, statusCode: 404 },
       { method: "POST", url: "/api/projects/bad%0Asecret-project-billing-path-control-id-token/bill-time", payload: { hourlyRate: 10000, issueDate: "2026-05-15" } }
     ]) {
       await expectPathRejected(request);
@@ -333,6 +481,7 @@ test("project-billing: malformed project path ids are rejected before billing si
 
     for (const request of [
       { method: "GET", url: "/api/projects/proj-missing/billing-preview?hourlyRate=10000", statusCode: 404 },
+      { method: "GET", url: "/api/projects/proj-missing/profitability?hourlyRate=10000", statusCode: 404 },
       { method: "POST", url: "/api/projects/proj-missing/bill-time", payload: { hourlyRate: 10000, issueDate: "2026-05-15", note: "secret-project-billing-path-missing-body-token" }, statusCode: 404 }
     ]) {
       await expectPathRejected(request);

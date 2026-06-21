@@ -25,8 +25,9 @@ const mocks = vi.hoisted(() => ({
   list: null as unknown,
   detail: null as unknown,
   billing: null as unknown,
-  loading: { list: false, detail: false, billing: false },
-  error: { list: false, detail: false, billing: false },
+  profitability: null as unknown,
+  loading: { list: false, detail: false, billing: false, profitability: false },
+  error: { list: false, detail: false, billing: false, profitability: false },
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -88,6 +89,13 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
           data: mocks.billing,
           isLoading: mocks.loading.billing,
           isError: mocks.error.billing,
+        };
+      }
+      if (key === "project-profitability") {
+        return {
+          data: mocks.profitability,
+          isLoading: mocks.loading.profitability,
+          isError: mocks.error.profitability,
         };
       }
       return { data: null, isLoading: false, isError: false };
@@ -197,6 +205,40 @@ const BILLING = {
   },
 };
 
+const PROFITABILITY = {
+  profitability: {
+    projectId: "p-1",
+    customerId: "c-1",
+    currency: "AMD",
+    hourlyRate: 25000,
+    billedMinutes: 360,
+    billedEntries: 3,
+    unbilledMinutes: 240,
+    unbilledEntries: 4,
+    totalMinutes: 600,
+    totalEntries: 7,
+    billedRevenue: 150000,
+    unbilledRevenue: 100000,
+    totalRevenue: 250000,
+    costTotal: 143750,
+    grossProfit: 106250,
+    grossMarginPct: 42,
+    invoiceCount: 1,
+    invoices: [
+      {
+        id: "inv-1",
+        number: "INV-2026-001",
+        status: "issued",
+        total: 150000,
+        subtotal: 125000,
+        vat: 25000,
+        issueDate: "2026-06-10",
+        dueDate: "2026-06-25",
+      },
+    ],
+  },
+};
+
 /* ────────── per-test reset ────────── */
 
 beforeEach(() => {
@@ -204,8 +246,9 @@ beforeEach(() => {
   mocks.list = null;
   mocks.detail = null;
   mocks.billing = null;
-  mocks.loading = { list: false, detail: false, billing: false };
-  mocks.error = { list: false, detail: false, billing: false };
+  mocks.profitability = null;
+  mocks.loading = { list: false, detail: false, billing: false, profitability: false };
+  mocks.error = { list: false, detail: false, billing: false, profitability: false };
 });
 
 afterEach(() => {
@@ -382,8 +425,20 @@ describe("Projects — Billing view", () => {
     renderRoute();
     expect(screen.getByText(/Loading billing/i)).toBeInTheDocument();
   });
+  it("shows the loading state while profitability loads", () => {
+    mocks.billing = BILLING;
+    mocks.loading.profitability = true;
+    renderRoute();
+    expect(screen.getByText(/Loading billing/i)).toBeInTheDocument();
+  });
   it("shows the error state", () => {
     mocks.error.billing = true;
+    renderRoute();
+    expect(screen.getByText(/Failed to load billing preview/i)).toBeInTheDocument();
+  });
+  it("shows the error state when profitability fails", () => {
+    mocks.billing = BILLING;
+    mocks.error.profitability = true;
     renderRoute();
     expect(screen.getByText(/Failed to load billing preview/i)).toBeInTheDocument();
   });
@@ -393,6 +448,22 @@ describe("Projects — Billing view", () => {
     const marker = document.querySelector('[data-entity="projects-billing-preview"]');
     expect(marker).not.toBeNull();
     expect(marker?.textContent).toMatch(/Alpha/);
+  });
+  it("renders the profitability panel with invoice evidence", () => {
+    mocks.billing = BILLING;
+    mocks.profitability = PROFITABILITY;
+    renderRoute();
+    const marker = document.querySelector('[data-entity="projects-profitability"]');
+    expect(marker).not.toBeNull();
+    expect(marker).toHaveAttribute("data-count", "1");
+    expect(marker).toHaveTextContent(/Profitability - Alpha/);
+    expect(within(marker as HTMLElement).getByText("Billed revenue")).toBeInTheDocument();
+    expect(within(marker as HTMLElement).getByText("Unbilled estimate")).toBeInTheDocument();
+    expect(within(marker as HTMLElement).getByText("Gross profit")).toBeInTheDocument();
+    expect(within(marker as HTMLElement).getByText("Gross margin")).toBeInTheDocument();
+    expect(within(marker as HTMLElement).getByText("42%")).toBeInTheDocument();
+    expect(within(marker as HTMLElement).getByText("INV-2026-001")).toBeInTheDocument();
+    expect(within(marker as HTMLElement).getByText("2026-06-10")).toBeInTheDocument();
   });
   it("shows the empty state when no project", () => {
     mocks.list = { projects: [] };

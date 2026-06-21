@@ -5704,7 +5704,7 @@ function registerApi(app, db, options = {}) {
 
   function normalizeProjectPathId(value, rawUrl = "") {
     const rawSegment = typeof rawUrl === "string"
-      ? rawUrl.match(/^\/api\/projects\/([^/?#]+)(?:\/(?:tasks(?:\/[^/?#]+)?|milestones(?:\/[^/?#]+)?|time-entries|billing-preview|bill-time))?(?:[?#]|$)/)?.[1]
+      ? rawUrl.match(/^\/api\/projects\/([^/?#]+)(?:\/(?:tasks(?:\/[^/?#]+)?|milestones(?:\/[^/?#]+)?|time-entries|billing-preview|bill-time|profitability))?(?:[?#]|$)/)?.[1]
       : "";
     if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
       throwInvalidProjectPathId("Invalid project id");
@@ -5765,6 +5765,80 @@ function registerApi(app, db, options = {}) {
     const vatRate = resolveVatRate(db, user.org_id, asOf);
     const { subtotal, vat, total } = splitVatInclusive(grossMajor, vatRate);
     return { preview: { projectId: project.id, customerId: project.customerId, unbilledMinutes, unbilledEntries: agg.entries, hours, hourlyRate, subtotal, vat, total, vatRate, currency: activeCurrencyCode() } };
+  });
+
+  app.get("/api/projects/:id/profitability", async request => {
+    const user = await app.auth(request);
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, user.org_id, projectId);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    const { hourlyRate, asOf } = normalizeProjectBillingPreviewQuery(request.query, new Date().toISOString());
+    const minutes = db.prepare(`
+      SELECT
+        COALESCE(SUM(CASE WHEN billed_invoice_id IS NOT NULL THEN minutes ELSE 0 END), 0) AS billedMinutes,
+        COALESCE(SUM(CASE WHEN billed_invoice_id IS NULL THEN minutes ELSE 0 END), 0) AS unbilledMinutes,
+        COALESCE(SUM(minutes), 0) AS totalMinutes,
+        COALESCE(SUM(CASE WHEN billed_invoice_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS billedEntries,
+        COALESCE(SUM(CASE WHEN billed_invoice_id IS NULL THEN 1 ELSE 0 END), 0) AS unbilledEntries,
+        COUNT(*) AS totalEntries
+      FROM project_time_entries
+      WHERE org_id = ? AND project_id = ?
+    `).get(user.org_id, project.id);
+    const invoices = db.prepare(`
+      SELECT DISTINCT
+        invoices.id,
+        invoices.number,
+        invoices.status,
+        invoices.total,
+        COALESCE(finance_draft_invoices.subtotal, invoices.total - invoices.vat) AS subtotal,
+        invoices.vat,
+        COALESCE(finance_draft_invoices.issue_date, '') AS issueDate,
+        invoices.due_date AS dueDate
+      FROM project_time_entries
+      JOIN invoices
+        ON invoices.org_id = project_time_entries.org_id
+       AND invoices.id = project_time_entries.billed_invoice_id
+      LEFT JOIN finance_invoice_links
+        ON finance_invoice_links.org_id = invoices.org_id
+       AND finance_invoice_links.invoice_id = invoices.id
+      LEFT JOIN finance_draft_invoices
+        ON finance_draft_invoices.org_id = finance_invoice_links.org_id
+       AND finance_draft_invoices.id = finance_invoice_links.draft_invoice_id
+      WHERE project_time_entries.org_id = ?
+        AND project_time_entries.project_id = ?
+        AND project_time_entries.billed_invoice_id IS NOT NULL
+      ORDER BY COALESCE(finance_draft_invoices.issue_date, invoices.due_date), invoices.number, invoices.id
+    `).all(user.org_id, project.id);
+    const billedRevenue = invoices.reduce((sum, invoice) => sum + (Number(invoice.total) || 0), 0);
+    const unbilledGrossMajor = hourlyRate > 0 ? (Number(minutes.unbilledMinutes || 0) / 60) * hourlyRate : 0;
+    const vatRate = resolveVatRate(db, user.org_id, asOf);
+    const unbilledRevenue = splitVatInclusive(unbilledGrossMajor, vatRate).total;
+    const totalRevenue = billedRevenue + unbilledRevenue;
+    const costTotal = 0;
+    const grossProfit = totalRevenue - costTotal;
+    const grossMarginPct = totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 10000) / 100 : null;
+    return {
+      profitability: {
+        projectId: project.id,
+        customerId: project.customerId,
+        currency: activeCurrencyCode(),
+        hourlyRate,
+        billedMinutes: Number(minutes.billedMinutes || 0),
+        billedEntries: Number(minutes.billedEntries || 0),
+        unbilledMinutes: Number(minutes.unbilledMinutes || 0),
+        unbilledEntries: Number(minutes.unbilledEntries || 0),
+        totalMinutes: Number(minutes.totalMinutes || 0),
+        totalEntries: Number(minutes.totalEntries || 0),
+        billedRevenue,
+        unbilledRevenue,
+        totalRevenue,
+        costTotal,
+        grossProfit,
+        grossMarginPct,
+        invoiceCount: invoices.length,
+        invoices
+      }
+    };
   });
 
   // Billing seam: convert a project's UNBILLED logged time into a posted invoice (+ ledger),

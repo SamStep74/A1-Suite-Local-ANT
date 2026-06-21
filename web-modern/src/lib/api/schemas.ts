@@ -1908,6 +1908,51 @@ export const ProjectBillingPreviewResponseSchema = z
   .passthrough();
 export type ProjectBillingPreviewResponse = z.infer<typeof ProjectBillingPreviewResponseSchema>;
 
+export const ProjectProfitabilityInvoiceSchema = z
+  .object({
+    id: z.string(),
+    number: z.string().nullable().optional(),
+    status: z.string().nullable().optional(),
+    total: z.number(),
+    subtotal: z.number().nullable().optional(),
+    vat: z.number().nullable().optional(),
+    issueDate: z.string().nullable().optional(),
+    dueDate: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type ProjectProfitabilityInvoice = z.infer<typeof ProjectProfitabilityInvoiceSchema>;
+
+export const ProjectProfitabilitySchema = z
+  .object({
+    projectId: z.string(),
+    customerId: z.string().nullable().optional(),
+    currency: z.string(),
+    hourlyRate: z.number(),
+    billedMinutes: z.number().int(),
+    billedEntries: z.number().int(),
+    unbilledMinutes: z.number().int(),
+    unbilledEntries: z.number().int(),
+    totalMinutes: z.number().int(),
+    totalEntries: z.number().int(),
+    billedRevenue: z.number(),
+    unbilledRevenue: z.number(),
+    totalRevenue: z.number(),
+    costTotal: z.number(),
+    grossProfit: z.number(),
+    grossMarginPct: z.number().nullable(),
+    invoiceCount: z.number().int(),
+    invoices: z.array(ProjectProfitabilityInvoiceSchema),
+  })
+  .passthrough();
+export type ProjectProfitability = z.infer<typeof ProjectProfitabilitySchema>;
+
+export const ProjectProfitabilityResponseSchema = z
+  .object({
+    profitability: ProjectProfitabilitySchema,
+  })
+  .passthrough();
+export type ProjectProfitabilityResponse = z.infer<typeof ProjectProfitabilityResponseSchema>;
+
 /* ────────── Analytics (Phase 4.2) ────────── */
 
 export const AgingBucketSchema = z
@@ -6273,5 +6318,4 @@ export const OAuthSweepResultSchema = z.object({
   reason: z.string().optional()
 });
 export type OAuthSweepResult = z.infer<typeof OAuthSweepResultSchema>;
-
 
