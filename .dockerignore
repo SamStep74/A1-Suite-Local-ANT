@@ -1,0 +1,49 @@
+# Ignore patterns for the A1 Suite Local ANT Docker build context.
+# Keep the image small and reproducible.
+
+# Build artefacts
+node_modules/
+**/node_modules/
+web-modern/dist/
+web-modern/.vite/
+
+# Local DBs, backups, logs
+*.db
+*.sqlite
+*.sqlite3
+backup/
+logs/
+*.log
+
+# Sovereignty / secret material — never bake into the image
+.env
+.env.local
+.env.*.local
+
+# Dev / editor
+.vscode/
+.idea/
+.DS_Store
+*.swp
+
+# Orchestration / handoff scratch
+.orchestration/
+output/
+reports/
+playwright-report/
+test-results/
+
+# Git / VCS
+.git/
+.gitignore
+.gitattributes
+
+# Docs / readmes (runtime doesn't need them)
+README.md
+DEPLOYMENT.md
+HANDOFF.md
+deep-research-report.md
+docs/
+
+# CI workflows (not needed at runtime)
+.github/
