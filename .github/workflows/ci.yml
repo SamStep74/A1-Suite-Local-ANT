@@ -18,6 +18,7 @@ jobs:
   # or running on samstep74 mirror until private Actions quota is
   # restored. See Issue #8.
   smoke:
+    if: false  # disabled 2026-06-21 — repo is private, local CI in ~/dev/armosphera/
     name: smoke (clone + version check)
     runs-on: ubuntu-latest
     timeout-minutes: 5
