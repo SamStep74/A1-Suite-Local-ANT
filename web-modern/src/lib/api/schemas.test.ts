@@ -36,6 +36,8 @@ import {
   StockMoveSchema,
   StockMovesResponseSchema,
   CreateStockMoveInputSchema,
+  ProjectTaskSchema,
+  ProjectDetailResponseSchema,
 } from "./schemas";
 
 const VALID_CASE = {
@@ -670,5 +672,61 @@ describe("Inventory schemas", () => {
       quantity: 5,
     });
     expect(r.success).toBe(false);
+  });
+});
+
+describe("Project task dependency schemas", () => {
+  it("accepts blockedBy and blocking task refs on project tasks", () => {
+    const r = ProjectTaskSchema.safeParse({
+      id: "t-2",
+      title: "Finalize implementation",
+      status: "in-progress",
+      assigneeEmployeeId: null,
+      dueDate: "2026-06-30",
+      updatedAt: "2026-06-20T10:00:00.000Z",
+      blockedBy: [{ id: "t-1", title: "Approve scope", status: "done" }],
+      blocking: [{ id: "t-3", title: "Deploy handoff", status: "todo" }],
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.blockedBy?.[0]?.title).toBe("Approve scope");
+      expect(r.data.blocking?.[0]?.status).toBe("todo");
+    }
+  });
+
+  it("parses project detail task dependency data", () => {
+    const r = ProjectDetailResponseSchema.safeParse({
+      project: {
+        id: "p-1",
+        name: "Alpha",
+        status: "active",
+        customerId: "c-1",
+        dealId: null,
+        startDate: "2026-01-01",
+        dueDate: "2026-06-30",
+        updatedAt: "2026-06-09T10:00:00Z",
+        taskTotal: 1,
+        taskDone: 0,
+        milestoneTotal: 0,
+        milestoneReached: 0,
+        totalMinutes: 0,
+        tasks: [
+          {
+            id: "t-2",
+            title: "Finalize implementation",
+            status: "in-progress",
+            blockedBy: [{ id: "t-1", title: "Approve scope", status: "done" }],
+            blocking: [],
+          },
+        ],
+        milestones: [],
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.project.tasks?.[0]?.blockedBy?.[0]?.id).toBe("t-1");
+    }
   });
 });

@@ -84,6 +84,157 @@ test("projects: full hierarchy — project + task + milestone + time entry with 
   } finally { await app.close(); }
 });
 
+test("projects: task dependencies serialize, dedupe, delete, and reject invalid graph links", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie: owner },
+      payload: { name: "Dependency graph project", status: "active" }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    const projectId = created.json().project.id;
+
+    const createTask = async title => {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/projects/${projectId}/tasks`,
+        headers: { cookie: owner },
+        payload: { title }
+      });
+      assert.strictEqual(response.statusCode, 200, response.body);
+      return response.json().project.tasks.find(task => task.title === title).id;
+    };
+    const designTaskId = await createTask("Design dependency flow");
+    const buildTaskId = await createTask("Build dependency flow");
+    const launchTaskId = await createTask("Launch dependency flow");
+
+    const added = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${buildTaskId}/dependencies`,
+      headers: { cookie: owner },
+      payload: { dependsOnTaskId: designTaskId }
+    });
+    assert.strictEqual(added.statusCode, 200, added.body);
+    assert.strictEqual(added.json().idempotent, false);
+    let tasks = added.json().project.tasks;
+    assert.deepStrictEqual(tasks.find(task => task.id === buildTaskId).blockedBy, [
+      { id: designTaskId, title: "Design dependency flow", status: "todo" }
+    ]);
+    assert.deepStrictEqual(tasks.find(task => task.id === designTaskId).blocking, [
+      { id: buildTaskId, title: "Build dependency flow", status: "todo" }
+    ]);
+    assert.deepStrictEqual(tasks.find(task => task.id === launchTaskId).blockedBy, []);
+    assert.deepStrictEqual(tasks.find(task => task.id === launchTaskId).blocking, []);
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${buildTaskId}/dependencies`,
+      headers: { cookie: owner },
+      payload: { dependsOnTaskId: designTaskId }
+    });
+    assert.strictEqual(duplicate.statusCode, 200, duplicate.body);
+    assert.strictEqual(duplicate.json().idempotent, true);
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM project_task_dependencies WHERE org_id = ? AND project_id = ?").get("org-armosphera-demo", projectId).count, 1);
+
+    const detail = await app.inject({ method: "GET", url: `/api/projects/${projectId}`, headers: { cookie: owner } });
+    assert.strictEqual(detail.statusCode, 200, detail.body);
+    tasks = detail.json().project.tasks;
+    assert.deepStrictEqual(tasks.find(task => task.id === buildTaskId).dependsOnTaskIds, [designTaskId]);
+    assert.deepStrictEqual(tasks.find(task => task.id === designTaskId).blockingTaskIds, [buildTaskId]);
+
+    const deleted = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${projectId}/tasks/${buildTaskId}/dependencies/${designTaskId}`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(deleted.statusCode, 200, deleted.body);
+    assert.deepStrictEqual(deleted.json().project.tasks.find(task => task.id === buildTaskId).blockedBy, []);
+    assert.deepStrictEqual(deleted.json().project.tasks.find(task => task.id === designTaskId).blocking, []);
+
+    const deleteAgain = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${projectId}/tasks/${buildTaskId}/dependencies/${designTaskId}`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(deleteAgain.statusCode, 200, deleteAgain.body);
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM project_task_dependencies WHERE org_id = ? AND project_id = ?").get("org-armosphera-demo", projectId).count, 0);
+
+    const self = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${buildTaskId}/dependencies`,
+      headers: { cookie: owner },
+      payload: { dependsOnTaskId: buildTaskId }
+    });
+    assert.strictEqual(self.statusCode, 400, self.body);
+
+    const missingTask = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/ptask-missing/dependencies`,
+      headers: { cookie: owner },
+      payload: { dependsOnTaskId: designTaskId }
+    });
+    assert.strictEqual(missingTask.statusCode, 404, missingTask.body);
+
+    const missingDependency = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${buildTaskId}/dependencies`,
+      headers: { cookie: owner },
+      payload: { dependsOnTaskId: "ptask-missing" }
+    });
+    assert.strictEqual(missingDependency.statusCode, 404, missingDependency.body);
+
+    const otherProject = (await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie: owner },
+      payload: { name: "Other dependency project" }
+    })).json().project.id;
+    const otherTask = await app.inject({
+      method: "POST",
+      url: `/api/projects/${otherProject}/tasks`,
+      headers: { cookie: owner },
+      payload: { title: "Other project dependency task" }
+    });
+    assert.strictEqual(otherTask.statusCode, 200, otherTask.body);
+    const otherTaskId = otherTask.json().project.tasks[0].id;
+    const wrongProjectDependency = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${buildTaskId}/dependencies`,
+      headers: { cookie: owner },
+      payload: { dependsOnTaskId: otherTaskId }
+    });
+    assert.strictEqual(wrongProjectDependency.statusCode, 404, wrongProjectDependency.body);
+
+    const edgeOne = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${buildTaskId}/dependencies`,
+      headers: { cookie: owner },
+      payload: { dependsOnTaskId: designTaskId }
+    });
+    assert.strictEqual(edgeOne.statusCode, 200, edgeOne.body);
+    const edgeTwo = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${launchTaskId}/dependencies`,
+      headers: { cookie: owner },
+      payload: { dependsOnTaskId: buildTaskId }
+    });
+    assert.strictEqual(edgeTwo.statusCode, 200, edgeTwo.body);
+    const cycle = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks/${designTaskId}/dependencies`,
+      headers: { cookie: owner },
+      payload: { dependsOnTaskId: launchTaskId }
+    });
+    assert.strictEqual(cycle.statusCode, 400, cycle.body);
+    assert.match(cycle.body, /cycle/i);
+  } finally { await app.close(); }
+});
+
 test("projects: rejects malformed metadata before persistence", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -92,6 +243,7 @@ test("projects: rejects malformed metadata before persistence", async () => {
     const counts = () => ({
       projects: app.db.prepare("SELECT COUNT(*) AS count FROM projects WHERE org_id = ?").get("org-armosphera-demo").count,
       tasks: app.db.prepare("SELECT COUNT(*) AS count FROM project_tasks WHERE org_id = ?").get("org-armosphera-demo").count,
+      dependencies: app.db.prepare("SELECT COUNT(*) AS count FROM project_task_dependencies WHERE org_id = ?").get("org-armosphera-demo").count,
       milestones: app.db.prepare("SELECT COUNT(*) AS count FROM project_milestones WHERE org_id = ?").get("org-armosphera-demo").count,
       timeEntries: app.db.prepare("SELECT COUNT(*) AS count FROM project_time_entries WHERE org_id = ?").get("org-armosphera-demo").count,
       audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type LIKE ?").get("org-armosphera-demo", "projects.%").count
@@ -181,6 +333,15 @@ test("projects: rejects malformed metadata before persistence", async () => {
       { dueDate: "2026-02-30" }
     ]) {
       await expectRejected("PATCH", `/api/projects/${projectId}/tasks/${taskId}`, payload);
+    }
+    for (const payload of [
+      ["secret-projects-dependency-array-token"],
+      { dependsOnTaskId: { value: taskId, token: "secret-projects-object-dependency-token" } },
+      { dependsOnTaskId: `badAsecret-projects-dependency-case-token` },
+      { dependsOnTaskId: `bad_secret-projects-dependency-underscore-token` },
+      { dependsOnTaskId: `${"a".repeat(161)}secret-projects-long-dependency-token` }
+    ]) {
+      await expectRejected("POST", `/api/projects/${projectId}/tasks/${taskId}/dependencies`, payload);
     }
     assert.deepStrictEqual(counts(), afterTaskCreate);
 
@@ -294,6 +455,7 @@ test("projects: malformed path ids are rejected before lifecycle side effects", 
     const counts = () => ({
       projects: app.db.prepare("SELECT COUNT(*) AS count FROM projects WHERE org_id = ?").get("org-armosphera-demo").count,
       tasks: app.db.prepare("SELECT COUNT(*) AS count FROM project_tasks WHERE org_id = ?").get("org-armosphera-demo").count,
+      dependencies: app.db.prepare("SELECT COUNT(*) AS count FROM project_task_dependencies WHERE org_id = ?").get("org-armosphera-demo").count,
       milestones: app.db.prepare("SELECT COUNT(*) AS count FROM project_milestones WHERE org_id = ?").get("org-armosphera-demo").count,
       timeEntries: app.db.prepare("SELECT COUNT(*) AS count FROM project_time_entries WHERE org_id = ?").get("org-armosphera-demo").count,
       audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type LIKE ?").get("org-armosphera-demo", "projects.%").count
@@ -326,6 +488,8 @@ test("projects: malformed path ids are rejected before lifecycle side effects", 
       { method: "POST", url: "/api/projects/badAsecret-projects-path-task-parent-token/tasks", payload: { title: "secret-projects-path-task-body-token" } },
       { method: "POST", url: "/api/projects/bad_secret-projects-path-milestone-parent-token/milestones", payload: { title: "secret-projects-path-milestone-body-token" } },
       { method: "POST", url: "/api/projects/badAsecret-projects-path-time-parent-token/time-entries", payload: { minutes: 30, note: "secret-projects-path-time-body-token" } },
+      { method: "POST", url: `/api/projects/badAsecret-projects-path-dependency-parent-token/tasks/${taskId}/dependencies`, payload: { dependsOnTaskId: taskId } },
+      { method: "DELETE", url: `/api/projects/bad_secret-projects-path-dependency-delete-parent-token/tasks/${taskId}/dependencies/${taskId}` },
       { method: "GET", url: "/api/projects/bad_secret-projects-path-preview-parent-token/billing-preview?hourlyRate=10000" },
       { method: "POST", url: "/api/projects/badAsecret-projects-path-bill-parent-token/bill-time", payload: { hourlyRate: 10000, issueDate: "2026-05-15", token: "secret-projects-path-bill-body-token" } },
       { method: "GET", url: `/api/projects/${"a".repeat(161)}`, statusCodes: [400, 404] },
@@ -333,6 +497,11 @@ test("projects: malformed path ids are rejected before lifecycle side effects", 
       { method: "POST", url: "/api/projects/%20%20/time-entries", payload: { minutes: 30, note: "secret-projects-path-encoded-time-body-token" } },
       { method: "PATCH", url: `/api/projects/${projectId}/tasks/badAsecret-projects-path-task-id-token`, payload: { status: "done" }, message: /Invalid project task id/ },
       { method: "PATCH", url: `/api/projects/${projectId}/tasks/bad%0Asecret-projects-path-task-control-token`, payload: { title: "secret-projects-path-task-encoded-body-token" }, message: /Invalid project task id/ },
+      { method: "POST", url: `/api/projects/${projectId}/tasks/badAsecret-projects-path-dependency-task-token/dependencies`, payload: { dependsOnTaskId: taskId }, message: /Invalid project task id/ },
+      { method: "DELETE", url: `/api/projects/${projectId}/tasks/bad_secret-projects-path-dependency-delete-task-token/dependencies/${taskId}`, message: /Invalid project task id/ },
+      { method: "POST", url: `/api/projects/${projectId}/tasks/${taskId}/dependencies`, payload: { dependsOnTaskId: "badAsecret-projects-path-dependency-body-token" }, message: /Invalid dependency task id/ },
+      { method: "DELETE", url: `/api/projects/${projectId}/tasks/${taskId}/dependencies/badAsecret-projects-path-dependency-id-token`, message: /Invalid dependency task id/ },
+      { method: "DELETE", url: `/api/projects/${projectId}/tasks/${taskId}/dependencies/%20%20`, message: /Invalid dependency task id/ },
       { method: "PATCH", url: `/api/projects/${projectId}/milestones/bad_secret-projects-path-milestone-id-token`, payload: { reached: true }, message: /Invalid project milestone id/ },
       { method: "PATCH", url: `/api/projects/${projectId}/milestones/%20%20`, payload: { title: "secret-projects-path-milestone-encoded-body-token" }, message: /Invalid project milestone id/ }
     ]) {
@@ -345,9 +514,15 @@ test("projects: malformed path ids are rejected before lifecycle side effects", 
       { method: "POST", url: "/api/projects/proj-missing/tasks", payload: { title: "secret-projects-path-missing-task-body-token" }, statusCode: 404 },
       { method: "POST", url: "/api/projects/proj-missing/milestones", payload: { title: "secret-projects-path-missing-milestone-body-token" }, statusCode: 404 },
       { method: "POST", url: "/api/projects/proj-missing/time-entries", payload: { minutes: 30, note: "secret-projects-path-missing-time-body-token" }, statusCode: 404 },
+      { method: "POST", url: `/api/projects/proj-missing/tasks/${taskId}/dependencies`, payload: { dependsOnTaskId: taskId }, statusCode: 404 },
+      { method: "DELETE", url: `/api/projects/proj-missing/tasks/${taskId}/dependencies/${taskId}`, statusCode: 404 },
       { method: "GET", url: "/api/projects/proj-missing/billing-preview?hourlyRate=10000", statusCode: 404 },
       { method: "POST", url: "/api/projects/proj-missing/bill-time", payload: { hourlyRate: 10000, issueDate: "2026-05-15", token: "secret-projects-path-missing-bill-body-token" }, statusCode: 404 },
       { method: "PATCH", url: `/api/projects/${projectId}/tasks/ptask-missing`, payload: { status: "done" }, statusCode: 404 },
+      { method: "POST", url: `/api/projects/${projectId}/tasks/ptask-missing/dependencies`, payload: { dependsOnTaskId: taskId }, statusCode: 404 },
+      { method: "POST", url: `/api/projects/${projectId}/tasks/${taskId}/dependencies`, payload: { dependsOnTaskId: "ptask-missing" }, statusCode: 404 },
+      { method: "DELETE", url: `/api/projects/${projectId}/tasks/ptask-missing/dependencies/${taskId}`, statusCode: 404 },
+      { method: "DELETE", url: `/api/projects/${projectId}/tasks/${taskId}/dependencies/ptask-missing`, statusCode: 404 },
       { method: "PATCH", url: `/api/projects/${projectId}/milestones/pms-missing`, payload: { reached: true }, statusCode: 404 }
     ]) {
       await expectRejected(request);
@@ -375,6 +550,23 @@ test("projects: write-gate (Auditor 403) and cross-org isolation (404)", async (
     const blocked = await app.inject({ method: "POST", url: "/api/projects", headers: { cookie: auditor }, payload: { name: "Should fail" } });
     assert.strictEqual(blocked.statusCode, 403);
 
+    const gateProject = (await app.inject({ method: "POST", url: "/api/projects", headers: { cookie: owner }, payload: { name: "Dependency gate project" } })).json().project.id;
+    const gateTaskA = (await app.inject({ method: "POST", url: `/api/projects/${gateProject}/tasks`, headers: { cookie: owner }, payload: { title: "Gate task A" } })).json().project.tasks[0].id;
+    const gateTaskB = (await app.inject({ method: "POST", url: `/api/projects/${gateProject}/tasks`, headers: { cookie: owner }, payload: { title: "Gate task B" } })).json().project.tasks.find(task => task.title === "Gate task B").id;
+    const auditorDependency = await app.inject({
+      method: "POST",
+      url: `/api/projects/${gateProject}/tasks/${gateTaskB}/dependencies`,
+      headers: { cookie: auditor },
+      payload: { dependsOnTaskId: gateTaskA }
+    });
+    assert.strictEqual(auditorDependency.statusCode, 403);
+    const auditorDeleteDependency = await app.inject({
+      method: "DELETE",
+      url: `/api/projects/${gateProject}/tasks/${gateTaskB}/dependencies/${gateTaskA}`,
+      headers: { cookie: auditor }
+    });
+    assert.strictEqual(auditorDeleteDependency.statusCode, 403);
+
     // Cross-org: seed a foreign project, confirm it's invisible + 404 on detail/mutate
     const now = new Date().toISOString();
     const otherOrgId = "org-other-proj";
@@ -383,6 +575,9 @@ test("projects: write-gate (Auditor 403) and cross-org isolation (404)", async (
     const foreignId = "proj-foreign-1";
     app.db.prepare(`INSERT INTO projects (id, org_id, name, description, status, customer_id, deal_id, start_date, due_date, created_at, updated_at)
       VALUES (?, ?, ?, '', 'active', NULL, NULL, '', '', ?, ?)`).run(foreignId, otherOrgId, "Foreign project", now, now);
+    const foreignTaskId = "ptask-foreign-1";
+    app.db.prepare(`INSERT INTO project_tasks (id, org_id, project_id, title, status, assignee_employee_id, due_date, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'todo', NULL, '', ?, ?)`).run(foreignTaskId, otherOrgId, foreignId, "Foreign dependency task", now, now);
 
     const list = (await app.inject({ method: "GET", url: "/api/projects", headers: { cookie: owner } })).json();
     assert.ok(!list.projects.some(p => p.id === foreignId), "foreign project leaked into owner list");
@@ -390,6 +585,20 @@ test("projects: write-gate (Auditor 403) and cross-org isolation (404)", async (
     assert.strictEqual(get.statusCode, 404);
     const addTask = await app.inject({ method: "POST", url: `/api/projects/${foreignId}/tasks`, headers: { cookie: owner }, payload: { title: "x" } });
     assert.strictEqual(addTask.statusCode, 404);
+    const addForeignDependency = await app.inject({
+      method: "POST",
+      url: `/api/projects/${gateProject}/tasks/${gateTaskB}/dependencies`,
+      headers: { cookie: owner },
+      payload: { dependsOnTaskId: foreignTaskId }
+    });
+    assert.strictEqual(addForeignDependency.statusCode, 404);
+    const mutateForeignDependencyProject = await app.inject({
+      method: "POST",
+      url: `/api/projects/${foreignId}/tasks/${foreignTaskId}/dependencies`,
+      headers: { cookie: owner },
+      payload: { dependsOnTaskId: gateTaskA }
+    });
+    assert.strictEqual(mutateForeignDependencyProject.statusCode, 404);
   } finally { await app.close(); }
 });
 

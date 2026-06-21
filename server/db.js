@@ -1676,6 +1676,21 @@ function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_project_tasks_project ON project_tasks(org_id, project_id, status);
 
+    CREATE TABLE IF NOT EXISTS project_task_dependencies (
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      task_id TEXT NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+      depends_on_task_id TEXT NOT NULL REFERENCES project_tasks(id) ON DELETE CASCADE,
+      created_at TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_project_task_dependencies_unique
+      ON project_task_dependencies(org_id, project_id, task_id, depends_on_task_id);
+    CREATE INDEX IF NOT EXISTS idx_project_task_dependencies_task
+      ON project_task_dependencies(org_id, project_id, task_id);
+    CREATE INDEX IF NOT EXISTS idx_project_task_dependencies_depends_on
+      ON project_task_dependencies(org_id, project_id, depends_on_task_id);
+
     CREATE TABLE IF NOT EXISTS project_milestones (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

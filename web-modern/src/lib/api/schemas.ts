@@ -1819,6 +1819,15 @@ export type ProjectStatus = z.infer<typeof ProjectStatusSchema>;
 export const TaskStatusSchema = z.enum(["todo", "in-progress", "done"]).or(z.string());
 export type TaskStatus = z.infer<typeof TaskStatusSchema>;
 
+export const ProjectTaskDependencyRefSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    status: TaskStatusSchema,
+  })
+  .passthrough();
+export type ProjectTaskDependencyRef = z.infer<typeof ProjectTaskDependencyRefSchema>;
+
 export const ProjectTaskSchema = z
   .object({
     id: z.string(),
@@ -1827,6 +1836,8 @@ export const ProjectTaskSchema = z
     assigneeEmployeeId: z.string().nullable().optional(),
     dueDate: z.string().nullable().optional(),
     updatedAt: z.string().optional(),
+    blockedBy: z.array(ProjectTaskDependencyRefSchema).optional(),
+    blocking: z.array(ProjectTaskDependencyRefSchema).optional(),
   })
   .passthrough();
 export type ProjectTask = z.infer<typeof ProjectTaskSchema>;
@@ -6318,4 +6329,3 @@ export const OAuthSweepResultSchema = z.object({
   reason: z.string().optional()
 });
 export type OAuthSweepResult = z.infer<typeof OAuthSweepResultSchema>;
-

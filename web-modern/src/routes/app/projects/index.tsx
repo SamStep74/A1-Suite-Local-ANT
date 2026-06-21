@@ -145,6 +145,18 @@ const TASK_TONE: Record<TaskTone, { bg: string; fg: string }> = {
   },
 };
 
+function blockedByLabel(task: ProjectTask) {
+  const blockers = task.blockedBy ?? [];
+  if (blockers.length === 0) return "—";
+  if (blockers.length === 1) return blockers[0].title;
+  return `${blockers[0].title} +${blockers.length - 1}`;
+}
+
+function blockedByTitle(task: ProjectTask) {
+  const blockers = task.blockedBy ?? [];
+  return blockers.map((b) => `${b.title} (${b.status})`).join(", ");
+}
+
 /* ────────── root component ────────── */
 
 function ProjectsWorkspace() {
@@ -480,19 +492,22 @@ function TasksView({
         data-entity="projects-task"
         data-count={String(tasks.length)}
       >
-        <table className="w-full text-[var(--text-sm)]" role="table">
+        <table className="w-full table-fixed text-[var(--text-sm)]" role="table">
           <thead className="bg-[var(--color-surface-soft)] text-[var(--text-xs)] uppercase tracking-wide text-[var(--color-muted)]">
             <tr>
-              <th scope="col" className="px-3 py-2 text-left font-semibold">
+              <th scope="col" className="w-[34%] px-3 py-2 text-left font-semibold">
                 Title
               </th>
-              <th scope="col" className="px-3 py-2 text-left font-semibold">
+              <th scope="col" className="w-[16%] px-3 py-2 text-left font-semibold">
                 Status
               </th>
-              <th scope="col" className="px-3 py-2 text-left font-semibold">
+              <th scope="col" className="w-[22%] px-3 py-2 text-left font-semibold">
+                Blocked by
+              </th>
+              <th scope="col" className="w-[14%] px-3 py-2 text-left font-semibold">
                 Assignee
               </th>
-              <th scope="col" className="px-3 py-2 text-left font-semibold">
+              <th scope="col" className="w-[14%] px-3 py-2 text-left font-semibold">
                 Due
               </th>
             </tr>
@@ -512,6 +527,11 @@ function TasksView({
                       )}
                     >
                       {classifyTaskStatus(t)}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 text-[var(--color-muted)]">
+                    <span className="block truncate" title={blockedByTitle(t) || undefined}>
+                      {blockedByLabel(t)}
                     </span>
                   </td>
                   <td className="px-3 py-2 font-mono text-[var(--color-muted)]">

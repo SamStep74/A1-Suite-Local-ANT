@@ -5417,6 +5417,44 @@ function registerApi(app, db, options = {}) {
     return { ok: true, project: getProject(db, user.org_id, project.id) };
   });
 
+  app.post("/api/projects/:id/tasks/:taskId/dependencies", async request => {
+    const user = await app.auth(request);
+    requireProjectsWriter(user);
+    const { project, task, dependsOnTask } = resolveProjectTaskDependencyContext(db, user.org_id, request, "body");
+    const existing = db.prepare(`
+      SELECT 1 FROM project_task_dependencies
+      WHERE org_id = ? AND project_id = ? AND task_id = ? AND depends_on_task_id = ?
+    `).get(user.org_id, project.id, task.id, dependsOnTask.id);
+    if (existing) {
+      return { ok: true, idempotent: true, project: getProject(db, user.org_id, project.id) };
+    }
+    if (wouldCreateProjectTaskDependencyCycle(db, user.org_id, project.id, task.id, dependsOnTask.id)) {
+      const err = new Error("Task dependency cycle detected");
+      err.statusCode = 400;
+      throw err;
+    }
+    db.prepare(`
+      INSERT INTO project_task_dependencies (org_id, project_id, task_id, depends_on_task_id, created_at)
+      VALUES (?, ?, ?, ?, ?)
+    `).run(user.org_id, project.id, task.id, dependsOnTask.id, new Date().toISOString());
+    audit(db, user.org_id, user.id, "projects.task.dependency.created", { projectId: project.id, taskId: task.id, dependsOnTaskId: dependsOnTask.id });
+    return { ok: true, idempotent: false, project: getProject(db, user.org_id, project.id) };
+  });
+
+  app.delete("/api/projects/:id/tasks/:taskId/dependencies/:dependsOnTaskId", async request => {
+    const user = await app.auth(request);
+    requireProjectsWriter(user);
+    const { project, task, dependsOnTask } = resolveProjectTaskDependencyContext(db, user.org_id, request, "path");
+    const result = db.prepare(`
+      DELETE FROM project_task_dependencies
+      WHERE org_id = ? AND project_id = ? AND task_id = ? AND depends_on_task_id = ?
+    `).run(user.org_id, project.id, task.id, dependsOnTask.id);
+    if (result.changes > 0) {
+      audit(db, user.org_id, user.id, "projects.task.dependency.deleted", { projectId: project.id, taskId: task.id, dependsOnTaskId: dependsOnTask.id });
+    }
+    return { ok: true, project: getProject(db, user.org_id, project.id) };
+  });
+
   app.patch("/api/projects/:id/tasks/:taskId", async request => {
     const user = await app.auth(request);
     requireProjectsWriter(user);
@@ -5704,7 +5742,7 @@ function registerApi(app, db, options = {}) {
 
   function normalizeProjectPathId(value, rawUrl = "") {
     const rawSegment = typeof rawUrl === "string"
-      ? rawUrl.match(/^\/api\/projects\/([^/?#]+)(?:\/(?:tasks(?:\/[^/?#]+)?|milestones(?:\/[^/?#]+)?|time-entries|billing-preview|bill-time|profitability))?(?:[?#]|$)/)?.[1]
+      ? rawUrl.match(/^\/api\/projects\/([^/?#]+)(?:\/(?:tasks(?:\/[^/?#]+(?:\/dependencies(?:\/[^/?#]+)?)?)?|milestones(?:\/[^/?#]+)?|time-entries|billing-preview|bill-time|profitability))?(?:[?#]|$)/)?.[1]
       : "";
     if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
       throwInvalidProjectPathId("Invalid project id");
@@ -5714,12 +5752,22 @@ function registerApi(app, db, options = {}) {
 
   function normalizeProjectTaskPathId(value, rawUrl = "") {
     const rawSegment = typeof rawUrl === "string"
-      ? rawUrl.match(/^\/api\/projects\/[^/?#]+\/tasks\/([^/?#]+)(?:[?#]|$)/)?.[1]
+      ? rawUrl.match(/^\/api\/projects\/[^/?#]+\/tasks\/([^/?#]+)(?:\/dependencies(?:\/[^/?#]+)?|[?#]|$)/)?.[1]
       : "";
     if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
       throwInvalidProjectPathId("Invalid project task id");
     }
     return normalizeProjectRouteId(value, "Invalid project task id");
+  }
+
+  function normalizeProjectDependencyPathId(value, rawUrl = "") {
+    const rawSegment = typeof rawUrl === "string"
+      ? rawUrl.match(/^\/api\/projects\/[^/?#]+\/tasks\/[^/?#]+\/dependencies\/([^/?#]+)(?:[?#]|$)/)?.[1]
+      : "";
+    if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+      throwInvalidProjectPathId("Invalid dependency task id");
+    }
+    return normalizeProjectRouteId(value, "Invalid dependency task id");
   }
 
   function normalizeProjectMilestonePathId(value, rawUrl = "") {
@@ -5747,6 +5795,53 @@ function registerApi(app, db, options = {}) {
     const err = new Error(message);
     err.statusCode = 400;
     throw err;
+  }
+
+  function resolveProjectTaskDependencyContext(db, orgId, request, dependencySource) {
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, orgId, projectId);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    const taskId = normalizeProjectTaskPathId(request.params.taskId, request.raw?.url);
+    const task = db.prepare("SELECT id, title, status FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(orgId, project.id, taskId);
+    if (!task) { const e = new Error("Task not found"); e.statusCode = 404; throw e; }
+    let dependsOnTaskId = "";
+    if (dependencySource === "path") {
+      dependsOnTaskId = normalizeProjectDependencyPathId(request.params.dependsOnTaskId, request.raw?.url);
+    } else {
+      const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
+      dependsOnTaskId = normalizeProjectRouteId(body.dependsOnTaskId, "Invalid dependency task id");
+    }
+    if (task.id === dependsOnTaskId) {
+      const e = new Error("Task cannot depend on itself");
+      e.statusCode = 400;
+      throw e;
+    }
+    const dependsOnTask = db.prepare("SELECT id, title, status FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(orgId, project.id, dependsOnTaskId);
+    if (!dependsOnTask) { const e = new Error("Dependency task not found"); e.statusCode = 404; throw e; }
+    return { project, task, dependsOnTask };
+  }
+
+  function wouldCreateProjectTaskDependencyCycle(db, orgId, projectId, taskId, dependsOnTaskId) {
+    const rows = db.prepare(`
+      SELECT task_id AS taskId, depends_on_task_id AS dependsOnTaskId
+      FROM project_task_dependencies
+      WHERE org_id = ? AND project_id = ?
+    `).all(orgId, projectId);
+    const dependencyMap = new Map();
+    for (const row of rows) {
+      if (!dependencyMap.has(row.taskId)) dependencyMap.set(row.taskId, []);
+      dependencyMap.get(row.taskId).push(row.dependsOnTaskId);
+    }
+    const seen = new Set();
+    const stack = [dependsOnTaskId];
+    while (stack.length > 0) {
+      const current = stack.pop();
+      if (current === taskId) return true;
+      if (seen.has(current)) continue;
+      seen.add(current);
+      for (const next of dependencyMap.get(current) || []) stack.push(next);
+    }
+    return false;
   }
 
   // Billing seam: preview the unbilled time on a project (minutes → hours → amount at a rate).
@@ -10128,6 +10223,43 @@ function getProject(db, orgId, id) {
   const project = db.prepare("SELECT id, name, description, status, customer_id AS customerId, deal_id AS dealId, start_date AS startDate, due_date AS dueDate, created_at AS createdAt, updated_at AS updatedAt FROM projects WHERE org_id = ? AND id = ?").get(orgId, String(id || ""));
   if (!project) return null;
   project.tasks = db.prepare("SELECT id, title, status, assignee_employee_id AS assigneeEmployeeId, due_date AS dueDate, updated_at AS updatedAt FROM project_tasks WHERE org_id = ? AND project_id = ? ORDER BY created_at").all(orgId, project.id);
+  const tasksById = new Map();
+  for (const task of project.tasks) {
+    task.blockedBy = [];
+    task.blocking = [];
+    task.dependsOnTaskIds = [];
+    task.blockingTaskIds = [];
+    tasksById.set(task.id, task);
+  }
+  const dependencies = db.prepare(`
+    SELECT
+      d.task_id AS taskId,
+      d.depends_on_task_id AS dependsOnTaskId,
+      blocked_by.title AS dependsOnTitle,
+      blocked_by.status AS dependsOnStatus,
+      blocking_task.title AS taskTitle,
+      blocking_task.status AS taskStatus
+    FROM project_task_dependencies d
+    JOIN project_tasks blocked_by
+      ON blocked_by.org_id = d.org_id
+      AND blocked_by.project_id = d.project_id
+      AND blocked_by.id = d.depends_on_task_id
+    JOIN project_tasks blocking_task
+      ON blocking_task.org_id = d.org_id
+      AND blocking_task.project_id = d.project_id
+      AND blocking_task.id = d.task_id
+    WHERE d.org_id = ? AND d.project_id = ?
+    ORDER BY d.created_at, d.task_id, d.depends_on_task_id
+  `).all(orgId, project.id);
+  for (const dependency of dependencies) {
+    const task = tasksById.get(dependency.taskId);
+    const dependsOnTask = tasksById.get(dependency.dependsOnTaskId);
+    if (!task || !dependsOnTask) continue;
+    task.blockedBy.push({ id: dependency.dependsOnTaskId, title: dependency.dependsOnTitle, status: dependency.dependsOnStatus });
+    task.dependsOnTaskIds.push(dependency.dependsOnTaskId);
+    dependsOnTask.blocking.push({ id: dependency.taskId, title: dependency.taskTitle, status: dependency.taskStatus });
+    dependsOnTask.blockingTaskIds.push(dependency.taskId);
+  }
   project.milestones = db.prepare("SELECT id, title, due_date AS dueDate, reached, updated_at AS updatedAt FROM project_milestones WHERE org_id = ? AND project_id = ? ORDER BY due_date, created_at").all(orgId, project.id);
   const totals = db.prepare("SELECT COALESCE(SUM(minutes), 0) AS totalMinutes, COUNT(*) AS entryCount FROM project_time_entries WHERE org_id = ? AND project_id = ?").get(orgId, project.id);
   project.totalMinutes = totals.totalMinutes;

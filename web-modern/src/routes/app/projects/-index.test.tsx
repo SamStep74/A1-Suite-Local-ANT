@@ -178,9 +178,9 @@ const DETAIL = {
     totalMinutes: 240,
     timeEntryCount: 4,
     tasks: [
-      { id: "t-1", title: "Do A", status: "done", assigneeEmployeeId: null, dueDate: null, updatedAt: "2026-06-01" },
+      { id: "t-1", title: "Do A", status: "done", assigneeEmployeeId: null, dueDate: null, updatedAt: "2026-06-01", blocking: [{ id: "t-3", title: "Do C", status: "in-progress" }] },
       { id: "t-2", title: "Do B", status: "todo", assigneeEmployeeId: null, dueDate: null, updatedAt: "2026-06-01" },
-      { id: "t-3", title: "Do C", status: "in-progress", assigneeEmployeeId: null, dueDate: null, updatedAt: "2026-06-01" },
+      { id: "t-3", title: "Do C", status: "in-progress", assigneeEmployeeId: null, dueDate: null, updatedAt: "2026-06-01", blockedBy: [{ id: "t-1", title: "Scope approval", status: "done" }] },
     ],
     milestones: [
       { id: "m-1", title: "Kickoff", dueDate: "2026-06-15", reached: 1, updatedAt: "2026-06-01" },
@@ -366,6 +366,15 @@ describe("Projects — Tasks view", () => {
     expect(screen.getByText("Do A")).toBeInTheDocument();
     expect(screen.getByText("Do B")).toBeInTheDocument();
     expect(screen.getByText("Do C")).toBeInTheDocument();
+  });
+  it("renders blocked-by dependency evidence", () => {
+    mocks.detail = DETAIL;
+    renderRoute();
+    const marker = document.querySelector('[data-entity="projects-task"]');
+    const table = marker?.querySelector("table");
+    const rows = within(table as HTMLElement).getAllByRole("row").slice(1);
+    expect(rows[0].textContent).toMatch(/Do C/);
+    expect(rows[0].textContent).toMatch(/Scope approval/);
   });
 });
 
