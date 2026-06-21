@@ -554,11 +554,13 @@ test.describe("Locale switching — Topbar dev switcher (10.7)", () => {
         "aria-pressed",
         "true",
       );
-      // Sanity: the storage key is set before reload.
-      const beforeReload = await page.evaluate(() =>
-        window.localStorage.getItem("a1:locale"),
-      );
-      expect(beforeReload).toBe("en");
+      // Sanity: the storage key is set before reload. Locale activation
+      // is asynchronous, so wait for the persisted value rather than
+      // sampling immediately after the click.
+      await expect.poll(
+        () => page.evaluate(() => window.localStorage.getItem("a1:locale")),
+        { timeout: 5_000 },
+      ).toBe("en");
 
       // Reload the page (drop the ?lang= override so localStorage
       // is the source of truth on the next page load — see
@@ -633,10 +635,10 @@ test.describe("Locale switching — Topbar dev switcher (10.7)", () => {
         "aria-pressed",
         "true",
       );
-      const htmlLangEn = await page.evaluate(
-        () => document.documentElement.lang,
-      );
-      expect(htmlLangEn).toBe("en");
+      await expect.poll(
+        () => page.evaluate(() => document.documentElement.lang),
+        { timeout: 5_000 },
+      ).toBe("en");
       // The Russian tab label is gone (no leftover ru string).
       await expect(page.getByRole("tab", { name: "Сводка" })).toHaveCount(0);
 

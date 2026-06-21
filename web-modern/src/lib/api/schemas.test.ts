@@ -29,6 +29,7 @@ import {
   CatalogCategorySchema,
   MarginRuleSchema,
   PriceListSchema,
+  PosPricePreviewSchema,
   StockBalanceSchema,
   StockLocationSchema,
   StockResponseSchema,
@@ -568,6 +569,52 @@ describe("CatalogItemSchema", () => {
       ],
     });
     expect(r.success).toBe(true);
+  });
+});
+
+describe("PosPricePreviewSchema", () => {
+  it("accepts /api/pos/workspace price previews with no variant selected", () => {
+    const r = PosPricePreviewSchema.safeParse({
+      catalogItemId: "catitem-pos-scanner",
+      catalogItemVariantId: null,
+      requestedCustomerSegment: "standard",
+      quantity: 1,
+      priceListId: "pl-standard",
+      priceListCode: "STANDARD-SALES",
+      priceListName: "Standard Sales",
+      customerSegment: "standard",
+      variantFallback: false,
+      itemType: "stockable",
+      catalogSku: "POS-SCANNER",
+      catalogName: "POS barcode scanner",
+      variantSku: null,
+      variantName: null,
+      minQuantity: 1,
+      listPrice: 25000,
+      discountPercent: 0,
+      discountAmount: 0,
+      netPrice: 25000,
+      standardCost: 16000,
+      marginAmount: 9000,
+      marginPercent: 36,
+      marginRuleCode: "HARDWARE-MIN-25",
+      minimumMarginPercent: 25,
+      targetMarginPercent: 35,
+      marginStatus: "ok",
+      currency: "AMD",
+    });
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.catalogItemVariantId).toBeNull();
+    }
+  });
+
+  it("rejects price previews without a catalog item id", () => {
+    const r = PosPricePreviewSchema.safeParse({
+      catalogItemVariantId: null,
+      netPrice: 25000,
+    });
+    expect(r.success).toBe(false);
   });
 });
 

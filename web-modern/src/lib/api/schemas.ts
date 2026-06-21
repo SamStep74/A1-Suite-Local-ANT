@@ -566,6 +566,39 @@ export const CatalogItemsResponseSchema = z.object({
 });
 export type CatalogItemsResponse = z.infer<typeof CatalogItemsResponseSchema>;
 
+/** POS price preview — the retail workspace's catalog-pricing snapshot.
+ *  Mirrors the catalog resolver shape used by /api/pos/workspace. */
+export const PosPricePreviewSchema = z.object({
+  catalogItemId: z.string(),
+  catalogItemVariantId: z.string().nullable().optional(),
+  requestedCustomerSegment: z.string().optional(),
+  quantity: z.number().optional(),
+  priceListId: z.string().optional(),
+  priceListCode: z.string().optional(),
+  priceListName: z.string().optional(),
+  customerSegment: z.string().optional(),
+  variantFallback: z.boolean().optional(),
+  itemType: z.string().optional(),
+  catalogSku: z.string().optional(),
+  catalogName: z.string().optional(),
+  variantSku: z.string().nullable().optional(),
+  variantName: z.string().nullable().optional(),
+  minQuantity: z.number().optional(),
+  listPrice: z.number().optional(),
+  discountPercent: z.number().optional(),
+  discountAmount: z.number().optional(),
+  netPrice: z.number().optional(),
+  standardCost: z.number().optional(),
+  marginAmount: z.number().optional(),
+  marginPercent: z.number().nullable().optional(),
+  marginRuleCode: z.string().optional(),
+  minimumMarginPercent: z.number().nullable().optional(),
+  targetMarginPercent: z.number().nullable().optional(),
+  marginStatus: z.string().optional(),
+  currency: z.string().optional(),
+}).passthrough();
+export type PosPricePreview = z.infer<typeof PosPricePreviewSchema>;
+
 /** Stock balance — a (catalogItemId, locationId) row.
  *  Source: /api/inventory/stock. */
 export const StockBalanceSchema = z.object({
@@ -6240,6 +6273,5 @@ export const OAuthSweepResultSchema = z.object({
   reason: z.string().optional()
 });
 export type OAuthSweepResult = z.infer<typeof OAuthSweepResultSchema>;
-
 
 

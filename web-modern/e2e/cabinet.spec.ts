@@ -90,9 +90,8 @@ test.describe("Cabinet — Phase 8.2 Pattern A skeleton", () => {
       // a single combined <form data-testid="cabinet-create-form">.
       const createForm = panel.getByTestId("cabinet-create-form");
       await expect(createForm).toBeVisible();
-      await expect(
-        createForm.getByRole("textbox", { name: /title/i }),
-      ).toBeVisible();
+      const title = createForm.getByRole("textbox", { name: /title/i });
+      await expect(title).toBeVisible();
       await expect(
         createForm.getByRole("combobox", { name: /direction/i }),
       ).toBeVisible();
@@ -100,13 +99,14 @@ test.describe("Cabinet — Phase 8.2 Pattern A skeleton", () => {
         createForm.getByRole("combobox", { name: /Document type/i }),
       ).toBeVisible();
       await expect(
-        createForm.getByRole("textbox", { name: /linked.?id/i }),
+        createForm.getByRole("textbox", { name: /Primary linked ID|linked.?id/i }),
       ).toBeVisible();
       await expect(
         createForm.getByRole("textbox", { name: /body/i }),
       ).toBeVisible();
-      const submit = createForm.getByRole("button", { name: /create|save|add/i });
+      const submit = createForm.getByTestId("cabinet-create-submit");
       await expect(submit).toBeVisible();
+      await title.fill("E2E cabinet doc");
       await expect(submit).toBeEnabled();
 
       // Back-link — every Pattern A app has a ChevronLeft link

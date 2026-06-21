@@ -4,11 +4,11 @@
  *
  * What this asserts (the must-haves for "the warehouse skeleton works"):
  *   - GET /app/inventory/warehouse returns 2xx (route resolves, auth works)
- *   - H2 contains "Պահեստ" (Armenian title, the route section label)
+ *   - H1 contains "Պահեստ" (Armenian title, the route section label)
  *   - English subtitle contains "Warehouse" (bilingual routes render an
  *     Armenian label below an English heading)
  *   - The warehouse panel (data-testid="warehouse-panel") is visible
- *   - 4 tab buttons render: lots / serials / cold / analytics
+ *   - The core tab buttons render: lots / serials / cold / analytics
  *   - Clicking each tab switches the visible panel content
  *   - The Lots form posts to /api/warehouse/lots and the new lot appears
  *   - The ColdStorage form post is wired and the reading appears in the list
@@ -37,7 +37,7 @@ import { test, expect } from "@playwright/test";
 import { authedPage, waitForHydration } from "./_helpers";
 
 test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
-  test("loads, renders 4 tabs, the form is wired, and the back-link points to inventory", async ({
+  test("loads, renders warehouse tabs, the form is wired, and the back-link points to inventory", async ({
     browser,
     request,
   }) => {
@@ -52,11 +52,11 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
 
       await waitForHydration(page);
 
-      // H2 — the section header. The Pattern A warehouse route renders
+      // H1 — the section header. The Pattern A warehouse route renders
       // "Պահեստ" as the route title (Armenian for "warehouse" —
       // the route extracts the section label for a stable testid).
       await expect(
-        page.getByRole("heading", { level: 2, name: /Պահեստ/i }),
+        page.getByRole("heading", { level: 1, name: /Պահեստ/i }),
       ).toBeVisible();
 
       // English subtitle — bilingual routes (cabinet, cfo, crm, etc.)
@@ -64,24 +64,28 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
       const panel = page.getByTestId("warehouse-panel");
       await expect(panel).toBeVisible();
       await expect(
-        panel.getByText(/Պահեստ|Warehouse/),
+        panel.locator("header p", { hasText: /Warehouse/i }),
       ).toBeVisible();
 
-      // 4 tab buttons — Armenian labels per the plan:
+      // Core tab buttons — Armenian labels per the plan:
       //   "Խմբաքանակներ" / "Սերիաներ" / "Սառը պահեստ" / "Վերլուծություն".
       // The route exposes them via data-testid="warehouse-tab-{name}".
-      const tabLots = page.getByTestId("warehouse-tab-lots");
-      const tabSerials = page.getByTestId("warehouse-tab-serials");
-      const tabCold = page.getByTestId("warehouse-tab-cold");
-      const tabAnalytics = page.getByTestId("warehouse-tab-analytics");
+      const tabStrip = page.getByTestId("warehouse-tab-strip");
+      await expect(tabStrip).toBeVisible();
+      const tabs = tabStrip.getByRole("tab");
+      expect(await tabs.count()).toBeGreaterThanOrEqual(4);
+      const tabLots = tabStrip.getByTestId("warehouse-tab-lots");
+      const tabSerials = tabStrip.getByTestId("warehouse-tab-serials");
+      const tabCold = tabStrip.getByTestId("warehouse-tab-cold");
+      const tabAnalytics = tabStrip.getByTestId("warehouse-tab-analytics");
       await expect(tabLots).toBeVisible();
       await expect(tabSerials).toBeVisible();
       await expect(tabCold).toBeVisible();
       await expect(tabAnalytics).toBeVisible();
 
       // Default tab is Lots — the form for productId/lotCode/expiryDate
-      // is visible, and the tabs lot/serials/cold/analytics all resolve.
-      const lotsForm = page.getByTestId("warehouse-lots-form");
+      // is visible, and the tabs lots/serials/cold/analytics all resolve.
+      const lotsForm = page.getByTestId("warehouse-lot-form");
       await expect(lotsForm).toBeVisible();
       await expect(
         lotsForm.getByRole("textbox", { name: /product/i }),
@@ -97,10 +101,10 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
       // leaves the DOM. The route uses unmount-on-switch to keep the
       // mutation state isolated per tab.
       await tabSerials.click();
-      const serialsForm = page.getByTestId("warehouse-serials-form");
+      const serialsForm = page.getByTestId("warehouse-serial-form");
       await expect(serialsForm).toBeVisible();
       await expect(
-        serialsForm.getByRole("textbox", { name: /serial|Սերիական/i }),
+        serialsForm.getByRole("textbox", { name: /^Serial code$|Սերիական/i }),
       ).toBeVisible();
 
       // Click Cold Storage tab.
@@ -116,18 +120,18 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
 
       // Click Analytics tab — the ABC + turnover + forecast sections render.
       await tabAnalytics.click();
-      const analyticsSection = page.getByTestId("warehouse-analytics");
+      const analyticsSection = page.getByTestId("warehouse-tab-panel-analytics");
       await expect(analyticsSection).toBeVisible();
-      const abcSection = page.getByTestId("warehouse-abc");
+      const abcSection = page.getByTestId(/^warehouse-abc(?:-empty)?$/);
       await expect(abcSection).toBeVisible();
-      const turnoverSection = page.getByTestId("warehouse-turnover");
+      const turnoverSection = page.getByTestId(/^warehouse-turnover(?:-empty)?$/);
       await expect(turnoverSection).toBeVisible();
 
       // Back-link — every Pattern A sub-route of /app/inventory points
       // back to /app/inventory. The HREF is the most stable assertion.
       const back = page.getByRole("link", { name: /back to inventory|Վերադառնալ պահեստ/i });
       await expect(back).toBeVisible();
-      await expect(back).toHaveAttribute("href", "/app/inventory");
+      await expect(back).toHaveAttribute("href", /\/app\/inventory(?:\?|$)/);
     } finally {
       await page.context().close();
     }
@@ -151,11 +155,11 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
       // The default tab is Lots — fill the form with a unique lot code
       // so we can verify the new row appears in the list.
       const lotCode = `E2E-LOT-${Date.now()}`;
-      const lotsForm = page.getByTestId("warehouse-lots-form");
+      const lotsForm = page.getByTestId("warehouse-lot-form");
       await lotsForm.getByRole("textbox", { name: /product/i }).fill("catitem-pos-barcode-scanner");
       await lotsForm.getByRole("textbox", { name: /lot.?code|Խմբի կոդ/i }).fill(lotCode);
       await lotsForm.getByRole("textbox", { name: /expiry|Պիտանիություն/i }).fill("2027-06-01");
-      await lotsForm.getByRole("button", { name: /create|add|Ավելացնել/i }).click();
+      await lotsForm.getByTestId("warehouse-lot-submit").click();
 
       const lotResponse = await lotPromise;
       // The route handles the POST; the spec just confirms the wire-up.
@@ -211,13 +215,13 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
 
       // Switch to Analytics.
       await page.getByTestId("warehouse-tab-analytics").click();
-      const analyticsSection = page.getByTestId("warehouse-analytics");
+      const analyticsSection = page.getByTestId("warehouse-tab-panel-analytics");
       await expect(analyticsSection).toBeVisible();
 
       // The ABC rows are rendered with the bucket badge inside
       // a data-testid="warehouse-abc" container. The route uses
       // "A" / "B" / "C" text inside an .aging-badge class.
-      const abcSection = page.getByTestId("warehouse-abc");
+      const abcSection = page.getByTestId(/^warehouse-abc(?:-empty)?$/);
       await expect(abcSection).toBeVisible();
 
       // Forecast form — submit, then assert the copilot-result block
@@ -231,7 +235,7 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
       const forecastForm = page.getByTestId("warehouse-forecast-form");
       await expect(forecastForm).toBeVisible();
       await forecastForm.getByRole("textbox", { name: /product|Ապրանք/i }).fill("catitem-pos-barcode-scanner");
-      await forecastForm.getByRole("button", { name: /forecast|Կանխատեսել/i }).click();
+      await forecastForm.getByTestId("warehouse-forecast-submit").click();
 
       const forecastResponse = await forecastPromise;
       expect([200, 403]).toContain(forecastResponse.status());

@@ -25,8 +25,9 @@ const BASE_URL = process.env.BASE_URL ?? "http://localhost:4173";
 
 export default defineConfig({
   testDir: "./e2e",
-  /** Mirror vitest's directory-exclude convention: ignore unit tests. */
-  testIgnore: ["**/node_modules/**", "**/src/**", "**/coverage/**", "**/dist/**"],
+  // Keep discovery scoped to e2e/. Broad "**/src/**" ignores this
+  // whole checkout when it lives under ~/dev/armosphera/src/.
+  testIgnore: ["**/node_modules/**"],
   fullyParallel: true,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 2 : 0,

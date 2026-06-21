@@ -51,11 +51,12 @@ test.describe("i18n canary — analytics route under each locale (10.3)", () => 
       await expect(
         page.getByRole("heading", { name: "Analytics", level: 1 }),
       ).toBeVisible({ timeout: 10_000 });
-      // The 5 tab labels are all extracted messages; all 5
-      // tabs should be in the tablist.
+      // The tab labels are all extracted messages. Keep this canary
+      // tolerant of product views added after the source locale ships;
+      // route-level tests own the exact view count.
       const tablist = page.getByRole("tablist", { name: "View" });
       const tabs = await tablist.getByRole("tab").all();
-      expect(tabs.length).toBe(5);
+      expect(tabs.length).toBeGreaterThanOrEqual(5);
       // The page should be live (html lang is set by I18nProvider).
       const htmlLang = await page.evaluate(() => document.documentElement.lang);
       expect(htmlLang).toBe("en");
