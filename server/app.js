@@ -206,6 +206,9 @@ function buildApp(options = {}) {
   registerApi(app, db, { ...options, env });
   registerStatic(app);
   require("./localizationRoutes").registerLocalizationRoutes(app);
+  app.setNotFoundHandler((request, reply) => {
+    reply.code(404).send({ statusCode: 404, error: "Not Found", message: "Route not found" });
+  });
 
   app.addHook("onClose", () => {
     if (!options.db && typeof db.close === "function") db.close();
@@ -52732,6 +52735,14 @@ function getStockMoves(db, orgId, filters = {}) {
       source_locations.location_type AS source_location_type,
       destination_locations.code AS destination_location_code, destination_locations.name AS destination_location_name,
       destination_locations.location_type AS destination_location_type,
+      valuation_journal.id AS valuation_journal_id,
+      valuation_journal.entry_date AS valuation_entry_date,
+      valuation_journal.debit_code AS valuation_debit_code,
+      valuation_journal.credit_code AS valuation_credit_code,
+      valuation_journal.amount AS valuation_amount,
+      valuation_journal.source_type AS valuation_source_type,
+      valuation_journal.source_id AS valuation_source_id,
+      valuation_journal.period_key AS valuation_period_key,
       users.name AS created_by_name
     FROM stock_moves
     JOIN catalog_items ON catalog_items.id = stock_moves.catalog_item_id
@@ -52740,6 +52751,11 @@ function getStockMoves(db, orgId, filters = {}) {
       AND source_locations.org_id = stock_moves.org_id
     LEFT JOIN stock_locations AS destination_locations ON destination_locations.id = stock_moves.destination_location_id
       AND destination_locations.org_id = stock_moves.org_id
+    LEFT JOIN ledger_journal AS valuation_journal ON valuation_journal.org_id = stock_moves.org_id
+      AND valuation_journal.source_type = 'stock_move_valuation'
+      AND valuation_journal.source_id = stock_moves.id
+      AND valuation_journal.debit_code = '711'
+      AND valuation_journal.credit_code = '216'
     LEFT JOIN users ON users.id = stock_moves.created_by_user_id
     WHERE ${where.join(" AND ")}
     ORDER BY stock_moves.created_at DESC, stock_moves.id DESC
@@ -52753,6 +52769,14 @@ function getStockMove(db, orgId, moveId) {
       source_locations.location_type AS source_location_type,
       destination_locations.code AS destination_location_code, destination_locations.name AS destination_location_name,
       destination_locations.location_type AS destination_location_type,
+      valuation_journal.id AS valuation_journal_id,
+      valuation_journal.entry_date AS valuation_entry_date,
+      valuation_journal.debit_code AS valuation_debit_code,
+      valuation_journal.credit_code AS valuation_credit_code,
+      valuation_journal.amount AS valuation_amount,
+      valuation_journal.source_type AS valuation_source_type,
+      valuation_journal.source_id AS valuation_source_id,
+      valuation_journal.period_key AS valuation_period_key,
       users.name AS created_by_name
     FROM stock_moves
     JOIN catalog_items ON catalog_items.id = stock_moves.catalog_item_id
@@ -52761,6 +52785,11 @@ function getStockMove(db, orgId, moveId) {
       AND source_locations.org_id = stock_moves.org_id
     LEFT JOIN stock_locations AS destination_locations ON destination_locations.id = stock_moves.destination_location_id
       AND destination_locations.org_id = stock_moves.org_id
+    LEFT JOIN ledger_journal AS valuation_journal ON valuation_journal.org_id = stock_moves.org_id
+      AND valuation_journal.source_type = 'stock_move_valuation'
+      AND valuation_journal.source_id = stock_moves.id
+      AND valuation_journal.debit_code = '711'
+      AND valuation_journal.credit_code = '216'
     LEFT JOIN users ON users.id = stock_moves.created_by_user_id
     WHERE stock_moves.org_id = ? AND stock_moves.id = ?
   `).get(orgId, moveId);
@@ -52788,9 +52817,24 @@ function formatStockMove(row) {
     status: row.status,
     reason: row.reason,
     reference: row.reference,
+    valuationPosting: formatStockMoveValuationPosting(row),
     createdByUserId: row.created_by_user_id,
     createdByName: row.created_by_name || "",
     createdAt: row.created_at
+  };
+}
+
+function formatStockMoveValuationPosting(row) {
+  if (!row.valuation_journal_id) return null;
+  return {
+    id: row.valuation_journal_id,
+    sourceType: row.valuation_source_type,
+    sourceId: row.valuation_source_id,
+    periodKey: row.valuation_period_key,
+    entryDate: row.valuation_entry_date,
+    debitCode: row.valuation_debit_code,
+    creditCode: row.valuation_credit_code,
+    amount: row.valuation_amount
   };
 }
 
@@ -52853,6 +52897,7 @@ function createStockMoveFromInput(db, user, input) {
   );
   if (isInternalStockLocation(sourceLocation)) adjustStockQuant(db, user.org_id, item.id, sourceLocation.id, -input.quantity, unitCost, now);
   if (isInternalStockLocation(destinationLocation)) adjustStockQuant(db, user.org_id, item.id, destinationLocation.id, input.quantity, unitCost, now);
+  postStockMoveValuation(db, user.org_id, moveId, now, sourceLocation, destinationLocation, totalCost);
   emitSuiteEvent(db, {
     orgId: user.org_id,
     actorUserId: user.id,
@@ -52888,6 +52933,25 @@ function requireDefaultStockLocation(db, orgId, code) {
 
 function isInternalStockLocation(location) {
   return Boolean(location && location.locationType === "internal");
+}
+
+function isVirtualCogsDestination(location) {
+  return Boolean(location && ["customer", "scrap"].includes(location.locationType));
+}
+
+function postStockMoveValuation(db, orgId, moveId, createdAt, sourceLocation, destinationLocation, totalCost) {
+  if (!isInternalStockLocation(sourceLocation) || !isVirtualCogsDestination(destinationLocation) || totalCost <= 0) return null;
+  const periodKey = createdAt.slice(0, 7);
+  return ledger.postEntry(db, orgId, {
+    date: createdAt,
+    debitCode: "711",
+    creditCode: "216",
+    amount: totalCost,
+    memo: `Stock move valuation ${moveId}`,
+    sourceType: "stock_move_valuation",
+    sourceId: moveId,
+    periodKey
+  });
 }
 
 function resolveStockMoveUnitCost(db, orgId, item, input, sourceLocation) {

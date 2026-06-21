@@ -23,6 +23,39 @@ function readStock(app, orgId, catalogItemId, locationId) {
   return row || { quantity: 0, reservedQuantity: 0, averageCost: 0 };
 }
 
+function setFinancePeriodStatus(app, orgId, periodKey, status) {
+  const [year, month] = periodKey.split("-").map(Number);
+  const endsOn = `${periodKey}-${String(new Date(Date.UTC(year, month, 0)).getUTCDate()).padStart(2, "0")}`;
+  const now = new Date().toISOString();
+  const existing = app.db.prepare("SELECT id FROM finance_periods WHERE org_id = ? AND period_key = ?").get(orgId, periodKey);
+  if (existing) {
+    app.db.prepare(`
+      UPDATE finance_periods
+      SET status = ?, closed_at = ?, closed_by_user_id = NULL, reason = ?, updated_at = ?
+      WHERE org_id = ? AND period_key = ?
+    `).run(status, status === "closed" ? now : null, `Inventory valuation test ${status}`, now, orgId, periodKey);
+    return;
+  }
+  app.db.prepare(`
+    INSERT INTO finance_periods (
+      id, org_id, period_key, starts_on, ends_on, status, closed_at,
+      closed_by_user_id, reason, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, NULL, ?, ?, ?)
+  `).run(
+    `period-inventory-${periodKey}`,
+    orgId,
+    periodKey,
+    `${periodKey}-01`,
+    endsOn,
+    status,
+    status === "closed" ? now : null,
+    `Inventory valuation test ${status}`,
+    now,
+    now
+  );
+}
+
 test("inventory: seeded stock ledger is auth-gated, role-scoped, and backup-scoped", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -88,10 +121,18 @@ test("inventory: posting stock moves updates internal balances with virtual endp
     await app.ready();
     const accountant = await login(app, "accountant@armosphera.local");
     const orgId = "org-armosphera-demo";
+    const currentPeriodKey = new Date().toISOString().slice(0, 7);
+    setFinancePeriodStatus(app, orgId, currentPeriodKey, "open");
+    const valuationCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = 'stock_move_valuation'
+    `).get(orgId).count;
     const counts = () => ({
       moves: app.db.prepare("SELECT COUNT(*) AS count FROM stock_moves WHERE org_id = ?").get(orgId).count,
       audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?").get(orgId, "inventory.stock_move.posted").count,
-      events: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE org_id = ? AND event_type = ?").get(orgId, "inventory.stock_move.posted").count
+      events: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE org_id = ? AND event_type = ?").get(orgId, "inventory.stock_move.posted").count,
+      valuationRows: valuationCount()
     });
 
     const before = counts();
@@ -122,6 +163,7 @@ test("inventory: posting stock moves updates internal balances with virtual endp
     assert.equal(move.unitCost, 62000);
     assert.equal(move.totalCost, 310000);
     assert.equal(move.status, "posted");
+    assert.equal(move.valuationPosting, null);
     assert.equal(readStock(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity, 7);
     assert.equal(readStock(app, orgId, "catitem-pos-barcode-scanner", "stockloc-dispatch-staging").quantity, 5);
     assert.equal(readStock(app, orgId, "catitem-pos-barcode-scanner", "stockloc-dispatch-staging").averageCost, 62000);
@@ -148,6 +190,7 @@ test("inventory: posting stock moves updates internal balances with virtual endp
     assert.equal(adjustment.json().move.destinationLocationCode, "WH/OUT");
     assert.equal(adjustment.json().move.unitCost, 65000);
     assert.equal(adjustment.json().move.totalCost, 195000);
+    assert.equal(adjustment.json().move.valuationPosting, null);
     assert.equal(readStock(app, orgId, "catitem-pos-barcode-scanner", "stockloc-dispatch-staging").quantity, 8);
     assert.equal(readStock(app, orgId, "catitem-pos-barcode-scanner", "stockloc-dispatch-staging").averageCost, 63125);
 
@@ -169,12 +212,29 @@ test("inventory: posting stock moves updates internal balances with virtual endp
     assert.equal(delivery.json().move.destinationLocationType, "customer");
     assert.equal(delivery.json().move.unitCost, 63125);
     assert.equal(delivery.json().move.totalCost, 126250);
+    const deliveryMove = delivery.json().move;
+    assert.match(deliveryMove.valuationPosting.id, /^jrn-/);
+    assert.equal(deliveryMove.valuationPosting.sourceType, "stock_move_valuation");
+    assert.equal(deliveryMove.valuationPosting.sourceId, deliveryMove.id);
+    assert.equal(deliveryMove.valuationPosting.periodKey, currentPeriodKey);
+    assert.equal(deliveryMove.valuationPosting.entryDate, deliveryMove.createdAt.slice(0, 10));
+    assert.equal(deliveryMove.valuationPosting.debitCode, "711");
+    assert.equal(deliveryMove.valuationPosting.creditCode, "216");
+    assert.equal(deliveryMove.valuationPosting.amount, 126250);
+    const journal = app.db.prepare(`
+      SELECT debit_code AS debitCode, credit_code AS creditCode, amount, period_key AS periodKey
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = 'stock_move_valuation' AND source_id = ?
+    `).get(orgId, deliveryMove.id);
+    assert.deepEqual({ ...journal }, { debitCode: "711", creditCode: "216", amount: 126250, periodKey: currentPeriodKey });
     assert.equal(readStock(app, orgId, "catitem-pos-barcode-scanner", "stockloc-dispatch-staging").quantity, 6);
     assert.equal(readStock(app, orgId, "catitem-pos-barcode-scanner", "stockloc-customer").quantity, 0);
     assert.equal(counts().moves, before.moves + 3);
     assert.equal(counts().audits, before.audits + 3);
     assert.equal(counts().events, before.events + 3);
+    assert.equal(counts().valuationRows, before.valuationRows + 1);
 
+    const observedValuationCount = valuationCount();
     const filteredMoves = await app.inject({
       method: "GET",
       url: "/api/inventory/moves?locationId=stockloc-dispatch-staging",
@@ -183,7 +243,58 @@ test("inventory: posting stock moves updates internal balances with virtual endp
     assert.equal(filteredMoves.statusCode, 200, filteredMoves.body);
     assert.ok(filteredMoves.json().moves.some(row => row.id === move.id));
     assert.ok(filteredMoves.json().moves.some(row => row.id === adjustment.json().move.id));
-    assert.ok(filteredMoves.json().moves.some(row => row.id === delivery.json().move.id));
+    const observedDelivery = filteredMoves.json().moves.find(row => row.id === deliveryMove.id);
+    assert.ok(observedDelivery);
+    assert.deepEqual(observedDelivery.valuationPosting, deliveryMove.valuationPosting);
+
+    const observedAgain = await app.inject({
+      method: "GET",
+      url: "/api/inventory/moves?locationId=stockloc-dispatch-staging",
+      headers: { cookie: accountant }
+    });
+    assert.equal(observedAgain.statusCode, 200, observedAgain.body);
+    assert.equal(valuationCount(), observedValuationCount);
+  } finally {
+    await app.close();
+  }
+});
+
+test("inventory: closed valuation period rejects outbound move and rolls back quantity", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const accountant = await login(app, "accountant@armosphera.local");
+    const orgId = "org-armosphera-demo";
+    const currentPeriodKey = new Date().toISOString().slice(0, 7);
+    setFinancePeriodStatus(app, orgId, currentPeriodKey, "closed");
+    const counts = () => ({
+      moves: app.db.prepare("SELECT COUNT(*) AS count FROM stock_moves WHERE org_id = ?").get(orgId).count,
+      valuationRows: app.db.prepare(`
+        SELECT COUNT(*) AS count
+        FROM ledger_journal
+        WHERE org_id = ? AND source_type = 'stock_move_valuation'
+      `).get(orgId).count,
+      mainStock: readStock(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity
+    });
+    const before = counts();
+
+    const response = await app.inject({
+      method: "POST",
+      url: "/api/inventory/moves",
+      headers: { cookie: accountant },
+      payload: {
+        catalogItemId: "catitem-pos-barcode-scanner",
+        sourceLocationId: "stockloc-main-warehouse",
+        destinationLocationId: "stockloc-customer",
+        moveType: "delivery",
+        quantity: 1,
+        reason: "Closed period valuation rollback check.",
+        reference: "DELIVERY-CLOSED-PERIOD"
+      }
+    });
+    assert.equal(response.statusCode, 409, response.body);
+    assert.match(response.body, /closed|PERIOD_LOCKED/);
+    assert.deepEqual(counts(), before);
   } finally {
     await app.close();
   }
