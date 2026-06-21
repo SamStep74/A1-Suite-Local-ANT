@@ -1,22 +1,3 @@
-# CI for A1 Suite Local ANT.
-#
-# **Currently disabled — see Issue #8.**
-#
-# Background: as of 2026-06-21, GitHub Actions CI on this private repo
-# fails with `steps=0` for every job, AND additional pre-existing
-# failures with 119/861 tests missing modules. Public sibling repos
-# (e.g. `autoresearch-sboss`, `A1-Localization-AM`) run fine with the
-# same setup. Root cause appears to be account-level + missing
-# web-modern devDeps, not the original code.
-#
-# Workaround: disable CI to avoid wasting runner minutes on
-# guaranteed-fail runs. Local development can run tests directly
-# (`npm test`, `npm run karpathy:eval`).
-#
-# To re-enable: restore the original 3-job workflow once both
-# the private Actions quota and the web-modern devDeps issues
-# are resolved.
-
 name: CI
 
 on:
@@ -32,13 +13,36 @@ permissions:
   contents: read
 
 jobs:
-  placeholder:
-    name: ci-placeholder (disabled, see Issue #8)
+  # Lightweight smoke (replaces heavy build-test).
+  # Heavy verification (npm test, build, e2e) requires manual trigger
+  # or running on samstep74 mirror until private Actions quota is
+  # restored. See Issue #8.
+  smoke:
+    name: smoke (clone + version check)
     runs-on: ubuntu-latest
+    timeout-minutes: 5
     steps:
-      - name: CI currently disabled
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22.13.0'
+
+      - name: Echo repo info
         run: |
-          echo "CI is disabled on this private repo as of 2026-06-21."
-          echo "See https://github.com/Armosphera/A1-Suite-Local-ANT/issues/8"
-          echo "Public sibling repos (autoresearch-sboss, A1-Localization-AM) CI works fine."
-          exit 0
+          echo "Repo: ${{ github.repository }}"
+          echo "Branch: ${{ github.ref }}"
+          echo "Commit: ${{ github.sha }}"
+          echo "Node: $(node --version)"
+          echo "Files in root:"
+          ls -la
+
+      - name: Verify package.json
+        run: |
+          echo "Name: $(node -p "require('./package.json').name")"
+          echo "Version: $(node -p "require('./package.json').version")"
+          echo "Engines: $(node -p "JSON.stringify(require('./package.json').engines)")"
+          echo "Karpathy lanes:"
+          ls evals/karpathy/ 2>/dev/null || echo "(none)"
