@@ -81,10 +81,9 @@ test("owner login loads organization, app launcher, localization, and audit", as
     const body = response.json();
     assert.equal(body.organization.currency, "AMD");
     assert.equal(body.organization.locale, "hy-AM");
-    // Phase 10 (M14.1–M14.4) adds the smb-crm app to the suite
-    // launcher, so the count is 15 (14 + smb-crm). The order of
-    // finance/copilot/inventory/purchase is unchanged.
-    assert.equal(body.apps.length, 15);
+    // Phase 10 added smb-crm; Slice 420 adds the POS cash-session app.
+    // The order of finance/copilot/inventory/purchase is unchanged.
+    assert.equal(body.apps.length, 16);
     assert.ok(body.apps.some(app => app.id === "finance"));
     assert.ok(body.apps.some(app => app.id === "copilot"));
     assert.ok(body.apps.some(app => app.id === "inventory"));
@@ -376,9 +375,9 @@ test("role-based app entitlements hide finance from support users", async () => 
 test("expanded Armenia SaaS roles receive least-privilege app entitlements", async () => {
   await withApp(async app => {
     const roles = [
-      ["accountant@armosphera.local", "Accountant", ["finance", "copilot", "inventory", "purchase", "docs", "analytics", "cfo"]],
+      ["accountant@armosphera.local", "Accountant", ["finance", "copilot", "inventory", "purchase", "pos", "docs", "analytics", "cfo"]],
       ["lawyer@armosphera.local", "Lawyer", ["copilot", "docs", "analytics"]],
-      ["sales@armosphera.local", "Salesperson", ["crm", "copilot", "campaigns", "docs", "analytics"]],
+      ["sales@armosphera.local", "Salesperson", ["crm", "copilot", "campaigns", "pos", "docs", "analytics"]],
       ["service.manager@armosphera.local", "Service Manager", ["crm", "copilot", "desk", "docs", "analytics", "flow"]],
       ["auditor@armosphera.local", "Auditor", ["copilot", "docs", "analytics"]]
     ];

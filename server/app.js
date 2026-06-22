@@ -27,7 +27,8 @@ const SERVICE_DISPATCH_ALERT_KINDS = ["overdue-window", "active-route", "due-soo
 const PURCHASE_PRICE_EXPIRING_SOON_DAYS = 14;
 const APP_ASSIGNMENT_ROLE_GUARDS = {
   inventory: new Set(["Owner", "Admin", "Operator", "Accountant"]),
-  purchase: new Set(["Owner", "Admin", "Operator", "Accountant"])
+  purchase: new Set(["Owner", "Admin", "Operator", "Accountant"]),
+  pos: new Set(["Owner", "Admin", "Operator", "Accountant", "Salesperson"])
 };
 const ANALYTICS_REPORT_METRICS = {
   owner: [
@@ -265,7 +266,7 @@ function registerApi(app, db, options = {}) {
     version: "0.1.0",
     locale: "hy-AM",
     dataRegion: "Armenia hosted / private tenant ready",
-    modules: ["suite", "crm", "finance", "desk", "campaigns", "projects", "inventory", "people", "docs", "analytics", "flow"],
+    modules: ["suite", "crm", "finance", "desk", "campaigns", "projects", "inventory", "pos", "people", "docs", "analytics", "flow"],
     platformTenant: publicPlatformTenantSummary(request.a1Tenant, env)
   }));
 
@@ -650,6 +651,38 @@ function registerApi(app, db, options = {}) {
     requireInventoryWriter(user);
     const move = createStockMove(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, move, stock: getStockQuants(db, user.org_id, { catalogItemId: move.catalogItemId }) };
+  });
+
+  app.get("/api/pos/workspace", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosReader(user);
+    return getPosWorkspace(db, user);
+  });
+
+  app.get("/api/pos/cash-sessions", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosReader(user);
+    const filters = normalizePosCashSessionQuery(request.query || {});
+    return { sessions: getPosCashSessions(db, user.org_id, filters) };
+  });
+
+  app.post("/api/pos/cash-sessions", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosWriter(user);
+    const session = createPosCashSession(db, user, request.body === undefined ? {} : request.body);
+    return { ok: true, session };
+  });
+
+  app.post("/api/pos/cash-sessions/:id/close", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosWriter(user);
+    const sessionId = normalizePosCashSessionPathId(request.params.id);
+    const session = closePosCashSession(db, user, sessionId, request.body === undefined ? {} : request.body);
+    return { ok: true, session };
   });
 
   app.post("/api/warehouse/lots", async request => {
@@ -12498,6 +12531,22 @@ function requireInventoryReader(user) {
 function requireInventoryWriter(user) {
   if (!["Owner", "Admin", "Operator", "Accountant"].includes(user.role)) {
     const err = new Error("Inventory writer role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requirePosReader(user) {
+  if (!["Owner", "Admin", "Operator", "Accountant", "Salesperson"].includes(user.role)) {
+    const err = new Error("POS reader role required");
+    err.statusCode = 403;
+    throw err;
+  }
+}
+
+function requirePosWriter(user) {
+  if (!["Owner", "Admin", "Operator", "Accountant", "Salesperson"].includes(user.role)) {
+    const err = new Error("POS writer role required");
     err.statusCode = 403;
     throw err;
   }
@@ -46708,6 +46757,7 @@ const ORG_BACKUP_TABLES = [
   "catalog_price_lists",
   "catalog_price_list_items",
   "catalog_margin_rules",
+  "pos_cash_sessions",
   "stock_locations",
   "stock_quants",
   "stock_moves",
@@ -54446,6 +54496,439 @@ function throwStockLocationNotFound() {
 
 function throwInvalidInventoryMetadata() {
   const err = new Error("Inventory request requires safe metadata");
+  err.statusCode = 400;
+  throw err;
+}
+
+function getPosWorkspace(db, user) {
+  const sessions = getPosCashSessions(db, user.org_id, { limit: 25 });
+  const activeFiscalCatalogItems = getCatalogItems(db, user.org_id, { status: "active" })
+    .filter(item => item.fiscalReceiptRequired);
+  const activeStockLocations = getStockLocations(db, user.org_id)
+    .filter(location => location.status === "active" && location.locationType === "internal");
+  return {
+    openSession: getOpenPosCashSession(db, user.org_id, user.id),
+    sessions,
+    catalogItems: activeFiscalCatalogItems,
+    activeFiscalCatalogItems,
+    activeStockLocations,
+    fiscalCatalogItems: activeFiscalCatalogItems,
+    stockLocations: activeStockLocations,
+    fiscalCloseoutLabels: {
+      fiscalDeviceId: "Fiscal device id",
+      zReportNumber: "Fiscal Z-report number",
+      receiptNumberStart: "Receipt range start",
+      receiptNumberEnd: "Receipt range end",
+      receiptRangeStart: "Receipt range start",
+      receiptRangeEnd: "Receipt range end",
+      countedCash: "Counted AMD cash",
+      closeNote: "Closeout note"
+    },
+    evidenceMetadata: {
+      requiresFiscalDeviceId: true,
+      requiresZReportNumber: true,
+      requiresReceiptRange: true,
+      expectedCashBasis: "opening-cash-only",
+      currency: "AMD"
+    },
+    capabilityStatus: {
+      salePosting: "not-implemented",
+      refunds: "not-implemented",
+      offlineReplay: "not-implemented",
+      receiptPrinting: "not-implemented",
+      inventoryPosting: "not-implemented",
+      ledgerPosting: "not-implemented"
+    }
+  };
+}
+
+function getOpenPosCashSession(db, orgId, cashierUserId) {
+  const row = selectPosCashSessionRows(db, orgId, "pos_cash_sessions.status = 'open' AND pos_cash_sessions.cashier_user_id = ?", [cashierUserId], 1)[0];
+  return row ? formatPosCashSession(row) : null;
+}
+
+function getPosCashSessions(db, orgId, filters = {}) {
+  const where = [];
+  const params = [];
+  if (filters.status) {
+    where.push("pos_cash_sessions.status = ?");
+    params.push(filters.status);
+  }
+  const limit = Number.isSafeInteger(filters.limit) ? filters.limit : 50;
+  return selectPosCashSessionRows(db, orgId, where.join(" AND "), params, limit).map(formatPosCashSession);
+}
+
+function getPosCashSession(db, orgId, sessionId) {
+  const row = selectPosCashSessionRows(db, orgId, "pos_cash_sessions.id = ?", [sessionId], 1)[0];
+  return row ? formatPosCashSession(row) : null;
+}
+
+function getPosCashSessionRow(db, orgId, sessionId) {
+  return selectPosCashSessionRows(db, orgId, "pos_cash_sessions.id = ?", [sessionId], 1)[0] || null;
+}
+
+function selectPosCashSessionRows(db, orgId, extraWhere = "", extraParams = [], limit = 50) {
+  const where = ["pos_cash_sessions.org_id = ?"];
+  const params = [orgId];
+  if (extraWhere) {
+    where.push(extraWhere);
+    params.push(...extraParams);
+  }
+  return db.prepare(`
+    SELECT pos_cash_sessions.*,
+      cashier.name AS cashier_name,
+      cashier.email AS cashier_email,
+      stock_locations.code AS stock_location_code,
+      stock_locations.name AS stock_location_name,
+      stock_locations.location_type AS stock_location_type,
+      created_by.name AS created_by_name,
+      updated_by.name AS updated_by_name
+    FROM pos_cash_sessions
+    JOIN users AS cashier ON cashier.id = pos_cash_sessions.cashier_user_id
+      AND cashier.org_id = pos_cash_sessions.org_id
+    JOIN stock_locations ON stock_locations.id = pos_cash_sessions.stock_location_id
+      AND stock_locations.org_id = pos_cash_sessions.org_id
+    LEFT JOIN users AS created_by ON created_by.id = pos_cash_sessions.created_by_user_id
+    LEFT JOIN users AS updated_by ON updated_by.id = pos_cash_sessions.updated_by_user_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY pos_cash_sessions.status = 'closed', pos_cash_sessions.opened_at DESC, pos_cash_sessions.id DESC
+    LIMIT ?
+  `).all(...params, limit);
+}
+
+function createPosCashSession(db, user, body) {
+  const input = normalizePosCashSessionOpenBody(body, user);
+  if (input.cashierUserId !== user.id && !["Owner", "Admin"].includes(user.role)) {
+    const err = new Error("Only Owner/Admin can open POS cash sessions for another cashier");
+    err.statusCode = 403;
+    throw err;
+  }
+  const cashier = assertPosCashier(db, user.org_id, input.cashierUserId);
+  const stockLocation = getStockLocation(db, user.org_id, input.stockLocationId);
+  if (!stockLocation || stockLocation.status !== "active") throwPosStockLocationNotFound();
+  if (stockLocation.locationType !== "internal") throwInvalidPosMetadata();
+
+  const openRegister = db.prepare(`
+    SELECT id
+    FROM pos_cash_sessions
+    WHERE org_id = ? AND stock_location_id = ? AND register_code = ? AND status = 'open'
+    LIMIT 1
+  `).get(user.org_id, stockLocation.id, input.registerCode);
+  if (openRegister) {
+    const err = new Error("POS register already has an open cash session");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  const now = new Date().toISOString();
+  const sessionId = randomId("pos-session");
+  db.prepare(`
+    INSERT INTO pos_cash_sessions (
+      id, org_id, cashier_user_id, stock_location_id, register_code, status,
+      opening_cash_amd, expected_cash_amd, counted_cash_amd, cash_difference_amd,
+      currency, opened_at, closed_at, fiscal_device_id, z_report_number,
+      receipt_number_start, receipt_number_end, close_note, created_by_user_id,
+      updated_by_user_id, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, NULL, ?, '', '', '', '', ?, ?, ?, ?)
+  `).run(
+    sessionId,
+    user.org_id,
+    cashier.id,
+    stockLocation.id,
+    input.registerCode,
+    "open",
+    input.openingCash,
+    input.openingCash,
+    input.currency,
+    input.openedAt || now,
+    input.fiscalDeviceId,
+    user.id,
+    user.id,
+    now,
+    now
+  );
+  emitSuiteEvent(db, {
+    orgId: user.org_id,
+    actorUserId: user.id,
+    eventType: "pos.cash_session.opened",
+    subjectType: "pos_cash_session",
+    subjectId: sessionId,
+    status: "open",
+    payload: {
+      cashierUserId: cashier.id,
+      stockLocationId: stockLocation.id,
+      registerCode: input.registerCode,
+      expectedCashBasis: "opening-cash-only"
+    }
+  });
+  audit(db, user.org_id, user.id, "pos.cash_session.opened", {
+    sessionId,
+    cashierUserId: cashier.id,
+    stockLocationId: stockLocation.id,
+    registerCode: input.registerCode
+  });
+  return getPosCashSession(db, user.org_id, sessionId);
+}
+
+function closePosCashSession(db, user, sessionId, body) {
+  const session = getPosCashSessionRow(db, user.org_id, sessionId);
+  if (!session) throwPosCashSessionNotFound();
+  if (session.status === "closed") {
+    const err = new Error("POS cash session is already closed");
+    err.statusCode = 409;
+    throw err;
+  }
+  const input = normalizePosCashSessionCloseBody(body, session);
+  const expectedCash = Number(session.opening_cash_amd || 0);
+  const cashDifference = input.countedCash - expectedCash;
+  const now = new Date().toISOString();
+  const info = db.prepare(`
+    UPDATE pos_cash_sessions
+    SET status = 'closed',
+      expected_cash_amd = ?,
+      counted_cash_amd = ?,
+      cash_difference_amd = ?,
+      closed_at = ?,
+      fiscal_device_id = ?,
+      z_report_number = ?,
+      receipt_number_start = ?,
+      receipt_number_end = ?,
+      close_note = ?,
+      updated_by_user_id = ?,
+      updated_at = ?
+    WHERE org_id = ? AND id = ? AND status = 'open'
+  `).run(
+    expectedCash,
+    input.countedCash,
+    cashDifference,
+    input.closedAt || now,
+    input.fiscalDeviceId,
+    input.zReportNumber,
+    input.receiptNumberStart,
+    input.receiptNumberEnd,
+    input.closeNote,
+    user.id,
+    now,
+    user.org_id,
+    sessionId
+  );
+  if (info.changes === 0) {
+    const err = new Error("POS cash session is already closed");
+    err.statusCode = 409;
+    throw err;
+  }
+  emitSuiteEvent(db, {
+    orgId: user.org_id,
+    actorUserId: user.id,
+    eventType: "pos.cash_session.closed",
+    subjectType: "pos_cash_session",
+    subjectId: sessionId,
+    status: "closed",
+    payload: {
+      cashierUserId: session.cashier_user_id,
+      stockLocationId: session.stock_location_id,
+      registerCode: session.register_code,
+      zReportNumber: input.zReportNumber,
+      expectedCashBasis: "opening-cash-only"
+    }
+  });
+  audit(db, user.org_id, user.id, "pos.cash_session.closed", {
+    sessionId,
+    zReportNumber: input.zReportNumber,
+    receiptNumberStart: input.receiptNumberStart,
+    receiptNumberEnd: input.receiptNumberEnd
+  });
+  return getPosCashSession(db, user.org_id, sessionId);
+}
+
+function formatPosCashSession(row) {
+  return {
+    id: row.id,
+    cashierUserId: row.cashier_user_id,
+    cashierName: row.cashier_name || "",
+    cashierEmail: row.cashier_email || "",
+    stockLocationId: row.stock_location_id,
+    stockLocationCode: row.stock_location_code || "",
+    stockLocationName: row.stock_location_name || "",
+    stockLocationType: row.stock_location_type || "",
+    registerCode: row.register_code,
+    status: row.status,
+    openingCash: row.opening_cash_amd,
+    expectedCash: row.expected_cash_amd,
+    countedCash: row.counted_cash_amd,
+    cashDifference: row.cash_difference_amd,
+    currency: row.currency,
+    openedAt: row.opened_at,
+    closedAt: row.closed_at || "",
+    fiscalDeviceId: row.fiscal_device_id || "",
+    zReportNumber: row.z_report_number || "",
+    receiptNumberStart: row.receipt_number_start || "",
+    receiptNumberEnd: row.receipt_number_end || "",
+    receiptRangeStart: row.receipt_number_start || "",
+    receiptRangeEnd: row.receipt_number_end || "",
+    closeNote: row.close_note || "",
+    expectedCashBasis: "opening-cash-only",
+    postings: {
+      salePosting: "not-posted",
+      inventoryPosting: "not-posted",
+      ledgerPosting: "not-posted"
+    },
+    createdByUserId: row.created_by_user_id || "",
+    createdByName: row.created_by_name || "",
+    updatedByUserId: row.updated_by_user_id || "",
+    updatedByName: row.updated_by_name || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function normalizePosCashSessionQuery(query) {
+  const status = normalizePosQueryChoice(query, "status", ["open", "closed"]);
+  return {
+    status,
+    limit: normalizePosQueryInteger(query, "limit", { fallback: 50, min: 1, max: 100 })
+  };
+}
+
+function normalizePosCashSessionOpenBody(body, user) {
+  if (!isPlainObject(body)) throwInvalidPosMetadata();
+  return {
+    cashierUserId: normalizePosText(body, "cashierUserId", { fallback: user.id, required: false, idLike: true, maxLength: 160 }),
+    stockLocationId: normalizePosText(body, "stockLocationId", { required: true, idLike: true, maxLength: 160 }),
+    registerCode: normalizePosRegisterCode(body, "registerCode"),
+    openingCash: normalizePosMoney(body, "openingCash", { required: true, min: 0, max: 100000000000 }),
+    currency: normalizePosCurrency(body, "currency", "AMD"),
+    openedAt: normalizePosTimestamp(body, "openedAt", ""),
+    fiscalDeviceId: normalizePosText(body, "fiscalDeviceId", { fallback: "", maxLength: 120 })
+  };
+}
+
+function normalizePosCashSessionCloseBody(body, session) {
+  if (!isPlainObject(body)) throwInvalidPosMetadata();
+  const fiscalDeviceId = normalizePosText(body, "fiscalDeviceId", { fallback: session.fiscal_device_id || "", maxLength: 120 });
+  if (!fiscalDeviceId) throwInvalidPosMetadata();
+  return {
+    countedCash: normalizePosMoney(body, "countedCash", { required: true, min: 0, max: 100000000000 }),
+    fiscalDeviceId,
+    zReportNumber: normalizePosText(body, "zReportNumber", { required: true, minLength: 1, maxLength: 120 }),
+    receiptNumberStart: normalizePosTextAlias(body, ["receiptNumberStart", "receiptRangeStart"], { required: true, minLength: 1, maxLength: 120 }),
+    receiptNumberEnd: normalizePosTextAlias(body, ["receiptNumberEnd", "receiptRangeEnd"], { required: true, minLength: 1, maxLength: 120 }),
+    closeNote: normalizePosText(body, "closeNote", { fallback: "", maxLength: 500 }),
+    closedAt: normalizePosTimestamp(body, "closedAt", "")
+  };
+}
+
+function normalizePosTextAlias(body, fields, options = {}) {
+  for (const field of fields) {
+    const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+    if (value !== undefined && value !== "") return normalizePosText(body, field, options);
+  }
+  return normalizePosText(body, fields[0], options);
+}
+
+function normalizePosText(body, field, options = {}) {
+  const { required = false, fallback = "", minLength = 0, maxLength = 200, idLike = false } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidPosMetadata();
+    return String(fallback || "").trim();
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
+  const text = value.trim();
+  if (text.length < minLength || text.length > maxLength) throwInvalidPosMetadata();
+  if (idLike && text && !/^[a-z0-9-]+$/.test(text)) throwInvalidPosMetadata();
+  return text;
+}
+
+function normalizePosRegisterCode(body, field) {
+  const value = normalizePosText(body, field, { required: true, minLength: 1, maxLength: 80 });
+  const code = value.toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9._/-]{0,79}$/.test(code)) throwInvalidPosMetadata();
+  return code;
+}
+
+function normalizePosCurrency(body, field, fallback) {
+  const value = normalizePosText(body, field, { fallback, maxLength: 3 }).toUpperCase();
+  if (value !== "AMD") throwInvalidPosMetadata();
+  return value;
+}
+
+function normalizePosMoney(body, field, options = {}) {
+  const { required = false, min = 0, max = 1000000000000 } = options;
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidPosMetadata();
+    return 0;
+  }
+  return toStoredMoneyInput(value, throwInvalidPosMetadata, { min, max, positive: min > 0, zeroSubunitFraction: "none" });
+}
+
+function normalizePosTimestamp(body, field, fallback) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return fallback;
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
+  const date = new Date(value.trim());
+  if (!Number.isFinite(date.valueOf())) throwInvalidPosMetadata();
+  return date.toISOString();
+}
+
+function normalizePosQueryChoice(query, field, allowed) {
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
+  const text = value.trim();
+  if (!allowed.includes(text)) throwInvalidPosMetadata();
+  return text;
+}
+
+function normalizePosQueryInteger(query, field, options = {}) {
+  const { fallback = 50, min = 1, max = 100 } = options;
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return fallback;
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
+  if (!/^\d+$/.test(value.trim())) throwInvalidPosMetadata();
+  const number = Number(value.trim());
+  if (!Number.isSafeInteger(number) || number < min || number > max) throwInvalidPosMetadata();
+  return number;
+}
+
+function normalizePosCashSessionPathId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) throwInvalidPosMetadata();
+  return text;
+}
+
+function assertPosCashier(db, orgId, userId) {
+  const row = db.prepare("SELECT id, role FROM users WHERE org_id = ? AND id = ?").get(orgId, userId);
+  if (!row) {
+    const err = new Error("POS cashier not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (!APP_ASSIGNMENT_ROLE_GUARDS.pos.has(row.role)) {
+    const err = new Error("POS cashier role required");
+    err.statusCode = 422;
+    throw err;
+  }
+  return row;
+}
+
+function throwPosStockLocationNotFound() {
+  const err = new Error("POS stock location not found");
+  err.statusCode = 404;
+  throw err;
+}
+
+function throwPosCashSessionNotFound() {
+  const err = new Error("POS cash session not found");
+  err.statusCode = 404;
+  throw err;
+}
+
+function throwInvalidPosMetadata() {
+  const err = new Error("POS request requires safe metadata");
   err.statusCode = 400;
   throw err;
 }

@@ -20,6 +20,7 @@ import { Route as AppTriageInboxIndexRouteImport } from './routes/app/triage-inb
 import { Route as AppSmbCrmIndexRouteImport } from './routes/app/smb-crm/index'
 import { Route as AppPurchaseIndexRouteImport } from './routes/app/purchase/index'
 import { Route as AppProjectsIndexRouteImport } from './routes/app/projects/index'
+import { Route as AppPosIndexRouteImport } from './routes/app/pos/index'
 import { Route as AppPeriodCloseIndexRouteImport } from './routes/app/period-close/index'
 import { Route as AppPeopleIndexRouteImport } from './routes/app/people/index'
 import { Route as AppInventoryIndexRouteImport } from './routes/app/inventory/index'
@@ -131,6 +132,11 @@ const AppPurchaseIndexRoute = AppPurchaseIndexRouteImport.update({
 const AppProjectsIndexRoute = AppProjectsIndexRouteImport.update({
   id: '/projects/',
   path: '/projects/',
+  getParentRoute: () => AppRouteRoute,
+} as any)
+const AppPosIndexRoute = AppPosIndexRouteImport.update({
+  id: '/pos/',
+  path: '/pos/',
   getParentRoute: () => AppRouteRoute,
 } as any)
 const AppPeriodCloseIndexRoute = AppPeriodCloseIndexRouteImport.update({
@@ -478,6 +484,7 @@ export interface FileRoutesByFullPath {
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/period-close/': typeof AppPeriodCloseIndexRoute
+  '/app/pos/': typeof AppPosIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/smb-crm/': typeof AppSmbCrmIndexRoute
@@ -546,6 +553,7 @@ export interface FileRoutesByTo {
   '/app/inventory': typeof AppInventoryIndexRoute
   '/app/people': typeof AppPeopleIndexRoute
   '/app/period-close': typeof AppPeriodCloseIndexRoute
+  '/app/pos': typeof AppPosIndexRoute
   '/app/projects': typeof AppProjectsIndexRoute
   '/app/purchase': typeof AppPurchaseIndexRoute
   '/app/smb-crm': typeof AppSmbCrmIndexRoute
@@ -617,6 +625,7 @@ export interface FileRoutesById {
   '/app/inventory/': typeof AppInventoryIndexRoute
   '/app/people/': typeof AppPeopleIndexRoute
   '/app/period-close/': typeof AppPeriodCloseIndexRoute
+  '/app/pos/': typeof AppPosIndexRoute
   '/app/projects/': typeof AppProjectsIndexRoute
   '/app/purchase/': typeof AppPurchaseIndexRoute
   '/app/smb-crm/': typeof AppSmbCrmIndexRoute
@@ -689,6 +698,7 @@ export interface FileRouteTypes {
     | '/app/inventory/'
     | '/app/people/'
     | '/app/period-close/'
+    | '/app/pos/'
     | '/app/projects/'
     | '/app/purchase/'
     | '/app/smb-crm/'
@@ -757,6 +767,7 @@ export interface FileRouteTypes {
     | '/app/inventory'
     | '/app/people'
     | '/app/period-close'
+    | '/app/pos'
     | '/app/projects'
     | '/app/purchase'
     | '/app/smb-crm'
@@ -827,6 +838,7 @@ export interface FileRouteTypes {
     | '/app/inventory/'
     | '/app/people/'
     | '/app/period-close/'
+    | '/app/pos/'
     | '/app/projects/'
     | '/app/purchase/'
     | '/app/smb-crm/'
@@ -937,6 +949,13 @@ declare module '@tanstack/react-router' {
       path: '/projects'
       fullPath: '/app/projects/'
       preLoaderRoute: typeof AppProjectsIndexRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
+    '/app/pos/': {
+      id: '/app/pos/'
+      path: '/pos'
+      fullPath: '/app/pos/'
+      preLoaderRoute: typeof AppPosIndexRouteImport
       parentRoute: typeof AppRouteRoute
     }
     '/app/period-close/': {
@@ -1395,6 +1414,7 @@ interface AppRouteRouteChildren {
   AppInventoryIndexRoute: typeof AppInventoryIndexRoute
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppPeriodCloseIndexRoute: typeof AppPeriodCloseIndexRoute
+  AppPosIndexRoute: typeof AppPosIndexRoute
   AppProjectsIndexRoute: typeof AppProjectsIndexRoute
   AppPurchaseIndexRoute: typeof AppPurchaseIndexRoute
   AppSmbCrmIndexRoute: typeof AppSmbCrmIndexRoute
@@ -1459,6 +1479,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppInventoryIndexRoute: AppInventoryIndexRoute,
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppPeriodCloseIndexRoute: AppPeriodCloseIndexRoute,
+  AppPosIndexRoute: AppPosIndexRoute,
   AppProjectsIndexRoute: AppProjectsIndexRoute,
   AppPurchaseIndexRoute: AppPurchaseIndexRoute,
   AppSmbCrmIndexRoute: AppSmbCrmIndexRoute,

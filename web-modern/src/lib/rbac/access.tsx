@@ -25,6 +25,7 @@ export type GateableAppId =
   | "crm"
   | "crm-tube"
   | "finance"
+  | "pos"
   | "copilot"
   | "desk"
   | "campaigns"
@@ -50,6 +51,7 @@ const DEFAULT_ACCESS: UserAccessMap = {
   crm: true,
   "crm-tube": true,
   finance: true,
+  pos: true,
   copilot: true,
   desk: true,
   campaigns: true,

@@ -642,6 +642,43 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_stock_locations_status
       ON stock_locations(org_id, status, location_type);
 
+    CREATE TABLE IF NOT EXISTS pos_cash_sessions (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      cashier_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      stock_location_id TEXT NOT NULL REFERENCES stock_locations(id) ON DELETE RESTRICT,
+      register_code TEXT NOT NULL,
+      status TEXT NOT NULL,
+      opening_cash_amd INTEGER NOT NULL,
+      expected_cash_amd INTEGER NOT NULL DEFAULT 0,
+      counted_cash_amd INTEGER,
+      cash_difference_amd INTEGER,
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      opened_at TEXT NOT NULL,
+      closed_at TEXT,
+      fiscal_device_id TEXT NOT NULL DEFAULT '',
+      z_report_number TEXT NOT NULL DEFAULT '',
+      receipt_number_start TEXT NOT NULL DEFAULT '',
+      receipt_number_end TEXT NOT NULL DEFAULT '',
+      close_note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      updated_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pos_cash_sessions_status
+      ON pos_cash_sessions(org_id, status, opened_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_cash_sessions_cashier
+      ON pos_cash_sessions(org_id, cashier_user_id, status, opened_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_cash_sessions_register
+      ON pos_cash_sessions(org_id, stock_location_id, register_code, status);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_cash_sessions_z_report
+      ON pos_cash_sessions(org_id, z_report_number);
+
     CREATE TABLE IF NOT EXISTS stock_quants (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -7672,11 +7709,12 @@ function seedIfEmpty(db) {
     ["projects", "Projects", "Operations", "Client projects, tasks, milestones, time entries, and delivery state.", "/app/projects", "new", 6],
     ["inventory", "Catalog & Inventory", "Operations", "Products, warehouse balances, stock locations, and governed stock moves.", "/app/inventory", "new", 7],
     ["purchase", "Purchase", "Operations", "RFQs, purchase orders, stock receipts, and AP vendor-bill handoff.", "/app/purchase", "new", 8],
-    ["people", "People", "HR", "Employee directory, onboarding, app access, leave-lite, and payroll handoff.", "/app/people", "new", 9],
-    ["docs", "Docs & Sign", "Documents", "Templates, contracts, signatures, signed archive, and customer documents.", "/app/docs", "new", 10],
-    ["analytics", "Analytics", "BI", "Cross-app dashboards, revenue, receivables, service, and automation KPIs.", "/app/analytics", "partial", 11],
-    ["flow", "Flow & Creator", "Automation", "Event bus, rules, custom fields, custom modules, and applets.", "/app/flow", "partial", 12],
-    ["cfo", "CFO Console", "Finance", "Cash flow, budget, treasury, FX exposure, loans, and AI forecasts for the CFO role.", "/app/cfo", "new", 13]
+    ["pos", "POS Cash Sessions", "Operations", "Cash register opening, fiscal closeout evidence, and Z-report cash-session controls.", "/app/pos", "new", 9],
+    ["people", "People", "HR", "Employee directory, onboarding, app access, leave-lite, and payroll handoff.", "/app/people", "new", 10],
+    ["docs", "Docs & Sign", "Documents", "Templates, contracts, signatures, signed archive, and customer documents.", "/app/docs", "new", 11],
+    ["analytics", "Analytics", "BI", "Cross-app dashboards, revenue, receivables, service, and automation KPIs.", "/app/analytics", "partial", 12],
+    ["flow", "Flow & Creator", "Automation", "Event bus, rules, custom fields, custom modules, and applets.", "/app/flow", "partial", 13],
+    ["cfo", "CFO Console", "Finance", "Cash flow, budget, treasury, FX exposure, loans, and AI forecasts for the CFO role.", "/app/cfo", "new", 14]
   ];
   const insertApp = db.prepare("INSERT INTO apps (id, name, category, description, route, maturity, priority) VALUES (?, ?, ?, ?, ?, ?, ?)");
   for (const app of apps) insertApp.run(...app);
@@ -7685,13 +7723,13 @@ function seedIfEmpty(db) {
   for (const role of ["Owner", "Admin"]) {
     for (const app of apps) insertAssignment.run(orgId, role, app[0], 1);
   }
-  for (const appId of ["crm", "crm-tube", "smb-crm", "finance", "desk", "campaigns", "projects", "inventory", "purchase", "analytics", "cfo"]) {
+  for (const appId of ["crm", "crm-tube", "smb-crm", "finance", "desk", "campaigns", "projects", "inventory", "purchase", "pos", "analytics", "cfo"]) {
     insertAssignment.run(orgId, "Operator", appId, 1);
   }
   for (const appId of ["crm", "desk", "docs", "cfo"]) {
     insertAssignment.run(orgId, "Support", appId, 1);
   }
-  for (const appId of ["finance", "cfo"]) {
+  for (const appId of ["finance", "pos", "cfo"]) {
     insertAssignment.run(orgId, "Accountant", appId, 1);
   }
 
@@ -7813,9 +7851,9 @@ function ensureRoleLayer(db) {
     ["user-auditor", "auditor@armosphera.local", "Read Only Auditor", "Auditor"]
   ];
   const roleApps = {
-    Accountant: ["finance", "inventory", "purchase", "docs", "analytics"],
+    Accountant: ["finance", "inventory", "purchase", "pos", "docs", "analytics"],
     Lawyer: ["docs", "analytics"],
-    Salesperson: ["crm", "campaigns", "docs", "analytics"],
+    Salesperson: ["crm", "campaigns", "pos", "docs", "analytics"],
     "Service Manager": ["crm", "desk", "docs", "analytics", "flow"],
     Auditor: ["docs", "analytics"]
   };
@@ -7843,7 +7881,8 @@ function ensureSuiteAppLayer(db) {
     ["copilot", "Legal & Accounting Copilot", "AI", "Armenian-first cited legal, accounting, payroll, month-close, privacy, and e-sign guidance.", "/app/copilot", "controlled-advisory", 3],
     ["inventory", "Catalog & Inventory", "Operations", "Products, warehouse balances, stock locations, and governed stock moves.", "/app/inventory", "new", 7],
     ["purchase", "Purchase", "Operations", "RFQs, purchase orders, stock receipts, and AP vendor-bill handoff.", "/app/purchase", "new", 8],
-    ["fleet", "Fleet Management / Ավտոպարկ", "Operations", "Vehicle register, drivers, trips, GPS, fuel, repairs, tires, and cold-chain temperature logs for 350+ trucks.", "/app/fleet", "internal", 14]
+    ["pos", "POS Cash Sessions", "Operations", "Cash register opening, fiscal closeout evidence, and Z-report cash-session controls.", "/app/pos", "new", 9],
+    ["fleet", "Fleet Management / Ավտոպարկ", "Operations", "Vehicle register, drivers, trips, GPS, fuel, repairs, tires, and cold-chain temperature logs for 350+ trucks.", "/app/fleet", "internal", 15]
   ];
   const insertApp = db.prepare(`
     INSERT OR IGNORE INTO apps (id, name, category, description, route, maturity, priority)
@@ -7859,10 +7898,12 @@ function ensureSuiteAppLayer(db) {
     ["projects", 6],
     ["inventory", 7],
     ["purchase", 8],
-    ["people", 9],
-    ["docs", 10],
-    ["analytics", 11],
-    ["flow", 12]
+    ["pos", 9],
+    ["people", 10],
+    ["docs", 11],
+    ["analytics", 12],
+    ["flow", 13],
+    ["cfo", 14]
   ];
   const updatePriority = db.prepare("UPDATE apps SET priority = ? WHERE id = ?");
   for (const [appId, priority] of appOrder) updatePriority.run(priority, appId);
@@ -7876,6 +7917,9 @@ function ensureSuiteAppLayer(db) {
     for (const role of ["Owner", "Admin", "Operator", "Accountant"]) {
       insertAssignment.run(org.id, role, "inventory");
       insertAssignment.run(org.id, role, "purchase");
+    }
+    for (const role of ["Owner", "Admin", "Operator", "Accountant", "Salesperson"]) {
+      insertAssignment.run(org.id, role, "pos");
     }
     for (const role of ["Owner", "Admin", "Accountant", "Lawyer", "Salesperson", "Service Manager", "Auditor"]) {
       insertAssignment.run(org.id, role, "copilot");

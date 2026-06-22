@@ -34,6 +34,12 @@ import {
   CatalogCategorySchema,
   MarginRuleSchema,
   PriceListSchema,
+  PosCashSessionSchema,
+  PosWorkspaceResponseSchema,
+  PosOpenCashSessionRequestSchema,
+  PosCloseCashSessionRequestSchema,
+  PosOpenCashSessionResponseSchema,
+  PosCloseCashSessionResponseSchema,
   PosPricePreviewSchema,
   StockBalanceSchema,
   StockLocationSchema,
@@ -1500,6 +1506,164 @@ describe("PosPricePreviewSchema", () => {
       netPrice: 25000,
     });
     expect(r.success).toBe(false);
+  });
+});
+
+const VALID_POS_CASH_SESSION = {
+  id: "pos-session-1",
+  status: "open",
+  cashierUserId: "user-1",
+  cashierName: "Ani Petrosyan",
+  stockLocationId: "loc-pos-1",
+  stockLocationName: "Retail counter",
+  openingCash: 50000,
+  expectedCash: 50000,
+  countedCash: null,
+  cashDifference: null,
+  currency: "AMD",
+  openedAt: "2026-06-22T08:00:00.000Z",
+  closedAt: null,
+  fiscalDeviceId: null,
+  zReportNumber: null,
+  receiptRangeStart: null,
+  receiptRangeEnd: null,
+  closeNote: null,
+  createdAt: "2026-06-22T08:00:00.000Z",
+  updatedAt: "2026-06-22T08:00:00.000Z",
+};
+
+describe("POS cash-session schemas", () => {
+  it("accepts an open POS cash session with empty closeout evidence", () => {
+    const r = PosCashSessionSchema.safeParse(VALID_POS_CASH_SESSION);
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.status).toBe("open");
+      expect(r.data.currency).toBe("AMD");
+      expect(r.data.countedCash).toBeNull();
+    }
+  });
+
+  it("rejects non-AMD cash sessions", () => {
+    const r = PosCashSessionSchema.safeParse({
+      ...VALID_POS_CASH_SESSION,
+      currency: "USD",
+    });
+
+    expect(r.success).toBe(false);
+  });
+
+  it("accepts the /api/pos/workspace envelope", () => {
+    const closedSession = {
+      ...VALID_POS_CASH_SESSION,
+      id: "pos-session-closed",
+      status: "closed",
+      expectedCash: 75000,
+      countedCash: 74000,
+      cashDifference: -1000,
+      closedAt: "2026-06-22T18:00:00.000Z",
+      fiscalDeviceId: "FISCAL-01",
+      zReportNumber: "ZR-2026-0001",
+      receiptRangeStart: "10001",
+      receiptRangeEnd: "10075",
+      closeNote: "Short by 1000 AMD after count.",
+      updatedAt: "2026-06-22T18:00:00.000Z",
+    };
+
+    const r = PosWorkspaceResponseSchema.safeParse({
+      openSession: VALID_POS_CASH_SESSION,
+      sessions: [VALID_POS_CASH_SESSION, closedSession],
+      catalogItems: [
+        {
+          id: "catitem-pos-scanner",
+          categoryId: "catcat-hardware",
+          categoryName: "POS hardware",
+          sku: "POS-SCANNER",
+          name: "POS barcode scanner",
+          itemType: "stockable",
+          status: "active",
+          unitOfMeasure: "pc",
+          listPrice: 25000,
+          standardCost: 16000,
+          fiscalReceiptRequired: true,
+        },
+      ],
+      stockLocations: [
+        {
+          id: "loc-pos-1",
+          code: "STORE/POS",
+          name: "Retail counter",
+          locationType: "retail",
+          status: "active",
+        },
+      ],
+      fiscalCloseoutLabels: {
+        fiscalDeviceId: "Fiscal device",
+        zReportNumber: "Z-report number",
+        receiptRange: "Receipt range",
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.sessions).toHaveLength(2);
+      expect(r.data.catalogItems[0]?.fiscalReceiptRequired).toBe(true);
+      expect(r.data.stockLocations[0]?.name).toBe("Retail counter");
+    }
+  });
+
+  it("validates the open-session POST body", () => {
+    const r = PosOpenCashSessionRequestSchema.safeParse({
+      stockLocationId: "loc-pos-1",
+      registerCode: "POS-01",
+      openingCash: 50000,
+      openedAt: "2026-06-22T08:00",
+    });
+
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects a negative opening cash amount", () => {
+    const r = PosOpenCashSessionRequestSchema.safeParse({
+      stockLocationId: "loc-pos-1",
+      openingCash: -1,
+    });
+
+    expect(r.success).toBe(false);
+  });
+
+  it("validates the close-session POST body", () => {
+    const r = PosCloseCashSessionRequestSchema.safeParse({
+      countedCash: 74000,
+      fiscalDeviceId: "FISCAL-01",
+      zReportNumber: "ZR-2026-0001",
+      receiptRangeStart: "10001",
+      receiptRangeEnd: "10075",
+      closeNote: "Short by 1000 AMD after count.",
+    });
+
+    expect(r.success).toBe(true);
+  });
+
+  it("normalizes POS write responses from session and cashSession envelopes", () => {
+    const opened = PosOpenCashSessionResponseSchema.safeParse({
+      session: VALID_POS_CASH_SESSION,
+    });
+    const closed = PosCloseCashSessionResponseSchema.safeParse({
+      cashSession: {
+        ...VALID_POS_CASH_SESSION,
+        status: "closed",
+        countedCash: 50000,
+        cashDifference: 0,
+        closedAt: "2026-06-22T18:00:00.000Z",
+      },
+    });
+
+    expect(opened.success).toBe(true);
+    expect(closed.success).toBe(true);
+    if (closed.success) {
+      expect(closed.data.session.status).toBe("closed");
+    }
   });
 });
 

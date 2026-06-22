@@ -843,6 +843,73 @@ export const PosPricePreviewSchema = z.object({
 }).passthrough();
 export type PosPricePreview = z.infer<typeof PosPricePreviewSchema>;
 
+export const PosCashSessionStatusSchema = z.enum(["open", "closed"]);
+export type PosCashSessionStatus = z.infer<typeof PosCashSessionStatusSchema>;
+
+export const PosCurrencySchema = z.literal("AMD");
+export type PosCurrency = z.infer<typeof PosCurrencySchema>;
+
+/** POS cash session — the cash drawer spine for fiscal closeout.
+ *  Source: /api/pos/workspace and /api/pos/cash-sessions. */
+export const PosCashSessionSchema = z.object({
+  id: z.string(),
+  status: PosCashSessionStatusSchema,
+  cashierUserId: z.string(),
+  cashierName: z.string().nullable().optional(),
+  cashierUserName: z.string().nullable().optional(),
+  stockLocationId: z.string(),
+  stockLocationName: z.string().nullable().optional(),
+  openingCash: z.number(),
+  expectedCash: z.number(),
+  countedCash: z.number().nullable(),
+  cashDifference: z.number().nullable(),
+  currency: PosCurrencySchema,
+  openedAt: z.string(),
+  closedAt: z.string().nullable(),
+  fiscalDeviceId: z.string().nullable().optional(),
+  zReportNumber: z.string().nullable().optional(),
+  receiptRangeStart: z.string().nullable().optional(),
+  receiptRangeEnd: z.string().nullable().optional(),
+  closeNote: z.string().nullable().optional(),
+  createdAt: z.string(),
+  updatedAt: z.string(),
+}).passthrough();
+export type PosCashSession = z.infer<typeof PosCashSessionSchema>;
+
+export const PosOpenCashSessionRequestSchema = z.object({
+  stockLocationId: z.string().min(1),
+  registerCode: z.string().min(1),
+  openingCash: z.number().min(0),
+  openedAt: z.string().min(1).optional(),
+}).strict();
+export type PosOpenCashSessionRequest = z.infer<typeof PosOpenCashSessionRequestSchema>;
+
+export const PosCloseCashSessionRequestSchema = z.object({
+  countedCash: z.number().min(0),
+  fiscalDeviceId: z.string().min(1),
+  zReportNumber: z.string().min(1),
+  receiptRangeStart: z.string().min(1),
+  receiptRangeEnd: z.string().min(1),
+  closeNote: z.string().max(2000).optional(),
+}).strict();
+export type PosCloseCashSessionRequest = z.infer<typeof PosCloseCashSessionRequestSchema>;
+
+export const PosCashSessionWriteResponseSchema = z.union([
+  z.object({ ok: z.boolean().optional(), session: PosCashSessionSchema }).passthrough(),
+  z
+    .object({ ok: z.boolean().optional(), cashSession: PosCashSessionSchema })
+    .passthrough()
+    .transform(({ cashSession, ...rest }) => ({ ...rest, session: cashSession })),
+  PosCashSessionSchema.transform((session) => ({ session })),
+]);
+export type PosCashSessionWriteResponse = z.infer<typeof PosCashSessionWriteResponseSchema>;
+
+export const PosOpenCashSessionResponseSchema = PosCashSessionWriteResponseSchema;
+export type PosOpenCashSessionResponse = z.infer<typeof PosOpenCashSessionResponseSchema>;
+
+export const PosCloseCashSessionResponseSchema = PosCashSessionWriteResponseSchema;
+export type PosCloseCashSessionResponse = z.infer<typeof PosCloseCashSessionResponseSchema>;
+
 /** Stock balance — a (catalogItemId, locationId) row.
  *  Source: /api/inventory/stock. */
 export const StockBalanceSchema = z.object({
@@ -873,6 +940,18 @@ export const StockLocationSchema = z.object({
   parentLocationId: z.string().nullable().optional(),
 }).passthrough();
 export type StockLocation = z.infer<typeof StockLocationSchema>;
+
+export const PosFiscalCloseoutLabelsSchema = z.record(z.string(), z.unknown());
+export type PosFiscalCloseoutLabels = z.infer<typeof PosFiscalCloseoutLabelsSchema>;
+
+export const PosWorkspaceResponseSchema = z.object({
+  openSession: PosCashSessionSchema.nullable(),
+  sessions: z.array(PosCashSessionSchema),
+  catalogItems: z.array(CatalogItemSchema),
+  stockLocations: z.array(StockLocationSchema),
+  fiscalCloseoutLabels: PosFiscalCloseoutLabelsSchema,
+}).passthrough();
+export type PosWorkspaceResponse = z.infer<typeof PosWorkspaceResponseSchema>;
 
 export const StockResponseSchema = z.object({
   stock: z.array(StockBalanceSchema),

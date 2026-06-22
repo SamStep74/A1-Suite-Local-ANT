@@ -5,6 +5,7 @@ const SUITE_APP_IDS = [
   "crm-tube",
   "smb-crm",
   "finance",
+  "pos",
   "copilot",
   "desk",
   "campaigns",
