@@ -54910,6 +54910,7 @@ function throwInvalidInventoryMetadata() {
 function getPosWorkspace(db, user) {
   const sessions = getPosCashSessions(db, user.org_id, { limit: 25 });
   const offlineReplayItems = getPosOfflineReplayItems(db, user.org_id, { limit: 5 });
+  const customers = getPosCustomerPreview(db, user.org_id);
   const activeFiscalCatalogItems = getCatalogItems(db, user.org_id, { status: "active" })
     .filter(item => item.fiscalReceiptRequired);
   const activeStockLocations = getStockLocations(db, user.org_id)
@@ -54928,6 +54929,8 @@ function getPosWorkspace(db, user) {
     recentOfflineReplayItems: offlineReplayItems,
     catalogItems: activeFiscalCatalogItems,
     activeFiscalCatalogItems,
+    customers,
+    customerPreview: customers,
     activeStockLocations,
     fiscalCatalogItems: activeFiscalCatalogItems,
     stockLocations: activeStockLocations,
@@ -54965,6 +54968,23 @@ const POS_PAYMENT_METHODS = ["cash", "card", "bank-transfer"];
 const POS_OFFLINE_REPLAY_ACTIONS = ["sale", "refund", "void", "receipt-packet", "receipt-print", "terminal-settlement"];
 const POS_OFFLINE_REPLAY_STATUSES = ["queued", "replayed", "rejected"];
 
+function getPosCustomerPreview(db, orgId, limit = 25) {
+  return db.prepare(`
+    SELECT id, name, tax_id, email, segment, last_touch
+    FROM customers
+    WHERE org_id = ?
+    ORDER BY last_touch DESC, name
+    LIMIT ?
+  `).all(orgId, limit).map(row => ({
+    id: row.id,
+    name: row.name,
+    taxId: row.tax_id || "",
+    email: row.email || "",
+    segment: row.segment || "",
+    lastTouch: row.last_touch || ""
+  }));
+}
+
 function getOpenPosCashSession(db, orgId, cashierUserId) {
   const row = selectPosCashSessionRows(db, orgId, "pos_cash_sessions.status = 'open' AND pos_cash_sessions.cashier_user_id = ?", [cashierUserId], 1)[0];
   return row ? formatPosCashSession(row) : null;
@@ -54996,6 +55016,7 @@ function getPosSale(db, orgId, saleId) {
       cashier.name AS cashier_name,
       stock_locations.code AS stock_location_code,
       stock_locations.name AS stock_location_name,
+      customers.name AS customer_name,
       created_by.name AS created_by_name,
       (
         SELECT GROUP_CONCAT(ledger_journal.id)
@@ -55009,6 +55030,8 @@ function getPosSale(db, orgId, saleId) {
       AND cashier.org_id = pos_sales.org_id
     JOIN stock_locations ON stock_locations.id = pos_sales.stock_location_id
       AND stock_locations.org_id = pos_sales.org_id
+    LEFT JOIN customers ON customers.id = pos_sales.customer_id
+      AND customers.org_id = pos_sales.org_id
     LEFT JOIN users AS created_by ON created_by.id = pos_sales.created_by_user_id
     WHERE pos_sales.org_id = ? AND pos_sales.id = ?
   `).get(orgId, saleId);
@@ -55117,7 +55140,7 @@ function buildPosOfflineReplayResponse(db, orgId, itemId, idempotent = false) {
 
 function getPosSaleRefundSourceRow(db, orgId, sourceKey) {
   return db.prepare(`
-    SELECT id, sale_id, cash_session_id
+    SELECT id, sale_id, cash_session_id, customer_id
     FROM pos_sale_refunds
     WHERE org_id = ? AND source_key = ?
   `).get(orgId, sourceKey) || null;
@@ -55626,6 +55649,7 @@ function createPosCashSale(db, user, sessionId, body) {
       err.statusCode = 409;
       throw err;
     }
+    if (input.customerId) assertCustomer(db, user.org_id, input.customerId);
     assertPosSaleUniqueness(db, user.org_id, session.id, input);
     const lines = buildPosSaleLines(db, user.org_id, input.lines);
     const totals = lines.reduce((sum, line) => ({
@@ -55646,16 +55670,17 @@ function createPosCashSale(db, user, sessionId, body) {
 
     db.prepare(`
       INSERT INTO pos_sales (
-        id, org_id, cash_session_id, cashier_user_id, stock_location_id, register_code,
+        id, org_id, cash_session_id, customer_id, cashier_user_id, stock_location_id, register_code,
         receipt_number, source_key, status, sold_at, currency, subtotal_amd, vat_amd,
         total_amd, paid_cash_amd, payment_method, inventory_posting_status,
         ledger_posting_status, created_by_user_id, created_at, updated_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?, 'AMD', ?, ?, ?, ?, ?, 'not-posted', 'not-posted', ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?, 'AMD', ?, ?, ?, ?, ?, 'not-posted', 'not-posted', ?, ?, ?)
     `).run(
       saleId,
       user.org_id,
       session.id,
+      input.customerId || null,
       session.cashier_user_id,
       session.stock_location_id,
       session.register_code,
@@ -55776,9 +55801,11 @@ function createPosCashSale(db, user, sessionId, body) {
       eventType: "pos.sale.posted",
       subjectType: "pos_sale",
       subjectId: saleId,
+      customerId: input.customerId || "",
       status: "posted",
       payload: {
         cashSessionId: session.id,
+        customerId: input.customerId || null,
         receiptNumber: input.receiptNumber,
         paymentMethod: input.paymentMethod,
         payments: payments.map(payment => ({
@@ -55799,6 +55826,7 @@ function createPosCashSale(db, user, sessionId, body) {
     audit(db, user.org_id, user.id, "pos.sale.posted", {
       saleId,
       cashSessionId: session.id,
+      customerId: input.customerId || null,
       receiptNumber: input.receiptNumber,
       paymentMethod: input.paymentMethod,
       payments: payments.map(payment => ({
@@ -55886,17 +55914,18 @@ function createPosSaleRefund(db, user, saleId, body) {
 
     db.prepare(`
       INSERT INTO pos_sale_refunds (
-        id, org_id, sale_id, cash_session_id, refund_reference, source_key,
+        id, org_id, sale_id, cash_session_id, customer_id, refund_reference, source_key,
         reason, refund_method, refunded_total_amd, cash_adjustment_amd,
         status, inventory_posting_status, ledger_posting_status, refunded_at,
         created_by_user_id, created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?, ?, ?, ?, ?)
     `).run(
       refundId,
       user.org_id,
       source.sale.id,
       source.sale.cash_session_id,
+      source.sale.customer_id || null,
       input.refundReference,
       input.idempotencyKey,
       input.reason,
@@ -55989,10 +56018,12 @@ function createPosSaleRefund(db, user, saleId, body) {
       eventType: "pos.sale.refunded",
       subjectType: "pos_sale_refund",
       subjectId: refundId,
+      customerId: source.sale.customer_id || "",
       status: "posted",
       payload: {
         saleId: source.sale.id,
         cashSessionId: source.sale.cash_session_id,
+        customerId: source.sale.customer_id || null,
         refundReference: input.refundReference,
         refundMethod: input.refundMethod,
         refundedTotal,
@@ -56006,6 +56037,7 @@ function createPosSaleRefund(db, user, saleId, body) {
       refundId,
       saleId: source.sale.id,
       cashSessionId: source.sale.cash_session_id,
+      customerId: source.sale.customer_id || null,
       refundReference: input.refundReference,
       refundMethod: input.refundMethod,
       refundedTotal,
@@ -56793,6 +56825,7 @@ function getPosReceiptPacketSource(db, orgId, saleId) {
     SELECT
       pos_sales.id,
       pos_sales.cash_session_id,
+      pos_sales.customer_id,
       pos_sales.cashier_user_id,
       pos_sales.stock_location_id,
       pos_sales.register_code,
@@ -56811,6 +56844,7 @@ function getPosReceiptPacketSource(db, orgId, saleId) {
       pos_sales.created_by_user_id,
       pos_sales.created_at,
       pos_sales.updated_at,
+      customers.name AS customer_name,
       pos_cash_sessions.status AS session_status,
       pos_cash_sessions.opening_cash_amd AS session_opening_cash_amd,
       pos_cash_sessions.expected_cash_amd AS session_expected_cash_amd,
@@ -56825,6 +56859,8 @@ function getPosReceiptPacketSource(db, orgId, saleId) {
     FROM pos_sales
     JOIN pos_cash_sessions ON pos_cash_sessions.id = pos_sales.cash_session_id
       AND pos_cash_sessions.org_id = pos_sales.org_id
+    LEFT JOIN customers ON customers.id = pos_sales.customer_id
+      AND customers.org_id = pos_sales.org_id
     WHERE pos_sales.org_id = ? AND pos_sales.id = ?
   `).get(orgId, saleId);
   if (!sale) return null;
@@ -57118,7 +57154,7 @@ function buildPosReceiptPrintPreviewLines(payload) {
 
 function getPosSaleRefundById(db, orgId, refundId, includeLines = false) {
   const row = db.prepare(`
-    SELECT pos_sale_refunds.*, users.name AS created_by_name,
+    SELECT pos_sale_refunds.*, customers.name AS customer_name, users.name AS created_by_name,
       (
         SELECT GROUP_CONCAT(ledger_journal.id)
         FROM ledger_journal
@@ -57127,6 +57163,8 @@ function getPosSaleRefundById(db, orgId, refundId, includeLines = false) {
           AND ledger_journal.source_id = pos_sale_refunds.id
       ) AS ledger_posting_ids
     FROM pos_sale_refunds
+    LEFT JOIN customers ON customers.id = pos_sale_refunds.customer_id
+      AND customers.org_id = pos_sale_refunds.org_id
     LEFT JOIN users ON users.id = pos_sale_refunds.created_by_user_id
       AND users.org_id = pos_sale_refunds.org_id
     WHERE pos_sale_refunds.org_id = ? AND pos_sale_refunds.id = ?
@@ -57293,6 +57331,8 @@ function formatPosSaleRefund(row, lines) {
     id: row.id,
     saleId: row.sale_id,
     cashSessionId: row.cash_session_id,
+    customerId: row.customer_id || null,
+    customerName: row.customer_name || "",
     refundReference: row.refund_reference,
     sourceKey: row.source_key,
     reason: row.reason,
@@ -57527,6 +57567,8 @@ function formatPosSale(row, lines, payments = []) {
     cashSessionId: row.cash_session_id,
     receiptNumber: row.receipt_number,
     status: row.status,
+    customerId: row.customer_id || null,
+    customerName: row.customer_name || "",
     paymentMethod: row.payment_method,
     currency: row.currency,
     subtotal: row.subtotal_amd,
@@ -57661,6 +57703,7 @@ function normalizePosCashSaleBody(body) {
   }
   return {
     receiptNumber: normalizePosReceiptNumber(body, "receiptNumber"),
+    customerId: normalizePosOptionalCustomerId(body, "customerId"),
     paymentMethod: payments.length > 0
       ? payments[0].paymentMethod
       : normalizePosChoice(body, "paymentMethod", POS_PAYMENT_METHODS, "", true),
@@ -57669,6 +57712,12 @@ function normalizePosCashSaleBody(body) {
     idempotencyKey: normalizePosSourceKey(body, "idempotencyKey"),
     lines: body.lines.map(normalizePosCashSaleLine)
   };
+}
+
+function normalizePosOptionalCustomerId(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "" || value === null) return "";
+  return normalizePosText(body, field, { idLike: true, maxLength: 160 });
 }
 
 function normalizePosSalePayments(payments) {

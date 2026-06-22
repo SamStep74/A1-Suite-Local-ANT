@@ -956,6 +956,7 @@ export type PosSaleLineRequest = z.infer<typeof PosSaleLineRequestSchema>;
 
 export const PosCreateSaleRequestSchema = z
   .object({
+    customerId: z.string().min(1).optional(),
     receiptNumber: z.string().min(1),
     paymentMethod: PosPaymentMethodSchema,
     payments: z.array(PosSalePaymentRequestSchema).min(1).max(3).optional(),
@@ -1010,6 +1011,8 @@ export const PosSaleSchema = z
     subtotal: z.number(),
     vat: z.number(),
     total: z.number(),
+    customerId: z.string().nullable().optional(),
+    customerName: z.string().nullable().optional(),
     payments: z.array(PosSalePaymentEvidenceSchema).optional(),
     paymentCount: z.number().int().min(0).optional(),
     paidCash: z.number().nullable().optional(),
@@ -1202,6 +1205,8 @@ export const PosRefundSchema = z
     refundMethod: PosRefundMethodSchema,
     refundedTotal: z.number(),
     cashAdjustment: z.number(),
+    customerId: z.string().nullable().optional(),
+    customerName: z.string().nullable().optional(),
     status: z.string(),
     inventoryPostingStatus: z.string(),
     ledgerPostingStatus: z.string(),
@@ -1562,6 +1567,7 @@ export const PosWorkspaceResponseSchema = z.object({
   terminalSettlementPreviews: z.array(PosTerminalSettlementPreviewSchema).optional(),
   terminalSettlement: PosTerminalSettlementPreviewSchema.nullable().optional(),
   catalogItems: z.array(CatalogItemSchema),
+  customers: z.array(CustomerOptionSchema).optional(),
   stockLocations: z.array(StockLocationSchema),
   fiscalCloseoutLabels: PosFiscalCloseoutLabelsSchema,
   capabilityStatus: PosCapabilityStatusSchema.optional(),

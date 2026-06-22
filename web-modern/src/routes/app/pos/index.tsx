@@ -48,6 +48,7 @@ import {
   PosVoidResponseSchema,
   PosWorkspaceResponseSchema,
   type CatalogItem,
+  type CustomerOption,
   type PosCashSession,
   type PosCreateSaleResponse,
   type PosCapabilityStatus,
@@ -209,8 +210,10 @@ function PosWorkspace() {
       paymentMethod: PosPaymentMethod;
       payments?: PosSalePaymentRequest[];
       soldAt: string;
+      customerId: string;
     }) => {
       const payload = PosCreateSaleRequestSchema.parse({
+        ...(input.customerId ? { customerId: input.customerId } : {}),
         receiptNumber: input.receiptNumber.trim(),
         paymentMethod: input.paymentMethod,
         ...(input.payments ? { payments: input.payments } : {}),
@@ -468,6 +471,7 @@ function PosWorkspace() {
   const openSession = workspace?.openSession ?? null;
   const sessions = workspace?.sessions ?? [];
   const catalogItems = workspace?.catalogItems ?? [];
+  const customers = workspace?.customers ?? [];
   const stockLocations = workspace?.stockLocations ?? [];
   const fiscalCloseoutLabels = workspace?.fiscalCloseoutLabels ?? {};
   const terminalSettlementPreviews =
@@ -530,6 +534,7 @@ function PosWorkspace() {
                   key={`sale-${openSession.id}`}
                   session={openSession}
                   catalogItems={catalogItems}
+                  customers={customers}
                   onSubmit={(input) => saleMutation.mutate(input)}
                   isPending={saleMutation.isPending}
                   error={saleMutation.error ? (saleMutation.error as Error).message : ""}
@@ -836,6 +841,7 @@ export function OpenSessionForm({
 export function SaleCapturePanel({
   session,
   catalogItems,
+  customers,
   onSubmit,
   isPending,
   error,
@@ -859,6 +865,7 @@ export function SaleCapturePanel({
 }: {
   session: PosCashSession;
   catalogItems: readonly CatalogItem[];
+  customers: readonly CustomerOption[];
   onSubmit: (input: {
     sessionId: string;
     catalogItemId: string;
@@ -867,6 +874,7 @@ export function SaleCapturePanel({
     paymentMethod: PosPaymentMethod;
     payments?: PosSalePaymentRequest[];
     soldAt: string;
+    customerId: string;
   }) => void;
   isPending?: boolean;
   error?: string;
@@ -910,6 +918,7 @@ export function SaleCapturePanel({
   const [catalogItemId, setCatalogItemId] = useState("");
   const [quantity, setQuantity] = useState("1");
   const [receiptNumber, setReceiptNumber] = useState("");
+  const [customerId, setCustomerId] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("cash");
   const [splitCashAmount, setSplitCashAmount] = useState("");
   const [splitCardAmount, setSplitCardAmount] = useState("");
@@ -1002,7 +1011,7 @@ export function SaleCapturePanel({
       </div>
 
       <form
-        className="grid gap-3 md:grid-cols-[minmax(0,1.2fr)_100px_150px_160px_minmax(180px,1fr)_auto]"
+        className="grid gap-3 md:grid-cols-[minmax(0,1.1fr)_90px_140px_minmax(150px,1fr)_140px_minmax(170px,1fr)_auto]"
         data-testid="pos-sale-form"
         onSubmit={(event) => {
           event.preventDefault();
@@ -1015,6 +1024,7 @@ export function SaleCapturePanel({
             paymentMethod,
             ...(hasSplitPayments ? { payments: splitPayments } : {}),
             soldAt,
+            customerId,
           });
         }}
       >
@@ -1062,6 +1072,23 @@ export function SaleCapturePanel({
         </label>
 
         <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+          Customer
+          <select
+            value={customerId}
+            onChange={(event) => setCustomerId(event.target.value)}
+            className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+            data-testid="pos-sale-customer"
+          >
+            <option value="">Walk-in customer</option>
+            {customers.map((customer) => (
+              <option key={customer.id} value={customer.id}>
+                {customer.name}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
           Payment
           <select
             value={paymentMethod}
@@ -1101,7 +1128,7 @@ export function SaleCapturePanel({
         </div>
 
         <fieldset
-          className="md:col-span-6 grid gap-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-2 pb-2 pt-1 sm:grid-cols-[repeat(3,minmax(0,1fr))_minmax(120px,auto)]"
+          className="md:col-span-7 grid gap-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-2 pb-2 pt-1 sm:grid-cols-[repeat(3,minmax(0,1fr))_minmax(120px,auto)]"
           data-testid="pos-sale-split-payments"
         >
           <legend className="px-1 text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
@@ -1146,7 +1173,7 @@ export function SaleCapturePanel({
           ) : null}
         </fieldset>
 
-        <div className="md:col-span-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <div className="md:col-span-7 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
             Unit price: {money(unitPrice)}
           </p>
@@ -1164,7 +1191,7 @@ export function SaleCapturePanel({
         {error ? (
           <p
             role="alert"
-            className="md:col-span-6 text-[var(--text-sm)] text-[var(--color-ruby)]"
+            className="md:col-span-7 text-[var(--text-sm)] text-[var(--color-ruby)]"
             data-testid="pos-sale-error"
           >
             {error}
@@ -1240,9 +1267,10 @@ function SalePaymentEvidence({ sale }: { sale: PosCreateSaleResponse["sale"] }) 
 
   return (
     <dl
-      className="grid gap-2 text-[var(--text-xs)] sm:grid-cols-2 lg:grid-cols-5"
+      className="grid gap-2 text-[var(--text-xs)] sm:grid-cols-2 lg:grid-cols-6"
       data-testid="pos-sale-payment-evidence"
     >
+      <EvidenceRow label="Customer" value={saleCustomerLabel(sale)} />
       <EvidenceRow label="Payment method" value={paymentMethodLabel(sale.paymentMethod)} />
       <EvidenceRow label="Payment count" value={String(paymentCount)} />
       {methodTotals.map((entry) => (
@@ -1564,6 +1592,7 @@ export function RefundEvidencePanel({
           </p>
           <dl className="grid gap-1 sm:grid-cols-2">
             <EvidenceRow label="Reference" value={refund.refundReference} />
+            <EvidenceRow label="Customer" value={refundCustomerLabel(refund, sale)} />
             <EvidenceRow label="Sale status" value={sale.status} />
             <EvidenceRow label="Refunded total" value={money(refund.refundedTotal)} />
             <EvidenceRow label="Cash adjustment" value={money(refund.cashAdjustment)} />
@@ -2985,6 +3014,21 @@ function saleOutcomeLabel(sale: { status: string }): string {
   if (sale.status === "voided") return "Voided sale";
   if (isRefundedSale(sale)) return "Refunded sale";
   return "Posted sale";
+}
+
+function saleCustomerLabel(sale: Pick<PosCreateSaleResponse["sale"], "customerId" | "customerName">): string {
+  return sale.customerName?.trim() || sale.customerId?.trim() || "Walk-in customer";
+}
+
+function refundCustomerLabel(
+  refund: Pick<PosRefund, "customerId" | "customerName">,
+  sale: Pick<PosCreateSaleResponse["sale"], "customerId" | "customerName">,
+): string {
+  return (
+    refund.customerName?.trim() ||
+    refund.customerId?.trim() ||
+    saleCustomerLabel(sale)
+  );
 }
 
 function refundMethodLabel(method: PosRefundMethod): string {

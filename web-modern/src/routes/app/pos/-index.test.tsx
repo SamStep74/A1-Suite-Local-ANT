@@ -185,6 +185,11 @@ const CLOSED_SESSION = {
   updatedAt: "2026-06-21T18:00:00.000Z",
 };
 
+const POS_CUSTOMERS = [
+  { id: "cust-retail-1", name: "Ararat Market" },
+  { id: "cust-retail-2", name: "Vanadzor Retail" },
+];
+
 const WORKSPACE_NO_OPEN = {
   openSession: null,
   sessions: [CLOSED_SESSION],
@@ -207,6 +212,7 @@ const WORKSPACE_NO_OPEN = {
       fiscalReceiptRequired: true,
     },
   ],
+  customers: POS_CUSTOMERS,
   stockLocations: [
     {
       id: "loc-pos-1",
@@ -294,6 +300,15 @@ const SPLIT_PAYMENT_SALE_RESPONSE = {
   },
 };
 
+const CUSTOMER_SALE_RESPONSE = {
+  ...VALID_SALE_RESPONSE,
+  sale: {
+    ...VALID_SALE_RESPONSE.sale,
+    customerId: "cust-retail-1",
+    customerName: "Ararat Market",
+  },
+};
+
 const VALID_RECEIPT_PACKET_RESPONSE = {
   ok: true,
   receiptPacket: {
@@ -360,6 +375,8 @@ const VALID_REFUND_RESPONSE = {
     refundMethod: "cash",
     refundedTotal: 50000,
     cashAdjustment: 50000,
+    customerId: "cust-retail-1",
+    customerName: "Ararat Market",
     status: "posted",
     inventoryPostingStatus: "posted",
     ledgerPostingStatus: "posted",
@@ -755,7 +772,7 @@ describe("POS route", () => {
       openSession: OPEN_SESSION,
       sessions: [OPEN_SESSION, CLOSED_SESSION],
     };
-    mocks.postJson.mockResolvedValueOnce(VALID_SALE_RESPONSE);
+    mocks.postJson.mockResolvedValueOnce(CUSTOMER_SALE_RESPONSE);
 
     renderRoute();
 
@@ -766,6 +783,9 @@ describe("POS route", () => {
     expect(screen.getByTestId("pos-sale-total-preview")).toHaveTextContent(/50/);
     fireEvent.change(screen.getByTestId("pos-sale-receipt-number"), {
       target: { value: "R-2026-0002" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-customer"), {
+      target: { value: "cust-retail-1" },
     });
     fireEvent.change(screen.getByTestId("pos-sale-payment-method"), {
       target: { value: "card" },
@@ -781,6 +801,7 @@ describe("POS route", () => {
     const [path, body] = mocks.postJson.mock.calls[0]!;
     expect(path).toBe("/api/pos/cash-sessions/pos-session-1/sales");
     expect(body).toEqual({
+      customerId: "cust-retail-1",
       receiptNumber: "R-2026-0002",
       paymentMethod: "card",
       soldAt: "2026-06-22T09:30",
@@ -800,6 +821,9 @@ describe("POS route", () => {
     expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(/R-2026-0002/);
     expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(
       /ledger posted \(2 journals\)/,
+    );
+    expect(screen.getByTestId("pos-sale-payment-evidence")).toHaveTextContent(
+      /Customer\s*Ararat Market/,
     );
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["pos", "workspace"],
@@ -1023,6 +1047,9 @@ describe("POS route", () => {
     expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(/posted/);
     expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
       /Return stock moves\s*1/,
+    );
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+      /Customer\s*Ararat Market/,
     );
     expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
       /Ledger journals\s*posted \(2 journals\)/,

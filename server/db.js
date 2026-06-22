@@ -247,6 +247,7 @@ function openDatabase(dbPath) {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA journal_mode = WAL");
   initSchema(db);
+  ensurePosCustomerLinkLayer(db);
   ensurePosSalePaymentLayer(db);
   ensurePosReceiptPrintLayer(db);
   ensurePosVoidLayer(db);
@@ -688,6 +689,7 @@ function initSchema(db) {
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       cash_session_id TEXT NOT NULL REFERENCES pos_cash_sessions(id) ON DELETE CASCADE,
+      customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
       cashier_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
       stock_location_id TEXT NOT NULL REFERENCES stock_locations(id) ON DELETE RESTRICT,
       register_code TEXT NOT NULL,
@@ -715,6 +717,9 @@ function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_pos_sales_status
       ON pos_sales(org_id, status, sold_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sales_customer
+      ON pos_sales(org_id, customer_id, sold_at DESC);
 
     CREATE TABLE IF NOT EXISTS pos_sale_payments (
       id TEXT PRIMARY KEY,
@@ -803,6 +808,7 @@ function initSchema(db) {
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       sale_id TEXT NOT NULL REFERENCES pos_sales(id) ON DELETE CASCADE,
       cash_session_id TEXT NOT NULL REFERENCES pos_cash_sessions(id) ON DELETE CASCADE,
+      customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL,
       refund_reference TEXT NOT NULL,
       source_key TEXT NOT NULL,
       reason TEXT NOT NULL,
@@ -824,6 +830,9 @@ function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_pos_sale_refunds_status
       ON pos_sale_refunds(org_id, status, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_refunds_customer
+      ON pos_sale_refunds(org_id, customer_id, created_at DESC);
 
     CREATE TABLE IF NOT EXISTS pos_sale_voids (
       id TEXT PRIMARY KEY,
@@ -9033,6 +9042,40 @@ function ensureInventoryLayer(db) {
   for (const org of orgs) {
     seedInventoryCore(db, org.id);
   }
+}
+
+function ensurePosCustomerLinkLayer(db) {
+  const saleColumns = new Set(db.prepare("PRAGMA table_info(pos_sales)").all().map(column => column.name));
+  if (!saleColumns.has("customer_id")) {
+    db.exec("ALTER TABLE pos_sales ADD COLUMN customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL");
+  }
+  const refundColumns = new Set(db.prepare("PRAGMA table_info(pos_sale_refunds)").all().map(column => column.name));
+  if (!refundColumns.has("customer_id")) {
+    db.exec("ALTER TABLE pos_sale_refunds ADD COLUMN customer_id TEXT REFERENCES customers(id) ON DELETE SET NULL");
+  }
+  db.exec(`
+    UPDATE pos_sale_refunds
+    SET customer_id = (
+      SELECT pos_sales.customer_id
+      FROM pos_sales
+      WHERE pos_sales.org_id = pos_sale_refunds.org_id
+        AND pos_sales.id = pos_sale_refunds.sale_id
+    )
+    WHERE (customer_id IS NULL OR customer_id = '')
+      AND EXISTS (
+        SELECT 1
+        FROM pos_sales
+        WHERE pos_sales.org_id = pos_sale_refunds.org_id
+          AND pos_sales.id = pos_sale_refunds.sale_id
+          AND pos_sales.customer_id IS NOT NULL
+          AND pos_sales.customer_id <> ''
+      );
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sales_customer
+      ON pos_sales(org_id, customer_id, sold_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_refunds_customer
+      ON pos_sale_refunds(org_id, customer_id, created_at DESC);
+  `);
 }
 
 function ensurePosSalePaymentLayer(db) {

@@ -47,6 +47,7 @@ async function createPostedPosSale(app, operator, options = {}) {
       ...(options.useSalesEndpoint ? { cashSessionId: session.id } : {}),
       receiptNumber: options.receiptNumber || "R-PACKET-001",
       paymentMethod: options.paymentMethod || "cash",
+      ...(options.customerId ? { customerId: options.customerId } : {}),
       ...(options.payments ? { payments: options.payments } : {}),
       soldAt: options.soldAt || "2026-06-22T09:15:00.000Z",
       idempotencyKey: options.idempotencyKey || "pos-receipt-packet-sale",
@@ -80,6 +81,12 @@ test("pos: workspace is auth-gated, app-gated, and launcher-assigned", async () 
     assert.equal(workspace.json().capabilityStatus.salePosting, "available");
     assert.equal(workspace.json().capabilityStatus.refunds, "available");
     assert.equal(workspace.json().capabilityStatus.receiptPrinting, "local-preview");
+    assert.ok(workspace.json().customers.some(customer => (
+      customer.id === "cust-ani"
+      && customer.name === "Անի Գեղեցկության Սրահ"
+      && customer.taxId === "01888999"
+    )));
+    assert.deepEqual(workspace.json().customerPreview, workspace.json().customers);
 
     const support = await login(app, "support@armosphera.local");
     const supportDenied = await app.inject({ method: "GET", url: "/api/pos/workspace", headers: { cookie: support } });
@@ -500,6 +507,134 @@ test("pos: split cash and card sale records payment evidence, ledger split, expe
       && row.payment_method === "card"
       && row.amount_amd === 65000
     )));
+  } finally {
+    await app.close();
+  }
+});
+
+test("pos: customer-linked sale formats customer and refund inherits customer evidence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const orgId = "org-armosphera-demo";
+    const customerId = "cust-ani";
+    const customerName = "Անի Գեղեցկության Սրահ";
+    const profileBefore = app.db.prepare(`
+      SELECT last_event_at
+      FROM customer_profiles
+      WHERE org_id = ? AND customer_id = ?
+    `).get(orgId, customerId);
+
+    const { session, sale } = await createPostedPosSale(app, operator, {
+      registerCode: "POS-CUSTOMER-SALE",
+      openingCash: 20000,
+      fiscalDeviceId: "FISCAL-AM-CUSTOMER",
+      receiptNumber: "R-CUSTOMER-001",
+      idempotencyKey: "pos-customer-sale-1",
+      customerId
+    });
+
+    assert.equal(sale.customerId, customerId);
+    assert.equal(sale.customerName, customerName);
+    assert.equal(app.db.prepare("SELECT customer_id FROM pos_sales WHERE org_id = ? AND id = ?")
+      .get(orgId, sale.id).customer_id, customerId);
+    const saleEvent = app.db.prepare(`
+      SELECT customer_id, payload, created_at
+      FROM suite_events
+      WHERE org_id = ? AND event_type = ? AND subject_id = ?
+    `).get(orgId, "pos.sale.posted", sale.id);
+    assert.equal(saleEvent.customer_id, customerId);
+    assert.equal(JSON.parse(saleEvent.payload).customerId, customerId);
+    assert.notEqual(saleEvent.created_at, profileBefore.last_event_at);
+    assert.equal(app.db.prepare(`
+      SELECT last_event_at
+      FROM customer_profiles
+      WHERE org_id = ? AND customer_id = ?
+    `).get(orgId, customerId).last_event_at, saleEvent.created_at);
+
+    const refunded = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: {
+        idempotencyKey: "pos-customer-refund-1",
+        refundReference: "RF-CUSTOMER-001",
+        reason: "Customer-linked receipt refund.",
+        refundMethod: "cash",
+        refundedAt: "2026-06-22T10:45:00.000Z"
+      }
+    });
+    assert.equal(refunded.statusCode, 200, refunded.body);
+    const body = refunded.json();
+    assert.equal(body.sale.id, sale.id);
+    assert.equal(body.sale.customerId, customerId);
+    assert.equal(body.sale.customerName, customerName);
+    assert.equal(body.refund.saleId, sale.id);
+    assert.equal(body.refund.cashSessionId, session.id);
+    assert.equal(body.refund.customerId, customerId);
+    assert.equal(body.refund.customerName, customerName);
+    assert.equal(app.db.prepare("SELECT customer_id FROM pos_sale_refunds WHERE org_id = ? AND id = ?")
+      .get(orgId, body.refund.id).customer_id, customerId);
+
+    const refundEvent = app.db.prepare(`
+      SELECT customer_id, payload, created_at
+      FROM suite_events
+      WHERE org_id = ? AND event_type = ? AND subject_id = ?
+    `).get(orgId, "pos.sale.refunded", body.refund.id);
+    assert.equal(refundEvent.customer_id, customerId);
+    assert.equal(JSON.parse(refundEvent.payload).customerId, customerId);
+    assert.equal(app.db.prepare(`
+      SELECT last_event_at
+      FROM customer_profiles
+      WHERE org_id = ? AND customer_id = ?
+    `).get(orgId, customerId).last_event_at, refundEvent.created_at);
+  } finally {
+    await app.close();
+  }
+});
+
+test("pos: sale rejects unknown customer id without mutating sale rows", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const orgId = "org-armosphera-demo";
+    const opened = await app.inject({
+      method: "POST",
+      url: "/api/pos/cash-sessions",
+      headers: { cookie: operator },
+      payload: {
+        stockLocationId: "stockloc-main-warehouse",
+        registerCode: "POS-BAD-CUSTOMER",
+        openingCash: 10000,
+        fiscalDeviceId: "FISCAL-AM-BAD-CUSTOMER"
+      }
+    });
+    assert.equal(opened.statusCode, 200, opened.body);
+    const sessionId = opened.json().session.id;
+    const saleCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM pos_sales WHERE org_id = ?").get(orgId).count;
+    const sourceCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM pos_sales WHERE org_id = ? AND source_key = ?")
+      .get(orgId, "pos-sale-bad-customer-1").count;
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/pos/cash-sessions/${sessionId}/sales`,
+      headers: { cookie: operator },
+      payload: {
+        receiptNumber: "R-BAD-CUSTOMER-001",
+        customerId: "cust-missing",
+        paymentMethod: "cash",
+        idempotencyKey: "pos-sale-bad-customer-1",
+        lines: [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 1 }]
+      }
+    });
+    assert.equal(rejected.statusCode, 404, rejected.body);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_sales WHERE org_id = ?").get(orgId).count, saleCountBefore);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_sales WHERE org_id = ? AND source_key = ?")
+      .get(orgId, "pos-sale-bad-customer-1").count, sourceCountBefore);
+    assert.equal(app.db.prepare("SELECT expected_cash_amd FROM pos_cash_sessions WHERE org_id = ? AND id = ?")
+      .get(orgId, sessionId).expected_cash_amd, 10000);
   } finally {
     await app.close();
   }
