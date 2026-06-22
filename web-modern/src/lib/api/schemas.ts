@@ -1856,6 +1856,38 @@ export const ProjectMilestoneSchema = z
   .passthrough();
 export type ProjectMilestone = z.infer<typeof ProjectMilestoneSchema>;
 
+export const ProjectRecurringTaskIntervalUnitSchema = z
+  .enum(["weekly", "monthly"])
+  .or(z.string());
+export type ProjectRecurringTaskIntervalUnit = z.infer<
+  typeof ProjectRecurringTaskIntervalUnitSchema
+>;
+
+export const ProjectRecurringTaskSchema = z
+  .object({
+    id: z.string(),
+    projectId: z.string().optional(),
+    title: z.string(),
+    status: z.string(),
+    intervalUnit: ProjectRecurringTaskIntervalUnitSchema,
+    intervalEvery: z.number(),
+    nextDueDate: z.string().nullable().optional(),
+    active: z.union([z.number(), z.boolean()]),
+    lastCreatedTaskId: z.string().nullable().optional(),
+    updatedAt: z.string().optional(),
+  })
+  .passthrough();
+export type ProjectRecurringTask = z.infer<typeof ProjectRecurringTaskSchema>;
+
+export const ProjectRecurringTasksResponseSchema = z
+  .object({
+    recurringTasks: z.array(ProjectRecurringTaskSchema),
+  })
+  .passthrough();
+export type ProjectRecurringTasksResponse = z.infer<
+  typeof ProjectRecurringTasksResponseSchema
+>;
+
 export const ProjectListItemSchema = z
   .object({
     id: z.string(),
@@ -1887,6 +1919,7 @@ export const ProjectDetailSchema = ProjectListItemSchema.extend({
   createdAt: z.string().optional(),
   tasks: z.array(ProjectTaskSchema).optional(),
   milestones: z.array(ProjectMilestoneSchema).optional(),
+  recurringTasks: z.array(ProjectRecurringTaskSchema).optional(),
   timeEntryCount: z.number().int().optional(),
 }).passthrough();
 export type ProjectDetail = z.infer<typeof ProjectDetailSchema>;

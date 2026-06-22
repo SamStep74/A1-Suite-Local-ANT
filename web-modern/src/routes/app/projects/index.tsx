@@ -1,9 +1,9 @@
 /**
  * /app/projects — Projects workspace: projects | tasks | milestones |
- * time-entries | billing | templates.
+ * time-entries | billing | recurring | templates.
  *
  * Mirrors cfo/ pattern (Pattern A from the plan §3.5). The home
- * route is a ViewSwitcher over six surfaces:
+ * route is a ViewSwitcher over seven surfaces:
  *
  *   - **Projects** — list of all client projects with task/milestone
  *     progress and total minutes
@@ -14,16 +14,19 @@
  *   - **Billing** — billing preview for the most recently updated
  *     project (the route is read-only; finance-gated POST /bill-time
  *     stays in the server API)
+ *   - **Recurring** — recurring task rules for the most recently updated
+ *     project
  *   - **Templates** — reusable project templates with task/milestone
  *     hierarchy evidence
  *
  * URL state:
- *   ?view=projects | tasks | milestones | time | billing | templates
+ *   ?view=projects | tasks | milestones | time | billing | recurring | templates
  *
  * Data (all require app=projects access):
  *   - GET /api/projects
  *   - GET /api/projects/:id
  *   - GET /api/projects/:id/billing-preview
+ *   - GET /api/projects/:id/recurring-tasks
  *   - GET /api/project-templates
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
@@ -41,6 +44,7 @@ import {
   ProjectDetailResponseSchema,
   ProjectBillingPreviewResponseSchema,
   ProjectProfitabilityResponseSchema,
+  ProjectRecurringTasksResponseSchema,
   ProjectTemplatesResponseSchema,
   type ProjectListItem,
   type ProjectTask,
@@ -48,6 +52,7 @@ import {
   type ProjectDetail,
   type ProjectBillingPreview,
   type ProjectProfitability,
+  type ProjectRecurringTask,
   type ProjectTemplate,
   type ProjectTemplateMilestone,
   type ProjectTemplateTask,
@@ -74,7 +79,14 @@ import {
 
 /* ────────── typed URL search ────────── */
 
-type View = "projects" | "tasks" | "milestones" | "time" | "billing" | "templates";
+type View =
+  | "projects"
+  | "tasks"
+  | "milestones"
+  | "time"
+  | "billing"
+  | "recurring"
+  | "templates";
 
 const VIEW_OPTIONS: { value: View; label: string }[] = [
   { value: "projects", label: "Projects" },
@@ -82,6 +94,7 @@ const VIEW_OPTIONS: { value: View; label: string }[] = [
   { value: "milestones", label: "Milestones" },
   { value: "time", label: "Time" },
   { value: "billing", label: "Billing" },
+  { value: "recurring", label: "Recurring" },
   { value: "templates", label: "Templates" },
 ];
 
@@ -92,6 +105,7 @@ export const Route = createFileRoute("/app/projects/")({
       raw.view === "milestones" ||
       raw.view === "time" ||
       raw.view === "billing" ||
+      raw.view === "recurring" ||
       raw.view === "templates"
         ? raw.view
         : "projects";
@@ -220,6 +234,25 @@ function dueOffsetLabel(days: number | null | undefined) {
   return `Day ${days}`;
 }
 
+function isRecurringTaskActive(rule: ProjectRecurringTask) {
+  return rule.active === true || rule.active === 1;
+}
+
+function recurringIntervalLabel(rule: ProjectRecurringTask) {
+  const unit = String(rule.intervalUnit || "period").toLowerCase();
+  const normalizedUnit =
+    unit === "weekly"
+      ? rule.intervalEvery === 1
+        ? "week"
+        : "weeks"
+      : unit === "monthly"
+        ? rule.intervalEvery === 1
+          ? "month"
+          : "months"
+        : unit;
+  return `Every ${rule.intervalEvery} ${normalizedUnit}`;
+}
+
 /* ────────── root component ────────── */
 
 function ProjectsWorkspace() {
@@ -277,6 +310,17 @@ function ProjectsWorkspace() {
       return ProjectTemplatesResponseSchema.parse(raw);
     },
     enabled: view === "templates",
+  });
+
+  const recurringQ = useQuery({
+    queryKey: ["project-recurring-tasks", topProject?.id ?? null],
+    queryFn: async () => {
+      const raw = await getJson(
+        `/api/projects/${encodeURIComponent(topProject!.id)}/recurring-tasks`,
+      );
+      return ProjectRecurringTasksResponseSchema.parse(raw);
+    },
+    enabled: view === "recurring" && Boolean(topProject?.id),
   });
 
   return (
@@ -337,6 +381,16 @@ function ProjectsWorkspace() {
           templates={templatesQ.data?.templates ?? []}
           loading={templatesQ.isLoading}
           error={templatesQ.isError}
+        />
+      )}
+      {view === "recurring" && (
+        <RecurringTasksView
+          project={topProject}
+          recurringTasks={
+            recurringQ.data?.recurringTasks ?? detailQ.data?.project.recurringTasks ?? []
+          }
+          loading={projectsQ.isLoading || recurringQ.isLoading}
+          error={projectsQ.isError || recurringQ.isError}
         />
       )}
     </div>
@@ -1018,6 +1072,150 @@ function TemplateMilestoneEvidence({
           +{total - milestones.length} more
         </p>
       )}
+    </div>
+  );
+}
+
+/* ────────── Recurring tasks view ────────── */
+
+function RecurringTasksView({
+  project,
+  recurringTasks,
+  loading,
+  error,
+}: {
+  project: ProjectListItem | undefined;
+  recurringTasks: ProjectRecurringTask[];
+  loading: boolean;
+  error: boolean;
+}) {
+  if (loading) {
+    return (
+      <p className="text-[var(--text-sm)] text-[var(--color-muted)]">
+        Loading recurring tasks…
+      </p>
+    );
+  }
+  if (error) {
+    return (
+      <p className="text-[var(--text-sm)] text-[var(--color-tag-red)]">
+        Failed to load recurring tasks.
+      </p>
+    );
+  }
+  if (!project) {
+    return <EmptyState message="No project available for recurring tasks." />;
+  }
+
+  const rules = recurringTasks
+    .slice()
+    .sort((a, b) => (a.nextDueDate ?? "9999-12-31").localeCompare(b.nextDueDate ?? "9999-12-31"));
+  const activeCount = rules.filter(isRecurringTaskActive).length;
+  const nextDueCount = rules.filter((rule) => Boolean(rule.nextDueDate)).length;
+
+  if (rules.length === 0) {
+    return <EmptyState message="No recurring task rules for the most recent project." />;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard label="Rules" value={String(rules.length)} hint={project.name} />
+        <KpiCard
+          label="Active"
+          value={`${activeCount}/${rules.length}`}
+          hint="Enabled recurrence rules"
+          tone={activeCount > 0 ? "positive" : "default"}
+        />
+        <KpiCard label="Next due dates" value={String(nextDueCount)} hint="Scheduled rules" />
+        <KpiCard
+          label="Last task links"
+          value={String(rules.filter((rule) => Boolean(rule.lastCreatedTaskId)).length)}
+          hint="Created-task evidence"
+        />
+      </div>
+
+      <section
+        className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)]"
+        data-entity="projects-recurring-task"
+        data-count={String(rules.length)}
+      >
+        <div className="flex items-center gap-2 border-b border-[var(--color-line)] px-3 py-2">
+          <Clock3 className="size-4 text-[var(--color-muted)]" />
+          <p className="text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+            Recurring tasks - <span className="font-mono">{project.name}</span>
+          </p>
+        </div>
+        <table className="w-full table-fixed text-[var(--text-sm)]" role="table">
+          <thead className="bg-[var(--color-surface-soft)] text-[var(--text-xs)] uppercase tracking-wide text-[var(--color-muted)]">
+            <tr>
+              <th scope="col" className="w-[26%] px-3 py-2 text-left font-semibold">
+                Rule
+              </th>
+              <th scope="col" className="w-[12%] px-3 py-2 text-left font-semibold">
+                Active
+              </th>
+              <th scope="col" className="w-[18%] px-3 py-2 text-left font-semibold">
+                Interval
+              </th>
+              <th scope="col" className="w-[16%] px-3 py-2 text-left font-semibold">
+                Next due
+              </th>
+              <th scope="col" className="w-[12%] px-3 py-2 text-left font-semibold">
+                Status
+              </th>
+              <th scope="col" className="w-[16%] px-3 py-2 text-left font-semibold">
+                Last task
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--color-line)]">
+            {rules.map((rule) => {
+              const active = isRecurringTaskActive(rule);
+              return (
+                <tr key={rule.id} className="hover:bg-[var(--color-surface-soft)]">
+                  <td className="px-3 py-2">
+                    <div className="min-w-0">
+                      <span className="block truncate text-[var(--color-ink)]" title={rule.title}>
+                        {rule.title}
+                      </span>
+                      <span className="block truncate font-mono text-[10px] text-[var(--color-muted)]">
+                        {rule.id}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={cn(
+                        "inline-flex items-center rounded-[var(--radius-sm)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
+                        active
+                          ? "bg-[color-mix(in_srgb,var(--color-tag-green)_15%,transparent)] text-[var(--color-tag-green)]"
+                          : "bg-[color-mix(in_srgb,var(--color-muted)_15%,transparent)] text-[var(--color-muted)]",
+                      )}
+                    >
+                      {active ? "Yes" : "No"}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[var(--color-ink)]">
+                    {recurringIntervalLabel(rule)}
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[var(--color-muted)]">
+                    {rule.nextDueDate ?? "—"}
+                  </td>
+                  <td className="px-3 py-2 text-[var(--color-muted)]">
+                    <span className="block truncate" title={rule.status}>
+                      {rule.status}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[var(--color-muted)]">
+                    {rule.lastCreatedTaskId ?? "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </section>
     </div>
   );
 }

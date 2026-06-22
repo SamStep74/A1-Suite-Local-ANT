@@ -38,6 +38,8 @@ import {
   CreateStockMoveInputSchema,
   ProjectTaskSchema,
   ProjectDetailResponseSchema,
+  ProjectRecurringTaskSchema,
+  ProjectRecurringTasksResponseSchema,
   ProjectTemplateResponseSchema,
   ProjectTemplatesResponseSchema,
 } from "./schemas";
@@ -741,6 +743,97 @@ describe("Project task dependency schemas", () => {
       expect(r.data.project.tasks?.[0]?.subtasks?.[0]?.status).toBe("todo");
       expect(r.data.project.tasks?.[0]?.blockedBy?.[0]?.id).toBe("t-1");
     }
+  });
+});
+
+describe("Project recurring task schemas", () => {
+  const recurringTask = {
+    id: "rt-1",
+    projectId: "p-1",
+    title: "Weekly client check-in",
+    status: "todo",
+    intervalUnit: "weekly",
+    intervalEvery: 1,
+    nextDueDate: "2026-06-29",
+    active: 1,
+    lastCreatedTaskId: "task-99",
+    updatedAt: "2026-06-22T08:00:00.000Z",
+  };
+
+  it("accepts the recurring task wire shape", () => {
+    const r = ProjectRecurringTaskSchema.safeParse(recurringTask);
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.intervalUnit).toBe("weekly");
+      expect(r.data.active).toBe(1);
+      expect(r.data.lastCreatedTaskId).toBe("task-99");
+    }
+  });
+
+  it("accepts nullable/optional recurrence evidence and boolean active", () => {
+    const r = ProjectRecurringTaskSchema.safeParse({
+      id: "rt-2",
+      title: "Monthly steering pack",
+      status: "scheduled",
+      intervalUnit: "monthly",
+      intervalEvery: 2,
+      nextDueDate: null,
+      active: true,
+      lastCreatedTaskId: null,
+    });
+
+    expect(r.success).toBe(true);
+  });
+
+  it("accepts custom interval units from the backend", () => {
+    const r = ProjectRecurringTaskSchema.safeParse({
+      id: "rt-3",
+      title: "Quarterly audit",
+      status: "planned",
+      intervalUnit: "quarterly",
+      intervalEvery: 1,
+      active: false,
+    });
+
+    expect(r.success).toBe(true);
+  });
+
+  it("accepts the recurring tasks envelope", () => {
+    const r = ProjectRecurringTasksResponseSchema.safeParse({
+      recurringTasks: [recurringTask],
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.recurringTasks).toHaveLength(1);
+    }
+  });
+
+  it("accepts recurringTasks on project detail", () => {
+    const r = ProjectDetailResponseSchema.safeParse({
+      project: {
+        id: "p-1",
+        name: "Alpha",
+        status: "active",
+        updatedAt: "2026-06-09T10:00:00Z",
+        recurringTasks: [recurringTask],
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.project.recurringTasks?.[0]?.title).toBe("Weekly client check-in");
+    }
+  });
+
+  it("rejects a recurring task missing intervalEvery", () => {
+    const r = ProjectRecurringTaskSchema.safeParse({
+      ...recurringTask,
+      intervalEvery: undefined,
+    });
+
+    expect(r.success).toBe(false);
   });
 });
 

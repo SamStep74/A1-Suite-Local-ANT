@@ -84,6 +84,246 @@ test("projects: full hierarchy — project + task + milestone + time entry with 
   } finally { await app.close(); }
 });
 
+test("projects: recurring tasks seed, create, run, and advance next due date", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+
+    const unauth = await app.inject({ method: "GET", url: "/api/projects/proj-nare-retention/recurring-tasks" });
+    assert.strictEqual(unauth.statusCode, 401);
+
+    const owner = await login(app);
+    const seeded = await app.inject({
+      method: "GET",
+      url: "/api/projects/proj-nare-retention/recurring-tasks",
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(seeded.statusCode, 200, seeded.body);
+    const seededRule = seeded.json().recurringTasks.find(rule => rule.id === "prtask-nare-monthly-followup");
+    assert.ok(seededRule, "seeded Nare recurring task rule present");
+    assert.strictEqual(seededRule.projectId, "proj-nare-retention");
+    assert.strictEqual(seededRule.intervalUnit, "monthly");
+    assert.strictEqual(seededRule.intervalEvery, 1);
+    assert.strictEqual(seededRule.nextDueDate, "2026-06-20");
+    assert.strictEqual(seededRule.active, true);
+
+    const detail = await app.inject({ method: "GET", url: "/api/projects/proj-nare-retention", headers: { cookie: owner } });
+    assert.strictEqual(detail.statusCode, 200, detail.body);
+    assert.ok(detail.json().project.recurringTasks.some(rule => rule.id === seededRule.id), "project detail includes recurring tasks");
+
+    const project = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie: owner },
+      payload: { name: "Recurring backend project", status: "active" }
+    });
+    assert.strictEqual(project.statusCode, 200, project.body);
+    const projectId = project.json().project.id;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/recurring-tasks`,
+      headers: { cookie: owner },
+      payload: {
+        title: "Send retention evidence",
+        status: "in-progress",
+        intervalUnit: "weekly",
+        intervalEvery: 2,
+        nextDueDate: "2026-07-03"
+      }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    const rule = created.json().recurringTask;
+    assert.strictEqual(rule.title, "Send retention evidence");
+    assert.strictEqual(rule.status, "in-progress");
+    assert.strictEqual(rule.intervalUnit, "weekly");
+    assert.strictEqual(rule.intervalEvery, 2);
+    assert.strictEqual(rule.nextDueDate, "2026-07-03");
+    assert.strictEqual(rule.lastCreatedTaskId, null);
+    assert.ok(created.json().project.recurringTasks.some(item => item.id === rule.id));
+
+    const listed = await app.inject({ method: "GET", url: `/api/projects/${projectId}/recurring-tasks`, headers: { cookie: owner } });
+    assert.strictEqual(listed.statusCode, 200, listed.body);
+    assert.deepStrictEqual(listed.json().recurringTasks.map(item => item.id), [rule.id]);
+
+    const beforeTaskCount = app.db.prepare("SELECT COUNT(*) AS count FROM project_tasks WHERE org_id = ? AND project_id = ?").get("org-armosphera-demo", projectId).count;
+    const run = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/recurring-tasks/${rule.id}/run`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(run.statusCode, 200, run.body);
+    const body = run.json();
+    assert.strictEqual(body.ok, true);
+    assert.strictEqual(body.task.title, "Send retention evidence");
+    assert.strictEqual(body.task.status, "in-progress");
+    assert.strictEqual(body.task.dueDate, "2026-07-03");
+    assert.strictEqual(body.recurringTask.lastCreatedTaskId, body.task.id);
+    assert.strictEqual(body.recurringTask.nextDueDate, "2026-07-17");
+    assert.ok(body.project.tasks.some(task => task.id === body.task.id));
+    assert.strictEqual(
+      app.db.prepare("SELECT COUNT(*) AS count FROM project_tasks WHERE org_id = ? AND project_id = ?").get("org-armosphera-demo", projectId).count,
+      beforeTaskCount + 1
+    );
+  } finally { await app.close(); }
+});
+
+test("projects: recurring tasks writer gate and cross-org isolation", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const auditor = await login(app, "auditor@armosphera.local", DEFAULT_PASSWORD);
+
+    const project = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie: owner },
+      payload: { name: "Recurring gate project", status: "active" }
+    });
+    assert.strictEqual(project.statusCode, 200, project.body);
+    const projectId = project.json().project.id;
+
+    const created = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/recurring-tasks`,
+      headers: { cookie: owner },
+      payload: { title: "Gate recurring rule", intervalUnit: "monthly", intervalEvery: 1, nextDueDate: "2026-08-01" }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    const ruleId = created.json().recurringTask.id;
+
+    const auditorCreate = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/recurring-tasks`,
+      headers: { cookie: auditor },
+      payload: { title: "Auditor blocked rule", intervalUnit: "weekly", intervalEvery: 1, nextDueDate: "2026-08-01" }
+    });
+    assert.strictEqual(auditorCreate.statusCode, 403);
+
+    const auditorRun = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/recurring-tasks/${ruleId}/run`,
+      headers: { cookie: auditor }
+    });
+    assert.strictEqual(auditorRun.statusCode, 403);
+
+    const now = new Date().toISOString();
+    const otherOrgId = "org-other-recurring";
+    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, currency, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(otherOrgId, "Other Recurring LLC", "Other Recurring LLC", "77777777", "AMD", now);
+    app.db.prepare(`INSERT INTO projects (id, org_id, name, description, status, customer_id, deal_id, start_date, due_date, created_at, updated_at)
+      VALUES (?, ?, ?, '', 'active', NULL, NULL, '', '', ?, ?)`).run("proj-foreign-recurring", otherOrgId, "Foreign recurring project", now, now);
+    app.db.prepare(`INSERT INTO project_recurring_tasks (id, org_id, project_id, title, status, interval_unit, interval_every, next_due_date, active, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'todo', 'weekly', 1, '2026-08-01', 1, ?, ?)`)
+      .run("prtask-foreign-recurring", otherOrgId, "proj-foreign-recurring", "Foreign recurring rule", now, now);
+
+    const foreignList = await app.inject({ method: "GET", url: "/api/projects/proj-foreign-recurring/recurring-tasks", headers: { cookie: owner } });
+    assert.strictEqual(foreignList.statusCode, 404);
+    const foreignCreate = await app.inject({
+      method: "POST",
+      url: "/api/projects/proj-foreign-recurring/recurring-tasks",
+      headers: { cookie: owner },
+      payload: { title: "Cross org create", intervalUnit: "weekly", intervalEvery: 1, nextDueDate: "2026-08-01" }
+    });
+    assert.strictEqual(foreignCreate.statusCode, 404);
+    const foreignRunByProject = await app.inject({
+      method: "POST",
+      url: "/api/projects/proj-foreign-recurring/recurring-tasks/prtask-foreign-recurring/run",
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(foreignRunByProject.statusCode, 404);
+    const foreignRunByRule = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/recurring-tasks/prtask-foreign-recurring/run`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(foreignRunByRule.statusCode, 404);
+  } finally { await app.close(); }
+});
+
+test("projects: recurring tasks reject malformed paths and bodies without side effects or secret echo", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const project = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie: owner },
+      payload: { name: "Recurring guard project", status: "active" }
+    });
+    assert.strictEqual(project.statusCode, 200, project.body);
+    const projectId = project.json().project.id;
+
+    const validRule = await app.inject({
+      method: "POST",
+      url: `/api/projects/${projectId}/recurring-tasks`,
+      headers: { cookie: owner },
+      payload: { title: "Recurring guard rule", intervalUnit: "weekly", intervalEvery: 1, nextDueDate: "2026-09-01" }
+    });
+    assert.strictEqual(validRule.statusCode, 200, validRule.body);
+    const ruleId = validRule.json().recurringTask.id;
+    const orgId = "org-armosphera-demo";
+    const counts = () => ({
+      recurringTasks: app.db.prepare("SELECT COUNT(*) AS count FROM project_recurring_tasks WHERE org_id = ?").get(orgId).count,
+      tasks: app.db.prepare("SELECT COUNT(*) AS count FROM project_tasks WHERE org_id = ?").get(orgId).count,
+      audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type LIKE ?").get(orgId, "projects.recurring_task.%").count
+    });
+    const ruleRow = () => app.db.prepare("SELECT title, status, interval_unit AS intervalUnit, interval_every AS intervalEvery, next_due_date AS nextDueDate, last_created_task_id AS lastCreatedTaskId FROM project_recurring_tasks WHERE org_id = ? AND id = ?").get(orgId, ruleId);
+    const before = counts();
+    const beforeRule = ruleRow();
+
+    const expectNoSideEffect = async ({ method, url, payload, statusCode = 400, statusCodes, message }) => {
+      const request = { method, url, headers: { cookie: owner } };
+      if (payload !== undefined) request.payload = payload;
+      const response = await app.inject(request);
+      const allowedStatuses = statusCodes || [statusCode];
+      assert.ok(allowedStatuses.includes(response.statusCode), `${url}: ${response.body}`);
+      if (message) assert.match(response.body, message);
+      assert.doesNotMatch(response.body, /secret-projects-recurring-/);
+      assert.deepStrictEqual(counts(), before);
+      assert.deepStrictEqual(ruleRow(), beforeRule);
+      return response;
+    };
+
+    for (const payload of [
+      { title: "x", intervalUnit: "weekly", intervalEvery: 1, nextDueDate: "2026-09-01", token: "secret-projects-recurring-short-title-token" },
+      { title: "Bad\nsecret-projects-recurring-control-title-token", intervalUnit: "weekly", intervalEvery: 1, nextDueDate: "2026-09-01" },
+      { title: "Bad status", status: "blocked-secret-projects-recurring-status-token", intervalUnit: "weekly", intervalEvery: 1, nextDueDate: "2026-09-01" },
+      { title: "Bad unit", intervalUnit: "daily-secret-projects-recurring-unit-token", intervalEvery: 1, nextDueDate: "2026-09-01" },
+      { title: "Bad interval", intervalUnit: "weekly", intervalEvery: 0, nextDueDate: "2026-09-01" },
+      { title: "Bad interval object", intervalUnit: "weekly", intervalEvery: { value: 1, token: "secret-projects-recurring-interval-token" }, nextDueDate: "2026-09-01" },
+      { title: "Bad date", intervalUnit: "weekly", intervalEvery: 1, nextDueDate: "2026-02-30-secret-projects-recurring-date-token" },
+      { title: "Bad active", intervalUnit: "weekly", intervalEvery: 1, nextDueDate: "2026-09-01", active: "secret-projects-recurring-active-token" }
+    ]) {
+      await expectNoSideEffect({ method: "POST", url: `/api/projects/${projectId}/recurring-tasks`, payload });
+    }
+
+    for (const request of [
+      { method: "GET", url: "/api/projects/badAsecret-projects-recurring-parent-token/recurring-tasks", message: /Invalid project id/ },
+      {
+        method: "POST",
+        url: "/api/projects/bad_secret-projects-recurring-parent-token/recurring-tasks",
+        payload: { title: "secret-projects-recurring-path-body-token", intervalUnit: "weekly", intervalEvery: 1, nextDueDate: "2026-09-01" },
+        message: /Invalid project id/
+      },
+      {
+        method: "POST",
+        url: `/api/projects/${projectId}/recurring-tasks/badAsecret-projects-recurring-id-token/run`,
+        message: /Invalid project recurring task id/
+      },
+      {
+        method: "POST",
+        url: `/api/projects/${projectId}/recurring-tasks/bad%0Asecret-projects-recurring-control-id-token/run`,
+        message: /Invalid project recurring task id/
+      }
+    ]) {
+      await expectNoSideEffect(request);
+    }
+  } finally { await app.close(); }
+});
+
 test("projects: task dependencies serialize, dedupe, delete, and reject invalid graph links", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

@@ -5321,6 +5321,7 @@ function registerApi(app, db, options = {}) {
   // Projects — client projects → tasks → milestones → time entries (delivery tracking).
   const PROJECT_STATUSES = ["planning", "active", "on-hold", "completed", "cancelled"];
   const TASK_STATUSES = ["todo", "in-progress", "done"];
+  const RECURRING_TASK_INTERVAL_UNITS = ["weekly", "monthly"];
 
   app.get("/api/project-templates", async request => {
     const user = await app.auth(request);
@@ -5411,6 +5412,14 @@ function registerApi(app, db, options = {}) {
     return { projects };
   });
 
+  app.get("/api/projects/:id/recurring-tasks", async request => {
+    const user = await app.auth(request);
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, user.org_id, projectId);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    return { recurringTasks: getProjectRecurringTasks(db, user.org_id, project.id) };
+  });
+
   app.get("/api/projects/:id", async request => {
     const user = await app.auth(request);
     const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
@@ -5439,6 +5448,79 @@ function registerApi(app, db, options = {}) {
       .run(id, user.org_id, name, description, status, customerId || null, dealId || null, startDate, dueDate, user.id, now, now);
     audit(db, user.org_id, user.id, "projects.project.created", { projectId: id, name });
     return { ok: true, project: getProject(db, user.org_id, id) };
+  });
+
+  app.post("/api/projects/:id/recurring-tasks", async request => {
+    const user = await app.auth(request);
+    requireProjectsWriter(user);
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, user.org_id, projectId);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    const input = normalizeProjectRecurringTaskBody(request.body === undefined ? {} : request.body);
+    const id = randomId("prtask");
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO project_recurring_tasks (
+        id, org_id, project_id, title, status, interval_unit, interval_every,
+        next_due_date, active, last_created_task_id, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
+    `).run(
+      id,
+      user.org_id,
+      project.id,
+      input.title,
+      input.status,
+      input.intervalUnit,
+      input.intervalEvery,
+      input.nextDueDate,
+      input.active ? 1 : 0,
+      now,
+      now
+    );
+    audit(db, user.org_id, user.id, "projects.recurring_task.created", { projectId: project.id, recurringTaskId: id });
+    return { ok: true, recurringTask: getProjectRecurringTask(db, user.org_id, project.id, id), project: getProject(db, user.org_id, project.id) };
+  });
+
+  app.post("/api/projects/:id/recurring-tasks/:recurringTaskId/run", async request => {
+    const user = await app.auth(request);
+    requireProjectsWriter(user);
+    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
+    const project = getProject(db, user.org_id, projectId);
+    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
+    const recurringTaskId = normalizeProjectRecurringTaskPathId(request.params.recurringTaskId, request.raw?.url);
+    const recurringTask = getProjectRecurringTask(db, user.org_id, project.id, recurringTaskId);
+    if (!recurringTask) { const e = new Error("Recurring task not found"); e.statusCode = 404; throw e; }
+    if (!recurringTask.active) { const e = new Error("Recurring task is inactive"); e.statusCode = 409; throw e; }
+    if (!isExactIsoDate(recurringTask.nextDueDate)) { const e = new Error("Recurring task next due date is required"); e.statusCode = 400; throw e; }
+    const taskId = randomId("ptask");
+    const now = new Date().toISOString();
+    const dueDate = recurringTask.nextDueDate;
+    const nextDueDate = advanceProjectRecurringDueDate(dueDate, recurringTask.intervalUnit, recurringTask.intervalEvery);
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare(`
+        INSERT INTO project_tasks (id, org_id, project_id, title, status, parent_task_id, assignee_employee_id, due_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
+      `).run(taskId, user.org_id, project.id, recurringTask.title, recurringTask.status, dueDate, now, now);
+      db.prepare(`
+        UPDATE project_recurring_tasks
+        SET last_created_task_id = ?, next_due_date = ?, updated_at = ?
+        WHERE org_id = ? AND project_id = ? AND id = ?
+      `).run(taskId, nextDueDate, now, user.org_id, project.id, recurringTask.id);
+      audit(db, user.org_id, user.id, "projects.recurring_task.run", { projectId: project.id, recurringTaskId: recurringTask.id, taskId });
+      db.exec("COMMIT");
+    } catch (error) {
+      try { db.exec("ROLLBACK"); } catch {}
+      throw error;
+    }
+    const updatedProject = getProject(db, user.org_id, project.id);
+    return {
+      ok: true,
+      recurringTask: getProjectRecurringTask(db, user.org_id, project.id, recurringTask.id),
+      task: updatedProject.tasks.find(task => task.id === taskId),
+      project: updatedProject
+    };
   });
 
   app.patch("/api/projects/:id", async request => {
@@ -5701,6 +5783,48 @@ function registerApi(app, db, options = {}) {
     return date;
   }
 
+  function normalizeProjectRecurringTaskBody(body) {
+    body = normalizeProjectRequestBody(body);
+    const intervalUnit = normalizeProjectEnum(body, "intervalUnit", RECURRING_TASK_INTERVAL_UNITS, "", "Invalid recurring task interval unit");
+    if (!intervalUnit) throwInvalidProjectMetadata("Invalid recurring task interval unit");
+    const nextDueDate = normalizeProjectDate(body, "nextDueDate", "");
+    if (!nextDueDate) throwInvalidProjectMetadata("Recurring task next due date is required");
+    return {
+      title: normalizeProjectText(body, "title", { required: true, minLength: 2, maxLength: 200, error: "Recurring task title is required" }),
+      status: normalizeProjectEnum(body, "status", TASK_STATUSES, "todo", "Invalid task status"),
+      intervalUnit,
+      intervalEvery: normalizeProjectIntervalEvery(body, "intervalEvery"),
+      nextDueDate,
+      active: body.active === undefined ? true : normalizeProjectBoolean(body, "active")
+    };
+  }
+
+  function normalizeProjectIntervalEvery(body, field) {
+    const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+    if (value === undefined || value === "" || value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
+      throwInvalidProjectMetadata("Recurring task interval must be 1..52");
+    }
+    let intervalEvery;
+    if (typeof value === "number") {
+      intervalEvery = value;
+    } else if (typeof value === "string") {
+      if (/[\x00-\x1f\x7f]/.test(value)) {
+        throwInvalidProjectMetadata("Recurring task interval must be 1..52");
+      }
+      const text = value.trim();
+      if (!/^\d+$/.test(text)) {
+        throwInvalidProjectMetadata("Recurring task interval must be 1..52");
+      }
+      intervalEvery = Number(text);
+    } else {
+      throwInvalidProjectMetadata("Recurring task interval must be 1..52");
+    }
+    if (!Number.isSafeInteger(intervalEvery) || intervalEvery < 1 || intervalEvery > 52) {
+      throwInvalidProjectMetadata("Recurring task interval must be 1..52");
+    }
+    return intervalEvery;
+  }
+
   function normalizeProjectBoolean(body, field) {
     const value = body[field];
     if (typeof value !== "boolean") {
@@ -5822,7 +5946,7 @@ function registerApi(app, db, options = {}) {
 
   function normalizeProjectPathId(value, rawUrl = "") {
     const rawSegment = typeof rawUrl === "string"
-      ? rawUrl.match(/^\/api\/projects\/([^/?#]+)(?:\/(?:tasks(?:\/[^/?#]+(?:\/dependencies(?:\/[^/?#]+)?)?)?|milestones(?:\/[^/?#]+)?|time-entries|billing-preview|bill-time|profitability))?(?:[?#]|$)/)?.[1]
+      ? rawUrl.match(/^\/api\/projects\/([^/?#]+)(?:\/(?:recurring-tasks(?:\/[^/?#]+(?:\/run)?)?|tasks(?:\/[^/?#]+(?:\/dependencies(?:\/[^/?#]+)?)?)?|milestones(?:\/[^/?#]+)?|time-entries|billing-preview|bill-time|profitability))?(?:[?#]|$)/)?.[1]
       : "";
     if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
       throwInvalidProjectPathId("Invalid project id");
@@ -5870,6 +5994,16 @@ function registerApi(app, db, options = {}) {
     return normalizeProjectRouteId(value, "Invalid project milestone id");
   }
 
+  function normalizeProjectRecurringTaskPathId(value, rawUrl = "") {
+    const rawSegment = typeof rawUrl === "string"
+      ? rawUrl.match(/^\/api\/projects\/[^/?#]+\/recurring-tasks\/([^/?#]+)(?:\/run)?(?:[?#]|$)/)?.[1]
+      : "";
+    if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+      throwInvalidProjectPathId("Invalid project recurring task id");
+    }
+    return normalizeProjectRouteId(value, "Invalid project recurring task id");
+  }
+
   function normalizeProjectRouteId(value, message) {
     if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
       throwInvalidProjectPathId(message);
@@ -5894,6 +6028,18 @@ function registerApi(app, db, options = {}) {
     const date = new Date(`${startDate}T00:00:00.000Z`);
     date.setUTCDate(date.getUTCDate() + days);
     return date.toISOString().slice(0, 10);
+  }
+
+  function advanceProjectRecurringDueDate(dateText, intervalUnit, intervalEvery) {
+    if (intervalUnit === "weekly") return addDays(dateText, intervalEvery * 7);
+    const date = new Date(`${dateText}T00:00:00.000Z`);
+    const day = date.getUTCDate();
+    const targetMonth = date.getUTCMonth() + intervalEvery;
+    const targetYear = date.getUTCFullYear() + Math.floor(targetMonth / 12);
+    const normalizedMonth = ((targetMonth % 12) + 12) % 12;
+    const lastDay = new Date(Date.UTC(targetYear, normalizedMonth + 1, 0)).getUTCDate();
+    const next = new Date(Date.UTC(targetYear, normalizedMonth, Math.min(day, lastDay)));
+    return next.toISOString().slice(0, 10);
   }
 
   function throwInvalidProjectPathId(message) {
@@ -10363,6 +10509,7 @@ function getForm(db, orgId, id) {
 function getProject(db, orgId, id) {
   const project = db.prepare("SELECT id, name, description, status, customer_id AS customerId, deal_id AS dealId, start_date AS startDate, due_date AS dueDate, created_at AS createdAt, updated_at AS updatedAt FROM projects WHERE org_id = ? AND id = ?").get(orgId, String(id || ""));
   if (!project) return null;
+  project.recurringTasks = getProjectRecurringTasks(db, orgId, project.id);
   project.tasks = db.prepare("SELECT id, title, status, parent_task_id AS parentTaskId, assignee_employee_id AS assigneeEmployeeId, due_date AS dueDate, updated_at AS updatedAt FROM project_tasks WHERE org_id = ? AND project_id = ? ORDER BY created_at").all(orgId, project.id);
   const tasksById = new Map();
   for (const task of project.tasks) {
@@ -10415,6 +10562,57 @@ function getProject(db, orgId, id) {
   project.totalMinutes = totals.totalMinutes;
   project.timeEntryCount = totals.entryCount;
   return project;
+}
+
+function getProjectRecurringTask(db, orgId, projectId, id) {
+  const row = db.prepare(`
+    SELECT
+      id,
+      org_id AS orgId,
+      project_id AS projectId,
+      title,
+      status,
+      interval_unit AS intervalUnit,
+      interval_every AS intervalEvery,
+      next_due_date AS nextDueDate,
+      active,
+      last_created_task_id AS lastCreatedTaskId,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM project_recurring_tasks
+    WHERE org_id = ? AND project_id = ? AND id = ?
+  `).get(orgId, projectId, String(id || ""));
+  return mapProjectRecurringTask(row);
+}
+
+function getProjectRecurringTasks(db, orgId, projectId) {
+  return db.prepare(`
+    SELECT
+      id,
+      org_id AS orgId,
+      project_id AS projectId,
+      title,
+      status,
+      interval_unit AS intervalUnit,
+      interval_every AS intervalEvery,
+      next_due_date AS nextDueDate,
+      active,
+      last_created_task_id AS lastCreatedTaskId,
+      created_at AS createdAt,
+      updated_at AS updatedAt
+    FROM project_recurring_tasks
+    WHERE org_id = ? AND project_id = ?
+    ORDER BY active DESC, next_due_date, created_at
+  `).all(orgId, projectId).map(mapProjectRecurringTask);
+}
+
+function mapProjectRecurringTask(row) {
+  if (!row) return null;
+  return {
+    ...row,
+    active: Boolean(row.active),
+    lastCreatedTaskId: row.lastCreatedTaskId || null
+  };
 }
 
 function getProjectTemplate(db, orgId, id) {

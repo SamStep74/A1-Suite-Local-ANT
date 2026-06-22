@@ -1679,6 +1679,28 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_project_tasks_project ON project_tasks(org_id, project_id, status);
     CREATE INDEX IF NOT EXISTS idx_project_tasks_parent ON project_tasks(org_id, project_id, parent_task_id);
 
+    CREATE TABLE IF NOT EXISTS project_recurring_tasks (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'todo',
+      interval_unit TEXT NOT NULL,
+      interval_every INTEGER NOT NULL,
+      next_due_date TEXT NOT NULL DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1,
+      last_created_task_id TEXT REFERENCES project_tasks(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (status IN ('todo', 'in-progress', 'done')),
+      CHECK (interval_unit IN ('weekly', 'monthly')),
+      CHECK (interval_every BETWEEN 1 AND 52),
+      CHECK (active IN (0, 1))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_recurring_tasks_project
+      ON project_recurring_tasks(org_id, project_id, active, next_due_date);
+
     CREATE TABLE IF NOT EXISTS project_task_dependencies (
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
@@ -7655,6 +7677,7 @@ function seedIfEmpty(db) {
     INSERT INTO project_time_entries (id, org_id, project_id, task_id, minutes, entry_date, note, logged_by_user_id, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run("pte-nare-1", orgId, "proj-nare-retention", "ptask-nare-1", 180, "2026-05-12", "Ձևանմուշների սկզբնական կարգավորում", "user-owner", now);
+  seedProjectRecurringTasks(db, orgId, now);
   seedProjectTemplates(db, orgId, now);
 
   db.prepare(`
@@ -8123,6 +8146,28 @@ function ensurePilotPacketLayer(db) {
 
 function ensureProjectsLayer(db) {
   db.exec(`
+    CREATE TABLE IF NOT EXISTS project_recurring_tasks (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'todo',
+      interval_unit TEXT NOT NULL,
+      interval_every INTEGER NOT NULL,
+      next_due_date TEXT NOT NULL DEFAULT '',
+      active INTEGER NOT NULL DEFAULT 1,
+      last_created_task_id TEXT REFERENCES project_tasks(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (status IN ('todo', 'in-progress', 'done')),
+      CHECK (interval_unit IN ('weekly', 'monthly')),
+      CHECK (interval_every BETWEEN 1 AND 52),
+      CHECK (active IN (0, 1))
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_recurring_tasks_project
+      ON project_recurring_tasks(org_id, project_id, active, next_due_date);
+
     CREATE TABLE IF NOT EXISTS project_templates (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -8170,7 +8215,35 @@ function ensureProjectsLayer(db) {
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_project_tasks_parent ON project_tasks(org_id, project_id, parent_task_id)");
   const demoOrg = db.prepare("SELECT id FROM organizations WHERE id = ?").get("org-armosphera-demo");
-  if (demoOrg) seedProjectTemplates(db, demoOrg.id);
+  if (demoOrg) {
+    seedProjectRecurringTasks(db, demoOrg.id);
+    seedProjectTemplates(db, demoOrg.id);
+  }
+}
+
+function seedProjectRecurringTasks(db, orgId, timestamp = "") {
+  if (orgId !== "org-armosphera-demo") return;
+  const project = db.prepare("SELECT id FROM projects WHERE org_id = ? AND id = ?").get(orgId, "proj-nare-retention");
+  if (!project) return;
+  const now = timestamp || new Date().toISOString();
+  db.prepare(`
+    INSERT OR IGNORE INTO project_recurring_tasks (
+      id, org_id, project_id, title, status, interval_unit, interval_every,
+      next_due_date, active, last_created_task_id, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, 1, NULL, ?, ?)
+  `).run(
+    "prtask-nare-monthly-followup",
+    orgId,
+    "proj-nare-retention",
+    "Պատրաստել ամսական պահպանման հաջորդ քայլը",
+    "todo",
+    "monthly",
+    1,
+    "2026-06-20",
+    now,
+    now
+  );
 }
 
 function seedProjectTemplates(db, orgId, timestamp = "") {

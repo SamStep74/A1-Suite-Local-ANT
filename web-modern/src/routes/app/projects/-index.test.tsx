@@ -6,7 +6,7 @@
  *
  *  - page shell (title, Armenian subtitle, monogram)
  *  - validateSearch (default view, fallback for unknown values)
- *  - ViewSwitcher (6 tabs, role=tablist, current selection)
+ *  - ViewSwitcher (7 tabs, role=tablist, current selection)
  *  - each view:
  *      - loading state
  *      - error state
@@ -26,9 +26,24 @@ const mocks = vi.hoisted(() => ({
   detail: null as unknown,
   billing: null as unknown,
   profitability: null as unknown,
+  recurring: null as unknown,
   templates: null as unknown,
-  loading: { list: false, detail: false, billing: false, profitability: false, templates: false },
-  error: { list: false, detail: false, billing: false, profitability: false, templates: false },
+  loading: {
+    list: false,
+    detail: false,
+    billing: false,
+    profitability: false,
+    recurring: false,
+    templates: false,
+  },
+  error: {
+    list: false,
+    detail: false,
+    billing: false,
+    profitability: false,
+    recurring: false,
+    templates: false,
+  },
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -97,6 +112,13 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
           data: mocks.profitability,
           isLoading: mocks.loading.profitability,
           isError: mocks.error.profitability,
+        };
+      }
+      if (key === "project-recurring-tasks") {
+        return {
+          data: mocks.recurring,
+          isLoading: mocks.loading.recurring,
+          isError: mocks.error.recurring,
         };
       }
       if (key === "project-templates-list") {
@@ -247,6 +269,35 @@ const PROFITABILITY = {
   },
 };
 
+const RECURRING = {
+  recurringTasks: [
+    {
+      id: "rt-1",
+      projectId: "p-1",
+      title: "Weekly client check-in",
+      status: "todo",
+      intervalUnit: "weekly",
+      intervalEvery: 1,
+      nextDueDate: "2026-06-29",
+      active: 1,
+      lastCreatedTaskId: "t-99",
+      updatedAt: "2026-06-22T08:00:00Z",
+    },
+    {
+      id: "rt-2",
+      projectId: "p-1",
+      title: "Monthly status report",
+      status: "scheduled",
+      intervalUnit: "monthly",
+      intervalEvery: 2,
+      nextDueDate: null,
+      active: false,
+      lastCreatedTaskId: null,
+      updatedAt: "2026-06-20T08:00:00Z",
+    },
+  ],
+};
+
 const TEMPLATES = {
   templates: [
     {
@@ -299,9 +350,24 @@ beforeEach(() => {
   mocks.detail = null;
   mocks.billing = null;
   mocks.profitability = null;
+  mocks.recurring = null;
   mocks.templates = null;
-  mocks.loading = { list: false, detail: false, billing: false, profitability: false, templates: false };
-  mocks.error = { list: false, detail: false, billing: false, profitability: false, templates: false };
+  mocks.loading = {
+    list: false,
+    detail: false,
+    billing: false,
+    profitability: false,
+    recurring: false,
+    templates: false,
+  };
+  mocks.error = {
+    list: false,
+    detail: false,
+    billing: false,
+    profitability: false,
+    recurring: false,
+    templates: false,
+  };
 });
 
 afterEach(() => {
@@ -340,6 +406,7 @@ describe("Projects — validateSearch", () => {
     expect(fn({ view: "milestones" })).toEqual({ view: "milestones" });
     expect(fn({ view: "time" })).toEqual({ view: "time" });
     expect(fn({ view: "billing" })).toEqual({ view: "billing" });
+    expect(fn({ view: "recurring" })).toEqual({ view: "recurring" });
     expect(fn({ view: "templates" })).toEqual({ view: "templates" });
   });
   it("falls back to projects for unknown values", () => {
@@ -351,19 +418,20 @@ describe("Projects — validateSearch", () => {
 /* ────────── ViewSwitcher ────────── */
 
 describe("Projects — ViewSwitcher", () => {
-  it("renders 6 tabs with role=tablist", () => {
+  it("renders 7 tabs with role=tablist", () => {
     renderRoute();
     const tablist = screen.getByRole("tablist", { name: "View" });
     const tabs = within(tablist).getAllByRole("tab");
-    expect(tabs).toHaveLength(6);
+    expect(tabs).toHaveLength(7);
   });
-  it("renders the 6 expected tab labels", () => {
+  it("renders the 7 expected tab labels", () => {
     renderRoute();
     expect(screen.getByRole("tab", { name: "Projects" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Tasks" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Milestones" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Time" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Billing" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Recurring" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Templates" })).toBeInTheDocument();
   });
   it("marks the URL view as the selected tab", () => {
@@ -371,6 +439,14 @@ describe("Projects — ViewSwitcher", () => {
     renderRoute();
     expect(screen.getByRole("tab", { name: "Billing" })).toHaveAttribute("aria-selected", "true");
     expect(screen.getByRole("tab", { name: "Projects" })).toHaveAttribute("aria-selected", "false");
+  });
+  it("marks recurring as selected from the search param", () => {
+    mocks.search = { view: "recurring" };
+    renderRoute();
+    expect(screen.getByRole("tab", { name: "Recurring" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
   });
 });
 
@@ -483,6 +559,68 @@ describe("Projects — Time view", () => {
     const marker = document.querySelector('[data-entity="projects-time-entry"]');
     expect(marker).not.toBeNull();
     expect(marker?.getAttribute("data-count")).toBe("2");
+  });
+});
+
+/* ────────── Recurring view ────────── */
+
+describe("Projects — Recurring view", () => {
+  beforeEach(() => {
+    mocks.search = { view: "recurring" };
+    mocks.list = PROJECTS_LIST;
+  });
+
+  it("shows the loading state", () => {
+    mocks.loading.recurring = true;
+    renderRoute();
+    expect(screen.getByText(/Loading recurring tasks/i)).toBeInTheDocument();
+  });
+
+  it("shows the loading state while projects load", () => {
+    mocks.loading.list = true;
+    renderRoute();
+    expect(screen.getByText(/Loading recurring tasks/i)).toBeInTheDocument();
+  });
+
+  it("shows the error state", () => {
+    mocks.error.recurring = true;
+    renderRoute();
+    expect(screen.getByText(/Failed to load recurring tasks/i)).toBeInTheDocument();
+  });
+
+  it("shows the error state when projects fail", () => {
+    mocks.error.list = true;
+    renderRoute();
+    expect(screen.getByText(/Failed to load recurring tasks/i)).toBeInTheDocument();
+  });
+
+  it("shows the empty state when no project is available", () => {
+    mocks.list = { projects: [] };
+    renderRoute();
+    expect(screen.getByText(/No project available for recurring tasks/i)).toBeInTheDocument();
+  });
+
+  it("shows the empty state when the top project has no recurring task rules", () => {
+    mocks.recurring = { recurringTasks: [] };
+    renderRoute();
+    expect(screen.getByText(/No recurring task rules/i)).toBeInTheDocument();
+  });
+
+  it("renders recurring task evidence for the top project", () => {
+    mocks.recurring = RECURRING;
+    renderRoute();
+    const marker = document.querySelector('[data-entity="projects-recurring-task"]');
+    expect(marker).not.toBeNull();
+    expect(marker).toHaveAttribute("data-count", "2");
+    expect(screen.getByText("1/2")).toBeInTheDocument();
+    expect(marker).toHaveTextContent(/Recurring tasks - Alpha/);
+    expect(marker).toHaveTextContent(/Weekly client check-in/);
+    expect(marker).toHaveTextContent(/Every 1 week/);
+    expect(marker).toHaveTextContent(/2026-06-29/);
+    expect(marker).toHaveTextContent(/todo/);
+    expect(marker).toHaveTextContent(/t-99/);
+    expect(marker).toHaveTextContent(/Monthly status report/);
+    expect(marker).toHaveTextContent(/Every 2 months/);
   });
 });
 
