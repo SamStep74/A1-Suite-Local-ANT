@@ -159,6 +159,7 @@ export const ServiceFieldVisitCostAllocationSchema = z
     computedAt: z.string().nullable().optional(),
     ledgerMappings: z.array(z.record(z.string(), z.unknown())).max(12).optional(),
     limitations: z.array(z.string()).max(12).optional(),
+    materialEvidence: z.array(z.record(z.string(), z.unknown())).max(100).optional(),
     evidence: z.unknown().optional(),
   })
   .passthrough();
@@ -870,9 +871,9 @@ export const StockResponseSchema = z.object({
 });
 export type StockResponse = z.infer<typeof StockResponseSchema>;
 
-/** Stock move — one transfer / receipt / delivery / adjustment / scrap event.
+/** Stock move — one inbound / outbound / transfer / receipt / delivery / adjustment / scrap / return event.
  *  Source: /api/inventory/moves. */
-export const StockMoveType = z.enum(["transfer", "receipt", "delivery", "adjustment", "scrap"]);
+export const StockMoveType = z.enum(["inbound", "outbound", "transfer", "receipt", "delivery", "adjustment", "scrap", "return"]);
 export type StockMoveType = z.infer<typeof StockMoveType>;
 
 export const StockMoveSchema = z.object({
@@ -895,6 +896,7 @@ export const StockMoveSchema = z.object({
   status: z.string().optional(),
   reason: z.string().nullable().optional(),
   reference: z.string().nullable().optional(),
+  serviceFieldVisitId: z.string().nullable().optional(),
   createdByUserId: z.string().nullable().optional(),
   createdByName: z.string().nullable().optional(),
   createdAt: z.string().nullable().optional(),
@@ -916,6 +918,7 @@ export const CreateStockMoveInputSchema = z.object({
   unitCost: z.number().min(0).optional(),
   reason: z.string().optional(),
   reference: z.string().optional(),
+  serviceFieldVisitId: z.string().min(1).optional(),
 });
 export type CreateStockMoveInput = z.infer<typeof CreateStockMoveInputSchema>;
 
@@ -2323,6 +2326,7 @@ export const ProjectProfitabilityFieldVisitCostEvidenceSchema = z
     source: z.string().nullable().optional(),
     limitations: z.array(z.string()).max(12).optional(),
     ledgerMappings: z.array(z.record(z.string(), z.unknown())).max(12).optional(),
+    materialEvidence: z.array(z.record(z.string(), z.unknown())).max(100).optional(),
   })
   .passthrough();
 export type ProjectProfitabilityFieldVisitCostEvidence = z.infer<

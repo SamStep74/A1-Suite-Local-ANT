@@ -242,6 +242,46 @@ test("existing service field visit tables receive project link before app startu
   }
 });
 
+test("existing stock move tables receive service visit link before app startup indexes", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "a1-suite-stock-move-layer-"));
+  const dbPath = path.join(root, "suite.sqlite");
+  const legacyDb = new DatabaseSync(dbPath);
+  try {
+    legacyDb.exec(`
+      CREATE TABLE stock_moves (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        catalog_item_id TEXT NOT NULL,
+        source_location_id TEXT,
+        destination_location_id TEXT,
+        move_type TEXT NOT NULL,
+        quantity INTEGER NOT NULL,
+        unit_cost INTEGER NOT NULL DEFAULT 0,
+        total_cost INTEGER NOT NULL DEFAULT 0,
+        status TEXT NOT NULL,
+        reason TEXT NOT NULL DEFAULT '',
+        reference TEXT NOT NULL DEFAULT '',
+        created_by_user_id TEXT,
+        created_at TEXT NOT NULL
+      );
+    `);
+  } finally {
+    legacyDb.close();
+  }
+
+  const app = buildApp({ dbPath });
+  await app.ready();
+  try {
+    const columns = new Set(app.db.prepare("PRAGMA table_info(stock_moves)").all().map(column => column.name));
+    assert.equal(columns.has("service_field_visit_id"), true);
+    const index = app.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get("idx_stock_moves_service_visit");
+    assert.equal(index.name, "idx_stock_moves_service_visit");
+  } finally {
+    await app.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("global audit feed is limited to audit reader roles", async () => {
   await withApp(async app => {
     const unauthenticated = await app.inject({ method: "GET", url: "/api/audit" });

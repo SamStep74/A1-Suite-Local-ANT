@@ -119,6 +119,7 @@ function assertCostAllocationEvidence(visit, expectedMinutes = null) {
   assert.strictEqual(costAllocation.travelCost, 0);
   assert.strictEqual(costAllocation.materialCost, 0);
   assert.strictEqual(costAllocation.totalCost, 0);
+  assert.deepStrictEqual(costAllocation.materialEvidence, []);
   assert.strictEqual(costAllocation.source, "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at");
   assert.ok(Array.isArray(costAllocation.ledgerMappings));
   assert.ok(costAllocation.ledgerMappings.some(mapping => mapping.bucket === "labor" && mapping.managementAccount === "8112" && mapping.recognitionAccount === "7113" && mapping.status === "not-posted"));

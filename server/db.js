@@ -738,6 +738,7 @@ function initSchema(db) {
       status TEXT NOT NULL,
       reason TEXT NOT NULL DEFAULT '',
       reference TEXT NOT NULL DEFAULT '',
+      service_field_visit_id TEXT REFERENCES service_field_visits(id) ON DELETE SET NULL,
       created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       created_at TEXT NOT NULL
     );
@@ -8671,6 +8672,11 @@ function ensureCatalogLayer(db) {
 }
 
 function ensureInventoryLayer(db) {
+  const stockMoveColumns = new Set(db.prepare("PRAGMA table_info(stock_moves)").all().map(column => column.name));
+  if (!stockMoveColumns.has("service_field_visit_id")) {
+    db.exec("ALTER TABLE stock_moves ADD COLUMN service_field_visit_id TEXT REFERENCES service_field_visits(id) ON DELETE SET NULL");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_stock_moves_service_visit ON stock_moves(org_id, service_field_visit_id, created_at DESC)");
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {
     seedInventoryCore(db, org.id);

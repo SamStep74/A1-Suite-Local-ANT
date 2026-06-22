@@ -259,6 +259,114 @@ test("inventory: posting stock moves updates internal balances with virtual endp
   }
 });
 
+test("inventory: linked delivery moves surface material cost on service field visits", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const accountant = await login(app, "accountant@armosphera.local");
+    const orgId = "org-armosphera-demo";
+    const currentPeriodKey = new Date().toISOString().slice(0, 7);
+    setFinancePeriodStatus(app, orgId, currentPeriodKey, "open");
+
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: owner } })).json();
+    const serviceCase = console1.cases[0];
+    const assignee = console1.agents.find(agent => agent.role === "Service Manager") || console1.agents[0];
+    const visit = await app.inject({
+      method: "POST",
+      url: "/api/service/field-visits",
+      headers: { cookie: owner },
+      payload: {
+        caseId: serviceCase.id,
+        customerId: serviceCase.customerId,
+        assignedUserId: assignee.id,
+        scheduledStartAt: "2026-05-14T08:00:00.000Z",
+        scheduledEndAt: "2026-05-14T09:15:00.000Z",
+        status: "scheduled",
+        location: "Ani Beauty material visit",
+        worksheetSummary: "Deliver scanner material for service visit."
+      }
+    });
+    assert.equal(visit.statusCode, 200, visit.body);
+
+    const rejectedTransfer = await app.inject({
+      method: "POST",
+      url: "/api/inventory/moves",
+      headers: { cookie: accountant },
+      payload: {
+        catalogItemId: "catitem-pos-barcode-scanner",
+        sourceLocationId: "stockloc-main-warehouse",
+        destinationLocationId: "stockloc-dispatch-staging",
+        moveType: "transfer",
+        quantity: 1,
+        serviceFieldVisitId: visit.json().visit.id,
+        reason: "Transfers should not count as consumed service material."
+      }
+    });
+    assert.equal(rejectedTransfer.statusCode, 400, rejectedTransfer.body);
+
+    const linkedDelivery = await app.inject({
+      method: "POST",
+      url: "/api/inventory/moves",
+      headers: { cookie: accountant },
+      payload: {
+        catalogItemId: "catitem-pos-barcode-scanner",
+        sourceLocationId: "stockloc-main-warehouse",
+        moveType: "delivery",
+        quantity: 1,
+        serviceFieldVisitId: visit.json().visit.id,
+        reason: "Linked field-service material consumption.",
+        reference: "VISIT-MAT-001"
+      }
+    });
+    assert.equal(linkedDelivery.statusCode, 200, linkedDelivery.body);
+    assert.equal(linkedDelivery.json().move.serviceFieldVisitId, visit.json().visit.id);
+    assert.equal(linkedDelivery.json().move.totalCost, 62000);
+    assert.equal(linkedDelivery.json().move.valuationPosting.sourceType, "stock_move_valuation");
+
+    const reloadedVisit = await app.inject({
+      method: "GET",
+      url: "/api/service/field-visits",
+      headers: { cookie: owner }
+    });
+    assert.equal(reloadedVisit.statusCode, 200, reloadedVisit.body);
+    const withMaterial = reloadedVisit.json().visits.find(row => row.id === visit.json().visit.id);
+    assert.ok(withMaterial);
+    assert.equal(withMaterial.costAllocation.materialCost, 62000);
+    assert.equal(withMaterial.costAllocation.totalCost, 62000);
+    assert.ok(!withMaterial.costAllocation.limitations.includes("inventory-consumption-not-linked"));
+    assert.ok(withMaterial.costAllocation.limitations.includes("not-posted-to-ledger"));
+    assert.deepEqual(withMaterial.costAllocation.materialEvidence, [{
+      serviceFieldVisitId: visit.json().visit.id,
+      stockMoveId: linkedDelivery.json().move.id,
+      catalogItemId: "catitem-pos-barcode-scanner",
+      catalogSku: "HW-BARCODE-SCANNER",
+      catalogName: "POS barcode scanner",
+      moveType: "delivery",
+      quantity: 1,
+      unitCost: 62000,
+      totalCost: 62000,
+      reference: "VISIT-MAT-001",
+      reason: "Linked field-service material consumption.",
+      source: "stock_moves.service_field_visit_id",
+      createdAt: linkedDelivery.json().move.createdAt,
+      valuationPosting: linkedDelivery.json().move.valuationPosting
+    }]);
+    assert.equal(app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = 'stock_move_valuation' AND source_id = ?
+    `).get(orgId, linkedDelivery.json().move.id).count, 1);
+    assert.equal(app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type LIKE 'service%'
+    `).get(orgId).count, 0);
+  } finally {
+    await app.close();
+  }
+});
+
 test("inventory: closed valuation period rejects outbound move and rolls back quantity", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

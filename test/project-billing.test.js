@@ -326,6 +326,28 @@ test("project-billing: profitability rolls up task labor cost and catalog quote 
       }
     });
     assert.strictEqual(linkedVisit.statusCode, 200, linkedVisit.body);
+    const reopenedJune = await app.inject({
+      method: "POST",
+      url: "/api/finance/periods/2026-06/reopen",
+      headers: { cookie: owner },
+      payload: {}
+    });
+    assert.strictEqual(reopenedJune.statusCode, 200, reopenedJune.body);
+    const linkedMaterialMove = await app.inject({
+      method: "POST",
+      url: "/api/inventory/moves",
+      headers: { cookie: owner },
+      payload: {
+        catalogItemId: "catitem-pos-barcode-scanner",
+        sourceLocationId: "stockloc-main-warehouse",
+        moveType: "delivery",
+        quantity: 1,
+        serviceFieldVisitId: linkedVisit.json().visit.id,
+        reason: "Project field-service scanner material.",
+        reference: "VISIT-PROJECT-MAT-001"
+      }
+    });
+    assert.strictEqual(linkedMaterialMove.statusCode, 200, linkedMaterialMove.body);
 
     const quote = await app.inject({
       method: "POST",
@@ -370,11 +392,11 @@ test("project-billing: profitability rolls up task labor cost and catalog quote 
     assert.strictEqual(zeroCostRate.statusCode, 200, zeroCostRate.body);
     assert.strictEqual(zeroCostRate.json().profitability.laborCostTotal, 0);
     assert.strictEqual(zeroCostRate.json().profitability.productCostTotal, 124000);
-    assert.strictEqual(zeroCostRate.json().profitability.fieldVisitCostTotal, 0);
+    assert.strictEqual(zeroCostRate.json().profitability.fieldVisitCostTotal, 62000);
     assert.strictEqual(zeroCostRate.json().profitability.fieldVisitCount, 1);
-    assert.strictEqual(zeroCostRate.json().profitability.costTotal, 124000);
-    assert.strictEqual(zeroCostRate.json().profitability.grossProfit, 56000);
-    assert.strictEqual(zeroCostRate.json().profitability.grossMarginPct, 31.11);
+    assert.strictEqual(zeroCostRate.json().profitability.costTotal, 186000);
+    assert.strictEqual(zeroCostRate.json().profitability.grossProfit, -6000);
+    assert.strictEqual(zeroCostRate.json().profitability.grossMarginPct, -3.33);
 
     const detailed = await app.inject({
       method: "GET",
@@ -442,7 +464,7 @@ test("project-billing: profitability rolls up task labor cost and catalog quote 
     assert.strictEqual(detailed.json().profitability.totalRevenue, 180000);
     assert.strictEqual(detailed.json().profitability.laborCostTotal, 9000);
     assert.strictEqual(detailed.json().profitability.productCostTotal, 124000);
-    assert.strictEqual(detailed.json().profitability.fieldVisitCostTotal, 3750);
+    assert.strictEqual(detailed.json().profitability.fieldVisitCostTotal, 65750);
     assert.deepStrictEqual(detailed.json().profitability.fieldVisitCostEvidence, [{
       visitId: linkedVisit.json().visit.id,
       caseId: serviceCase.id,
@@ -456,12 +478,11 @@ test("project-billing: profitability rolls up task labor cost and catalog quote 
       laborMinutes: 75,
       laborCost: 3750,
       travelCost: 0,
-      materialCost: 0,
-      totalCost: 3750,
-      source: "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at/project_profitability.costRate",
+      materialCost: 62000,
+      totalCost: 65750,
+      source: "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at/stock_moves.service_field_visit_id/project_profitability.costRate",
       limitations: [
         "travel-rate-not-configured",
-        "inventory-consumption-not-linked",
         "not-posted-to-ledger"
       ],
       ledgerMappings: [
@@ -482,17 +503,33 @@ test("project-billing: profitability rolls up task labor cost and catalog quote 
         },
         {
           bucket: "materials",
-          basis: "inventory-consumption-not-linked",
+          basis: "linked-stock-moves",
           inventoryAccountClass: "2",
           recognitionAccount: "7113",
-          amount: 0,
+          amount: 62000,
           status: "not-posted"
         }
-      ]
+      ],
+      materialEvidence: [{
+        serviceFieldVisitId: linkedVisit.json().visit.id,
+        stockMoveId: linkedMaterialMove.json().move.id,
+        catalogItemId: "catitem-pos-barcode-scanner",
+        catalogSku: "HW-BARCODE-SCANNER",
+        catalogName: "POS barcode scanner",
+        moveType: "delivery",
+        quantity: 1,
+        unitCost: 62000,
+        totalCost: 62000,
+        reference: "VISIT-PROJECT-MAT-001",
+        reason: "Project field-service scanner material.",
+        source: "stock_moves.service_field_visit_id",
+        createdAt: linkedMaterialMove.json().move.createdAt,
+        valuationPosting: linkedMaterialMove.json().move.valuationPosting
+      }]
     }]);
-    assert.strictEqual(detailed.json().profitability.costTotal, 136750);
-    assert.strictEqual(detailed.json().profitability.grossProfit, 43250);
-    assert.strictEqual(detailed.json().profitability.grossMarginPct, 24.03);
+    assert.strictEqual(detailed.json().profitability.costTotal, 198750);
+    assert.strictEqual(detailed.json().profitability.grossProfit, -18750);
+    assert.strictEqual(detailed.json().profitability.grossMarginPct, -10.42);
   } finally { await app.close(); }
 });
 

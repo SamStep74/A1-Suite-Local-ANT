@@ -78,6 +78,7 @@ export function StockMoveForm({
         unitCost: unitCost === "" ? undefined : Number(unitCost),
         reason: reason || undefined,
         reference: reference || undefined,
+        serviceFieldVisitId: initial?.serviceFieldVisitId || undefined,
       };
       const parsed = CreateStockMoveInputSchema.safeParse(candidate);
       if (!parsed.success) {

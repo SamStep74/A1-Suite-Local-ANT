@@ -379,6 +379,13 @@ describe("ServiceFieldVisitSchema", () => {
         totalCost: 0,
         source: "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at",
         computedAt: "2026-06-22T08:00:00.000Z",
+        materialEvidence: [
+          {
+            stockMoveId: "stockmove-1",
+            catalogSku: "HW-BARCODE-SCANNER",
+            totalCost: 62000,
+          },
+        ],
         ledgerMappings: [
           {
             bucket: "labor",
@@ -397,6 +404,7 @@ describe("ServiceFieldVisitSchema", () => {
       expect(r.data.costAllocation?.scheduledMinutes).toBe(60);
       expect(r.data.costAllocation?.laborMinutes).toBe(60);
       expect(r.data.costAllocation?.totalCost).toBe(0);
+      expect(r.data.costAllocation?.materialEvidence?.[0]?.stockMoveId).toBe("stockmove-1");
       expect(r.data.costAllocation?.ledgerMappings).toEqual([
         {
           bucket: "labor",
@@ -877,6 +885,7 @@ const VALID_STOCK_MOVE = {
   status: "completed",
   reason: "Vendor delivery",
   reference: "PO-2026-007",
+  serviceFieldVisitId: null,
   createdByName: "Owner",
   createdAt: "2026-06-09T00:00:00.000Z",
 };
@@ -1127,8 +1136,9 @@ describe("Inventory schemas", () => {
   it("CreateStockMoveInputSchema requires catalogItemId and moveType", () => {
     const r = CreateStockMoveInputSchema.safeParse({
       catalogItemId: "ci-1",
-      moveType: "receipt",
+      moveType: "outbound",
       quantity: 5,
+      serviceFieldVisitId: "visit-1",
     });
     expect(r.success).toBe(true);
   });
@@ -1314,6 +1324,14 @@ describe("Project profitability schemas", () => {
             materialCost: 0,
             totalCost: 0,
             source: "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at",
+            materialEvidence: [
+              {
+                serviceFieldVisitId: "visit-1",
+                stockMoveId: "stockmove-1",
+                catalogSku: "HW-BARCODE-SCANNER",
+                totalCost: 62000,
+              },
+            ],
             limitations: [
               "labor-rate-not-configured",
               "travel-rate-not-configured",
@@ -1350,6 +1368,7 @@ describe("Project profitability schemas", () => {
       expect(r.data.profitability.productCostEvidence?.[0]?.variantSku).toBe("IMPL-BASE-PRO");
       expect(r.data.profitability.fieldVisitCostEvidence?.[0]?.scheduledMinutes).toBe(75);
       expect(r.data.profitability.fieldVisitCostEvidence?.[0]?.ledgerMappings?.[0]?.status).toBe("not-posted");
+      expect(r.data.profitability.fieldVisitCostEvidence?.[0]?.materialEvidence?.[0]?.stockMoveId).toBe("stockmove-1");
     }
   });
 

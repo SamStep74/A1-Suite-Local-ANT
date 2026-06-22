@@ -6298,7 +6298,7 @@ function registerApi(app, db, options = {}) {
         grossMarginPct: projectGrossMarginPct(revenue, grossProfit)
       };
     }) : [];
-    const fieldVisitCostEvidence = db.prepare(`
+    const fieldVisitRows = db.prepare(`
       SELECT
         service_field_visits.*,
         service_cases.case_number,
@@ -6314,8 +6314,12 @@ function registerApi(app, db, options = {}) {
       WHERE service_field_visits.org_id = ?
         AND service_field_visits.project_id = ?
       ORDER BY service_field_visits.scheduled_start_at, service_field_visits.id
-    `).all(user.org_id, project.id).map(row => {
-      const allocation = buildServiceFieldVisitCostAllocationEvidence(row);
+    `).all(user.org_id, project.id);
+    const materialsByVisitId = getServiceFieldVisitMaterialEvidenceByVisit(db, user.org_id, fieldVisitRows.map(row => row.id));
+    const fieldVisitCostEvidence = fieldVisitRows.map(row => {
+      const allocation = buildServiceFieldVisitCostAllocationEvidence(row, {
+        materialEvidence: materialsByVisitId.get(row.id) || []
+      });
       const laborCost = projectTimeAmount(allocation.laborMinutes, costRate, vatRate);
       const totalCost = laborCost + allocation.travelCost + allocation.materialCost;
       const laborRateConfigured = costRate > 0;
@@ -6348,7 +6352,8 @@ function registerApi(app, db, options = {}) {
           ? `${allocation.source}/project_profitability.costRate`
           : allocation.source,
         limitations,
-        ledgerMappings
+        ledgerMappings,
+        materialEvidence: allocation.materialEvidence
       };
     });
     const productCostTotal = productCostEvidence.reduce((sum, row) => sum + row.cost, 0);
@@ -54042,6 +54047,7 @@ function formatStockMove(row) {
     status: row.status,
     reason: row.reason,
     reference: row.reference,
+    serviceFieldVisitId: row.service_field_visit_id || null,
     valuationPosting: formatStockMoveValuationPosting(row),
     createdByUserId: row.created_by_user_id,
     createdByName: row.created_by_name || "",
@@ -54090,6 +54096,7 @@ function createStockMoveFromInput(db, user, input) {
   }
   const { sourceLocation, destinationLocation } = resolveStockMoveLocations(db, user.org_id, input);
   assertStockMoveLocations(input, sourceLocation, destinationLocation);
+  assertStockMoveServiceFieldVisit(db, user.org_id, input);
   if (isInternalStockLocation(sourceLocation)) assertStockAvailable(db, user.org_id, item.id, sourceLocation.id, input.quantity);
 
   const now = new Date().toISOString();
@@ -54101,9 +54108,9 @@ function createStockMoveFromInput(db, user, input) {
     INSERT INTO stock_moves (
       id, org_id, catalog_item_id, source_location_id, destination_location_id,
       move_type, quantity, unit_cost, total_cost, status, reason, reference,
-      created_by_user_id, created_at
+      service_field_visit_id, created_by_user_id, created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     moveId,
     user.org_id,
@@ -54117,6 +54124,7 @@ function createStockMoveFromInput(db, user, input) {
     "posted",
     input.reason,
     input.reference,
+    input.serviceFieldVisitId || null,
     user.id,
     now
   );
@@ -54130,9 +54138,9 @@ function createStockMoveFromInput(db, user, input) {
     subjectType: "stock_move",
     subjectId: moveId,
     status: "posted",
-    payload: { catalogItemId: item.id, sku: item.sku, moveType: input.moveType, quantity: input.quantity, unitCost, totalCost }
+    payload: { catalogItemId: item.id, sku: item.sku, moveType: input.moveType, quantity: input.quantity, unitCost, totalCost, serviceFieldVisitId: input.serviceFieldVisitId || null }
   });
-  audit(db, user.org_id, user.id, "inventory.stock_move.posted", { moveId, catalogItemId: item.id, moveType: input.moveType, quantity: input.quantity });
+  audit(db, user.org_id, user.id, "inventory.stock_move.posted", { moveId, catalogItemId: item.id, moveType: input.moveType, quantity: input.quantity, serviceFieldVisitId: input.serviceFieldVisitId || null });
   return getStockMove(db, user.org_id, moveId);
 }
 
@@ -54280,6 +54288,19 @@ function assertStockMoveLocations(input, sourceLocation, destinationLocation) {
   }
 }
 
+function assertStockMoveServiceFieldVisit(db, orgId, input) {
+  if (!input.serviceFieldVisitId) return;
+  if (!["delivery", "outbound", "scrap"].includes(input.moveType)) {
+    throwInvalidInventoryMetadata();
+  }
+  const visit = db.prepare("SELECT id FROM service_field_visits WHERE org_id = ? AND id = ?").get(orgId, input.serviceFieldVisitId);
+  if (!visit) {
+    const err = new Error("Service field visit not found");
+    err.statusCode = 404;
+    throw err;
+  }
+}
+
 function normalizeInventoryQuery(query) {
   return {
     catalogItemId: normalizeInventoryQueryText(query, "catalogItemId", { idLike: true }),
@@ -54293,6 +54314,7 @@ function normalizeStockMoveBody(body) {
     catalogItemId: normalizeInventoryText(body, "catalogItemId", { required: true, idLike: true }),
     sourceLocationId: normalizeInventoryText(body, "sourceLocationId", { idLike: true }),
     destinationLocationId: normalizeInventoryText(body, "destinationLocationId", { idLike: true }),
+    serviceFieldVisitId: normalizeInventoryText(body, "serviceFieldVisitId", { idLike: true }),
     moveType: normalizeInventoryChoice(body, "moveType", ["inbound", "outbound", "receipt", "delivery", "adjustment", "transfer", "scrap", "return"], "adjustment", false),
     quantity: normalizeInventoryInteger(body, "quantity", { required: true, min: 1, max: 1000000000 }),
     unitCost: normalizeInventoryMoney(body, "unitCost", { fallback: 0, min: 0, max: 1000000000000 }),
@@ -57196,8 +57218,9 @@ function getServiceFieldVisits(db, orgId, customerId = "", assignedUserId = "") 
     ORDER BY service_field_visits.scheduled_start_at ASC, service_field_visits.created_at DESC
   `).all(...params);
   const locationsByVisitId = getLatestServiceFieldVisitTechnicianLocations(db, orgId, rows.map(row => row.id));
+  const materialsByVisitId = getServiceFieldVisitMaterialEvidenceByVisit(db, orgId, rows.map(row => row.id));
   return addServiceFieldVisitRouteOptimizationEvidence(
-    rows.map(row => formatServiceFieldVisit(row, locationsByVisitId.get(row.id)))
+    rows.map(row => formatServiceFieldVisit(row, locationsByVisitId.get(row.id), materialsByVisitId.get(row.id) || []))
   );
 }
 
@@ -57219,10 +57242,11 @@ function getServiceFieldVisit(db, orgId, visitId) {
   `).get(orgId, visitId);
   if (!row) return null;
   const locationsByVisitId = getLatestServiceFieldVisitTechnicianLocations(db, orgId, [row.id]);
-  return formatServiceFieldVisit(row, locationsByVisitId.get(row.id));
+  const materialsByVisitId = getServiceFieldVisitMaterialEvidenceByVisit(db, orgId, [row.id]);
+  return formatServiceFieldVisit(row, locationsByVisitId.get(row.id), materialsByVisitId.get(row.id) || []);
 }
 
-function formatServiceFieldVisit(row, technicianLocation = null) {
+function formatServiceFieldVisit(row, technicianLocation = null, materialEvidence = []) {
   const visit = {
     id: row.id,
     caseId: row.case_id,
@@ -57241,7 +57265,7 @@ function formatServiceFieldVisit(row, technicianLocation = null) {
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     dispatchNavigation: buildServiceFieldVisitDispatchNavigation(row),
-    costAllocation: buildServiceFieldVisitCostAllocationEvidence(row)
+    costAllocation: buildServiceFieldVisitCostAllocationEvidence(row, { materialEvidence })
   };
   if (technicianLocation) {
     visit.technicianLocation = technicianLocation;
@@ -57504,8 +57528,91 @@ function buildServiceFieldVisitRouteOptimizationEvidence(visit, stopNumber, tota
   };
 }
 
-function buildServiceFieldVisitCostAllocationEvidence(row) {
+function getServiceFieldVisitMaterialEvidenceByVisit(db, orgId, visitIds) {
+  const ids = [...new Set(visitIds.filter(Boolean))];
+  const evidenceByVisit = new Map();
+  if (ids.length === 0) return evidenceByVisit;
+  const placeholders = ids.map(() => "?").join(", ");
+  const rows = db.prepare(`
+    SELECT
+      stock_moves.service_field_visit_id AS serviceFieldVisitId,
+      stock_moves.id AS stockMoveId,
+      stock_moves.catalog_item_id AS catalogItemId,
+      catalog_items.sku AS catalogSku,
+      catalog_items.name AS catalogName,
+      stock_moves.move_type AS moveType,
+      stock_moves.quantity,
+      stock_moves.unit_cost AS unitCost,
+      stock_moves.total_cost AS totalCost,
+      stock_moves.reference,
+      stock_moves.reason,
+      stock_moves.created_at AS createdAt,
+      valuation_journal.id AS valuationJournalId,
+      valuation_journal.source_type AS valuationSourceType,
+      valuation_journal.source_id AS valuationSourceId,
+      valuation_journal.entry_date AS valuationEntryDate,
+      valuation_journal.debit_code AS valuationDebitCode,
+      valuation_journal.credit_code AS valuationCreditCode,
+      valuation_journal.amount AS valuationAmount,
+      valuation_journal.period_key AS valuationPeriodKey
+    FROM stock_moves
+    JOIN catalog_items
+      ON catalog_items.org_id = stock_moves.org_id
+     AND catalog_items.id = stock_moves.catalog_item_id
+    LEFT JOIN ledger_journal AS valuation_journal
+      ON valuation_journal.org_id = stock_moves.org_id
+     AND valuation_journal.source_type = 'stock_move_valuation'
+     AND valuation_journal.source_id = stock_moves.id
+     AND valuation_journal.debit_code = '711'
+     AND valuation_journal.credit_code = '216'
+    WHERE stock_moves.org_id = ?
+      AND stock_moves.service_field_visit_id IN (${placeholders})
+      AND stock_moves.status = 'posted'
+      AND stock_moves.move_type IN ('delivery', 'outbound', 'scrap')
+    ORDER BY stock_moves.created_at, stock_moves.id
+  `).all(orgId, ...ids).map(formatServiceFieldVisitMaterialEvidence);
+  for (const row of rows) {
+    const list = evidenceByVisit.get(row.serviceFieldVisitId) || [];
+    list.push(row);
+    evidenceByVisit.set(row.serviceFieldVisitId, list);
+  }
+  return evidenceByVisit;
+}
+
+function formatServiceFieldVisitMaterialEvidence(row) {
+  return {
+    serviceFieldVisitId: row.serviceFieldVisitId,
+    stockMoveId: row.stockMoveId,
+    catalogItemId: row.catalogItemId,
+    catalogSku: row.catalogSku || null,
+    catalogName: row.catalogName || null,
+    moveType: row.moveType,
+    quantity: Number(row.quantity || 0),
+    unitCost: Number(row.unitCost || 0),
+    totalCost: Number(row.totalCost || 0),
+    reference: row.reference || "",
+    reason: row.reason || "",
+    source: "stock_moves.service_field_visit_id",
+    createdAt: row.createdAt,
+    valuationPosting: row.valuationJournalId ? {
+      id: row.valuationJournalId,
+      sourceType: row.valuationSourceType,
+      sourceId: row.valuationSourceId,
+      periodKey: row.valuationPeriodKey,
+      entryDate: row.valuationEntryDate,
+      debitCode: row.valuationDebitCode,
+      creditCode: row.valuationCreditCode,
+      amount: row.valuationAmount
+    } : null
+  };
+}
+
+function buildServiceFieldVisitCostAllocationEvidence(row, options = {}) {
+  const materialEvidence = Array.isArray(options.materialEvidence) ? options.materialEvidence : [];
   const scheduledMinutes = serviceFieldVisitScheduledMinutes(row.scheduled_start_at, row.scheduled_end_at);
+  const materialCost = materialEvidence.reduce((sum, item) => sum + Number(item.totalCost || 0), 0);
+  const totalCost = materialCost;
+  const hasMaterialEvidence = materialCost > 0;
   return {
     strategy: "scheduled-window-cost-basis-v1",
     status: "estimate",
@@ -57514,9 +57621,11 @@ function buildServiceFieldVisitCostAllocationEvidence(row) {
     laborMinutes: scheduledMinutes,
     laborCost: 0,
     travelCost: 0,
-    materialCost: 0,
-    totalCost: 0,
-    source: "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at",
+    materialCost,
+    totalCost,
+    source: hasMaterialEvidence
+      ? "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at/stock_moves.service_field_visit_id"
+      : "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at",
     computedAt: row.updated_at || row.created_at || row.scheduled_start_at || null,
     ledgerMappings: [
       {
@@ -57536,19 +57645,20 @@ function buildServiceFieldVisitCostAllocationEvidence(row) {
       },
       {
         bucket: "materials",
-        basis: "inventory-consumption-not-linked",
+        basis: hasMaterialEvidence ? "linked-stock-moves" : "inventory-consumption-not-linked",
         inventoryAccountClass: "2",
         recognitionAccount: "7113",
-        amount: 0,
+        amount: materialCost,
         status: "not-posted"
       }
     ],
     limitations: [
       "labor-rate-not-configured",
       "travel-rate-not-configured",
-      "inventory-consumption-not-linked",
+      ...(hasMaterialEvidence ? [] : ["inventory-consumption-not-linked"]),
       "not-posted-to-ledger"
-    ]
+    ],
+    materialEvidence
   };
 }
 

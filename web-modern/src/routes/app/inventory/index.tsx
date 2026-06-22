@@ -75,11 +75,14 @@ const STOCK_HEALTH_VALUES = ["out", "low", "healthy", "all", "unknown"] as const
 type StockHealthFilter = (typeof STOCK_HEALTH_VALUES)[number];
 
 const MOVE_TYPES = [
+  "inbound",
+  "outbound",
   "transfer",
   "receipt",
   "delivery",
   "adjustment",
   "scrap",
+  "return",
 ] as const;
 type MoveTypeFilter = "all" | (typeof MOVE_TYPES)[number];
 
@@ -110,11 +113,14 @@ const STOCK_FILTER_TABS: { value: StockHealthFilter; label: string }[] = [
 
 const MOVE_FILTER_TABS: { value: MoveTypeFilter; label: string }[] = [
   { value: "all", label: "All" },
+  { value: "inbound", label: "Inbound" },
+  { value: "outbound", label: "Outbound" },
   { value: "receipt", label: "Receipts" },
   { value: "delivery", label: "Deliveries" },
   { value: "transfer", label: "Transfers" },
   { value: "adjustment", label: "Adjustments" },
   { value: "scrap", label: "Scrap" },
+  { value: "return", label: "Returns" },
 ];
 
 /* ────────── filter coercion ────────── */
@@ -528,11 +534,14 @@ function MovesList({
   const counts = useMemo(() => {
     const c: Record<MoveTypeFilter, number> = {
       all: moves.length,
+      inbound: 0,
+      outbound: 0,
       receipt: 0,
       delivery: 0,
       transfer: 0,
       adjustment: 0,
       scrap: 0,
+      return: 0,
     };
     for (const m of moves) {
       const t = (m.moveType as MoveTypeFilter) ?? "all";
@@ -793,10 +802,20 @@ const MOVE_TONE: Record<
   StockMoveType,
   { bg: string; fg: string; icon: typeof Box }
 > = {
+  inbound: {
+    bg: "bg-[color-mix(in_srgb,var(--color-tag-green)_15%,transparent)]",
+    fg: "text-[var(--color-tag-green)]",
+    icon: ArrowDownToLine,
+  },
   receipt: {
     bg: "bg-[color-mix(in_srgb,var(--color-tag-green)_15%,transparent)]",
     fg: "text-[var(--color-tag-green)]",
     icon: ArrowDownToLine,
+  },
+  outbound: {
+    bg: "bg-[color-mix(in_srgb,var(--color-tag-blue)_15%,transparent)]",
+    fg: "text-[var(--color-tag-blue)]",
+    icon: ArrowUpFromLine,
   },
   delivery: {
     bg: "bg-[color-mix(in_srgb,var(--color-tag-blue)_15%,transparent)]",
@@ -817,6 +836,11 @@ const MOVE_TONE: Record<
     bg: "bg-[color-mix(in_srgb,var(--color-tag-red)_15%,transparent)]",
     fg: "text-[var(--color-tag-red)]",
     icon: Trash2,
+  },
+  return: {
+    bg: "bg-[color-mix(in_srgb,var(--color-tag-violet)_15%,transparent)]",
+    fg: "text-[var(--color-tag-violet)]",
+    icon: ArrowRightLeft,
   },
 };
 
