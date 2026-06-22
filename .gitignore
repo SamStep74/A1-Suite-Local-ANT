@@ -10,6 +10,8 @@ data/*.db-wal
 node_modules
 npm-debug.log*
 public/
+!web-modern/public/
+!web-modern/public/**
 /reports/
 deploy/*.log
 test-results/

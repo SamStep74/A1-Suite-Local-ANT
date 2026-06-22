@@ -52,6 +52,7 @@ vi.mock("../../../lib/api/client", async (importOriginal) => {
 });
 
 import { Route } from "./dispatch";
+import { DISPATCH_SERVICE_WORKER_MESSAGE_TYPE } from "../../../lib/pwa/dispatch-service-worker";
 
 const QUEUE_KEY = "a1:desk:my-visits:technician-status-queue";
 const ACK_KEY = "a1:desk:dispatch-alerts:acknowledged";
@@ -165,6 +166,25 @@ function clearNotificationMock() {
   Reflect.deleteProperty(globalThis, "Notification");
 }
 
+function setServiceWorkerMock() {
+  const postMessage = vi.fn();
+  Object.defineProperty(navigator, "serviceWorker", {
+    configurable: true,
+    value: {
+      ready: Promise.resolve({
+        active: { postMessage },
+      }),
+      controller: null,
+      register: vi.fn(),
+    },
+  });
+  return { postMessage };
+}
+
+function clearServiceWorkerMock() {
+  Reflect.deleteProperty(navigator, "serviceWorker");
+}
+
 beforeEach(() => {
   localStorage.clear();
   mocks.getJson.mockReset();
@@ -172,6 +192,7 @@ beforeEach(() => {
   setupApi();
   setGeolocationMock(undefined);
   clearNotificationMock();
+  clearServiceWorkerMock();
 });
 
 afterEach(() => {
@@ -180,6 +201,7 @@ afterEach(() => {
   localStorage.clear();
   setGeolocationMock(undefined);
   clearNotificationMock();
+  clearServiceWorkerMock();
 });
 
 describe("/app/desk/dispatch", () => {
@@ -222,6 +244,37 @@ describe("/app/desk/dispatch", () => {
         tag: "service-field-visit:visit-1:due-soon:2026-06-22T08:05:00.000Z",
       }),
     );
+    expect(screen.getByText("Sent")).toBeTruthy();
+  });
+
+  it("routes dispatch notifications through the service worker when it is ready", async () => {
+    setupApi([VISIT], [ALERT]);
+    const notification = setNotificationMock("default", "granted");
+    const serviceWorker = setServiceWorkerMock();
+
+    renderRoute();
+
+    await screen.findByText("Visit moved");
+    fireEvent.click(screen.getByRole("button", { name: /^notify$/i }));
+
+    await waitFor(() => expect(notification.requestPermission).toHaveBeenCalledTimes(1));
+    await waitFor(() => expect(serviceWorker.postMessage).toHaveBeenCalledTimes(1));
+    expect(notification.NotificationCtor).not.toHaveBeenCalled();
+    expect(serviceWorker.postMessage).toHaveBeenCalledWith({
+      type: DISPATCH_SERVICE_WORKER_MESSAGE_TYPE,
+      payload: {
+        title: "AO-CASE-1001 - Visit moved",
+        options: expect.objectContaining({
+          body: "Customer requested a later arrival window.",
+          tag: "service-field-visit:visit-1:due-soon:2026-06-22T08:05:00.000Z",
+          data: expect.objectContaining({
+            url: "/app/desk/dispatch",
+            alertId: "svc-dispatch-alert-due-soon-v99a0d78feb35-visit-1",
+            dedupeKey: "service-field-visit:visit-1:due-soon:2026-06-22T08:05:00.000Z",
+          }),
+        }),
+      },
+    });
     expect(screen.getByText("Sent")).toBeTruthy();
   });
 

@@ -28,6 +28,7 @@ import { createRoot } from "react-dom/client";
 import { RouterProvider } from "@tanstack/react-router";
 import { getRouter } from "./router";
 import { I18nProvider } from "./i18n/I18nProvider";
+import { registerDispatchServiceWorker } from "./lib/pwa/dispatch-service-worker";
 
 const rootEl = document.getElementById("root");
 if (!rootEl) {
@@ -38,6 +39,8 @@ if (!rootEl) {
 }
 
 const router = getRouter();
+
+void registerDispatchServiceWorker();
 
 createRoot(rootEl).render(
   <StrictMode>

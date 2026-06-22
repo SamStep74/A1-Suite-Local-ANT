@@ -17,6 +17,7 @@ import {
   X,
 } from "lucide-react";
 import { getJson, postJson } from "../../../lib/api/client";
+import { postDispatchNotificationToServiceWorker } from "../../../lib/pwa/dispatch-service-worker";
 import {
   ServiceDispatchAlertAckResponseSchema,
   ServiceDispatchAlertsResponseSchema,
@@ -253,10 +254,20 @@ function DeskDispatch() {
       }
 
       for (const alert of notifyableAlerts) {
-        new Notification(formatDispatchAlertNotificationTitle(alert), {
+        const title = formatDispatchAlertNotificationTitle(alert);
+        const options = {
           body: formatDispatchAlertBody(alert),
           tag: getDispatchAlertNotificationTag(alert),
-        });
+          data: {
+            url: "/app/desk/dispatch",
+            alertId: alert.id,
+            dedupeKey: alert.dedupeKey ?? undefined,
+          },
+        } satisfies NotificationOptions;
+        const postedToServiceWorker = await postDispatchNotificationToServiceWorker(title, options);
+        if (!postedToServiceWorker) {
+          new Notification(title, options);
+        }
       }
       setNotificationStatus("sent");
     } catch {

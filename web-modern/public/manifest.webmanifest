@@ -1,0 +1,47 @@
+{
+  "name": "Armosphera One ANT ERP",
+  "short_name": "A1 ANT",
+  "description": "Local-first Armenian ERP workspace with technician dispatch support.",
+  "start_url": "/app/desk/dispatch",
+  "scope": "/",
+  "display": "standalone",
+  "background_color": "#F7F6F1",
+  "theme_color": "#1E3A3A",
+  "orientation": "portrait-primary",
+  "icons": [
+    {
+      "src": "/a1-mark.svg",
+      "sizes": "any",
+      "type": "image/svg+xml",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/a1-icon-192.png",
+      "sizes": "192x192",
+      "type": "image/png",
+      "purpose": "any maskable"
+    },
+    {
+      "src": "/a1-icon-512.png",
+      "sizes": "512x512",
+      "type": "image/png",
+      "purpose": "any maskable"
+    }
+  ],
+  "categories": ["business", "productivity"],
+  "shortcuts": [
+    {
+      "name": "Technician Dispatch",
+      "short_name": "Dispatch",
+      "description": "Open assigned field visits and dispatch alerts.",
+      "url": "/app/desk/dispatch",
+      "icons": [
+        {
+          "src": "/a1-icon-192.png",
+          "sizes": "192x192",
+          "type": "image/png"
+        }
+      ]
+    }
+  ]
+}
