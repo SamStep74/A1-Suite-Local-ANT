@@ -993,6 +993,38 @@ export const PosCreateSaleResponseSchema = z
   .passthrough();
 export type PosCreateSaleResponse = z.infer<typeof PosCreateSaleResponseSchema>;
 
+export const PosReceiptPacketRequestSchema = z
+  .object({
+    fiscalDeviceId: z.string().min(1),
+  })
+  .strict();
+export type PosReceiptPacketRequest = z.infer<typeof PosReceiptPacketRequestSchema>;
+
+export const PosReceiptPacketSchema = z
+  .object({
+    id: z.string().optional(),
+    saleId: z.string().optional(),
+    cashSessionId: z.string().optional(),
+    receiptNumber: z.string().optional(),
+    fiscalDeviceId: z.string().min(1),
+    status: z.string().min(1),
+    checksum: z.string().min(1),
+    payload: z.unknown().optional(),
+    createdAt: z.string().optional(),
+    preparedAt: z.string().optional(),
+  })
+  .passthrough();
+export type PosReceiptPacket = z.infer<typeof PosReceiptPacketSchema>;
+
+export const PosReceiptPacketResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    receiptPacket: PosReceiptPacketSchema,
+    sale: PosSaleSchema,
+  })
+  .passthrough();
+export type PosReceiptPacketResponse = z.infer<typeof PosReceiptPacketResponseSchema>;
+
 /** Stock balance — a (catalogItemId, locationId) row.
  *  Source: /api/inventory/stock. */
 export const StockBalanceSchema = z.object({

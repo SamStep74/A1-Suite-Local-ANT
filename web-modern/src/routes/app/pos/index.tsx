@@ -25,10 +25,13 @@ import {
   PosCreateSaleResponseSchema,
   PosOpenCashSessionRequestSchema,
   PosOpenCashSessionResponseSchema,
+  PosReceiptPacketRequestSchema,
+  PosReceiptPacketResponseSchema,
   PosWorkspaceResponseSchema,
   type CatalogItem,
   type PosCashSession,
   type PosCreateSaleResponse,
+  type PosReceiptPacketResponse,
   type PosPaymentMethod,
   type PosFiscalCloseoutLabels,
   type StockLocation,
@@ -52,6 +55,8 @@ function PosWorkspace() {
   const hasAccess = useUserAccess("pos");
   const queryClient = useQueryClient();
   const [lastSale, setLastSale] = useState<PosCreateSaleResponse["sale"] | null>(null);
+  const [lastReceiptPacket, setLastReceiptPacket] =
+    useState<PosReceiptPacketResponse["receiptPacket"] | null>(null);
 
   const workspaceQ = useQuery({
     queryKey: POS_WORKSPACE_QUERY_KEY,
@@ -142,6 +147,28 @@ function PosWorkspace() {
     },
     onSuccess: (response) => {
       setLastSale(response.sale);
+      setLastReceiptPacket(null);
+      refreshWorkspace();
+    },
+  });
+
+  const receiptPacketMutation = useMutation({
+    mutationFn: async (input: {
+      saleId: string;
+      fiscalDeviceId: string;
+    }) => {
+      const payload = PosReceiptPacketRequestSchema.parse({
+        fiscalDeviceId: input.fiscalDeviceId.trim(),
+      });
+      return postJson(
+        `/api/pos/sales/${input.saleId}/receipt-packet`,
+        payload,
+        PosReceiptPacketResponseSchema,
+      );
+    },
+    onSuccess: (response) => {
+      setLastSale(response.sale);
+      setLastReceiptPacket(response.receiptPacket);
       refreshWorkspace();
     },
   });
@@ -222,6 +249,14 @@ function PosWorkspace() {
                   isPending={saleMutation.isPending}
                   error={saleMutation.error ? (saleMutation.error as Error).message : ""}
                   lastSale={lastSale}
+                  receiptPacket={lastReceiptPacket}
+                  onPrepareReceiptPacket={(input) => receiptPacketMutation.mutate(input)}
+                  isPreparingReceiptPacket={receiptPacketMutation.isPending}
+                  receiptPacketError={
+                    receiptPacketMutation.error
+                      ? (receiptPacketMutation.error as Error).message
+                      : ""
+                  }
                 />
                 <div className="space-y-3 border-t border-[var(--color-line)] pt-4 opacity-90">
                   <div>
@@ -462,6 +497,10 @@ export function SaleCapturePanel({
   isPending,
   error,
   lastSale,
+  receiptPacket,
+  onPrepareReceiptPacket,
+  isPreparingReceiptPacket,
+  receiptPacketError,
 }: {
   session: PosCashSession;
   catalogItems: readonly CatalogItem[];
@@ -476,6 +515,13 @@ export function SaleCapturePanel({
   isPending?: boolean;
   error?: string;
   lastSale?: PosCreateSaleResponse["sale"] | null;
+  receiptPacket?: PosReceiptPacketResponse["receiptPacket"] | null;
+  onPrepareReceiptPacket: (input: {
+    saleId: string;
+    fiscalDeviceId: string;
+  }) => void;
+  isPreparingReceiptPacket?: boolean;
+  receiptPacketError?: string;
 }) {
   const [catalogItemId, setCatalogItemId] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -634,14 +680,107 @@ export function SaleCapturePanel({
       </form>
 
       {lastSale ? (
-        <p
-          className="text-[var(--text-sm)] font-medium text-[var(--color-tag-green)]"
-          data-testid="pos-sale-success"
-        >
-          Posted sale {lastSale.id} · receipt {lastSale.receiptNumber} · {money(lastSale.total)}
-        </p>
+        <div className="space-y-2">
+          <p
+            className="text-[var(--text-sm)] font-medium text-[var(--color-tag-green)]"
+            data-testid="pos-sale-success"
+          >
+            Posted sale {lastSale.id} · receipt {lastSale.receiptNumber} · {money(lastSale.total)}
+          </p>
+          <ReceiptPacketHandoff
+            key={`${lastSale.id}-${session.fiscalDeviceId ?? ""}`}
+            sale={lastSale}
+            defaultFiscalDeviceId={session.fiscalDeviceId ?? ""}
+            packet={receiptPacket ?? null}
+            onSubmit={onPrepareReceiptPacket}
+            isPending={isPreparingReceiptPacket}
+            error={receiptPacketError}
+          />
+        </div>
       ) : null}
     </div>
+  );
+}
+
+export function ReceiptPacketHandoff({
+  sale,
+  defaultFiscalDeviceId,
+  packet,
+  onSubmit,
+  isPending,
+  error,
+}: {
+  sale: PosCreateSaleResponse["sale"];
+  defaultFiscalDeviceId: string;
+  packet: PosReceiptPacketResponse["receiptPacket"] | null;
+  onSubmit: (input: {
+    saleId: string;
+    fiscalDeviceId: string;
+  }) => void;
+  isPending?: boolean;
+  error?: string;
+}) {
+  const [fiscalDeviceId, setFiscalDeviceId] = useState(defaultFiscalDeviceId);
+  const canSubmit = fiscalDeviceId.trim().length > 0 && !isPending;
+
+  return (
+    <form
+      className="grid gap-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] p-2 sm:grid-cols-[minmax(0,1fr)_auto]"
+      data-testid="pos-receipt-packet-form"
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (!canSubmit) return;
+        onSubmit({
+          saleId: sale.id,
+          fiscalDeviceId,
+        });
+      }}
+    >
+      <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+        Fiscal device
+        <input
+          value={fiscalDeviceId}
+          onChange={(event) => setFiscalDeviceId(event.target.value)}
+          className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+          data-testid="pos-receipt-packet-fiscal-device-id"
+        />
+      </label>
+
+      <div className="flex items-end">
+        <button
+          type="submit"
+          disabled={!canSubmit}
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-3 text-[var(--text-sm)] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          data-testid="pos-receipt-packet-submit"
+        >
+          <ReceiptText className="size-4" aria-hidden />
+          {isPending ? "Preparing…" : "Prepare evidence"}
+        </button>
+      </div>
+
+      <p className="text-[var(--text-xs)] text-[var(--color-muted)] sm:col-span-2">
+        Handoff packet only · no device submission
+      </p>
+
+      {packet ? (
+        <p
+          className="text-[var(--text-sm)] font-medium text-[var(--color-tag-green)] sm:col-span-2"
+          data-testid="pos-receipt-packet-success"
+        >
+          Receipt evidence {packet.status} · checksum {packet.checksum}
+        </p>
+      ) : null}
+
+      {error ? (
+        <p
+          role="alert"
+          className="text-[var(--text-sm)] text-[var(--color-ruby)] sm:col-span-2"
+          data-testid="pos-receipt-packet-error"
+        >
+          {error}
+        </p>
+      ) : null}
+    </form>
   );
 }
 

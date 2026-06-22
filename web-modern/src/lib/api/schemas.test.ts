@@ -42,6 +42,8 @@ import {
   PosCloseCashSessionResponseSchema,
   PosCreateSaleRequestSchema,
   PosCreateSaleResponseSchema,
+  PosReceiptPacketRequestSchema,
+  PosReceiptPacketResponseSchema,
   PosPricePreviewSchema,
   StockBalanceSchema,
   StockLocationSchema,
@@ -1898,6 +1900,78 @@ describe("POS cash-session schemas", () => {
       expect(r.data.sale.status).toBe("posted");
       expect(r.data.sale.lines[0]?.catalogItemVariantId).toBeNull();
       expect(r.data.session.expectedCash).toBe(110000);
+    }
+  });
+
+  it("validates the receipt-packet POST body", () => {
+    const r = PosReceiptPacketRequestSchema.safeParse({
+      fiscalDeviceId: "FISCAL-01",
+    });
+
+    expect(r.success).toBe(true);
+  });
+
+  it("accepts the receipt-packet POST response envelope", () => {
+    const sale = {
+      id: "pos-sale-1",
+      cashSessionId: "pos-session-1",
+      receiptNumber: "R-2026-0001",
+      status: "posted",
+      paymentMethod: "card",
+      currency: "AMD",
+      subtotal: 50000,
+      vat: 10000,
+      total: 60000,
+      lineCount: 1,
+      soldAt: "2026-06-22T09:30:00.000Z",
+      cashierUserId: "user-1",
+      stockLocationId: "loc-pos-1",
+      postings: {
+        salePosting: "posted",
+        inventoryPosting: "posted",
+        ledgerPosting: "not-posted",
+      },
+      lines: [
+        {
+          id: "pos-sale-line-1",
+          catalogItemId: "catitem-pos-scanner",
+          catalogItemVariantId: null,
+          sku: "POS-SCANNER",
+          name: "POS barcode scanner",
+          quantity: 2,
+          unitPrice: 25000,
+          subtotal: 50000,
+          vat: 10000,
+          total: 60000,
+          vatMode: "standard",
+          fiscalReceiptRequired: true,
+          stockMoveId: "stock-move-1",
+        },
+      ],
+      createdAt: "2026-06-22T09:30:01.000Z",
+    };
+
+    const r = PosReceiptPacketResponseSchema.safeParse({
+      ok: true,
+      receiptPacket: {
+        id: "pos-receipt-packet-1",
+        saleId: "pos-sale-1",
+        cashSessionId: "pos-session-1",
+        receiptNumber: "R-2026-0001",
+        fiscalDeviceId: "FISCAL-01",
+        status: "prepared",
+        checksum: "a1fiscalchecksum",
+        payload: { saleId: "pos-sale-1" },
+        createdAt: "2026-06-22T09:31:00.000Z",
+      },
+      sale,
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.receiptPacket.status).toBe("prepared");
+      expect(r.data.receiptPacket.checksum).toBe("a1fiscalchecksum");
+      expect(r.data.sale.id).toBe("pos-sale-1");
     }
   });
 });

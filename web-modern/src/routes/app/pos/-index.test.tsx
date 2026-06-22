@@ -72,7 +72,9 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
       onError?: (...args: unknown[]) => void;
     }) => {
       const fn = opts.mutationFn.toString();
-      const slot = fn.includes("/sales")
+      const slot = fn.includes("receipt-packet")
+        ? 3
+        : fn.includes("/sales")
         ? 2
         : fn.includes("/:id/close") || fn.includes("${input.sessionId}/close")
           ? 1
@@ -229,6 +231,21 @@ const VALID_SALE_RESPONSE = {
   },
 };
 
+const VALID_RECEIPT_PACKET_RESPONSE = {
+  ok: true,
+  receiptPacket: {
+    id: "pos-receipt-packet-1",
+    saleId: "pos-sale-1",
+    cashSessionId: "pos-session-1",
+    receiptNumber: "R-2026-0002",
+    fiscalDeviceId: "FISCAL-OPEN-01",
+    status: "prepared",
+    checksum: "fiscal-packet-checksum-123",
+    createdAt: "2026-06-22T09:31:00.000Z",
+  },
+  sale: VALID_SALE_RESPONSE.sale,
+};
+
 function renderRoute(opts?: { noPosAccess?: boolean }) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -284,6 +301,22 @@ describe("POS route", () => {
 
     expect(screen.getByTestId("pos-open-form")).toBeInTheDocument();
     expect(screen.queryByTestId("pos-sale-form")).toBeNull();
+    expect(screen.queryByTestId("pos-receipt-packet-form")).toBeNull();
+    expect(screen.queryByTestId("pos-receipt-packet-success")).toBeNull();
+  });
+
+  it("keeps receipt packet handoff hidden until a sale succeeds", () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+
+    renderRoute();
+
+    expect(screen.getByTestId("pos-sale-form")).toBeInTheDocument();
+    expect(screen.queryByTestId("pos-receipt-packet-form")).toBeNull();
+    expect(screen.queryByTestId("pos-receipt-packet-success")).toBeNull();
   });
 
   it("opens a cash session with stock location, opening cash, and optional openedAt", async () => {
@@ -368,6 +401,62 @@ describe("POS route", () => {
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["pos", "workspace"],
     });
+  });
+
+  it("prepares fiscal receipt evidence for the last posted sale", async () => {
+    const openSessionWithDevice = {
+      ...OPEN_SESSION,
+      fiscalDeviceId: "FISCAL-OPEN-01",
+    };
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: openSessionWithDevice,
+      sessions: [openSessionWithDevice, CLOSED_SESSION],
+    };
+    mocks.postJson
+      .mockResolvedValueOnce(VALID_SALE_RESPONSE)
+      .mockResolvedValueOnce(VALID_RECEIPT_PACKET_RESPONSE);
+
+    renderRoute();
+
+    fireEvent.change(screen.getByTestId("pos-sale-quantity"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-receipt-number"), {
+      target: { value: "R-2026-0002" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-payment-method"), {
+      target: { value: "card" },
+    });
+    fireEvent.click(screen.getByTestId("pos-sale-submit"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-receipt-packet-form")).toBeInTheDocument();
+    });
+    expect(screen.getByTestId("pos-receipt-packet-fiscal-device-id")).toHaveValue(
+      "FISCAL-OPEN-01",
+    );
+
+    fireEvent.click(screen.getByTestId("pos-receipt-packet-submit"));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(2);
+    });
+    const [path, body] = mocks.postJson.mock.calls[1]!;
+    expect(path).toBe("/api/pos/sales/pos-sale-1/receipt-packet");
+    expect(body).toEqual({
+      fiscalDeviceId: "FISCAL-OPEN-01",
+    });
+    expect(mocks.mutateImpls[3]).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-receipt-packet-success")).toHaveTextContent(
+        /prepared/,
+      );
+    });
+    expect(screen.getByTestId("pos-receipt-packet-success")).toHaveTextContent(
+      /fiscal-packet-checksum-123/,
+    );
   });
 
   it("closes the current cash session with fiscal closeout evidence", async () => {
