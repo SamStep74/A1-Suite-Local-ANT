@@ -251,6 +251,7 @@ function openDatabase(dbPath) {
   ensurePosReceiptPrintLayer(db);
   ensurePosVoidLayer(db);
   ensurePosTerminalSettlementLayer(db);
+  ensurePosOfflineReplayLayer(db);
   ensureCrmTubeSchema(db);
   ensureRbacSchema(db);
   ensureSmbCrmFoundationSchema(db);
@@ -875,6 +876,37 @@ function initSchema(db) {
       UNIQUE(org_id, source_key),
       UNIQUE(org_id, settlement_reference)
     );
+
+    CREATE TABLE IF NOT EXISTS pos_offline_replay_items (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      cash_session_id TEXT NOT NULL REFERENCES pos_cash_sessions(id) ON DELETE CASCADE,
+      sale_id TEXT REFERENCES pos_sales(id) ON DELETE SET NULL,
+      action_type TEXT NOT NULL,
+      replay_status TEXT NOT NULL DEFAULT 'queued',
+      source_key TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      payload_checksum TEXT NOT NULL,
+      queued_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      queued_at TEXT NOT NULL,
+      replayed_at TEXT NOT NULL DEFAULT '',
+      replay_note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pos_offline_replay_items_source_key
+      ON pos_offline_replay_items(org_id, source_key)
+      WHERE source_key <> '';
+
+    CREATE INDEX IF NOT EXISTS idx_pos_offline_replay_items_status
+      ON pos_offline_replay_items(org_id, replay_status, queued_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_offline_replay_items_session
+      ON pos_offline_replay_items(org_id, cash_session_id, queued_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_offline_replay_items_sale
+      ON pos_offline_replay_items(org_id, sale_id, queued_at DESC);
 
     CREATE TABLE IF NOT EXISTS pos_sale_refund_lines (
       id TEXT PRIMARY KEY,
@@ -9195,6 +9227,62 @@ function ensurePosTerminalSettlementLayer(db) {
       ON pos_terminal_settlements(org_id, status, settled_at DESC);
     CREATE INDEX IF NOT EXISTS idx_pos_terminal_settlements_session
       ON pos_terminal_settlements(org_id, cash_session_id, settled_at DESC);
+  `);
+}
+
+function ensurePosOfflineReplayLayer(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pos_offline_replay_items (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      cash_session_id TEXT NOT NULL REFERENCES pos_cash_sessions(id) ON DELETE CASCADE,
+      sale_id TEXT REFERENCES pos_sales(id) ON DELETE SET NULL,
+      action_type TEXT NOT NULL,
+      replay_status TEXT NOT NULL DEFAULT 'queued',
+      source_key TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      payload_checksum TEXT NOT NULL,
+      queued_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      queued_at TEXT NOT NULL,
+      replayed_at TEXT NOT NULL DEFAULT '',
+      replay_note TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+  `);
+  const columns = new Set(db.prepare("PRAGMA table_info(pos_offline_replay_items)").all().map(column => column.name));
+  const additions = {
+    cash_session_id: "TEXT NOT NULL DEFAULT ''",
+    sale_id: "TEXT",
+    action_type: "TEXT NOT NULL DEFAULT 'sale'",
+    replay_status: "TEXT NOT NULL DEFAULT 'queued'",
+    source_key: "TEXT NOT NULL DEFAULT ''",
+    payload_json: "TEXT NOT NULL DEFAULT '{}'",
+    payload_checksum: "TEXT NOT NULL DEFAULT ''",
+    queued_by_user_id: "TEXT",
+    queued_at: "TEXT NOT NULL DEFAULT ''",
+    replayed_at: "TEXT NOT NULL DEFAULT ''",
+    replay_note: "TEXT NOT NULL DEFAULT ''",
+    created_at: "TEXT NOT NULL DEFAULT ''",
+    updated_at: "TEXT NOT NULL DEFAULT ''"
+  };
+  for (const [name, definition] of Object.entries(additions)) {
+    if (!columns.has(name)) db.exec(`ALTER TABLE pos_offline_replay_items ADD COLUMN ${name} ${definition}`);
+  }
+  db.exec(`
+    UPDATE pos_offline_replay_items
+    SET replay_status = 'queued'
+    WHERE replay_status NOT IN ('queued', 'replayed', 'rejected');
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pos_offline_replay_items_source_key
+      ON pos_offline_replay_items(org_id, source_key)
+      WHERE source_key <> '';
+    CREATE INDEX IF NOT EXISTS idx_pos_offline_replay_items_status
+      ON pos_offline_replay_items(org_id, replay_status, queued_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_pos_offline_replay_items_session
+      ON pos_offline_replay_items(org_id, cash_session_id, queued_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_pos_offline_replay_items_sale
+      ON pos_offline_replay_items(org_id, sale_id, queued_at DESC);
   `);
 }
 

@@ -10,6 +10,7 @@
  *   - recording full-sale refund evidence via POST /api/pos/sales/:id/refund
  *   - closing the current cash session via POST /api/pos/cash-sessions/:id/close
  *   - posting closed-session terminal settlement evidence
+ *   - queueing and marking local offline replay readiness evidence
  *   - app-tier 403 via UserAccessProvider
  */
 import {
@@ -32,8 +33,11 @@ import * as React from "react";
 
 const mocks = vi.hoisted(() => ({
   workspace: undefined as unknown,
+  offlineReplayItems: { items: [] } as unknown,
   loading: false,
+  offlineReplayLoading: false,
   error: null as Error | null,
+  offlineReplayError: null as Error | null,
   postJson: vi.fn(),
   mutateImpls: [] as Array<ReturnType<typeof vi.fn>>,
   pendingFlags: [] as boolean[],
@@ -66,18 +70,32 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
   const actual = (await importOriginal()) as Record<string, unknown>;
   return {
     ...actual,
-    useQuery: () => ({
-      data: mocks.workspace,
-      isLoading: mocks.loading,
-      error: mocks.error,
-    }),
+    useQuery: (opts: { queryKey?: readonly unknown[] }) => {
+      const key = opts.queryKey ?? [];
+      if (key[0] === "pos" && key[1] === "offline-replay-items") {
+        return {
+          data: mocks.offlineReplayItems,
+          isLoading: mocks.offlineReplayLoading,
+          error: mocks.offlineReplayError,
+        };
+      }
+      return {
+        data: mocks.workspace,
+        isLoading: mocks.loading,
+        error: mocks.error,
+      };
+    },
     useMutation: (opts: {
       mutationFn: (...args: unknown[]) => Promise<unknown>;
       onSuccess?: (...args: unknown[]) => void;
       onError?: (...args: unknown[]) => void;
     }) => {
       const fn = opts.mutationFn.toString();
-      const slot = fn.includes("terminal-settlements")
+      const slot = fn.includes("mark-replayed")
+        ? 9
+        : fn.includes("offline-replay-items")
+        ? 8
+        : fn.includes("terminal-settlements")
         ? 5
         : fn.includes("/void")
         ? 6
@@ -170,6 +188,10 @@ const CLOSED_SESSION = {
 const WORKSPACE_NO_OPEN = {
   openSession: null,
   sessions: [CLOSED_SESSION],
+  capabilityStatus: {
+    offlineReplay: "local-queue",
+  },
+  recentOfflineReplayItems: [],
   catalogItems: [
     {
       id: "catitem-pos-scanner",
@@ -575,6 +597,49 @@ const VALID_TERMINAL_SETTLEMENT_RESPONSE = {
   session: CLOSED_SESSION,
 };
 
+const VALID_OFFLINE_REPLAY_ITEM = {
+  id: "pos-offline-replay-1",
+  actionType: "pos.sale.local-evidence",
+  sourceKey: "pos-offline-replay-test-1",
+  payload: {
+    evidenceMode: "local-readiness-only",
+    browserOfflineExecution: false,
+    fiscalSubmission: false,
+    terminalSubmission: false,
+  },
+  cashSessionId: OPEN_SESSION.id,
+  saleId: "pos-sale-1",
+  replayStatus: "queued",
+  note: "Queued from a local readiness check.",
+  queuedAt: "2026-06-22T12:00:00.000Z",
+  createdAt: "2026-06-22T12:00:00.000Z",
+};
+
+const VALID_OFFLINE_REPLAY_QUEUE_RESPONSE = {
+  ok: true,
+  item: {
+    ...VALID_OFFLINE_REPLAY_ITEM,
+    id: "pos-offline-replay-new",
+    actionType: "sale",
+    sourceKey: "pos-offline-replay-ui-pos-session-1-1782139200000",
+    saleId: null,
+    note: "Local offline replay readiness evidence from POS UI.",
+    queuedAt: "2026-06-22T12:10:00.000Z",
+    createdAt: "2026-06-22T12:10:00.000Z",
+  },
+};
+
+const VALID_OFFLINE_REPLAY_MARK_RESPONSE = {
+  ok: true,
+  item: {
+    ...VALID_OFFLINE_REPLAY_ITEM,
+    replayStatus: "replayed",
+    note: "Marked replayed from POS local readiness panel.",
+    replayedAt: "2026-06-22T12:12:00.000Z",
+    updatedAt: "2026-06-22T12:12:00.000Z",
+  },
+};
+
 function renderRoute(opts?: { noPosAccess?: boolean }) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -592,8 +657,11 @@ function renderRoute(opts?: { noPosAccess?: boolean }) {
 
 beforeEach(() => {
   mocks.workspace = WORKSPACE_NO_OPEN;
+  mocks.offlineReplayItems = { items: [] };
   mocks.loading = false;
+  mocks.offlineReplayLoading = false;
   mocks.error = null;
+  mocks.offlineReplayError = null;
   mocks.postJson.mockReset();
   mocks.postJson.mockResolvedValue({ session: OPEN_SESSION });
   mocks.mutateImpls = [];
@@ -1344,6 +1412,102 @@ describe("POS route", () => {
     );
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["pos", "workspace"],
+    });
+  });
+
+  it("queues sample local offline replay readiness evidence", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+    mocks.postJson.mockResolvedValueOnce(VALID_OFFLINE_REPLAY_QUEUE_RESPONSE);
+
+    renderRoute();
+
+    expect(screen.getByTestId("pos-offline-replay-panel")).toHaveTextContent(
+      /local-queue/,
+    );
+    expect(screen.getByTestId("pos-offline-replay-panel")).toHaveTextContent(
+      /Local readiness\/evidence only/,
+    );
+
+    fireEvent.click(screen.getByTestId("pos-offline-replay-submit"));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(1);
+    });
+    const [path, body] = mocks.postJson.mock.calls[0]!;
+    expect(path).toBe("/api/pos/offline-replay-items");
+    expect(body).toEqual({
+      actionType: "sale",
+      sourceKey: expect.stringMatching(/^pos-offline-replay-ui-pos-session-1-\d+$/),
+      payload: {
+        evidenceMode: "local-readiness-only",
+        actionType: "sale",
+        browserOfflineExecution: false,
+        fiscalSubmission: false,
+        terminalSubmission: false,
+        route: "/app/pos",
+        cashSessionId: "pos-session-1",
+        saleId: null,
+        queuedAt: expect.any(String),
+      },
+      cashSessionId: "pos-session-1",
+      note: "Local offline replay readiness evidence from POS UI.",
+    });
+    expect(mocks.mutateImpls[8]).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-offline-replay-success")).toHaveTextContent(
+        /Queued local readiness evidence pos-offline-replay-new/,
+      );
+    });
+    expect(screen.getByTestId("pos-offline-replay-success")).toHaveTextContent(
+      /status queued/,
+    );
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["pos", "offline-replay-items"],
+    });
+  });
+
+  it("marks a queued offline replay item as replayed", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+      recentOfflineReplayItems: [VALID_OFFLINE_REPLAY_ITEM],
+    };
+    mocks.offlineReplayItems = { items: [VALID_OFFLINE_REPLAY_ITEM] };
+    mocks.postJson.mockResolvedValueOnce(VALID_OFFLINE_REPLAY_MARK_RESPONSE);
+
+    renderRoute();
+
+    expect(screen.getByTestId("pos-offline-replay-items")).toHaveTextContent(
+      /pos.sale.local-evidence/,
+    );
+    fireEvent.click(screen.getByTestId("pos-offline-replay-mark-replayed"));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(1);
+    });
+    const [path, body] = mocks.postJson.mock.calls[0]!;
+    expect(path).toBe(
+      "/api/pos/offline-replay-items/pos-offline-replay-1/mark-replayed",
+    );
+    expect(body).toEqual({
+      replayStatus: "replayed",
+      note: "Marked replayed from POS local readiness panel.",
+    });
+    expect(mocks.mutateImpls[9]).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-offline-replay-mark-success")).toHaveTextContent(
+        /marked replayed/,
+      );
+    });
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["pos", "offline-replay-items"],
     });
   });
 

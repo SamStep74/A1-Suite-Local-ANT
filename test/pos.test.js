@@ -2154,3 +2154,335 @@ test("pos: closing requires fiscal evidence, computes difference, conflicts on r
     await app.close();
   }
 });
+
+test("pos: offline replay queue records evidence, lists, marks, backs up, and does not mutate sale state", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const owner = await login(app);
+    const orgId = "org-armosphera-demo";
+    const { session, sale } = await createPostedPosSale(app, operator, {
+      registerCode: "POS-OFFLINE-QUEUE",
+      fiscalDeviceId: "FISCAL-AM-OFFLINE",
+      receiptNumber: "R-OFFLINE-001",
+      idempotencyKey: "pos-offline-replay-sale-1"
+    });
+    const saleRowBefore = app.db.prepare("SELECT status, updated_at FROM pos_sales WHERE org_id = ? AND id = ?")
+      .get(orgId, sale.id);
+    const expectedCashBefore = app.db.prepare("SELECT expected_cash_amd FROM pos_cash_sessions WHERE org_id = ? AND id = ?")
+      .get(orgId, session.id).expected_cash_amd;
+    const stockMoveCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM stock_moves WHERE org_id = ?").get(orgId).count;
+    const receiptPacketCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM pos_receipt_packets WHERE org_id = ?").get(orgId).count;
+    const refundCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM pos_sale_refunds WHERE org_id = ?").get(orgId).count;
+    const voidCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM pos_sale_voids WHERE org_id = ?").get(orgId).count;
+
+    const payload = {
+      kind: "pos-offline-local-evidence",
+      action: "receipt-print",
+      saleId: sale.id,
+      receiptNumber: sale.receiptNumber,
+      localQueueId: "device-cache-print-1",
+      controls: ["evidence-only", "no-fiscal-device-command"]
+    };
+    const payloadChecksum = sha256Json(payload);
+    const queued = await app.inject({
+      method: "POST",
+      url: "/api/pos/offline-replay-items",
+      headers: { cookie: operator },
+      payload: {
+        cashSessionId: session.id,
+        saleId: sale.id,
+        actionType: "receipt-print",
+        sourceKey: "offline-replay-print-1",
+        payload,
+        payloadChecksum,
+        queuedAt: "2026-06-22T11:00:00.000Z"
+      }
+    });
+    assert.equal(queued.statusCode, 200, queued.body);
+    const item = queued.json().item;
+    assert.equal(queued.json().ok, true);
+    assert.equal(queued.json().idempotent, false);
+    assert.match(item.id, /^pos-offline-replay-/);
+    assert.equal(item.cashSessionId, session.id);
+    assert.equal(item.saleId, sale.id);
+    assert.equal(item.actionType, "receipt-print");
+    assert.equal(item.replayStatus, "queued");
+    assert.equal(item.sourceKey, "offline-replay-print-1");
+    assert.deepEqual(item.payload, payload);
+    assert.equal(item.payloadChecksum, payloadChecksum);
+    assert.equal(item.queuedByUserId, "user-operator");
+    assert.equal(item.queuedAt, "2026-06-22T11:00:00.000Z");
+    assert.equal(item.cashSessionStatus, "open");
+    assert.equal(item.registerCode, "POS-OFFLINE-QUEUE");
+    assert.equal(item.receiptNumber, "R-OFFLINE-001");
+
+    const saleRowAfterQueue = app.db.prepare("SELECT status, updated_at FROM pos_sales WHERE org_id = ? AND id = ?")
+      .get(orgId, sale.id);
+    assert.deepEqual(saleRowAfterQueue, saleRowBefore);
+    assert.equal(app.db.prepare("SELECT expected_cash_amd FROM pos_cash_sessions WHERE org_id = ? AND id = ?").get(orgId, session.id).expected_cash_amd, expectedCashBefore);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM stock_moves WHERE org_id = ?").get(orgId).count, stockMoveCountBefore);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_receipt_packets WHERE org_id = ?").get(orgId).count, receiptPacketCountBefore);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_sale_refunds WHERE org_id = ?").get(orgId).count, refundCountBefore);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_sale_voids WHERE org_id = ?").get(orgId).count, voidCountBefore);
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: "/api/pos/offline-replay-items",
+      headers: { cookie: operator },
+      payload: {
+        cashSessionId: session.id,
+        saleId: sale.id,
+        actionType: "receipt-print",
+        sourceKey: "offline-replay-print-1",
+        payload,
+        payloadChecksum
+      }
+    });
+    assert.equal(duplicate.statusCode, 200, duplicate.body);
+    assert.equal(duplicate.json().idempotent, true);
+    assert.equal(duplicate.json().item.id, item.id);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_offline_replay_items WHERE org_id = ? AND source_key = ?")
+      .get(orgId, "offline-replay-print-1").count, 1);
+
+    const conflict = await app.inject({
+      method: "POST",
+      url: "/api/pos/offline-replay-items",
+      headers: { cookie: operator },
+      payload: {
+        cashSessionId: session.id,
+        saleId: sale.id,
+        actionType: "receipt-print",
+        sourceKey: "offline-replay-print-1",
+        payload: { ...payload, localQueueId: "changed" }
+      }
+    });
+    assert.equal(conflict.statusCode, 409, conflict.body);
+
+    const listed = await app.inject({
+      method: "GET",
+      url: "/api/pos/offline-replay-items?status=queued&actionType=receipt-print",
+      headers: { cookie: operator }
+    });
+    assert.equal(listed.statusCode, 200, listed.body);
+    assert.ok(listed.json().items.some(row => row.id === item.id && row.replayStatus === "queued"));
+
+    const workspace = await app.inject({ method: "GET", url: "/api/pos/workspace", headers: { cookie: operator } });
+    assert.equal(workspace.statusCode, 200, workspace.body);
+    assert.equal(workspace.json().capabilityStatus.offlineReplay, "local-queue");
+    assert.equal(workspace.json().evidenceMetadata.offlineReplayEvidenceOnly, true);
+    assert.ok(workspace.json().offlineReplayItems.some(row => row.id === item.id));
+    assert.ok(workspace.json().recentOfflineReplayItems.some(row => row.id === item.id));
+
+    const marked = await app.inject({
+      method: "POST",
+      url: `/api/pos/offline-replay-items/${item.id}/mark-replayed`,
+      headers: { cookie: operator },
+      payload: {
+        replayStatus: "replayed",
+        replayNote: "Replayed from the local device queue after connectivity returned.",
+        replayedAt: "2026-06-22T12:30:00.000Z"
+      }
+    });
+    assert.equal(marked.statusCode, 200, marked.body);
+    assert.equal(marked.json().idempotent, false);
+    assert.equal(marked.json().item.replayStatus, "replayed");
+    assert.equal(marked.json().item.replayNote, "Replayed from the local device queue after connectivity returned.");
+    assert.equal(marked.json().item.replayedAt, "2026-06-22T12:30:00.000Z");
+
+    const replayedAgain = await app.inject({
+      method: "POST",
+      url: `/api/pos/offline-replay-items/${item.id}/mark-replayed`,
+      headers: { cookie: operator },
+      payload: { replayStatus: "replayed", replayNote: "Ignored on idempotent replay." }
+    });
+    assert.equal(replayedAgain.statusCode, 200, replayedAgain.body);
+    assert.equal(replayedAgain.json().idempotent, true);
+    assert.equal(replayedAgain.json().item.replayNote, "Replayed from the local device queue after connectivity returned.");
+
+    const finalizedConflict = await app.inject({
+      method: "POST",
+      url: `/api/pos/offline-replay-items/${item.id}/mark-replayed`,
+      headers: { cookie: operator },
+      payload: { replayStatus: "rejected", replayNote: "Cannot reverse finalized replay evidence." }
+    });
+    assert.equal(finalizedConflict.statusCode, 409, finalizedConflict.body);
+
+    assert.deepEqual(app.db.prepare("SELECT status, updated_at FROM pos_sales WHERE org_id = ? AND id = ?").get(orgId, sale.id), saleRowBefore);
+    assert.equal(app.db.prepare("SELECT expected_cash_amd FROM pos_cash_sessions WHERE org_id = ? AND id = ?").get(orgId, session.id).expected_cash_amd, expectedCashBefore);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM stock_moves WHERE org_id = ?").get(orgId).count, stockMoveCountBefore);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_receipt_packets WHERE org_id = ?").get(orgId).count, receiptPacketCountBefore);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_sale_refunds WHERE org_id = ?").get(orgId).count, refundCountBefore);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_sale_voids WHERE org_id = ?").get(orgId).count, voidCountBefore);
+
+    const backup = await app.inject({
+      method: "POST",
+      url: "/api/admin/backups",
+      headers: { cookie: owner },
+      payload: { note: "POS offline replay queue evidence must be restorable." }
+    });
+    assert.equal(backup.statusCode, 200, backup.body);
+    assert.ok(backup.json().backup.payload.tables.pos_offline_replay_items.some(row => (
+      row.id === item.id
+      && row.cash_session_id === session.id
+      && row.sale_id === sale.id
+      && row.action_type === "receipt-print"
+      && row.replay_status === "replayed"
+      && row.source_key === "offline-replay-print-1"
+      && row.payload_checksum === payloadChecksum
+      && row.replay_note === "Replayed from the local device queue after connectivity returned."
+    )));
+  } finally {
+    await app.close();
+  }
+});
+
+test("pos: offline replay queue is app-gated and validates payload, session, sale, and rejected status", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const support = await login(app, "support@armosphera.local");
+    const orgId = "org-armosphera-demo";
+
+    const unauthenticated = await app.inject({ method: "GET", url: "/api/pos/offline-replay-items" });
+    assert.equal(unauthenticated.statusCode, 401);
+
+    const supportDenied = await app.inject({
+      method: "GET",
+      url: "/api/pos/offline-replay-items",
+      headers: { cookie: support }
+    });
+    assert.equal(supportDenied.statusCode, 403);
+
+    const { session, sale } = await createPostedPosSale(app, operator, {
+      registerCode: "POS-OFFLINE-GUARDS",
+      fiscalDeviceId: "FISCAL-AM-OFFLINE-GUARDS",
+      receiptNumber: "R-OFFLINE-GUARDS-001",
+      idempotencyKey: "pos-offline-guards-sale-1"
+    });
+    const secondSession = await app.inject({
+      method: "POST",
+      url: "/api/pos/cash-sessions",
+      headers: { cookie: operator },
+      payload: {
+        stockLocationId: "stockloc-main-warehouse",
+        registerCode: "POS-OFFLINE-GUARDS-2",
+        openingCash: 1000,
+        fiscalDeviceId: "FISCAL-AM-OFFLINE-GUARDS-2"
+      }
+    });
+    assert.equal(secondSession.statusCode, 200, secondSession.body);
+
+    const validPayload = {
+      cashSessionId: session.id,
+      actionType: "sale",
+      sourceKey: "offline-replay-sale-guard-1",
+      payload: {
+        kind: "pos-offline-local-evidence",
+        localSaleId: "device-sale-guard-1",
+        receiptNumber: "LOCAL-OFFLINE-001",
+        totals: { total: 1000 }
+      }
+    };
+
+    const badBody = await app.inject({
+      method: "POST",
+      url: "/api/pos/offline-replay-items",
+      headers: { cookie: operator },
+      payload: []
+    });
+    assert.equal(badBody.statusCode, 400, badBody.body);
+
+    const badAction = await app.inject({
+      method: "POST",
+      url: "/api/pos/offline-replay-items",
+      headers: { cookie: operator },
+      payload: { ...validPayload, actionType: "settle-device" }
+    });
+    assert.equal(badAction.statusCode, 400, badAction.body);
+
+    const badPayload = await app.inject({
+      method: "POST",
+      url: "/api/pos/offline-replay-items",
+      headers: { cookie: operator },
+      payload: { ...validPayload, sourceKey: "offline-replay-bad-payload", payload: [] }
+    });
+    assert.equal(badPayload.statusCode, 400, badPayload.body);
+
+    const missingSession = await app.inject({
+      method: "POST",
+      url: "/api/pos/offline-replay-items",
+      headers: { cookie: operator },
+      payload: { ...validPayload, cashSessionId: "pos-session-missing", sourceKey: "offline-replay-missing-session" }
+    });
+    assert.equal(missingSession.statusCode, 404, missingSession.body);
+
+    const saleMismatch = await app.inject({
+      method: "POST",
+      url: "/api/pos/offline-replay-items",
+      headers: { cookie: operator },
+      payload: {
+        cashSessionId: secondSession.json().session.id,
+        saleId: sale.id,
+        actionType: "refund",
+        sourceKey: "offline-replay-sale-mismatch",
+        payload: { kind: "pos-offline-local-evidence", saleId: sale.id }
+      }
+    });
+    assert.equal(saleMismatch.statusCode, 409, saleMismatch.body);
+
+    const saleCountBefore = app.db.prepare("SELECT COUNT(*) AS count FROM pos_sales WHERE org_id = ?").get(orgId).count;
+    const queued = await app.inject({
+      method: "POST",
+      url: "/api/pos/offline-replay-items",
+      headers: { cookie: operator },
+      payload: validPayload
+    });
+    assert.equal(queued.statusCode, 200, queued.body);
+    assert.equal(queued.json().item.saleId, null);
+    assert.equal(queued.json().item.replayStatus, "queued");
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_sales WHERE org_id = ?").get(orgId).count, saleCountBefore);
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/pos/offline-replay-items/${queued.json().item.id}/mark-replayed`,
+      headers: { cookie: operator },
+      payload: {
+        status: "rejected",
+        note: "Local evidence checksum was reviewed and rejected.",
+        replayedAt: "2026-06-22T13:00:00.000Z"
+      }
+    });
+    assert.equal(rejected.statusCode, 200, rejected.body);
+    assert.equal(rejected.json().item.replayStatus, "rejected");
+    assert.equal(rejected.json().item.replayNote, "Local evidence checksum was reviewed and rejected.");
+
+    const replayAfterRejected = await app.inject({
+      method: "POST",
+      url: `/api/pos/offline-replay-items/${queued.json().item.id}/mark-replayed`,
+      headers: { cookie: operator },
+      payload: { replayStatus: "replayed" }
+    });
+    assert.equal(replayAfterRejected.statusCode, 409, replayAfterRejected.body);
+
+    const badMarkBody = await app.inject({
+      method: "POST",
+      url: `/api/pos/offline-replay-items/${queued.json().item.id}/mark-replayed`,
+      headers: { cookie: operator },
+      payload: { replayStatus: "queued" }
+    });
+    assert.equal(badMarkBody.statusCode, 400, badMarkBody.body);
+
+    const missingMark = await app.inject({
+      method: "POST",
+      url: "/api/pos/offline-replay-items/pos-offline-replay-missing/mark-replayed",
+      headers: { cookie: operator },
+      payload: {}
+    });
+    assert.equal(missingMark.statusCode, 404, missingMark.body);
+  } finally {
+    await app.close();
+  }
+});

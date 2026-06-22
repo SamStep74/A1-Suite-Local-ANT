@@ -4,9 +4,10 @@
  * Slice 427 frontend scope: open/close cash sessions, one-line sale
  * capture, receipt packet handoff, refund evidence, pre-receipt void evidence,
  * and tracked-line stock return evidence with POS ledger journal visibility,
- * plus closed-session card terminal settlement evidence. Terminal refunds,
- * fiscal submission, receipt printing, and offline replay stay outside this
- * surface.
+ * plus closed-session card terminal settlement evidence, local receipt print
+ * previews, and offline replay readiness evidence. Terminal refunds, live
+ * fiscal submission, live receipt printing, and true browser-offline execution
+ * stay outside this surface.
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -31,6 +32,10 @@ import {
   PosCreateSaleResponseSchema,
   PosOpenCashSessionRequestSchema,
   PosOpenCashSessionResponseSchema,
+  PosOfflineReplayItemResponseSchema,
+  PosOfflineReplayItemsResponseSchema,
+  PosOfflineReplayMarkRequestSchema,
+  PosOfflineReplayQueueRequestSchema,
   PosReceiptPacketRequestSchema,
   PosReceiptPacketResponseSchema,
   PosReceiptPrintRequestSchema,
@@ -45,6 +50,9 @@ import {
   type CatalogItem,
   type PosCashSession,
   type PosCreateSaleResponse,
+  type PosCapabilityStatus,
+  type PosOfflineReplayItem,
+  type PosOfflineReplayMarkStatus,
   type PosPaymentMethod,
   type PosSalePaymentRequest,
   type PosReceiptPacketResponse,
@@ -69,6 +77,7 @@ export const Route = createFileRoute("/app/pos/")({
 });
 
 const POS_WORKSPACE_QUERY_KEY = ["pos", "workspace"] as const;
+const POS_OFFLINE_REPLAY_QUERY_KEY = ["pos", "offline-replay-items"] as const;
 const POS_PAYMENT_METHODS: Array<{ value: PosPaymentMethod; label: string }> = [
   { value: "cash", label: "Cash" },
   { value: "card", label: "Card" },
@@ -92,6 +101,13 @@ function PosWorkspace() {
   const [lastVoid, setLastVoid] = useState<PosVoid | null>(null);
   const [lastTerminalSettlement, setLastTerminalSettlement] =
     useState<PosTerminalSettlement | null>(null);
+  const [localOfflineReplayItems, setLocalOfflineReplayItems] = useState<
+    PosOfflineReplayItem[]
+  >([]);
+  const [lastQueuedOfflineReplayItem, setLastQueuedOfflineReplayItem] =
+    useState<PosOfflineReplayItem | null>(null);
+  const [lastMarkedOfflineReplayItem, setLastMarkedOfflineReplayItem] =
+    useState<PosOfflineReplayItem | null>(null);
 
   const workspaceQ = useQuery({
     queryKey: POS_WORKSPACE_QUERY_KEY,
@@ -100,8 +116,21 @@ function PosWorkspace() {
     enabled: hasAccess,
   });
 
+  const offlineReplayItemsQ = useQuery({
+    queryKey: POS_OFFLINE_REPLAY_QUERY_KEY,
+    queryFn: () =>
+      getJson("/api/pos/offline-replay-items", PosOfflineReplayItemsResponseSchema),
+    staleTime: 15_000,
+    enabled: hasAccess,
+  });
+
   const refreshWorkspace = () => {
     void queryClient.invalidateQueries({ queryKey: POS_WORKSPACE_QUERY_KEY });
+  };
+
+  const refreshOfflineReplay = () => {
+    refreshWorkspace();
+    void queryClient.invalidateQueries({ queryKey: POS_OFFLINE_REPLAY_QUERY_KEY });
   };
 
   const updateWorkspaceSession = (session: PosCashSession | undefined) => {
@@ -357,6 +386,70 @@ function PosWorkspace() {
     },
   });
 
+  const queueOfflineReplayMutation = useMutation({
+    mutationFn: async (input: {
+      cashSessionId?: string;
+      saleId?: string;
+    }) => {
+      const queuedAt = new Date().toISOString();
+      const payload = PosOfflineReplayQueueRequestSchema.parse({
+        actionType: "sale",
+        sourceKey: `pos-offline-replay-ui-${input.cashSessionId ?? "workspace"}-${Date.now()}`,
+        payload: {
+          evidenceMode: "local-readiness-only",
+          actionType: "sale",
+          browserOfflineExecution: false,
+          fiscalSubmission: false,
+          terminalSubmission: false,
+          route: "/app/pos",
+          cashSessionId: input.cashSessionId ?? null,
+          saleId: input.saleId ?? null,
+          queuedAt,
+        },
+        ...(input.cashSessionId ? { cashSessionId: input.cashSessionId } : {}),
+        ...(input.saleId ? { saleId: input.saleId } : {}),
+        note: "Local offline replay readiness evidence from POS UI.",
+      });
+      return postJson(
+        "/api/pos/offline-replay-items",
+        payload,
+        PosOfflineReplayItemResponseSchema,
+      );
+    },
+    onSuccess: (response) => {
+      setLastQueuedOfflineReplayItem(response.item);
+      setLocalOfflineReplayItems((current) =>
+        mergeOfflineReplayItems([response.item], current),
+      );
+      refreshOfflineReplay();
+    },
+  });
+
+  const markOfflineReplayMutation = useMutation({
+    mutationFn: async (input: {
+      itemId: string;
+      replayStatus: PosOfflineReplayMarkStatus;
+      note: string;
+    }) => {
+      const payload = PosOfflineReplayMarkRequestSchema.parse({
+        replayStatus: input.replayStatus,
+        note: optionalText(input.note),
+      });
+      return postJson(
+        `/api/pos/offline-replay-items/${input.itemId}/mark-replayed`,
+        payload,
+        PosOfflineReplayItemResponseSchema,
+      );
+    },
+    onSuccess: (response) => {
+      setLastMarkedOfflineReplayItem(response.item);
+      setLocalOfflineReplayItems((current) =>
+        mergeOfflineReplayItems([response.item], current),
+      );
+      refreshOfflineReplay();
+    },
+  });
+
   if (!hasAccess) {
     return (
       <div
@@ -380,6 +473,11 @@ function PosWorkspace() {
   const terminalSettlementPreviews =
     workspace?.terminalSettlementPreviews ??
     (workspace?.terminalSettlement ? [workspace.terminalSettlement] : []);
+  const offlineReplayItems = mergeOfflineReplayItems(
+    localOfflineReplayItems,
+    offlineReplayItemsQ.data?.items ?? [],
+    workspace?.recentOfflineReplayItems ?? [],
+  );
 
   return (
     <div
@@ -508,6 +606,33 @@ function PosWorkspace() {
               <FiscalEvidencePanel
                 openSession={openSession}
                 labels={fiscalCloseoutLabels}
+              />
+              <OfflineReplayReadinessPanel
+                capabilityStatus={workspace?.capabilityStatus}
+                items={offlineReplayItems}
+                openSession={openSession}
+                lastSale={lastSale}
+                queuedItem={lastQueuedOfflineReplayItem}
+                markedItem={lastMarkedOfflineReplayItem}
+                onQueueSample={(input) => queueOfflineReplayMutation.mutate(input)}
+                isQueuePending={queueOfflineReplayMutation.isPending}
+                queueError={
+                  queueOfflineReplayMutation.error
+                    ? (queueOfflineReplayMutation.error as Error).message
+                    : ""
+                }
+                onMarkItem={(input) => markOfflineReplayMutation.mutate(input)}
+                isMarkPending={markOfflineReplayMutation.isPending}
+                markError={
+                  markOfflineReplayMutation.error
+                    ? (markOfflineReplayMutation.error as Error).message
+                    : ""
+                }
+                listError={
+                  offlineReplayItemsQ.error
+                    ? (offlineReplayItemsQ.error as Error).message
+                    : ""
+                }
               />
               <TerminalSettlementPanel
                 previews={terminalSettlementPreviews}
@@ -2027,6 +2152,246 @@ export function FiscalEvidencePanel({
   );
 }
 
+export function OfflineReplayReadinessPanel({
+  capabilityStatus,
+  items,
+  openSession,
+  lastSale,
+  queuedItem,
+  markedItem,
+  onQueueSample,
+  isQueuePending,
+  queueError,
+  onMarkItem,
+  isMarkPending,
+  markError,
+  listError,
+}: {
+  capabilityStatus?: PosCapabilityStatus;
+  items: readonly PosOfflineReplayItem[];
+  openSession: PosCashSession | null;
+  lastSale?: PosCreateSaleResponse["sale"] | null;
+  queuedItem?: PosOfflineReplayItem | null;
+  markedItem?: PosOfflineReplayItem | null;
+  onQueueSample: (input: {
+    cashSessionId?: string;
+    saleId?: string;
+  }) => void;
+  isQueuePending?: boolean;
+  queueError?: string;
+  onMarkItem: (input: {
+    itemId: string;
+    replayStatus: PosOfflineReplayMarkStatus;
+    note: string;
+  }) => void;
+  isMarkPending?: boolean;
+  markError?: string;
+  listError?: string;
+}) {
+  const visibleItems = items.slice(0, 5);
+  const queuedItems = items.filter((item) => item.replayStatus === "queued");
+  const canQueueSample = Boolean(openSession) && !isQueuePending;
+
+  return (
+    <section
+      className="panel space-y-3"
+      data-testid="pos-offline-replay-panel"
+      data-entity="pos-offline-replay-readiness"
+    >
+      <div className="flex items-center gap-2">
+        <RotateCcw className="size-4 text-[var(--color-brand)]" aria-hidden />
+        <h2 className="text-[var(--text-md)] font-semibold text-[var(--color-ink)]">
+          Offline replay readiness
+        </h2>
+      </div>
+
+      <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+        Local readiness/evidence only; this does not run browser offline mode,
+        fiscal submission, terminal submission, or printer commands.
+      </p>
+
+      <dl className="grid gap-2 text-[var(--text-sm)]">
+        <EvidenceRow
+          label="Capability"
+          value={offlineReplayCapabilityLabel(capabilityStatus)}
+        />
+        <EvidenceRow label="Recent items" value={String(items.length)} />
+        <EvidenceRow label="Queued" value={String(queuedItems.length)} />
+      </dl>
+
+      {listError ? (
+        <p
+          role="alert"
+          className="text-[var(--text-xs)] text-[var(--color-ruby)]"
+          data-testid="pos-offline-replay-list-error"
+        >
+          Replay list unavailable: {listError}
+        </p>
+      ) : null}
+
+      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+        <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+          Sample evidence records queue plumbing for the POS UI only.
+        </p>
+        <button
+          type="button"
+          disabled={!canQueueSample}
+          className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-3 text-[var(--text-sm)] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+          data-testid="pos-offline-replay-submit"
+          onClick={() =>
+            onQueueSample({
+              ...(openSession ? { cashSessionId: openSession.id } : {}),
+              ...(lastSale ? { saleId: lastSale.id } : {}),
+            })
+          }
+        >
+          <ClipboardCheck className="size-4" aria-hidden />
+          {isQueuePending ? "Queuing..." : "Queue sample"}
+        </button>
+      </div>
+      {!openSession ? (
+        <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+          Open a cash session before queueing local replay evidence.
+        </p>
+      ) : null}
+
+      {queuedItem ? (
+        <p
+          className="text-[var(--text-sm)] font-medium text-[var(--color-tag-green)]"
+          data-testid="pos-offline-replay-success"
+        >
+          Queued local readiness evidence {queuedItem.id} · status{" "}
+          {queuedItem.replayStatus}
+        </p>
+      ) : null}
+
+      {markedItem ? (
+        <p
+          className="text-[var(--text-sm)] font-medium text-[var(--color-tag-green)]"
+          data-testid="pos-offline-replay-mark-success"
+        >
+          Replay item {markedItem.id} marked {markedItem.replayStatus}.
+        </p>
+      ) : null}
+
+      {queueError ? (
+        <p
+          role="alert"
+          className="text-[var(--text-sm)] text-[var(--color-ruby)]"
+          data-testid="pos-offline-replay-error"
+        >
+          {queueError}
+        </p>
+      ) : null}
+
+      {markError ? (
+        <p
+          role="alert"
+          className="text-[var(--text-sm)] text-[var(--color-ruby)]"
+          data-testid="pos-offline-replay-mark-error"
+        >
+          {markError}
+        </p>
+      ) : null}
+
+      {visibleItems.length === 0 ? (
+        <p className="text-[var(--text-sm)] text-[var(--color-muted)]">
+          No offline replay evidence queued yet.
+        </p>
+      ) : (
+        <ul className="space-y-2" data-testid="pos-offline-replay-items">
+          {visibleItems.map((item) => {
+            const canMark = item.replayStatus === "queued" && !isMarkPending;
+            return (
+              <li
+                key={item.id}
+                className="rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] p-2"
+                data-testid="pos-offline-replay-item"
+              >
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+                        {item.actionType}
+                      </p>
+                      <p className="truncate font-mono text-[11px] text-[var(--color-muted)]">
+                        {item.sourceKey}
+                      </p>
+                    </div>
+                    <span
+                      className={cn(
+                        "shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+                        item.replayStatus === "replayed"
+                          ? "bg-[color-mix(in_srgb,var(--color-tag-green)_15%,transparent)] text-[var(--color-tag-green)]"
+                          : item.replayStatus === "rejected"
+                            ? "bg-[color-mix(in_srgb,var(--color-ruby)_12%,transparent)] text-[var(--color-ruby)]"
+                            : "bg-[color-mix(in_srgb,var(--color-brand)_12%,transparent)] text-[var(--color-brand)]",
+                      )}
+                    >
+                      {item.replayStatus}
+                    </span>
+                  </div>
+                  <dl className="grid gap-1 text-[var(--text-xs)]">
+                    <EvidenceRow
+                      label="Session"
+                      value={item.cashSessionId ?? "workspace"}
+                    />
+                    <EvidenceRow label="Sale" value={item.saleId ?? "—"} />
+                    <EvidenceRow
+                      label="Recorded"
+                      value={formatDateTime(offlineReplayItemTimestamp(item))}
+                    />
+                  </dl>
+                  {item.note ? (
+                    <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+                      {item.note}
+                    </p>
+                  ) : null}
+                  {item.replayStatus === "queued" ? (
+                    <div className="flex flex-wrap gap-2">
+                      <button
+                        type="button"
+                        disabled={!canMark}
+                        className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-xs)] font-semibold text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-50"
+                        data-testid="pos-offline-replay-mark-replayed"
+                        onClick={() =>
+                          onMarkItem({
+                            itemId: item.id,
+                            replayStatus: "replayed",
+                            note: "Marked replayed from POS local readiness panel.",
+                          })
+                        }
+                      >
+                        <ClipboardCheck className="size-3.5" aria-hidden />
+                        Mark replayed
+                      </button>
+                      <button
+                        type="button"
+                        disabled={!canMark}
+                        className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-xs)] font-semibold text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-50"
+                        data-testid="pos-offline-replay-mark-rejected"
+                        onClick={() =>
+                          onMarkItem({
+                            itemId: item.id,
+                            replayStatus: "rejected",
+                            note: "Rejected from POS local readiness panel.",
+                          })
+                        }
+                      >
+                        Reject
+                      </button>
+                    </div>
+                  ) : null}
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
 export function TerminalSettlementPanel({
   previews,
   postedSettlement,
@@ -2541,6 +2906,34 @@ export function CatalogStockPreview({
         </div>
       </div>
     </section>
+  );
+}
+
+function mergeOfflineReplayItems(
+  ...lists: Array<readonly PosOfflineReplayItem[]>
+): PosOfflineReplayItem[] {
+  const byId = new Map<string, PosOfflineReplayItem>();
+  for (const list of lists) {
+    for (const item of list) {
+      if (!byId.has(item.id)) {
+        byId.set(item.id, item);
+      }
+    }
+  }
+  return Array.from(byId.values());
+}
+
+function offlineReplayCapabilityLabel(status?: PosCapabilityStatus): string {
+  return status?.offlineReplay?.trim() || "not advertised";
+}
+
+function offlineReplayItemTimestamp(item: PosOfflineReplayItem): string | null | undefined {
+  return (
+    item.replayedAt ??
+    item.rejectedAt ??
+    item.queuedAt ??
+    item.createdAt ??
+    item.updatedAt
   );
 }
 

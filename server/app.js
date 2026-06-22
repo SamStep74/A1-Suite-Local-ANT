@@ -722,6 +722,29 @@ function registerApi(app, db, options = {}) {
     return { sessions: getPosCashSessions(db, user.org_id, filters) };
   });
 
+  app.get("/api/pos/offline-replay-items", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosReader(user);
+    const filters = normalizePosOfflineReplayQuery(request.query || {});
+    return { items: getPosOfflineReplayItems(db, user.org_id, filters) };
+  });
+
+  app.post("/api/pos/offline-replay-items", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosWriter(user);
+    return queuePosOfflineReplayItem(db, user, request.body === undefined ? {} : request.body);
+  });
+
+  app.post("/api/pos/offline-replay-items/:id/mark-replayed", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosWriter(user);
+    const itemId = normalizePosOfflineReplayItemPathId(request.params.id);
+    return markPosOfflineReplayItem(db, user, itemId, request.body === undefined ? {} : request.body);
+  });
+
   app.post("/api/pos/cash-sessions", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "pos");
@@ -47135,6 +47158,7 @@ const ORG_BACKUP_TABLES = [
   "pos_sale_refunds",
   "pos_sale_voids",
   "pos_terminal_settlements",
+  "pos_offline_replay_items",
   "pos_sale_refund_lines",
   "pos_sale_void_lines",
   "stock_locations",
@@ -54885,6 +54909,7 @@ function throwInvalidInventoryMetadata() {
 
 function getPosWorkspace(db, user) {
   const sessions = getPosCashSessions(db, user.org_id, { limit: 25 });
+  const offlineReplayItems = getPosOfflineReplayItems(db, user.org_id, { limit: 5 });
   const activeFiscalCatalogItems = getCatalogItems(db, user.org_id, { status: "active" })
     .filter(item => item.fiscalReceiptRequired);
   const activeStockLocations = getStockLocations(db, user.org_id)
@@ -54898,6 +54923,9 @@ function getPosWorkspace(db, user) {
     sessions,
     terminalSettlementPreviews,
     terminalSettlement: terminalSettlementPreviews[0] || null,
+    offlineReplayItems,
+    offlineReplayPreview: offlineReplayItems,
+    recentOfflineReplayItems: offlineReplayItems,
     catalogItems: activeFiscalCatalogItems,
     activeFiscalCatalogItems,
     activeStockLocations,
@@ -54917,13 +54945,14 @@ function getPosWorkspace(db, user) {
       requiresFiscalDeviceId: true,
       requiresZReportNumber: true,
       requiresReceiptRange: true,
+      offlineReplayEvidenceOnly: true,
       expectedCashBasis: "opening-cash-plus-cash-sales-minus-cash-refunds",
       currency: "AMD"
     },
     capabilityStatus: {
       salePosting: "available",
       refunds: "available",
-      offlineReplay: "not-implemented",
+      offlineReplay: "local-queue",
       receiptPrinting: "local-preview",
       inventoryPosting: "available",
       ledgerPosting: "available",
@@ -54933,6 +54962,8 @@ function getPosWorkspace(db, user) {
 }
 
 const POS_PAYMENT_METHODS = ["cash", "card", "bank-transfer"];
+const POS_OFFLINE_REPLAY_ACTIONS = ["sale", "refund", "void", "receipt-packet", "receipt-print", "terminal-settlement"];
+const POS_OFFLINE_REPLAY_STATUSES = ["queued", "replayed", "rejected"];
 
 function getOpenPosCashSession(db, orgId, cashierUserId) {
   const row = selectPosCashSessionRows(db, orgId, "pos_cash_sessions.status = 'open' AND pos_cash_sessions.cashier_user_id = ?", [cashierUserId], 1)[0];
@@ -55008,6 +55039,35 @@ function getPosSaleSourceRow(db, orgId, sourceKey) {
   `).get(orgId, sourceKey) || null;
 }
 
+function getPosOfflineReplayItem(db, orgId, itemId) {
+  const rows = selectPosOfflineReplayRows(db, orgId, "pos_offline_replay_items.id = ?", [itemId], 1);
+  return rows[0] ? formatPosOfflineReplayItem(rows[0]) : null;
+}
+
+function getPosOfflineReplaySourceRow(db, orgId, sourceKey) {
+  const rows = selectPosOfflineReplayRows(db, orgId, "pos_offline_replay_items.source_key = ?", [sourceKey], 1);
+  return rows[0] || null;
+}
+
+function getPosOfflineReplayItems(db, orgId, filters = {}) {
+  const where = [];
+  const params = [];
+  if (filters.status) {
+    where.push("pos_offline_replay_items.replay_status = ?");
+    params.push(filters.status);
+  }
+  if (filters.actionType) {
+    where.push("pos_offline_replay_items.action_type = ?");
+    params.push(filters.actionType);
+  }
+  if (filters.cashSessionId) {
+    where.push("pos_offline_replay_items.cash_session_id = ?");
+    params.push(filters.cashSessionId);
+  }
+  const limit = Number.isSafeInteger(filters.limit) ? filters.limit : 50;
+  return selectPosOfflineReplayRows(db, orgId, where.join(" AND "), params, limit).map(formatPosOfflineReplayItem);
+}
+
 function buildPosSaleResponse(db, orgId, saleId, sessionId) {
   return {
     ok: true,
@@ -55043,6 +55103,15 @@ function buildPosTerminalSettlementResponse(db, orgId, settlementId, sessionId, 
     settlement: getPosTerminalSettlementById(db, orgId, settlementId),
     preview: getPosTerminalSettlementPreview(db, orgId, sessionId),
     session: getPosCashSession(db, orgId, sessionId)
+  };
+}
+
+function buildPosOfflineReplayResponse(db, orgId, itemId, idempotent = false) {
+  return {
+    ok: true,
+    idempotent,
+    item: getPosOfflineReplayItem(db, orgId, itemId),
+    items: getPosOfflineReplayItems(db, orgId, { limit: 25 })
   };
 }
 
@@ -55273,6 +55342,191 @@ function selectPosCashSessionRows(db, orgId, extraWhere = "", extraParams = [], 
     ORDER BY pos_cash_sessions.status = 'closed', pos_cash_sessions.opened_at DESC, pos_cash_sessions.id DESC
     LIMIT ?
   `).all(...params, limit);
+}
+
+function selectPosOfflineReplayRows(db, orgId, extraWhere = "", extraParams = [], limit = 50) {
+  const where = ["pos_offline_replay_items.org_id = ?"];
+  const params = [orgId];
+  if (extraWhere) {
+    where.push(extraWhere);
+    params.push(...extraParams);
+  }
+  return db.prepare(`
+    SELECT pos_offline_replay_items.*,
+      queued_by.name AS queued_by_name,
+      pos_cash_sessions.status AS cash_session_status,
+      pos_cash_sessions.register_code AS register_code,
+      pos_sales.receipt_number AS receipt_number
+    FROM pos_offline_replay_items
+    LEFT JOIN users AS queued_by ON queued_by.id = pos_offline_replay_items.queued_by_user_id
+      AND queued_by.org_id = pos_offline_replay_items.org_id
+    LEFT JOIN pos_cash_sessions ON pos_cash_sessions.id = pos_offline_replay_items.cash_session_id
+      AND pos_cash_sessions.org_id = pos_offline_replay_items.org_id
+    LEFT JOIN pos_sales ON pos_sales.id = pos_offline_replay_items.sale_id
+      AND pos_sales.org_id = pos_offline_replay_items.org_id
+    WHERE ${where.join(" AND ")}
+    ORDER BY pos_offline_replay_items.queued_at DESC, pos_offline_replay_items.id DESC
+    LIMIT ?
+  `).all(...params, limit);
+}
+
+function queuePosOfflineReplayItem(db, user, body) {
+  const input = normalizePosOfflineReplayBody(body);
+  const session = getPosCashSessionRow(db, user.org_id, input.cashSessionId);
+  if (!session) throwPosCashSessionNotFound();
+  if (input.saleId) {
+    const sale = db.prepare(`
+      SELECT id, cash_session_id
+      FROM pos_sales
+      WHERE org_id = ? AND id = ?
+    `).get(user.org_id, input.saleId);
+    if (!sale) throwPosSaleNotFound();
+    if (sale.cash_session_id !== session.id) {
+      const err = new Error("POS offline replay sale must belong to the cash session");
+      err.statusCode = 409;
+      throw err;
+    }
+  }
+
+  const existing = getPosOfflineReplaySourceRow(db, user.org_id, input.sourceKey);
+  if (existing) {
+    if (
+      existing.cash_session_id !== input.cashSessionId
+      || (existing.sale_id || "") !== (input.saleId || "")
+      || existing.action_type !== input.actionType
+      || existing.payload_checksum !== input.payloadChecksum
+    ) {
+      const err = new Error("POS offline replay source key already exists");
+      err.statusCode = 409;
+      throw err;
+    }
+    return buildPosOfflineReplayResponse(db, user.org_id, existing.id, true);
+  }
+
+  const itemId = randomId("pos-offline-replay");
+  const now = new Date().toISOString();
+  const queuedAt = input.queuedAt || now;
+  try {
+    db.prepare(`
+      INSERT INTO pos_offline_replay_items (
+        id, org_id, cash_session_id, sale_id, action_type, replay_status,
+        source_key, payload_json, payload_checksum, queued_by_user_id,
+        queued_at, replayed_at, replay_note, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, 'queued', ?, ?, ?, ?, ?, '', '', ?, ?)
+    `).run(
+      itemId,
+      user.org_id,
+      input.cashSessionId,
+      input.saleId || null,
+      input.actionType,
+      input.sourceKey,
+      input.payloadJson,
+      input.payloadChecksum,
+      user.id,
+      queuedAt,
+      now,
+      now
+    );
+  } catch (err) {
+    if (isPosOfflineReplayUniqueConstraint(err)) {
+      const replay = getPosOfflineReplaySourceRow(db, user.org_id, input.sourceKey);
+      if (
+        replay
+        && replay.cash_session_id === input.cashSessionId
+        && (replay.sale_id || "") === (input.saleId || "")
+        && replay.action_type === input.actionType
+        && replay.payload_checksum === input.payloadChecksum
+      ) {
+        return buildPosOfflineReplayResponse(db, user.org_id, replay.id, true);
+      }
+      const conflict = new Error("POS offline replay source key already exists");
+      conflict.statusCode = 409;
+      throw conflict;
+    }
+    throw err;
+  }
+  emitSuiteEvent(db, {
+    orgId: user.org_id,
+    actorUserId: user.id,
+    eventType: "pos.offline_replay.queued",
+    subjectType: "pos_offline_replay_item",
+    subjectId: itemId,
+    status: "queued",
+    payload: {
+      cashSessionId: input.cashSessionId,
+      saleId: input.saleId || "",
+      actionType: input.actionType,
+      sourceKey: input.sourceKey,
+      payloadChecksum: input.payloadChecksum,
+      evidenceMode: "offline-queue-only"
+    }
+  });
+  audit(db, user.org_id, user.id, "pos.offline_replay.queued", {
+    itemId,
+    cashSessionId: input.cashSessionId,
+    saleId: input.saleId || "",
+    actionType: input.actionType,
+    sourceKey: input.sourceKey,
+    payloadChecksum: input.payloadChecksum,
+    evidenceMode: "offline-queue-only",
+    mutatesPosState: false
+  });
+  return buildPosOfflineReplayResponse(db, user.org_id, itemId, false);
+}
+
+function markPosOfflineReplayItem(db, user, itemId, body) {
+  const input = normalizePosOfflineReplayMarkBody(body);
+  const row = getPosOfflineReplayItem(db, user.org_id, itemId);
+  if (!row) throwPosOfflineReplayItemNotFound();
+  if (row.replayStatus === input.replayStatus) {
+    return buildPosOfflineReplayResponse(db, user.org_id, itemId, true);
+  }
+  if (row.replayStatus !== "queued") {
+    const err = new Error("POS offline replay item is already finalized");
+    err.statusCode = 409;
+    throw err;
+  }
+  const now = new Date().toISOString();
+  const markedAt = input.replayedAt || now;
+  const info = db.prepare(`
+    UPDATE pos_offline_replay_items
+    SET replay_status = ?,
+      replayed_at = ?,
+      replay_note = ?,
+      updated_at = ?
+    WHERE org_id = ? AND id = ? AND replay_status = 'queued'
+  `).run(input.replayStatus, markedAt, input.replayNote, now, user.org_id, itemId);
+  if (info.changes === 0) {
+    const replay = getPosOfflineReplayItem(db, user.org_id, itemId);
+    if (replay && replay.replayStatus === input.replayStatus) {
+      return buildPosOfflineReplayResponse(db, user.org_id, itemId, true);
+    }
+    const err = new Error("POS offline replay item is already finalized");
+    err.statusCode = 409;
+    throw err;
+  }
+  emitSuiteEvent(db, {
+    orgId: user.org_id,
+    actorUserId: user.id,
+    eventType: "pos.offline_replay.marked",
+    subjectType: "pos_offline_replay_item",
+    subjectId: itemId,
+    status: input.replayStatus,
+    payload: {
+      replayStatus: input.replayStatus,
+      replayedAt: markedAt,
+      evidenceMode: "offline-queue-only"
+    }
+  });
+  audit(db, user.org_id, user.id, "pos.offline_replay.marked", {
+    itemId,
+    replayStatus: input.replayStatus,
+    replayedAt: markedAt,
+    replayNote: input.replayNote,
+    mutatesPosState: false
+  });
+  return buildPosOfflineReplayResponse(db, user.org_id, itemId, false);
 }
 
 function createPosCashSession(db, user, body) {
@@ -57005,6 +57259,30 @@ function formatPosTerminalSettlement(row) {
   };
 }
 
+function formatPosOfflineReplayItem(row) {
+  const payload = safeJson(row.payload_json);
+  return {
+    id: row.id,
+    cashSessionId: row.cash_session_id,
+    saleId: row.sale_id || null,
+    actionType: row.action_type,
+    replayStatus: row.replay_status,
+    sourceKey: row.source_key,
+    payload: isPlainObject(payload) ? payload : {},
+    payloadChecksum: row.payload_checksum,
+    queuedByUserId: row.queued_by_user_id || "",
+    queuedByName: row.queued_by_name || "",
+    queuedAt: row.queued_at,
+    replayedAt: row.replayed_at || "",
+    replayNote: row.replay_note || "",
+    cashSessionStatus: row.cash_session_status || "",
+    registerCode: row.register_code || "",
+    receiptNumber: row.receipt_number || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
 function formatPosSaleRefund(row, lines) {
   const inventoryPostingStatus = row.inventory_posting_status || "not-posted";
   const ledgerPostingStatus = row.ledger_posting_status || "not-posted";
@@ -57329,6 +57607,15 @@ function normalizePosCashSessionQuery(query) {
   };
 }
 
+function normalizePosOfflineReplayQuery(query) {
+  return {
+    status: normalizePosQueryChoice(query, "status", POS_OFFLINE_REPLAY_STATUSES),
+    actionType: normalizePosQueryChoice(query, "actionType", POS_OFFLINE_REPLAY_ACTIONS),
+    cashSessionId: normalizePosQueryId(query, "cashSessionId"),
+    limit: normalizePosQueryInteger(query, "limit", { fallback: 50, min: 1, max: 100 })
+  };
+}
+
 function normalizePosCashSessionOpenBody(body, user) {
   if (!isPlainObject(body)) throwInvalidPosMetadata();
   return {
@@ -57479,6 +57766,47 @@ function normalizePosTerminalSettlementBody(body) {
       : 0,
     settledAt: normalizePosTimestamp(body, "settledAt", ""),
     note: normalizePosText(body, "note", { fallback: "", maxLength: 500 })
+  };
+}
+
+function normalizePosOfflineReplayBody(body) {
+  if (!isPlainObject(body)) throwInvalidPosMetadata();
+  const payload = normalizePosOfflineReplayPayload(body);
+  const suppliedChecksum = normalizePosText(body, "payloadChecksum", { fallback: "", maxLength: 64 }).toLowerCase();
+  if (suppliedChecksum && (!/^[a-f0-9]{64}$/.test(suppliedChecksum) || suppliedChecksum !== payload.payloadChecksum)) {
+    throwInvalidPosMetadata();
+  }
+  return {
+    cashSessionId: normalizePosText(body, "cashSessionId", { required: true, idLike: true, maxLength: 160 }),
+    saleId: normalizePosText(body, "saleId", { fallback: "", idLike: true, maxLength: 160 }),
+    actionType: normalizePosChoice(body, "actionType", POS_OFFLINE_REPLAY_ACTIONS, "", true),
+    sourceKey: normalizePosSourceKey(body, "sourceKey"),
+    payloadJson: payload.payloadJson,
+    payloadChecksum: payload.payloadChecksum,
+    queuedAt: normalizePosTimestamp(body, "queuedAt", "")
+  };
+}
+
+function normalizePosOfflineReplayPayload(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "payload") ? body.payload : undefined;
+  if (!isPlainObject(value)) throwInvalidPosMetadata();
+  const payloadJson = JSON.stringify(value);
+  if (payloadJson.length === 0 || payloadJson.length > 20000) throwInvalidPosMetadata();
+  return {
+    payloadJson,
+    payloadChecksum: sha256Json(value)
+  };
+}
+
+function normalizePosOfflineReplayMarkBody(body) {
+  if (!isPlainObject(body)) throwInvalidPosMetadata();
+  const replayStatus = Object.prototype.hasOwnProperty.call(body, "replayStatus")
+    ? normalizePosChoice(body, "replayStatus", ["replayed", "rejected"], "", true)
+    : normalizePosChoice(body, "status", ["replayed", "rejected"], "replayed");
+  return {
+    replayStatus,
+    replayedAt: normalizePosTimestamp(body, "replayedAt", ""),
+    replayNote: normalizePosTextAlias(body, ["replayNote", "note"], { fallback: "", maxLength: 500 })
   };
 }
 
@@ -57638,7 +57966,24 @@ function normalizePosQueryInteger(query, field, options = {}) {
   return number;
 }
 
+function normalizePosQueryId(query, field) {
+  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
+  if (value === undefined || value === "") return "";
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
+  const text = value.trim();
+  if (!text) return "";
+  if (text.length > 160 || !/^[a-z0-9-]+$/.test(text)) throwInvalidPosMetadata();
+  return text;
+}
+
 function normalizePosCashSessionPathId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) throwInvalidPosMetadata();
+  return text;
+}
+
+function normalizePosOfflineReplayItemPathId(value) {
   if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
   const text = value.trim();
   if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) throwInvalidPosMetadata();
@@ -57685,6 +58030,12 @@ function throwPosSaleNotFound() {
   throw err;
 }
 
+function throwPosOfflineReplayItemNotFound() {
+  const err = new Error("POS offline replay item not found");
+  err.statusCode = 404;
+  throw err;
+}
+
 function throwInvalidPosMetadata() {
   const err = new Error("POS request requires safe metadata");
   err.statusCode = 400;
@@ -57715,6 +58066,10 @@ function isPosSaleVoidUniqueConstraint(err) {
 
 function isPosTerminalSettlementUniqueConstraint(err) {
   return Boolean(err && /UNIQUE constraint failed: pos_terminal_settlements\./.test(String(err.message || "")));
+}
+
+function isPosOfflineReplayUniqueConstraint(err) {
+  return Boolean(err && /UNIQUE constraint failed: pos_offline_replay_items\./.test(String(err.message || "")));
 }
 
 function getPurchaseVendors(db, orgId, asOfDate = armeniaDateString()) {

@@ -1429,6 +1429,92 @@ export type PosTerminalSettlementResponse = z.infer<
   typeof PosTerminalSettlementResponseSchema
 >;
 
+export const PosOfflineReplayStatusSchema = z
+  .enum(["queued", "replayed", "rejected"])
+  .or(z.string().min(1));
+export type PosOfflineReplayStatus = z.infer<typeof PosOfflineReplayStatusSchema>;
+
+export const PosOfflineReplayMarkStatusSchema = z.enum(["replayed", "rejected"]);
+export type PosOfflineReplayMarkStatus = z.infer<
+  typeof PosOfflineReplayMarkStatusSchema
+>;
+
+export const PosOfflineReplayItemSchema = z
+  .object({
+    id: z.string(),
+    actionType: z.string(),
+    sourceKey: z.string(),
+    payload: z.unknown().optional(),
+    cashSessionId: z.string().nullable().optional(),
+    saleId: z.string().nullable().optional(),
+    replayStatus: PosOfflineReplayStatusSchema.default("queued"),
+    note: z.string().nullable().optional(),
+    queuedAt: z.string().nullable().optional(),
+    replayedAt: z.string().nullable().optional(),
+    rejectedAt: z.string().nullable().optional(),
+    createdAt: z.string().nullable().optional(),
+    updatedAt: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type PosOfflineReplayItem = z.infer<typeof PosOfflineReplayItemSchema>;
+
+export const PosOfflineReplayQueueRequestSchema = z
+  .object({
+    actionType: z
+      .string()
+      .min(1)
+      .max(120)
+      .refine((value) => !/[\x00-\x1f\x7f]/.test(value)),
+    sourceKey: z
+      .string()
+      .min(1)
+      .max(200)
+      .refine((value) => !/[\x00-\x1f\x7f]/.test(value)),
+    payload: z.record(z.string(), z.unknown()),
+    cashSessionId: z.string().min(1).optional(),
+    saleId: z.string().min(1).optional(),
+    note: z.string().max(500).refine((value) => !/[\x00-\x1f\x7f]/.test(value)).optional(),
+  })
+  .strict();
+export type PosOfflineReplayQueueRequest = z.infer<
+  typeof PosOfflineReplayQueueRequestSchema
+>;
+
+export const PosOfflineReplayMarkRequestSchema = z
+  .object({
+    replayStatus: PosOfflineReplayMarkStatusSchema,
+    note: z.string().max(500).refine((value) => !/[\x00-\x1f\x7f]/.test(value)).optional(),
+  })
+  .strict();
+export type PosOfflineReplayMarkRequest = z.infer<
+  typeof PosOfflineReplayMarkRequestSchema
+>;
+
+export const PosOfflineReplayItemResponseSchema = z
+  .object({
+    ok: z.boolean().optional(),
+    item: PosOfflineReplayItemSchema,
+  })
+  .passthrough();
+export type PosOfflineReplayItemResponse = z.infer<
+  typeof PosOfflineReplayItemResponseSchema
+>;
+
+export const PosOfflineReplayItemsResponseSchema = z.union([
+  z.object({ items: z.array(PosOfflineReplayItemSchema) }).passthrough(),
+  z
+    .object({ offlineReplayItems: z.array(PosOfflineReplayItemSchema) })
+    .passthrough()
+    .transform(({ offlineReplayItems, ...rest }) => ({
+      ...rest,
+      items: offlineReplayItems,
+    })),
+  z.array(PosOfflineReplayItemSchema).transform((items) => ({ items })),
+]);
+export type PosOfflineReplayItemsResponse = z.infer<
+  typeof PosOfflineReplayItemsResponseSchema
+>;
+
 /** Stock balance — a (catalogItemId, locationId) row.
  *  Source: /api/inventory/stock. */
 export const StockBalanceSchema = z.object({
@@ -1463,6 +1549,13 @@ export type StockLocation = z.infer<typeof StockLocationSchema>;
 export const PosFiscalCloseoutLabelsSchema = z.record(z.string(), z.unknown());
 export type PosFiscalCloseoutLabels = z.infer<typeof PosFiscalCloseoutLabelsSchema>;
 
+export const PosCapabilityStatusSchema = z
+  .object({
+    offlineReplay: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type PosCapabilityStatus = z.infer<typeof PosCapabilityStatusSchema>;
+
 export const PosWorkspaceResponseSchema = z.object({
   openSession: PosCashSessionSchema.nullable(),
   sessions: z.array(PosCashSessionSchema),
@@ -1471,6 +1564,8 @@ export const PosWorkspaceResponseSchema = z.object({
   catalogItems: z.array(CatalogItemSchema),
   stockLocations: z.array(StockLocationSchema),
   fiscalCloseoutLabels: PosFiscalCloseoutLabelsSchema,
+  capabilityStatus: PosCapabilityStatusSchema.optional(),
+  recentOfflineReplayItems: z.array(PosOfflineReplayItemSchema).optional(),
 }).passthrough();
 export type PosWorkspaceResponse = z.infer<typeof PosWorkspaceResponseSchema>;
 
