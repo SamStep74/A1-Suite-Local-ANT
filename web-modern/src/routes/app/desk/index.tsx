@@ -30,6 +30,7 @@ import {
   Plus,
   Search,
   Send,
+  ShieldCheck,
 } from "lucide-react";
 import { getJson, postJson, api, type JsonBody } from "../../../lib/api/client";
 import {
@@ -38,8 +39,10 @@ import {
   ServiceCaseSchema,
   ServiceCaseStatus,
   ServiceConsoleSchema,
+  ServiceSlaPoliciesResponseSchema,
   type CreateServiceCaseInput,
   type ServiceCase,
+  type ServiceSlaPolicy,
   type ServiceCaseStatus as Status,
 } from "../../../lib/api/schemas";
 import { HybridBadge } from "../../../components/ui/HybridBadge";
@@ -140,10 +143,20 @@ function DeskList() {
     refetchOnWindowFocus: true,
     staleTime: 30_000,
   });
+  const consoleSlaPolicies = consoleQuery.data?.slaPolicies;
+  const slaPoliciesQuery = useQuery({
+    queryKey: ["service", "sla-policies"],
+    queryFn: () => getJson("/api/service/sla-policies", ServiceSlaPoliciesResponseSchema),
+    enabled: consoleQuery.isSuccess && consoleSlaPolicies == null,
+    refetchOnWindowFocus: true,
+    retry: false,
+    staleTime: 30_000,
+  });
 
   const cases = consoleQuery.data?.cases ?? [];
   const customers = consoleQuery.data?.customers ?? [];
   const agents = consoleQuery.data?.agents ?? [];
+  const slaPolicies = consoleSlaPolicies ?? slaPoliciesQuery.data?.policies ?? [];
 
   const [query, setQuery] = useState("");
   const visible = useMemo(() => {
@@ -171,6 +184,10 @@ function DeskList() {
   return (
     <div className="mx-auto max-w-6xl space-y-4 p-6 [data-density=compact]:p-4 [data-density=spacious]:p-8">
       <PageHeader count={visible.length} loading={consoleQuery.isLoading} />
+      <SlaPoliciesPanel
+        policies={slaPolicies}
+        loading={consoleQuery.isLoading || slaPoliciesQuery.isLoading}
+      />
 
       {/* Filter row — search + tabs + (Phase 2: mass-update) */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -277,6 +294,145 @@ function DeskList() {
       />
     </div>
   );
+}
+
+function SlaPoliciesPanel({
+  policies,
+  loading,
+}: {
+  policies: ServiceSlaPolicy[];
+  loading?: boolean;
+}) {
+  const activeCount = policies.filter(isSlaPolicyActive).length;
+
+  return (
+    <section
+      className={cn(
+        "rounded-[var(--radius-xl)] border border-[var(--color-line)]",
+        "bg-[var(--color-surface)] p-3",
+      )}
+      aria-label="SLA configuration evidence"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-center gap-2">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--color-surface-soft)] text-[var(--color-brand)]">
+            <ShieldCheck className="size-4" aria-hidden />
+          </span>
+          <div>
+            <h2 className="text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+              SLA Policies
+            </h2>
+            <p className="text-[11px] text-[var(--color-muted)]">
+              Response and resolution targets by priority and channel
+            </p>
+          </div>
+        </div>
+        <dl className="grid grid-cols-2 gap-2 text-left sm:min-w-44 sm:text-right">
+          <SlaSummaryMetric label="Policies" value={loading ? "…" : String(policies.length)} />
+          <SlaSummaryMetric label="Active" value={loading ? "…" : String(activeCount)} />
+        </dl>
+      </div>
+
+      {loading && policies.length === 0 ? (
+        <p className="mt-3 border-t border-[var(--color-line)] pt-3 text-[11px] text-[var(--color-muted)]">
+          Loading SLA policies…
+        </p>
+      ) : policies.length === 0 ? (
+        <p className="mt-3 border-t border-[var(--color-line)] pt-3 text-[11px] text-[var(--color-muted)]">
+          No SLA policies configured.
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-[var(--color-line)] border-t border-[var(--color-line)]">
+          {policies.map((policy) => {
+            const active = isSlaPolicyActive(policy);
+            const priorityKey = policy.priority.toLowerCase();
+            return (
+              <li
+                key={policy.id}
+                className="grid gap-2 py-2 sm:grid-cols-[minmax(0,1.4fr)_minmax(7rem,0.7fr)_minmax(7rem,0.7fr)_auto] sm:items-center"
+              >
+                <div className="min-w-0">
+                  <p className="truncate text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+                    {policy.name}
+                  </p>
+                  <div className="mt-1 flex flex-wrap items-center gap-1">
+                    <span
+                      className={cn(
+                        "rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+                        PRIORITY_TONE[priorityKey]?.bg ?? "bg-[var(--color-surface-soft)]",
+                        PRIORITY_TONE[priorityKey]?.fg ?? "text-[var(--color-muted)]",
+                      )}
+                    >
+                      {policy.priority}
+                    </span>
+                    <span className="rounded-[var(--radius-sm)] bg-[var(--color-surface-soft)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">
+                      {formatSlaPolicyChannel(policy.channel)}
+                    </span>
+                  </div>
+                </div>
+                <SlaDuration label="Response" minutes={policy.responseMinutes} />
+                <SlaDuration label="Resolution" minutes={policy.resolutionMinutes} />
+                <span
+                  className={cn(
+                    "w-fit rounded-[var(--radius-sm)] px-1.5 py-0.5",
+                    "text-[10px] font-semibold uppercase tracking-wider",
+                    active
+                      ? "bg-[color-mix(in_srgb,var(--color-tag-green)_15%,transparent)] text-[var(--color-tag-green)]"
+                      : "bg-[var(--color-surface-soft)] text-[var(--color-muted)]",
+                  )}
+                >
+                  {active ? "active" : "inactive"}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function SlaSummaryMetric({ label, value }: { label: string; value: string }) {
+  return (
+    <div>
+      <dt className="text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">
+        {label}
+      </dt>
+      <dd className="font-mono text-[var(--text-sm)] text-[var(--color-ink)]">
+        {value}
+      </dd>
+    </div>
+  );
+}
+
+function SlaDuration({ label, minutes }: { label: string; minutes: number }) {
+  return (
+    <div>
+      <span className="block text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">
+        {label}
+      </span>
+      <span className="font-mono text-[var(--text-sm)] text-[var(--color-ink)]">
+        {formatSlaMinutes(minutes)}
+      </span>
+    </div>
+  );
+}
+
+function isSlaPolicyActive(policy: ServiceSlaPolicy): boolean {
+  return policy.active === true || (typeof policy.active === "number" && policy.active !== 0);
+}
+
+function formatSlaPolicyChannel(channel: string): string {
+  return channel.trim() || "Any channel";
+}
+
+function formatSlaMinutes(minutes: number): string {
+  if (!Number.isFinite(minutes)) return "—";
+  const wholeMinutes = Math.max(0, Math.round(minutes));
+  if (wholeMinutes < 60) return `${wholeMinutes}m`;
+  const hours = wholeMinutes / 60;
+  if (Number.isInteger(hours)) return `${hours}h`;
+  return `${wholeMinutes}m`;
 }
 
 /* ────────────── subcomponents ────────────── */

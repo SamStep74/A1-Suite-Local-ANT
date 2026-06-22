@@ -57,6 +57,34 @@ export type ServiceCasePriority = z.infer<typeof ServiceCasePriority>;
 export const SlaStatus = z.enum(["on-track", "at-risk", "breached"]);
 export type SlaStatus = z.infer<typeof SlaStatus>;
 
+export const ServiceSlaPolicyActiveSchema = z.union([z.boolean(), z.number()]);
+export type ServiceSlaPolicyActive = z.infer<typeof ServiceSlaPolicyActiveSchema>;
+
+export const ServiceSlaPolicySchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    priority: z.string(),
+    channel: z.string(),
+    responseMinutes: z.number(),
+    resolutionMinutes: z.number(),
+    active: ServiceSlaPolicyActiveSchema,
+    createdAt: z.string(),
+    updatedAt: z.string(),
+  })
+  .passthrough();
+export type ServiceSlaPolicy = z.infer<typeof ServiceSlaPolicySchema>;
+
+export const ServiceSlaPoliciesResponseSchema = z.union([
+  z.object({ policies: z.array(ServiceSlaPolicySchema) }).passthrough(),
+  z
+    .object({ slaPolicies: z.array(ServiceSlaPolicySchema) })
+    .passthrough()
+    .transform(({ slaPolicies, ...rest }) => ({ ...rest, policies: slaPolicies })),
+  z.array(ServiceSlaPolicySchema).transform((policies) => ({ policies })),
+]);
+export type ServiceSlaPoliciesResponse = z.infer<typeof ServiceSlaPoliciesResponseSchema>;
+
 export const ServiceCaseSchema = z.object({
   id: z.string(),
   customerId: z.string(),
@@ -173,6 +201,7 @@ export const ServiceConsoleSchema = z.object({
   ticketSummaries: z.array(z.unknown()).optional(),
   workflowBuilderSuggestions: z.array(z.unknown()).optional(),
   knowledge: z.array(z.unknown()).optional(),
+  slaPolicies: z.array(ServiceSlaPolicySchema).optional(),
   customers: z.array(CustomerOptionSchema),
   agents: z.array(AgentOptionSchema),
 });

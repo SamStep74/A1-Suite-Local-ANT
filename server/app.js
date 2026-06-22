@@ -6465,6 +6465,7 @@ function registerApi(app, db, options = {}) {
     return {
       cases: getServiceCases(db, user.org_id),
       queue: getServiceQueue(db, user.org_id),
+      slaPolicies: getServiceSlaPolicies(db, user.org_id),
       escalations: getServiceEscalations(db, user.org_id),
       resolutions: getServiceResolutions(db, user.org_id),
       approvals: getWorkflowApprovals(db, user.org_id).filter(approval => ["pending", "approved"].includes(approval.status)),
@@ -6480,6 +6481,52 @@ function registerApi(app, db, options = {}) {
     };
   });
 
+  app.get("/api/service/sla-policies", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "desk");
+    return { policies: getServiceSlaPolicies(db, user.org_id) };
+  });
+
+  app.post("/api/service/sla-policies", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "desk");
+    requireServiceSupervisor(user);
+    const input = normalizeServiceSlaPolicyInput(request.body === undefined ? {} : request.body);
+    const now = new Date().toISOString();
+    db.prepare(`
+      INSERT INTO service_sla_policies (
+        id, org_id, name, priority, channel, response_minutes, resolution_minutes,
+        active, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      ON CONFLICT(org_id, priority, channel) DO UPDATE SET
+        name = excluded.name,
+        response_minutes = excluded.response_minutes,
+        resolution_minutes = excluded.resolution_minutes,
+        active = excluded.active,
+        updated_at = excluded.updated_at
+    `).run(
+      randomId("sla-policy"),
+      user.org_id,
+      input.name,
+      input.priority,
+      input.channel,
+      input.responseMinutes,
+      input.resolutionMinutes,
+      input.active ? 1 : 0,
+      now,
+      now
+    );
+    const policy = getServiceSlaPolicyByScope(db, user.org_id, input.priority, input.channel);
+    audit(db, user.org_id, user.id, "service.sla_policy.upserted", {
+      policyId: policy.id,
+      priority: policy.priority,
+      channel: policy.channel,
+      active: policy.active
+    });
+    return { ok: true, policy };
+  });
+
   app.post("/api/service/cases", async request => {
     const user = await app.auth(request);
     const input = normalizeServiceCaseCreateInput(request.body === undefined ? {} : request.body);
@@ -6491,12 +6538,14 @@ function registerApi(app, db, options = {}) {
       err.statusCode = 400;
       throw err;
     }
-    const now = new Date().toISOString();
+    const nowMs = Date.now();
+    const now = new Date(nowMs).toISOString();
     const caseId = randomId("case");
-    const caseNumber = `AO-CASE-${Date.now().toString().slice(-6)}`;
+    const caseNumber = `AO-CASE-${nowMs.toString().slice(-6)}`;
     const priority = input.priority;
     const channel = input.channel;
-    const slaDueAt = new Date(Date.now() + (priority === "high" ? 4 : 24) * 60 * 60 * 1000).toISOString();
+    const slaPolicy = getBestServiceSlaPolicy(db, user.org_id, priority, channel);
+    const slaDueAt = calculateServiceSlaDueAt(priority, slaPolicy, nowMs);
     db.prepare(`
       INSERT INTO service_cases (
         id, org_id, customer_id, ticket_id, case_number, subject, status, priority,
@@ -6534,9 +6583,9 @@ function registerApi(app, db, options = {}) {
       subjectId: caseId,
       customerId,
       status: priority === "high" ? "needs-action" : "recorded",
-      payload: { caseNumber, priority, channel }
+      payload: { caseNumber, priority, channel, slaPolicyId: slaPolicy?.id || null }
     });
-    audit(db, user.org_id, user.id, "service.case.created", { caseId, customerId, priority });
+    audit(db, user.org_id, user.id, "service.case.created", { caseId, customerId, priority, slaPolicyId: slaPolicy?.id || null });
     return { ok: true, case: getServiceCase(db, user.org_id, caseId), events: getRecentSuiteEvents(db, user.org_id, 5, customerId) };
   });
 
@@ -46504,6 +46553,7 @@ const ORG_BACKUP_TABLES = [
   "finance_vat_returns",
   "tickets",
   "service_cases",
+  "service_sla_policies",
   "case_messages",
   "service_case_escalations",
   "service_case_resolutions",
@@ -49075,6 +49125,24 @@ function normalizeServiceCaseCreateInput(body) {
   };
 }
 
+function normalizeServiceSlaPolicyInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidServiceSlaPolicyMetadata();
+  }
+  const input = {
+    name: normalizeServiceText(body, "name", { required: true, minLength: 3, maxLength: 120 }),
+    priority: normalizeServiceChoice(body, "priority", ["low", "medium", "high"], "medium"),
+    channel: normalizeServiceChoice(body, "channel", ["WhatsApp", "Telegram", "Email", "Phone", "Manual"], ""),
+    responseMinutes: normalizeServiceSlaMinutes(body, "responseMinutes"),
+    resolutionMinutes: normalizeServiceSlaMinutes(body, "resolutionMinutes"),
+    active: normalizeServiceBoolean(body, "active", true)
+  };
+  if (input.responseMinutes > input.resolutionMinutes) {
+    throwInvalidServiceSlaPolicyMetadata();
+  }
+  return input;
+}
+
 function normalizeServiceReplyInput(body) {
   if (!isPlainObject(body)) {
     throwInvalidServiceMetadata();
@@ -49177,6 +49245,41 @@ function normalizeServiceSatisfactionScore(body) {
   return score;
 }
 
+function normalizeServiceSlaMinutes(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "" || value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
+    throwInvalidServiceSlaPolicyMetadata();
+  }
+  let minutes;
+  if (typeof value === "number") {
+    minutes = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) {
+      throwInvalidServiceSlaPolicyMetadata();
+    }
+    const text = value.trim();
+    if (!/^\d+$/.test(text)) {
+      throwInvalidServiceSlaPolicyMetadata();
+    }
+    minutes = Number(text);
+  } else {
+    throwInvalidServiceSlaPolicyMetadata();
+  }
+  if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 43200) {
+    throwInvalidServiceSlaPolicyMetadata();
+  }
+  return minutes;
+}
+
+function normalizeServiceBoolean(body, field, fallback = false) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") return Boolean(fallback);
+  if (typeof value !== "boolean") {
+    throwInvalidServiceSlaPolicyMetadata();
+  }
+  return value;
+}
+
 function normalizeServiceTimestamp(body, field, fallback) {
   if (!Object.prototype.hasOwnProperty.call(body, field) || body[field] === "") {
     return fallback;
@@ -49193,6 +49296,10 @@ function throwInvalidServiceMetadata(message = "Service request requires safe me
   const err = new Error(message);
   err.statusCode = 400;
   throw err;
+}
+
+function throwInvalidServiceSlaPolicyMetadata() {
+  throwInvalidServiceMetadata("SLA policy requires safe metadata");
 }
 
 function normalizeServiceCasePathId(value) {
@@ -50841,6 +50948,65 @@ function getServiceQueue(db, orgId) {
     highPriorityOpen: db.prepare("SELECT COUNT(*) AS count FROM service_cases WHERE org_id = ? AND priority = 'high' AND status != 'closed'").get(orgId).count,
     escalatedOpen: db.prepare("SELECT COUNT(*) AS count FROM service_case_escalations WHERE org_id = ? AND status = 'open'").get(orgId).count,
     averageSatisfaction: Math.round(db.prepare("SELECT COALESCE(AVG(satisfaction_score), 0) AS average FROM service_case_resolutions WHERE org_id = ? AND satisfaction_score IS NOT NULL").get(orgId).average)
+  };
+}
+
+function getServiceSlaPolicies(db, orgId) {
+  return db.prepare(`
+    SELECT *
+    FROM service_sla_policies
+    WHERE org_id = ?
+    ORDER BY
+      CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
+      CASE WHEN channel = '' THEN 1 ELSE 0 END,
+      channel,
+      name
+  `).all(orgId).map(formatServiceSlaPolicy);
+}
+
+function getServiceSlaPolicyByScope(db, orgId, priority, channel) {
+  const row = db.prepare(`
+    SELECT *
+    FROM service_sla_policies
+    WHERE org_id = ? AND priority = ? AND channel = ?
+  `).get(orgId, priority, channel);
+  return row ? formatServiceSlaPolicy(row) : null;
+}
+
+function getBestServiceSlaPolicy(db, orgId, priority, channel) {
+  const row = db.prepare(`
+    SELECT *
+    FROM service_sla_policies
+    WHERE org_id = ?
+      AND active = 1
+      AND priority = ?
+      AND channel IN (?, '')
+    ORDER BY CASE WHEN channel = ? THEN 0 ELSE 1 END, updated_at DESC
+    LIMIT 1
+  `).get(orgId, priority, channel, channel);
+  return row ? formatServiceSlaPolicy(row) : null;
+}
+
+function calculateServiceSlaDueAt(priority, policy, nowMs = Date.now()) {
+  const resolutionMinutes = policy?.resolutionMinutes || serviceSlaFallbackMinutes(priority);
+  return new Date(nowMs + resolutionMinutes * 60 * 1000).toISOString();
+}
+
+function serviceSlaFallbackMinutes(priority) {
+  return priority === "high" ? 240 : 1440;
+}
+
+function formatServiceSlaPolicy(row) {
+  return {
+    id: row.id,
+    name: row.name,
+    priority: row.priority,
+    channel: row.channel,
+    responseMinutes: row.response_minutes,
+    resolutionMinutes: row.resolution_minutes,
+    active: Boolean(row.active),
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
   };
 }
 

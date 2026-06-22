@@ -10,6 +10,8 @@ import {
   CreateServiceCaseInputSchema,
   ServiceCaseSchema,
   ServiceConsoleSchema,
+  ServiceSlaPoliciesResponseSchema,
+  ServiceSlaPolicySchema,
   ServiceCaseStatus,
   ServiceCasePriority,
   SlaStatus,
@@ -63,6 +65,18 @@ const VALID_CASE = {
   messageCount: 0,
   updatedAt: "2026-06-09T00:00:00.000Z",
   createdAt: "2026-06-09T00:00:00.000Z",
+};
+
+const VALID_SLA_POLICY = {
+  id: "sla-1",
+  name: "High priority email",
+  priority: "high",
+  channel: "Email",
+  responseMinutes: 15,
+  resolutionMinutes: 240,
+  active: true,
+  createdAt: "2026-06-10T00:00:00.000Z",
+  updatedAt: "2026-06-11T00:00:00.000Z",
 };
 
 describe("ServiceCaseSchema", () => {
@@ -142,6 +156,7 @@ describe("ServiceConsoleSchema", () => {
       ],
       dryRuns: [],
       testEvents: [],
+      slaPolicies: [VALID_SLA_POLICY],
       customers: [{ id: "cust-1", name: "Ani Beauty" }],
       agents: [{ id: "user-1", name: "Samvel", role: "Owner" }],
     };
@@ -152,6 +167,46 @@ describe("ServiceConsoleSchema", () => {
   it("rejects when cases is missing", () => {
     const r = ServiceConsoleSchema.safeParse({});
     expect(r.success).toBe(false);
+  });
+});
+
+describe("ServiceSlaPolicySchema", () => {
+  it("accepts the service SLA policy wire shape", () => {
+    const r = ServiceSlaPolicySchema.safeParse(VALID_SLA_POLICY);
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.responseMinutes).toBe(15);
+      expect(r.data.resolutionMinutes).toBe(240);
+      expect(r.data.active).toBe(true);
+    }
+  });
+
+  it("accepts numeric active from service SLA endpoints", () => {
+    const r = ServiceSlaPolicySchema.safeParse({
+      ...VALID_SLA_POLICY,
+      id: "sla-2",
+      active: 1,
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.active).toBe(1);
+    }
+  });
+
+  it("accepts standalone SLA policy envelopes and empty policy lists", () => {
+    const withPolicies = ServiceSlaPoliciesResponseSchema.parse({
+      policies: [VALID_SLA_POLICY],
+    });
+    const withSlaPolicies = ServiceSlaPoliciesResponseSchema.parse({
+      slaPolicies: [{ ...VALID_SLA_POLICY, id: "sla-2", active: 0 }],
+    });
+    const empty = ServiceSlaPoliciesResponseSchema.parse({ policies: [] });
+
+    expect(withPolicies.policies).toHaveLength(1);
+    expect(withSlaPolicies.policies[0]?.active).toBe(0);
+    expect(empty.policies).toEqual([]);
   });
 });
 

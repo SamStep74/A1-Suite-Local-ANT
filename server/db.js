@@ -1970,6 +1970,31 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_service_cases_customer
       ON service_cases(org_id, customer_id, status, priority);
 
+    CREATE TABLE IF NOT EXISTS service_sla_policies (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      priority TEXT NOT NULL,
+      channel TEXT NOT NULL DEFAULT '',
+      response_minutes INTEGER NOT NULL,
+      resolution_minutes INTEGER NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (priority IN ('low', 'medium', 'high')),
+      CHECK (channel IN ('', 'WhatsApp', 'Telegram', 'Email', 'Phone', 'Manual')),
+      CHECK (response_minutes BETWEEN 1 AND 43200),
+      CHECK (resolution_minutes BETWEEN 1 AND 43200),
+      CHECK (response_minutes <= resolution_minutes),
+      CHECK (active IN (0, 1))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_service_sla_policies_scope
+      ON service_sla_policies(org_id, priority, channel);
+
+    CREATE INDEX IF NOT EXISTS idx_service_sla_policies_active
+      ON service_sla_policies(org_id, active, priority, channel);
+
     CREATE TABLE IF NOT EXISTS case_messages (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -8312,13 +8337,65 @@ function ensureProfileLayer(db) {
 }
 
 function ensureServiceLayer(db) {
+  ensureServiceSlaPolicySchema(db);
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {
+    seedServiceSlaPolicies(db, org.id);
+
     const caseCount = db.prepare("SELECT COUNT(*) AS count FROM service_cases WHERE org_id = ?").get(org.id).count;
     if (caseCount === 0) seedServiceCases(db, org.id);
 
     const approvalCount = db.prepare("SELECT COUNT(*) AS count FROM workflow_approvals WHERE org_id = ?").get(org.id).count;
     if (approvalCount === 0) seedWorkflowApprovals(db, org.id);
+  }
+}
+
+function ensureServiceSlaPolicySchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS service_sla_policies (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      priority TEXT NOT NULL,
+      channel TEXT NOT NULL DEFAULT '',
+      response_minutes INTEGER NOT NULL,
+      resolution_minutes INTEGER NOT NULL,
+      active INTEGER NOT NULL DEFAULT 1,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (priority IN ('low', 'medium', 'high')),
+      CHECK (channel IN ('', 'WhatsApp', 'Telegram', 'Email', 'Phone', 'Manual')),
+      CHECK (response_minutes BETWEEN 1 AND 43200),
+      CHECK (resolution_minutes BETWEEN 1 AND 43200),
+      CHECK (response_minutes <= resolution_minutes),
+      CHECK (active IN (0, 1))
+    );
+
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_service_sla_policies_scope
+      ON service_sla_policies(org_id, priority, channel);
+
+    CREATE INDEX IF NOT EXISTS idx_service_sla_policies_active
+      ON service_sla_policies(org_id, active, priority, channel);
+  `);
+}
+
+function seedServiceSlaPolicies(db, orgId) {
+  const now = new Date().toISOString();
+  const policies = [
+    [`sla-${orgId}-high`, "High priority default", "high", "", 60, 240, 1],
+    [`sla-${orgId}-medium`, "Medium priority default", "medium", "", 240, 1440, 1],
+    [`sla-${orgId}-low`, "Low priority default", "low", "", 480, 1440, 1],
+    [`sla-${orgId}-telegram-high`, "Telegram high priority", "high", "Telegram", 30, 240, 1]
+  ];
+  const insert = db.prepare(`
+    INSERT OR IGNORE INTO service_sla_policies (
+      id, org_id, name, priority, channel, response_minutes, resolution_minutes,
+      active, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  for (const [id, name, priority, channel, responseMinutes, resolutionMinutes, active] of policies) {
+    insert.run(id, orgId, name, priority, channel, responseMinutes, resolutionMinutes, active, now, now);
   }
 }
 
