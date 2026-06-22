@@ -38,7 +38,7 @@ import {
   Send,
   ShieldCheck,
 } from "lucide-react";
-import { getJson, postJson, api, type JsonBody } from "../../../lib/api/client";
+import { getJson, postJson, api, ApiError, type JsonBody } from "../../../lib/api/client";
 import {
   CreateServiceCaseInputSchema,
   ServiceCasePriority,
@@ -48,6 +48,7 @@ import {
   ServiceFieldVisitsResponseSchema,
   ServiceSlaPoliciesResponseSchema,
   UpdateServiceFieldVisitTechnicianStatusInputSchema,
+  UpdateServiceFieldVisitTechnicianStatusResponseSchema,
   type CreateServiceCaseInput,
   type ServiceCase,
   type ServiceFieldVisit,
@@ -87,6 +88,13 @@ const CHANNELS = ["WhatsApp", "Telegram", "Email", "Phone", "Manual"];
 const SLA_POLICY_CHANNELS = ["", ...CHANNELS];
 const FIELD_VISIT_PREVIEW_LIMIT = 4;
 const MY_FIELD_VISIT_PREVIEW_LIMIT = 5;
+const TECHNICIAN_VISIT_QUEUE_STORAGE_KEY = "a1:desk:my-visits:technician-status-queue";
+const TECHNICIAN_VISIT_QUEUE_LIMIT = 25;
+const TECHNICIAN_VISIT_STATUSES = [
+  "en-route",
+  "in-progress",
+  "completed",
+] as const satisfies readonly ServiceFieldVisitTechnicianStatus[];
 const VISIT_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
   month: "short",
   day: "numeric",
@@ -487,11 +495,147 @@ type TechnicianVisitMutationInput = {
   worksheetSummary?: string;
 };
 
+type QueuedTechnicianVisitStatusUpdate = TechnicianVisitMutationInput & {
+  idempotencyKey: string;
+  queuedAt: string;
+};
+
+type TechnicianVisitSubmitResult = {
+  queued: boolean;
+};
+
 const TECHNICIAN_VISIT_ACTIONS: { status: ServiceFieldVisitTechnicianStatus; label: string }[] = [
   { status: "en-route", label: "En route" },
   { status: "in-progress", label: "Start" },
   { status: "completed", label: "Complete" },
 ];
+
+function getTechnicianVisitQueueStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function resetQueuedTechnicianVisitStatusUpdates(): void {
+  const storage = getTechnicianVisitQueueStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(TECHNICIAN_VISIT_QUEUE_STORAGE_KEY, "[]");
+  } catch {
+    // Storage may be unavailable in private browsing or quota pressure.
+  }
+}
+
+function persistQueuedTechnicianVisitStatusUpdates(
+  queue: QueuedTechnicianVisitStatusUpdate[],
+): QueuedTechnicianVisitStatusUpdate[] {
+  const bounded = queue.slice(-TECHNICIAN_VISIT_QUEUE_LIMIT);
+  const storage = getTechnicianVisitQueueStorage();
+  if (!storage) return bounded;
+  try {
+    storage.setItem(TECHNICIAN_VISIT_QUEUE_STORAGE_KEY, JSON.stringify(bounded));
+  } catch {
+    // Keep the in-memory queue usable even if persistence fails.
+  }
+  return bounded;
+}
+
+function isTechnicianVisitStatus(value: unknown): value is ServiceFieldVisitTechnicianStatus {
+  return typeof value === "string" && (TECHNICIAN_VISIT_STATUSES as readonly string[]).includes(value);
+}
+
+function isQueuedTechnicianVisitStatusUpdate(
+  value: unknown,
+): value is QueuedTechnicianVisitStatusUpdate {
+  if (typeof value !== "object" || value == null) return false;
+  const candidate = value as Record<string, unknown>;
+  return (
+    typeof candidate.visitId === "string" &&
+    candidate.visitId.length > 0 &&
+    isTechnicianVisitStatus(candidate.status) &&
+    typeof candidate.idempotencyKey === "string" &&
+    candidate.idempotencyKey.length > 0 &&
+    candidate.idempotencyKey.length <= 200 &&
+    typeof candidate.queuedAt === "string" &&
+    candidate.queuedAt.length > 0 &&
+    (candidate.worksheetSummary === undefined || typeof candidate.worksheetSummary === "string")
+  );
+}
+
+function readQueuedTechnicianVisitStatusUpdates(): QueuedTechnicianVisitStatusUpdate[] {
+  const storage = getTechnicianVisitQueueStorage();
+  if (!storage) return [];
+  const raw = storage.getItem(TECHNICIAN_VISIT_QUEUE_STORAGE_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed) || !parsed.every(isQueuedTechnicianVisitStatusUpdate)) {
+      resetQueuedTechnicianVisitStatusUpdates();
+      return [];
+    }
+    return persistQueuedTechnicianVisitStatusUpdates(parsed);
+  } catch {
+    resetQueuedTechnicianVisitStatusUpdates();
+    return [];
+  }
+}
+
+function generateTechnicianVisitIdempotencyKey(
+  visitId: string,
+  status: ServiceFieldVisitTechnicianStatus,
+): string {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  return `desk-visit:${visitId}:${status}:${Date.now()}:${random}`.slice(0, 200);
+}
+
+function createQueuedTechnicianVisitStatusUpdate(
+  input: TechnicianVisitMutationInput,
+): QueuedTechnicianVisitStatusUpdate {
+  const trimmedSummary = input.worksheetSummary?.trim();
+  return {
+    visitId: input.visitId,
+    status: input.status,
+    ...(trimmedSummary ? { worksheetSummary: trimmedSummary } : {}),
+    idempotencyKey: generateTechnicianVisitIdempotencyKey(input.visitId, input.status),
+    queuedAt: new Date().toISOString(),
+  };
+}
+
+async function sendTechnicianVisitStatusUpdate(
+  update: QueuedTechnicianVisitStatusUpdate,
+) {
+  const payload = UpdateServiceFieldVisitTechnicianStatusInputSchema.parse({
+    status: update.status,
+    idempotencyKey: update.idempotencyKey,
+    ...(update.worksheetSummary ? { worksheetSummary: update.worksheetSummary } : {}),
+  });
+  return postJson(
+    `/api/service/field-visits/${update.visitId}/technician-status`,
+    payload,
+    UpdateServiceFieldVisitTechnicianStatusResponseSchema,
+  );
+}
+
+function shouldQueueTechnicianVisitStatusError(error: unknown): boolean {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+  if (error instanceof ApiError) return error.status >= 500 || error.status === 0;
+  if (error instanceof TypeError) return true;
+
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return (
+    message.includes("failed to fetch") ||
+    message.includes("network") ||
+    message.includes("load failed") ||
+    message.includes("backend unavailable")
+  );
+}
 
 function MyVisitsPanel({
   visits,
@@ -504,9 +648,73 @@ function MyVisitsPanel({
   unavailable?: boolean;
   onStatusUpdated: () => void;
 }) {
+  const [queuedUpdates, setQueuedUpdates] = useState<QueuedTechnicianVisitStatusUpdate[]>(() =>
+    readQueuedTechnicianVisitStatusUpdates(),
+  );
   const activeCount = visits.filter((visit) => !isTerminalVisitStatus(visit.status)).length;
   const previewVisits = visits.slice(0, MY_FIELD_VISIT_PREVIEW_LIMIT);
   const extraCount = Math.max(0, visits.length - previewVisits.length);
+  const pendingCount = queuedUpdates.length;
+  const queuedCountByVisitId = useMemo(() => {
+    const map = new Map<string, number>();
+    for (const update of queuedUpdates) {
+      map.set(update.visitId, (map.get(update.visitId) ?? 0) + 1);
+    }
+    return map;
+  }, [queuedUpdates]);
+
+  const setPersistedQueuedUpdates = (
+    updater:
+      | QueuedTechnicianVisitStatusUpdate[]
+      | ((current: QueuedTechnicianVisitStatusUpdate[]) => QueuedTechnicianVisitStatusUpdate[]),
+  ) => {
+    setQueuedUpdates((current) => {
+      const next = typeof updater === "function" ? updater(current) : updater;
+      return persistQueuedTechnicianVisitStatusUpdates(next);
+    });
+  };
+
+  const submitTechnicianStatus = async (
+    input: TechnicianVisitMutationInput,
+  ): Promise<TechnicianVisitSubmitResult> => {
+    const update = createQueuedTechnicianVisitStatusUpdate(input);
+    try {
+      await sendTechnicianVisitStatusUpdate(update);
+      onStatusUpdated();
+      return { queued: false };
+    } catch (error) {
+      if (!shouldQueueTechnicianVisitStatusError(error)) throw error;
+      setPersistedQueuedUpdates((current) => [...current, update]);
+      return { queued: true };
+    }
+  };
+
+  const syncQueueMut = useMutation({
+    mutationFn: async () => {
+      const storageQueue = readQueuedTechnicianVisitStatusUpdates();
+      const queue = storageQueue.length > 0 || queuedUpdates.length === 0 ? storageQueue : queuedUpdates;
+      const kept: QueuedTechnicianVisitStatusUpdate[] = [];
+      let syncedCount = 0;
+
+      for (const update of queue) {
+        try {
+          await sendTechnicianVisitStatusUpdate(update);
+          syncedCount += 1;
+        } catch {
+          kept.push(update);
+        }
+      }
+
+      return {
+        queue: persistQueuedTechnicianVisitStatusUpdates(kept),
+        syncedCount,
+      };
+    },
+    onSuccess: ({ queue, syncedCount }) => {
+      setQueuedUpdates(queue);
+      if (syncedCount > 0) onStatusUpdated();
+    },
+  });
 
   return (
     <section
@@ -530,10 +738,34 @@ function MyVisitsPanel({
             </p>
           </div>
         </div>
-        <dl className="grid grid-cols-2 gap-2 text-left sm:min-w-40 sm:text-right">
-          <SlaSummaryMetric label="Assigned" value={loading ? "..." : String(visits.length)} />
-          <SlaSummaryMetric label="Active" value={loading ? "..." : String(activeCount)} />
-        </dl>
+        <div className="flex flex-col items-start gap-2 sm:items-end">
+          <dl className="grid grid-cols-3 gap-2 text-left sm:min-w-52 sm:text-right">
+            <SlaSummaryMetric label="Assigned" value={loading ? "..." : String(visits.length)} />
+            <SlaSummaryMetric label="Active" value={loading ? "..." : String(activeCount)} />
+            <SlaSummaryMetric label="Pending" value={String(pendingCount)} />
+          </dl>
+          {pendingCount > 0 && (
+            <div className="flex flex-wrap items-center justify-start gap-2 text-[11px] sm:justify-end">
+              <span className="rounded-[var(--radius-sm)] bg-[var(--color-surface-soft)] px-1.5 py-0.5 font-medium text-[var(--color-muted)]">
+                Pending sync
+              </span>
+              <button
+                type="button"
+                disabled={syncQueueMut.isPending}
+                onClick={() => syncQueueMut.mutate()}
+                className={cn(
+                  "inline-flex h-7 items-center gap-1 rounded-[var(--radius-md)] px-2 font-medium",
+                  syncQueueMut.isPending
+                    ? "bg-[var(--color-surface-soft)] text-[var(--color-muted)] opacity-60"
+                    : "bg-[var(--color-brand)] text-white hover:opacity-90",
+                )}
+              >
+                <Send className="size-3" aria-hidden />
+                {syncQueueMut.isPending ? "Syncing" : "Sync now"}
+              </button>
+            </div>
+          )}
+        </div>
       </div>
 
       {loading && visits.length === 0 ? (
@@ -551,7 +783,13 @@ function MyVisitsPanel({
       ) : (
         <ul className="mt-3 divide-y divide-[var(--color-line)] border-t border-[var(--color-line)]">
           {previewVisits.map((visit) => (
-            <MyVisitRow key={visit.id} visit={visit} onStatusUpdated={onStatusUpdated} />
+            <MyVisitRow
+              key={visit.id}
+              visit={visit}
+              queuedCount={queuedCountByVisitId.get(visit.id) ?? 0}
+              syncing={syncQueueMut.isPending}
+              onStatusSubmit={submitTechnicianStatus}
+            />
           ))}
           {extraCount > 0 && (
             <li className="py-2 text-[11px] text-[var(--color-muted)]">
@@ -566,32 +804,44 @@ function MyVisitsPanel({
 
 function MyVisitRow({
   visit,
-  onStatusUpdated,
+  queuedCount,
+  syncing,
+  onStatusSubmit,
 }: {
   visit: ServiceFieldVisit;
-  onStatusUpdated: () => void;
+  queuedCount: number;
+  syncing?: boolean;
+  onStatusSubmit: (input: TechnicianVisitMutationInput) => Promise<TechnicianVisitSubmitResult>;
 }) {
   const [worksheetSummary, setWorksheetSummary] = useState(visit.worksheetSummary);
+  const [pendingStatus, setPendingStatus] = useState<ServiceFieldVisitTechnicianStatus | null>(null);
+  const [submitError, setSubmitError] = useState<string | null>(null);
   const normalizedStatus = normalizeVisitStatus(visit.status);
   const statusTone = FIELD_VISIT_STATUS_TONE[normalizedStatus] ?? FIELD_VISIT_STATUS_TONE.default;
   const caseLabel = visit.caseNumber ?? visit.subject ?? visit.caseId;
   const customerLabel = visit.customerName ?? visit.customerId;
   const terminal = isTerminalVisitStatus(visit.status);
-  const updateMut = useMutation({
-    mutationFn: async ({ visitId, status, worksheetSummary: nextSummary }: TechnicianVisitMutationInput) => {
-      const trimmedSummary = nextSummary?.trim();
-      const payload = UpdateServiceFieldVisitTechnicianStatusInputSchema.parse({
-        status,
-        ...(trimmedSummary ? { worksheetSummary: trimmedSummary } : {}),
-      });
-      return postJson(`/api/service/field-visits/${visitId}/technician-status`, payload);
-    },
-    onSuccess: onStatusUpdated,
-  });
+  const isSubmitting = pendingStatus != null;
 
   useEffect(() => {
     setWorksheetSummary(visit.worksheetSummary);
   }, [visit.id, visit.worksheetSummary]);
+
+  const submitStatus = async (status: ServiceFieldVisitTechnicianStatus) => {
+    setPendingStatus(status);
+    setSubmitError(null);
+    try {
+      await onStatusSubmit({
+        visitId: visit.id,
+        status,
+        worksheetSummary,
+      });
+    } catch (error) {
+      setSubmitError(error instanceof Error ? error.message : "Update failed");
+    } finally {
+      setPendingStatus(null);
+    }
+  };
 
   return (
     <li className="grid gap-2 py-2 xl:grid-cols-[minmax(0,1fr)_minmax(9rem,0.75fr)_minmax(12rem,1fr)] xl:items-start">
@@ -610,6 +860,11 @@ function MyVisitRow({
           >
             {visit.status}
           </span>
+          {queuedCount > 0 && (
+            <span className="rounded-[var(--radius-sm)] bg-[var(--color-surface-soft)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">
+              Queued{queuedCount > 1 ? ` ${queuedCount}` : ""}
+            </span>
+          )}
         </div>
         {visit.subject && visit.subject !== caseLabel && (
           <p className="mt-0.5 line-clamp-1 text-[11px] text-[var(--color-muted)]">
@@ -638,7 +893,7 @@ function MyVisitRow({
           <textarea
             value={worksheetSummary}
             onChange={(event) => setWorksheetSummary(event.target.value)}
-            disabled={terminal || updateMut.isPending}
+            disabled={terminal || isSubmitting || syncing}
             rows={2}
             className={cn(
               "h-14 w-full resize-none rounded-[var(--radius-md)] border border-[var(--color-line)]",
@@ -651,19 +906,16 @@ function MyVisitRow({
         <div className="mt-1 flex flex-wrap gap-1">
           {TECHNICIAN_VISIT_ACTIONS.map((action) => {
             const disabled =
-              updateMut.isPending || !canApplyTechnicianStatus(visit.status, action.status);
+              isSubmitting ||
+              syncing ||
+              queuedCount > 0 ||
+              !canApplyTechnicianStatus(visit.status, action.status);
             return (
               <button
                 key={action.status}
                 type="button"
                 disabled={disabled}
-                onClick={() =>
-                  updateMut.mutate({
-                    visitId: visit.id,
-                    status: action.status,
-                    worksheetSummary,
-                  })
-                }
+                onClick={() => void submitStatus(action.status)}
                 className={cn(
                   "inline-flex h-7 items-center gap-1 rounded-[var(--radius-md)] px-2",
                   "text-[11px] font-medium",
@@ -673,16 +925,14 @@ function MyVisitRow({
                 )}
               >
                 <TechnicianActionIcon status={action.status} />
-                {updateMut.isPending && updateMut.variables?.status === action.status
-                  ? "Saving"
-                  : action.label}
+                {pendingStatus === action.status ? "Saving" : action.label}
               </button>
             );
           })}
         </div>
-        {updateMut.isError && (
+        {submitError && (
           <p className="mt-1 text-[11px] text-[var(--color-ruby)]">
-            {updateMut.error instanceof Error ? updateMut.error.message : "Update failed"}
+            {submitError}
           </p>
         )}
       </div>

@@ -6630,8 +6630,14 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     requireAppAccess(db, user, "desk");
     const visitId = normalizeServiceFieldVisitPathId(request.params.id);
-    const visit = updateServiceFieldVisitTechnicianStatus(db, user, visitId, request.body === undefined ? {} : request.body);
-    return { ok: true, visit };
+    const result = updateServiceFieldVisitTechnicianStatus(db, user, visitId, request.body === undefined ? {} : request.body);
+    if (result && result.visit) {
+      const envelope = { ok: true, visit: result.visit };
+      if (Object.prototype.hasOwnProperty.call(result, "idempotent")) envelope.idempotent = result.idempotent;
+      if (result.dispatchSync) envelope.dispatchSync = result.dispatchSync;
+      return envelope;
+    }
+    return { ok: true, visit: result };
   });
 
   app.get("/api/service/sla-policies", async request => {
@@ -49388,7 +49394,22 @@ function normalizeServiceFieldVisitTechnicianStatusInput(body) {
   if (Object.prototype.hasOwnProperty.call(body, "worksheetSummary")) {
     input.worksheetSummary = normalizeServiceText(body, "worksheetSummary", { fallback: "", maxLength: 2000, allowMultiline: true });
   }
+  if (Object.prototype.hasOwnProperty.call(body, "idempotencyKey")) {
+    input.idempotencyKey = normalizeServiceFieldVisitTechnicianIdempotencyKey(body);
+  }
   return input;
+}
+
+function normalizeServiceFieldVisitTechnicianIdempotencyKey(body) {
+  const key = normalizeServiceText(body, "idempotencyKey", { required: true, minLength: 1, maxLength: 200 });
+  if (!/^[A-Za-z0-9._:-]+$/.test(key) || looksLikeSensitiveToken(key)) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  return key;
+}
+
+function looksLikeSensitiveToken(value) {
+  return /(?:sk-(?:live|test|proj|or)|gh[pousr]_|github_pat_|xox[baprs]-|AKIA[0-9A-Z]{16}|secret)/i.test(value);
 }
 
 function assertServiceFieldVisitTechnicianTransition(currentStatus, nextStatus) {
@@ -57158,6 +57179,23 @@ function updateServiceFieldVisitTechnicianStatus(db, user, visitId, body) {
     throw err;
   }
   const input = normalizeServiceFieldVisitTechnicianStatusInput(body);
+  if (input.idempotencyKey) {
+    const replay = findServiceFieldVisitTechnicianStatusReplay(db, user, existing.id, input);
+    if (replay) {
+      if (replay.matches) {
+        return {
+          visit: getServiceFieldVisit(db, user.org_id, existing.id),
+          idempotent: true,
+          dispatchSync: {
+            idempotencyKey: input.idempotencyKey,
+            status: input.status,
+            replayed: true
+          }
+        };
+      }
+      throwServiceFieldVisitTechnicianIdempotencyConflict();
+    }
+  }
   assertServiceFieldVisitTechnicianTransition(existing.status, input.status);
   const worksheetSummaryChanged = Object.prototype.hasOwnProperty.call(input, "worksheetSummary")
     && input.worksheetSummary !== existing.worksheetSummary;
@@ -57170,15 +57208,83 @@ function updateServiceFieldVisitTechnicianStatus(db, user, visitId, body) {
   }
   db.prepare(`UPDATE service_field_visits SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`)
     .run(...values, user.org_id, existing.id);
-  audit(db, user.org_id, user.id, "service.field_visit.technician_status", {
+  const details = {
     visitId: existing.id,
     caseId: existing.caseId,
     customerId: existing.customerId,
     status: input.status,
     actorUserId: user.id,
     worksheetSummaryChanged
-  });
-  return getServiceFieldVisit(db, user.org_id, existing.id);
+  };
+  if (input.idempotencyKey) {
+    details.idempotencyKey = input.idempotencyKey;
+    details.dispatchSync = {
+      idempotencyKey: input.idempotencyKey,
+      status: input.status,
+      replayed: false,
+      worksheetIntent: buildServiceFieldVisitTechnicianWorksheetIntent(input)
+    };
+  }
+  audit(db, user.org_id, user.id, "service.field_visit.technician_status", details);
+  const visit = getServiceFieldVisit(db, user.org_id, existing.id);
+  if (input.idempotencyKey) {
+    return {
+      visit,
+      idempotent: false,
+      dispatchSync: {
+        idempotencyKey: input.idempotencyKey,
+        status: input.status,
+        replayed: false
+      }
+    };
+  }
+  return visit;
+}
+
+function findServiceFieldVisitTechnicianStatusReplay(db, user, visitId, input) {
+  const incomingIntent = buildServiceFieldVisitTechnicianWorksheetIntent(input);
+  const rows = db.prepare(`
+    SELECT details
+    FROM audit_events
+    WHERE org_id = ? AND user_id = ? AND type = ?
+    ORDER BY id DESC
+  `).all(user.org_id, user.id, "service.field_visit.technician_status");
+  for (const row of rows) {
+    let details;
+    try {
+      details = JSON.parse(row.details || "{}");
+    } catch {
+      continue;
+    }
+    if (details.visitId !== visitId || details.idempotencyKey !== input.idempotencyKey) {
+      continue;
+    }
+    const storedIntent = details.dispatchSync?.worksheetIntent;
+    return {
+      matches: details.status === input.status && serviceFieldVisitTechnicianWorksheetIntentMatches(storedIntent, incomingIntent)
+    };
+  }
+  return null;
+}
+
+function buildServiceFieldVisitTechnicianWorksheetIntent(input) {
+  const provided = Object.prototype.hasOwnProperty.call(input, "worksheetSummary");
+  return {
+    provided,
+    digest: provided ? crypto.createHash("sha256").update(input.worksheetSummary, "utf8").digest("hex") : null
+  };
+}
+
+function serviceFieldVisitTechnicianWorksheetIntentMatches(storedIntent, incomingIntent) {
+  return Boolean(storedIntent)
+    && storedIntent.provided === incomingIntent.provided
+    && storedIntent.digest === incomingIntent.digest;
+}
+
+function throwServiceFieldVisitTechnicianIdempotencyConflict() {
+  const err = new Error("Idempotency key already used for a different technician dispatch action");
+  err.statusCode = 409;
+  throw err;
 }
 
 function assertServiceFieldVisitCase(db, orgId, caseId, customerId) {

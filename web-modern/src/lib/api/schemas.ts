@@ -120,10 +120,23 @@ export const UpdateServiceFieldVisitTechnicianStatusInputSchema = z
   .object({
     status: ServiceFieldVisitTechnicianStatus,
     worksheetSummary: z.string().max(2000).optional(),
+    idempotencyKey: z.string().min(1).max(200).optional(),
   })
   .strict();
 export type UpdateServiceFieldVisitTechnicianStatusInput = z.infer<
   typeof UpdateServiceFieldVisitTechnicianStatusInputSchema
+>;
+
+export const UpdateServiceFieldVisitTechnicianStatusResponseSchema = z
+  .object({
+    ok: z.boolean().optional(),
+    visit: ServiceFieldVisitSchema.optional(),
+    idempotent: z.boolean().optional(),
+    dispatchSync: z.unknown().optional(),
+  })
+  .passthrough();
+export type UpdateServiceFieldVisitTechnicianStatusResponse = z.infer<
+  typeof UpdateServiceFieldVisitTechnicianStatusResponseSchema
 >;
 
 export const ServiceCaseSchema = z.object({

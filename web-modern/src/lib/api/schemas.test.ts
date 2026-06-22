@@ -49,6 +49,7 @@ import {
   ProjectTemplateResponseSchema,
   ProjectTemplatesResponseSchema,
   UpdateServiceFieldVisitTechnicianStatusInputSchema,
+  UpdateServiceFieldVisitTechnicianStatusResponseSchema,
 } from "./schemas";
 
 const VALID_CASE = {
@@ -282,9 +283,19 @@ describe("UpdateServiceFieldVisitTechnicianStatusInputSchema", () => {
       const r = UpdateServiceFieldVisitTechnicianStatusInputSchema.safeParse({
         status,
         worksheetSummary: "Checklist signed on site.",
+        idempotencyKey: `desk-visit-visit-1-${status}`,
       });
       expect(r.success, `status ${status}`).toBe(true);
     }
+  });
+
+  it("rejects empty idempotency keys for the POST body", () => {
+    const r = UpdateServiceFieldVisitTechnicianStatusInputSchema.safeParse({
+      status: "en-route",
+      idempotencyKey: "",
+    });
+
+    expect(r.success).toBe(false);
   });
 
   it("rejects non-technician statuses for the POST body", () => {
@@ -294,6 +305,20 @@ describe("UpdateServiceFieldVisitTechnicianStatusInputSchema", () => {
     });
 
     expect(r.success).toBe(false);
+  });
+
+  it("accepts technician status response idempotency evidence when present", () => {
+    const r = UpdateServiceFieldVisitTechnicianStatusResponseSchema.safeParse({
+      ok: true,
+      visit: { ...VALID_FIELD_VISIT, status: "en-route" },
+      idempotent: true,
+      dispatchSync: {
+        idempotencyKey: "desk-visit-visit-1-en-route",
+        replayedAt: "2026-06-22T08:00:00.000Z",
+      },
+    });
+
+    expect(r.success).toBe(true);
   });
 });
 

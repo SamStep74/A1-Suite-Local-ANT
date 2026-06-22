@@ -240,8 +240,11 @@ test("assigned technician lists own visits and records technician status audit",
           : { status: move.status }
       });
       assert.strictEqual(moved.statusCode, 200, moved.body);
-      assert.strictEqual(moved.json().visit.status, move.status);
-      if (move.worksheetSummary) assert.strictEqual(moved.json().visit.worksheetSummary, move.worksheetSummary);
+      const movedBody = moved.json();
+      assert.strictEqual(movedBody.visit.status, move.status);
+      assert.strictEqual(Object.prototype.hasOwnProperty.call(movedBody, "idempotent"), false);
+      assert.strictEqual(Object.prototype.hasOwnProperty.call(movedBody, "dispatchSync"), false);
+      if (move.worksheetSummary) assert.strictEqual(movedBody.visit.worksheetSummary, move.worksheetSummary);
     }
 
     const auditRows = app.db.prepare(`
@@ -261,6 +264,93 @@ test("assigned technician lists own visits and records technician status audit",
       assert.strictEqual(detail.customerId, serviceCase.customerId);
       assert.strictEqual(detail.actorUserId, support.id);
     }
+  } finally { await app.close(); }
+});
+
+test("technician status supports offline-safe idempotent dispatch replay", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const support = console1.agents.find(agent => agent.role === "Support");
+    assert.ok(support);
+    const visit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 17,
+      location: "Nare Clinic dispatch desk",
+      worksheetSummary: "Offline queue has not synced yet."
+    });
+    const idempotencyKey = "field-visit-replay-001";
+    const payload = {
+      status: "en-route",
+      worksheetSummary: "Technician left the depot with replacement hardware.",
+      idempotencyKey
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-status`,
+      headers: { cookie: supportCookie },
+      payload
+    });
+    assert.strictEqual(first.statusCode, 200, first.body);
+    assert.strictEqual(first.json().idempotent, false);
+    assert.deepStrictEqual(first.json().dispatchSync, { idempotencyKey, status: "en-route", replayed: false });
+    assert.strictEqual(first.json().visit.status, "en-route");
+    assert.strictEqual(first.json().visit.worksheetSummary, payload.worksheetSummary);
+
+    const replay = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-status`,
+      headers: { cookie: supportCookie },
+      payload
+    });
+    assert.strictEqual(replay.statusCode, 200, replay.body);
+    assert.strictEqual(replay.json().idempotent, true);
+    assert.deepStrictEqual(replay.json().dispatchSync, { idempotencyKey, status: "en-route", replayed: true });
+    assert.strictEqual(replay.json().visit.status, "en-route");
+
+    const auditRows = app.db.prepare(`
+      SELECT details
+      FROM audit_events
+      WHERE type = ?
+      ORDER BY id ASC
+    `).all("service.field_visit.technician_status");
+    assert.strictEqual(auditRows.length, 1);
+    const details = JSON.parse(auditRows[0].details);
+    assert.strictEqual(details.idempotencyKey, idempotencyKey);
+    assert.strictEqual(details.dispatchSync.idempotencyKey, idempotencyKey);
+    assert.strictEqual(details.dispatchSync.status, "en-route");
+    assert.strictEqual(details.dispatchSync.replayed, false);
+    assert.deepStrictEqual(Object.keys(details.dispatchSync.worksheetIntent).sort(), ["digest", "provided"]);
+    assert.strictEqual(details.dispatchSync.worksheetIntent.provided, true);
+    assert.ok(!auditRows[0].details.includes(payload.worksheetSummary), auditRows[0].details);
+
+    const mismatchedWorksheet = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-status`,
+      headers: { cookie: supportCookie },
+      payload: { ...payload, worksheetSummary: "A different offline note should be rejected." }
+    });
+    assert.strictEqual(mismatchedWorksheet.statusCode, 409, mismatchedWorksheet.body);
+    assert.ok(!mismatchedWorksheet.body.includes(idempotencyKey), mismatchedWorksheet.body);
+
+    const mismatchedStatus = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-status`,
+      headers: { cookie: supportCookie },
+      payload: { ...payload, status: "in-progress" }
+    });
+    assert.strictEqual(mismatchedStatus.statusCode, 409, mismatchedStatus.body);
+
+    const unchanged = app.db.prepare("SELECT status, worksheet_summary FROM service_field_visits WHERE id = ?").get(visit.id);
+    assert.strictEqual(unchanged.status, "en-route");
+    assert.strictEqual(unchanged.worksheet_summary, payload.worksheetSummary);
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.field_visit.technician_status").count, 1);
   } finally { await app.close(); }
 });
 
@@ -339,6 +429,15 @@ test("malformed technician status requests have no side effects and no secret ec
     });
     assert.strictEqual(badBody.statusCode, 400);
     assert.ok(!badBody.body.includes(secret), badBody.body);
+
+    const badIdempotencyKey = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-status`,
+      headers: { cookie: supportCookie },
+      payload: { status: "en-route", worksheetSummary: "Queued dispatch should not apply.", idempotencyKey: `${secret}\nqueue` }
+    });
+    assert.strictEqual(badIdempotencyKey.statusCode, 400);
+    assert.ok(!badIdempotencyKey.body.includes(secret), badIdempotencyKey.body);
 
     const badTransition = await app.inject({
       method: "POST",
