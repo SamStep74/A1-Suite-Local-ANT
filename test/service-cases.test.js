@@ -38,6 +38,46 @@ async function createFieldVisit(app, cookie, {
   return response.json().visit;
 }
 
+function assertDispatchNavigationEvidence(visit, expectedAddress = visit.location) {
+  const navigation = visit.dispatchNavigation;
+  assert.ok(navigation && typeof navigation === "object");
+  assert.strictEqual(navigation.provider, "google-maps");
+  assert.strictEqual(navigation.source, "service_field_visits.location");
+  assert.strictEqual(navigation.address, expectedAddress);
+  assert.ok(navigation.mapQuery.includes(expectedAddress), navigation.mapQuery);
+  if (visit.customerName) assert.ok(navigation.mapQuery.includes(visit.customerName), navigation.mapQuery);
+  if (visit.caseNumber) assert.ok(navigation.mapQuery.includes(visit.caseNumber), navigation.mapQuery);
+
+  const mapUrl = new URL(navigation.mapUrl);
+  assert.strictEqual(mapUrl.protocol, "https:");
+  assert.strictEqual(mapUrl.hostname, "www.google.com");
+  assert.strictEqual(mapUrl.pathname, "/maps/search/");
+  assert.strictEqual(mapUrl.searchParams.get("api"), "1");
+  assert.strictEqual(mapUrl.searchParams.get("query"), navigation.mapQuery);
+
+  const directionsUrl = new URL(navigation.directionsUrl);
+  assert.strictEqual(directionsUrl.protocol, "https:");
+  assert.strictEqual(directionsUrl.hostname, "www.google.com");
+  assert.strictEqual(directionsUrl.pathname, "/maps/dir/");
+  assert.strictEqual(directionsUrl.searchParams.get("api"), "1");
+  assert.strictEqual(directionsUrl.searchParams.get("destination"), expectedAddress);
+
+  for (const url of [navigation.mapUrl, navigation.directionsUrl]) {
+    assert.doesNotMatch(url, /[\x00-\x1f\x7f]/);
+    assert.doesNotMatch(url, /\s/);
+    assert.ok(url.startsWith("https://"));
+  }
+  return navigation;
+}
+
+function assertNavigationUrlsEncodeSpecialAddress(navigation, address) {
+  const encodedAddress = new URLSearchParams({ value: address }).toString().replace(/^value=/, "");
+  assert.ok(navigation.mapUrl.includes(encodedAddress), navigation.mapUrl);
+  assert.ok(navigation.directionsUrl.includes(encodedAddress), navigation.directionsUrl);
+  assert.ok(!navigation.mapUrl.includes(address), navigation.mapUrl);
+  assert.ok(!navigation.directionsUrl.includes(address), navigation.directionsUrl);
+}
+
 test("service console exposes customers + agents pickers; create + PATCH a case", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -96,10 +136,13 @@ test("service field visits are seeded, listed, and exposed in the service consol
     assert.ok(visits[0].subject);
     assert.ok(visits[0].customerName);
     assert.ok(visits[0].assignedUserName);
+    const listedNavigation = assertDispatchNavigationEvidence(visits[0]);
 
     const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie } })).json();
     assert.ok(Array.isArray(console1.fieldVisits));
-    assert.ok(console1.fieldVisits.some(visit => visit.id === visits[0].id));
+    const consoleVisit = console1.fieldVisits.find(visit => visit.id === visits[0].id);
+    assert.ok(consoleVisit);
+    assert.deepStrictEqual(consoleVisit.dispatchNavigation, listedNavigation);
   } finally { await app.close(); }
 });
 
@@ -113,6 +156,7 @@ test("creating a service field visit validates case/customer/user and appears in
     const assignee = console1.agents.find(agent => agent.role === "Service Manager") || console1.agents[0];
     const scheduledStartAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
     const scheduledEndAt = new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString();
+    const location = "Nare Clinic & Warehouse #7 / Komitas 12";
 
     const created = await app.inject({
       method: "POST",
@@ -125,7 +169,7 @@ test("creating a service field visit validates case/customer/user and appears in
         scheduledStartAt,
         scheduledEndAt,
         status: "scheduled",
-        location: "Nare Clinic reception",
+        location,
         worksheetSummary: "Check printer queue and capture onsite evidence."
       }
     });
@@ -139,9 +183,13 @@ test("creating a service field visit validates case/customer/user and appears in
     assert.strictEqual(visit.assignedUserName, assignee.name);
     assert.strictEqual(visit.scheduledStartAt, scheduledStartAt);
     assert.strictEqual(visit.scheduledEndAt, scheduledEndAt);
+    assert.strictEqual(visit.location, location);
+    assertNavigationUrlsEncodeSpecialAddress(assertDispatchNavigationEvidence(visit, location), location);
 
     const console2 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie } })).json();
-    assert.ok(console2.fieldVisits.some(item => item.id === visit.id));
+    const consoleVisit = console2.fieldVisits.find(item => item.id === visit.id);
+    assert.ok(consoleVisit);
+    assertDispatchNavigationEvidence(consoleVisit, location);
     const auditCount = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.field_visit.created").count;
     assert.strictEqual(auditCount, 1);
   } finally { await app.close(); }
@@ -157,6 +205,7 @@ test("PATCH updates service field visit worksheet, status, time, and assignee", 
     const assignee = console1.agents.find(agent => agent.id !== visit.assignedUserId) || console1.agents[0];
     const scheduledStartAt = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
     const scheduledEndAt = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString();
+    const location = "Nare Clinic & Server #2 / Komitas 18";
 
     const patched = await app.inject({
       method: "PATCH",
@@ -164,7 +213,7 @@ test("PATCH updates service field visit worksheet, status, time, and assignee", 
       headers: { cookie },
       payload: {
         status: "in-progress",
-        location: "Nare Clinic server room",
+        location,
         worksheetSummary: "Technician confirmed router power cycle and attached service notes.",
         scheduledStartAt,
         scheduledEndAt,
@@ -172,12 +221,15 @@ test("PATCH updates service field visit worksheet, status, time, and assignee", 
       }
     });
     assert.strictEqual(patched.statusCode, 200, patched.body);
-    assert.strictEqual(patched.json().visit.status, "in-progress");
-    assert.strictEqual(patched.json().visit.location, "Nare Clinic server room");
-    assert.strictEqual(patched.json().visit.worksheetSummary, "Technician confirmed router power cycle and attached service notes.");
-    assert.strictEqual(patched.json().visit.scheduledStartAt, scheduledStartAt);
-    assert.strictEqual(patched.json().visit.scheduledEndAt, scheduledEndAt);
-    assert.strictEqual(patched.json().visit.assignedUserId, assignee.id);
+    const patchedVisit = patched.json().visit;
+    assert.strictEqual(patchedVisit.status, "in-progress");
+    assert.strictEqual(patchedVisit.location, location);
+    assert.strictEqual(patchedVisit.worksheetSummary, "Technician confirmed router power cycle and attached service notes.");
+    assert.strictEqual(patchedVisit.scheduledStartAt, scheduledStartAt);
+    assert.strictEqual(patchedVisit.scheduledEndAt, scheduledEndAt);
+    assert.strictEqual(patchedVisit.assignedUserId, assignee.id);
+    assert.notStrictEqual(patchedVisit.dispatchNavigation.address, visit.dispatchNavigation.address);
+    assertNavigationUrlsEncodeSpecialAddress(assertDispatchNavigationEvidence(patchedVisit, location), location);
 
     const badWindow = await app.inject({
       method: "PATCH",
@@ -224,6 +276,7 @@ test("assigned technician lists own visits and records technician status audit",
     assert.ok(visits.some(visit => visit.id === supportVisit.id));
     assert.ok(!visits.some(visit => visit.id === managerVisit.id));
     assert.ok(visits.every(visit => visit.assignedUserId === support.id));
+    assertDispatchNavigationEvidence(visits.find(visit => visit.id === supportVisit.id), supportVisit.location);
 
     const moves = [
       { status: "en-route", worksheetSummary: "Technician is en route with replacement paper tray.", changed: true },

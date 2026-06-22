@@ -57069,8 +57069,52 @@ function formatServiceFieldVisit(row) {
     location: row.location,
     worksheetSummary: row.worksheet_summary,
     createdAt: row.created_at,
-    updatedAt: row.updated_at
+    updatedAt: row.updated_at,
+    dispatchNavigation: buildServiceFieldVisitDispatchNavigation(row)
   };
+}
+
+function buildServiceFieldVisitDispatchNavigation(row) {
+  const address = serviceFieldVisitNavigationText(row.location)
+    || serviceFieldVisitNavigationText(row.customer_name)
+    || serviceFieldVisitNavigationText(row.case_number)
+    || "Service field visit";
+  const queryParts = [
+    address,
+    serviceFieldVisitNavigationText(row.customer_name),
+    serviceFieldVisitNavigationText(row.case_number)
+  ];
+  const seen = new Set();
+  const mapQuery = queryParts
+    .filter(part => {
+      if (!part || seen.has(part)) return false;
+      seen.add(part);
+      return true;
+    })
+    .join(", ");
+  return {
+    address,
+    mapQuery,
+    mapUrl: buildServiceFieldVisitNavigationUrl("/maps/search/", { api: "1", query: mapQuery }),
+    directionsUrl: buildServiceFieldVisitNavigationUrl("/maps/dir/", { api: "1", destination: address }),
+    provider: "google-maps",
+    source: "service_field_visits.location"
+  };
+}
+
+function serviceFieldVisitNavigationText(value) {
+  if (value === null || value === undefined) return "";
+  const text = String(value).replace(/[\x00-\x1f\x7f]+/g, " ").replace(/\s+/g, " ").trim();
+  if (!text || looksLikeSensitiveToken(text)) return "";
+  return text.slice(0, 240);
+}
+
+function buildServiceFieldVisitNavigationUrl(pathname, params) {
+  const url = new URL(`https://www.google.com${pathname}`);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+  return url.toString();
 }
 
 function createServiceFieldVisit(db, user, body) {

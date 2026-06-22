@@ -85,6 +85,27 @@ export const ServiceSlaPoliciesResponseSchema = z.union([
 ]);
 export type ServiceSlaPoliciesResponse = z.infer<typeof ServiceSlaPoliciesResponseSchema>;
 
+export const ServiceFieldVisitDispatchNavigationSchema = z
+  .object({
+    address: z.string().optional(),
+    mapQuery: z.string().optional(),
+    routeLine: z.string().optional(),
+    mapUrl: z.string().optional(),
+    directionsUrl: z.string().optional(),
+    navigationUrl: z.string().optional(),
+    googleMapsUrl: z.string().optional(),
+    appleMapsUrl: z.string().optional(),
+    wazeUrl: z.string().optional(),
+    latitude: z.number().optional(),
+    longitude: z.number().optional(),
+    provider: z.string().optional(),
+    source: z.string().optional(),
+  })
+  .passthrough();
+export type ServiceFieldVisitDispatchNavigation = z.infer<
+  typeof ServiceFieldVisitDispatchNavigationSchema
+>;
+
 export const ServiceFieldVisitSchema = z
   .object({
     id: z.string(),
@@ -102,6 +123,7 @@ export const ServiceFieldVisitSchema = z
     subject: z.string().nullable().optional(),
     customerName: z.string().nullable().optional(),
     assignedUserName: z.string().nullable().optional(),
+    dispatchNavigation: ServiceFieldVisitDispatchNavigationSchema.nullable().optional(),
   })
   .passthrough();
 export type ServiceFieldVisit = z.infer<typeof ServiceFieldVisitSchema>;

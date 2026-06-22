@@ -258,6 +258,29 @@ describe("ServiceFieldVisitSchema", () => {
     expect(r.success).toBe(true);
   });
 
+  it("accepts optional dispatch navigation map and directions fields", () => {
+    const r = ServiceFieldVisitSchema.safeParse({
+      ...VALID_FIELD_VISIT,
+      dispatchNavigation: {
+        address: "Ani Beauty, Yerevan",
+        mapQuery: "Ani Beauty, Yerevan, AO-CASE-1001",
+        mapUrl: "https://www.google.com/maps/search/?api=1&query=Ani%20Beauty%2C%20Yerevan",
+        directionsUrl: "https://www.google.com/maps/dir/?api=1&destination=Ani%20Beauty%2C%20Yerevan",
+        provider: "google-maps",
+        source: "service_field_visits.location",
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.dispatchNavigation?.address).toBe("Ani Beauty, Yerevan");
+      expect(r.data.dispatchNavigation?.mapQuery).toContain("AO-CASE-1001");
+      expect(r.data.dispatchNavigation?.mapUrl).toContain("www.google.com/maps/search");
+      expect(r.data.dispatchNavigation?.directionsUrl).toContain("www.google.com/maps/dir");
+      expect(r.data.dispatchNavigation?.provider).toBe("google-maps");
+    }
+  });
+
   it("accepts standalone field visit response envelopes", () => {
     const response = ServiceFieldVisitsResponseSchema.parse({
       visits: [VALID_FIELD_VISIT],

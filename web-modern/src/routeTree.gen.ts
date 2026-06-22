@@ -49,6 +49,7 @@ import { Route as AppFormsFormIdRouteImport } from './routes/app/forms/$formId'
 import { Route as AppFlowRuleIdRouteImport } from './routes/app/flow/$ruleId'
 import { Route as AppFinanceInvoiceIdRouteImport } from './routes/app/finance/$invoiceId'
 import { Route as AppDocsDocumentIdRouteImport } from './routes/app/docs/$documentId'
+import { Route as AppDeskDispatchRouteImport } from './routes/app/desk/dispatch'
 import { Route as AppDeskCaseIdRouteImport } from './routes/app/desk/$caseId'
 import { Route as AppCrmQuoteIdRouteImport } from './routes/app/crm/$quoteId'
 import { Route as AppCrmTubeInboxRouteImport } from './routes/app/crm-tube/inbox'
@@ -277,6 +278,11 @@ const AppDocsDocumentIdRoute = AppDocsDocumentIdRouteImport.update({
   path: '/docs/$documentId',
   getParentRoute: () => AppRouteRoute,
 } as any)
+const AppDeskDispatchRoute = AppDeskDispatchRouteImport.update({
+  id: '/desk/dispatch',
+  path: '/desk/dispatch',
+  getParentRoute: () => AppRouteRoute,
+} as any)
 const AppDeskCaseIdRoute = AppDeskCaseIdRouteImport.update({
   id: '/desk/$caseId',
   path: '/desk/$caseId',
@@ -442,6 +448,7 @@ export interface FileRoutesByFullPath {
   '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/desk/dispatch': typeof AppDeskDispatchRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
   '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
   '/app/flow/$ruleId': typeof AppFlowRuleIdRoute
@@ -509,6 +516,7 @@ export interface FileRoutesByTo {
   '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/desk/dispatch': typeof AppDeskDispatchRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
   '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
   '/app/flow/$ruleId': typeof AppFlowRuleIdRoute
@@ -579,6 +587,7 @@ export interface FileRoutesById {
   '/app/crm-tube/inbox': typeof AppCrmTubeInboxRoute
   '/app/crm/$quoteId': typeof AppCrmQuoteIdRoute
   '/app/desk/$caseId': typeof AppDeskCaseIdRoute
+  '/app/desk/dispatch': typeof AppDeskDispatchRoute
   '/app/docs/$documentId': typeof AppDocsDocumentIdRoute
   '/app/finance/$invoiceId': typeof AppFinanceInvoiceIdRoute
   '/app/flow/$ruleId': typeof AppFlowRuleIdRoute
@@ -650,6 +659,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/inbox'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/desk/dispatch'
     | '/app/docs/$documentId'
     | '/app/finance/$invoiceId'
     | '/app/flow/$ruleId'
@@ -717,6 +727,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/inbox'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/desk/dispatch'
     | '/app/docs/$documentId'
     | '/app/finance/$invoiceId'
     | '/app/flow/$ruleId'
@@ -786,6 +797,7 @@ export interface FileRouteTypes {
     | '/app/crm-tube/inbox'
     | '/app/crm/$quoteId'
     | '/app/desk/$caseId'
+    | '/app/desk/dispatch'
     | '/app/docs/$documentId'
     | '/app/finance/$invoiceId'
     | '/app/flow/$ruleId'
@@ -1130,6 +1142,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDocsDocumentIdRouteImport
       parentRoute: typeof AppRouteRoute
     }
+    '/app/desk/dispatch': {
+      id: '/app/desk/dispatch'
+      path: '/desk/dispatch'
+      fullPath: '/app/desk/dispatch'
+      preLoaderRoute: typeof AppDeskDispatchRouteImport
+      parentRoute: typeof AppRouteRoute
+    }
     '/app/desk/$caseId': {
       id: '/app/desk/$caseId'
       path: '/desk/$caseId'
@@ -1347,6 +1366,7 @@ interface AppRouteRouteChildren {
   AppCrmTubeInboxRoute: typeof AppCrmTubeInboxRoute
   AppCrmQuoteIdRoute: typeof AppCrmQuoteIdRoute
   AppDeskCaseIdRoute: typeof AppDeskCaseIdRoute
+  AppDeskDispatchRoute: typeof AppDeskDispatchRoute
   AppDocsDocumentIdRoute: typeof AppDocsDocumentIdRoute
   AppFinanceInvoiceIdRoute: typeof AppFinanceInvoiceIdRoute
   AppFlowRuleIdRoute: typeof AppFlowRuleIdRoute
@@ -1410,6 +1430,7 @@ const AppRouteRouteChildren: AppRouteRouteChildren = {
   AppCrmTubeInboxRoute: AppCrmTubeInboxRoute,
   AppCrmQuoteIdRoute: AppCrmQuoteIdRoute,
   AppDeskCaseIdRoute: AppDeskCaseIdRoute,
+  AppDeskDispatchRoute: AppDeskDispatchRoute,
   AppDocsDocumentIdRoute: AppDocsDocumentIdRoute,
   AppFinanceInvoiceIdRoute: AppFinanceInvoiceIdRoute,
   AppFlowRuleIdRoute: AppFlowRuleIdRoute,
