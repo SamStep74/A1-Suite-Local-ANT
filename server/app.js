@@ -684,6 +684,14 @@ function registerApi(app, db, options = {}) {
     return createPosCashSale(db, user, sessionId, request.body === undefined ? {} : request.body);
   });
 
+  app.post("/api/pos/sales/:id/receipt-packet", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosWriter(user);
+    const saleId = normalizePosSalePathId(request.params.id);
+    return createPosReceiptPacket(db, user, saleId, request.body === undefined ? {} : request.body);
+  });
+
   app.post("/api/pos/cash-sessions/:id/close", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "pos");
@@ -46768,6 +46776,7 @@ const ORG_BACKUP_TABLES = [
   "pos_cash_sessions",
   "pos_sales",
   "pos_sale_lines",
+  "pos_receipt_packets",
   "stock_locations",
   "stock_quants",
   "stock_moves",
@@ -54970,6 +54979,276 @@ function createPosCashSale(db, user, sessionId, body) {
   return buildPosSaleResponse(db, user.org_id, saleId, sessionId);
 }
 
+function createPosReceiptPacket(db, user, saleId, body) {
+  const input = normalizePosReceiptPacketBody(body);
+  const source = getPosReceiptPacketSource(db, user.org_id, saleId);
+  if (!source) throwPosSaleNotFound();
+
+  const existing = getPosReceiptPacketBySale(db, user.org_id, saleId, true);
+  if (existing) {
+    return {
+      ok: true,
+      idempotent: true,
+      receiptPacket: existing,
+      sale: getPosSale(db, user.org_id, saleId)
+    };
+  }
+  if (source.sale.status !== "posted") {
+    const err = new Error("POS sale must be posted before receipt packet preparation");
+    err.statusCode = 409;
+    throw err;
+  }
+
+  const fiscalDeviceId = input.fiscalDeviceId || source.sale.session_fiscal_device_id || "";
+  if (!fiscalDeviceId) throwInvalidPosMetadata();
+
+  const now = new Date().toISOString();
+  const packetId = randomId("pos-receipt-packet");
+  const payload = buildPosReceiptPacketPayload(source, input, fiscalDeviceId, user, now);
+  const checksum = sha256Json(payload);
+
+  try {
+    db.exec("BEGIN");
+    db.prepare(`
+      INSERT INTO pos_receipt_packets (
+        id, org_id, sale_id, cash_session_id, receipt_number, fiscal_device_id,
+        packet_status, packet_kind, packet_format, checksum, payload_json,
+        prepared_by_user_id, prepared_at, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, 'prepared', ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      packetId,
+      user.org_id,
+      source.sale.id,
+      source.sale.cash_session_id,
+      source.sale.receipt_number,
+      fiscalDeviceId,
+      input.packetKind,
+      input.packetFormat,
+      checksum,
+      JSON.stringify(payload),
+      user.id,
+      now,
+      now
+    );
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "pos.receipt_packet.prepared",
+      subjectType: "pos_receipt_packet",
+      subjectId: packetId,
+      status: "prepared",
+      payload: {
+        saleId: source.sale.id,
+        cashSessionId: source.sale.cash_session_id,
+        receiptNumber: source.sale.receipt_number,
+        fiscalDeviceId,
+        checksum,
+        handoffMode: "local-prepared-only"
+      }
+    });
+    audit(db, user.org_id, user.id, "pos.receipt_packet.prepared", {
+      packetId,
+      saleId: source.sale.id,
+      cashSessionId: source.sale.cash_session_id,
+      receiptNumber: source.sale.receipt_number,
+      fiscalDeviceId,
+      checksum,
+      handoffMode: "local-prepared-only"
+    });
+    db.exec("COMMIT");
+  } catch (err) {
+    try { db.exec("ROLLBACK"); } catch {}
+    if (isPosReceiptPacketUniqueConstraint(err)) {
+      const replay = getPosReceiptPacketBySale(db, user.org_id, saleId, true);
+      if (replay) {
+        return {
+          ok: true,
+          idempotent: true,
+          receiptPacket: replay,
+          sale: getPosSale(db, user.org_id, saleId)
+        };
+      }
+    }
+    throw err;
+  }
+
+  return {
+    ok: true,
+    idempotent: false,
+    receiptPacket: getPosReceiptPacketBySale(db, user.org_id, saleId, true),
+    sale: getPosSale(db, user.org_id, saleId)
+  };
+}
+
+function getPosReceiptPacketSource(db, orgId, saleId) {
+  const sale = db.prepare(`
+    SELECT
+      pos_sales.id,
+      pos_sales.cash_session_id,
+      pos_sales.cashier_user_id,
+      pos_sales.stock_location_id,
+      pos_sales.register_code,
+      pos_sales.receipt_number,
+      pos_sales.source_key,
+      pos_sales.status,
+      pos_sales.sold_at,
+      pos_sales.currency,
+      pos_sales.subtotal_amd,
+      pos_sales.vat_amd,
+      pos_sales.total_amd,
+      pos_sales.paid_cash_amd,
+      pos_sales.payment_method,
+      pos_sales.inventory_posting_status,
+      pos_sales.ledger_posting_status,
+      pos_sales.created_by_user_id,
+      pos_sales.created_at,
+      pos_sales.updated_at,
+      pos_cash_sessions.status AS session_status,
+      pos_cash_sessions.opening_cash_amd AS session_opening_cash_amd,
+      pos_cash_sessions.expected_cash_amd AS session_expected_cash_amd,
+      pos_cash_sessions.counted_cash_amd AS session_counted_cash_amd,
+      pos_cash_sessions.cash_difference_amd AS session_cash_difference_amd,
+      pos_cash_sessions.opened_at AS session_opened_at,
+      pos_cash_sessions.closed_at AS session_closed_at,
+      pos_cash_sessions.fiscal_device_id AS session_fiscal_device_id,
+      pos_cash_sessions.z_report_number AS session_z_report_number,
+      pos_cash_sessions.receipt_number_start AS session_receipt_number_start,
+      pos_cash_sessions.receipt_number_end AS session_receipt_number_end
+    FROM pos_sales
+    JOIN pos_cash_sessions ON pos_cash_sessions.id = pos_sales.cash_session_id
+      AND pos_cash_sessions.org_id = pos_sales.org_id
+    WHERE pos_sales.org_id = ? AND pos_sales.id = ?
+  `).get(orgId, saleId);
+  if (!sale) return null;
+  const lines = db.prepare(`
+    SELECT *
+    FROM pos_sale_lines
+    WHERE org_id = ? AND sale_id = ?
+    ORDER BY line_number, id
+  `).all(orgId, saleId);
+  return { sale, lines };
+}
+
+function buildPosReceiptPacketPayload(source, input, fiscalDeviceId, user, preparedAt) {
+  const sale = source.sale;
+  return {
+    kind: "armosphera-one-pos-receipt-packet",
+    product: "Armosphera One",
+    schemaVersion: 1,
+    generatedAt: preparedAt,
+    packet: {
+      status: "prepared",
+      kind: input.packetKind,
+      format: input.packetFormat,
+      preparedAt,
+      preparedByUserId: user.id
+    },
+    sale: {
+      id: sale.id,
+      cashSessionId: sale.cash_session_id,
+      receiptNumber: sale.receipt_number,
+      sourceKey: sale.source_key,
+      status: sale.status,
+      soldAt: sale.sold_at,
+      currency: sale.currency,
+      paymentMethod: sale.payment_method,
+      cashierUserId: sale.cashier_user_id,
+      stockLocationId: sale.stock_location_id,
+      registerCode: sale.register_code,
+      totals: {
+        subtotal: sale.subtotal_amd,
+        vat: sale.vat_amd,
+        total: sale.total_amd,
+        paidCash: sale.paid_cash_amd
+      },
+      postings: {
+        salePosting: sale.status === "posted" ? "posted" : "not-posted",
+        inventoryPosting: sale.inventory_posting_status || "not-posted",
+        ledgerPosting: sale.ledger_posting_status || "not-posted"
+      }
+    },
+    session: {
+      id: sale.cash_session_id,
+      status: sale.session_status,
+      registerCode: sale.register_code,
+      cashierUserId: sale.cashier_user_id,
+      stockLocationId: sale.stock_location_id,
+      openingCash: sale.session_opening_cash_amd,
+      expectedCash: sale.session_expected_cash_amd,
+      countedCash: sale.session_counted_cash_amd,
+      cashDifference: sale.session_cash_difference_amd,
+      openedAt: sale.session_opened_at,
+      closedAt: sale.session_closed_at || "",
+      fiscalDeviceId: sale.session_fiscal_device_id || "",
+      zReportNumber: sale.session_z_report_number || "",
+      receiptNumberStart: sale.session_receipt_number_start || "",
+      receiptNumberEnd: sale.session_receipt_number_end || ""
+    },
+    lines: source.lines.map(line => ({
+      lineNumber: line.line_number,
+      catalogItemId: line.catalog_item_id,
+      catalogItemVariantId: line.catalog_item_variant_id || null,
+      sku: line.sku,
+      name: line.name,
+      quantity: line.quantity,
+      unitPrice: line.unit_price_amd,
+      subtotal: line.subtotal_amd,
+      vat: line.vat_amd,
+      total: line.total_amd,
+      vatMode: line.vat_mode,
+      fiscalReceiptRequired: Boolean(line.fiscal_receipt_required),
+      stockMoveId: line.stock_move_id || null
+    })),
+    fiscal: {
+      deviceId: fiscalDeviceId,
+      receiptNumber: sale.receipt_number,
+      packetStatus: "prepared",
+      liveSubmission: false,
+      submissionStatus: "not-submitted"
+    },
+    controls: [
+      "posted-pos-sale-required",
+      "tenant-scoped-replay-by-sale",
+      "checksum-covers-sale-session-lines",
+      "local-fiscal-handoff-evidence-only",
+      "no-live-fiscal-device-submission"
+    ]
+  };
+}
+
+function getPosReceiptPacketBySale(db, orgId, saleId, includePayload = false) {
+  const row = db.prepare(`
+    SELECT pos_receipt_packets.*, users.name AS prepared_by_name
+    FROM pos_receipt_packets
+    LEFT JOIN users ON users.id = pos_receipt_packets.prepared_by_user_id
+      AND users.org_id = pos_receipt_packets.org_id
+    WHERE pos_receipt_packets.org_id = ? AND pos_receipt_packets.sale_id = ?
+  `).get(orgId, saleId);
+  return row ? formatPosReceiptPacket(row, includePayload) : null;
+}
+
+function formatPosReceiptPacket(row, includePayload = false) {
+  const packet = {
+    id: row.id,
+    saleId: row.sale_id,
+    cashSessionId: row.cash_session_id,
+    receiptNumber: row.receipt_number,
+    fiscalDeviceId: row.fiscal_device_id,
+    status: row.packet_status,
+    packetStatus: row.packet_status,
+    packetKind: row.packet_kind,
+    packetFormat: row.packet_format,
+    checksum: row.checksum,
+    preparedByUserId: row.prepared_by_user_id || "",
+    preparedByName: row.prepared_by_name || "",
+    preparedAt: row.prepared_at,
+    createdAt: row.created_at
+  };
+  if (includePayload) packet.payload = safeJson(row.payload_json);
+  return packet;
+}
+
 function closePosCashSession(db, user, sessionId, body) {
   const session = getPosCashSessionRow(db, user.org_id, sessionId);
   if (!session) throwPosCashSessionNotFound();
@@ -55183,6 +55462,15 @@ function normalizePosCashSaleBody(body) {
   };
 }
 
+function normalizePosReceiptPacketBody(body) {
+  if (!isPlainObject(body)) throwInvalidPosMetadata();
+  return {
+    fiscalDeviceId: normalizePosText(body, "fiscalDeviceId", { fallback: "", maxLength: 120 }),
+    packetKind: normalizePosChoice(body, "packetKind", ["pos-fiscal-receipt-handoff"], "pos-fiscal-receipt-handoff"),
+    packetFormat: normalizePosChoice(body, "packetFormat", ["json-v1"], "json-v1")
+  };
+}
+
 function normalizePosCashSaleLine(line) {
   if (!isPlainObject(line)) throwInvalidPosMetadata();
   let catalogItemVariantId = "";
@@ -55329,6 +55617,13 @@ function normalizePosCashSessionPathId(value) {
   return text;
 }
 
+function normalizePosSalePathId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) throwInvalidPosMetadata();
+  return text;
+}
+
 function assertPosCashier(db, orgId, userId) {
   const row = db.prepare("SELECT id, role FROM users WHERE org_id = ? AND id = ?").get(orgId, userId);
   if (!row) {
@@ -55356,6 +55651,12 @@ function throwPosCashSessionNotFound() {
   throw err;
 }
 
+function throwPosSaleNotFound() {
+  const err = new Error("POS sale not found");
+  err.statusCode = 404;
+  throw err;
+}
+
 function throwInvalidPosMetadata() {
   const err = new Error("POS request requires safe metadata");
   err.statusCode = 400;
@@ -55364,6 +55665,10 @@ function throwInvalidPosMetadata() {
 
 function isPosSaleUniqueConstraint(err) {
   return Boolean(err && /UNIQUE constraint failed: pos_sales\./.test(String(err.message || "")));
+}
+
+function isPosReceiptPacketUniqueConstraint(err) {
+  return Boolean(err && /UNIQUE constraint failed: pos_receipt_packets\./.test(String(err.message || "")));
 }
 
 function getPurchaseVendors(db, orgId, asOfDate = armeniaDateString()) {

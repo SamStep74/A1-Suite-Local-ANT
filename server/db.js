@@ -742,6 +742,30 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_pos_sale_lines_stock_move
       ON pos_sale_lines(org_id, stock_move_id);
 
+    CREATE TABLE IF NOT EXISTS pos_receipt_packets (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      sale_id TEXT NOT NULL REFERENCES pos_sales(id) ON DELETE CASCADE,
+      cash_session_id TEXT NOT NULL REFERENCES pos_cash_sessions(id) ON DELETE CASCADE,
+      receipt_number TEXT NOT NULL,
+      fiscal_device_id TEXT NOT NULL,
+      packet_status TEXT NOT NULL DEFAULT 'prepared',
+      packet_kind TEXT NOT NULL DEFAULT 'pos-fiscal-receipt-handoff',
+      packet_format TEXT NOT NULL DEFAULT 'json-v1',
+      checksum TEXT NOT NULL,
+      payload_json TEXT NOT NULL,
+      prepared_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      prepared_at TEXT NOT NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, sale_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pos_receipt_packets_session
+      ON pos_receipt_packets(org_id, cash_session_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_receipt_packets_status
+      ON pos_receipt_packets(org_id, packet_status, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS stock_quants (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

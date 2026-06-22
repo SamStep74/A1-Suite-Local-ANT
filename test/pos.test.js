@@ -1,6 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert/strict");
+const crypto = require("node:crypto");
 const { buildApp } = require("../server/app");
 const { DEFAULT_EMAIL, DEFAULT_PASSWORD } = require("../server/db");
 
@@ -12,6 +13,45 @@ async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
   });
   assert.equal(response.statusCode, 200, response.body);
   return response.headers["set-cookie"];
+}
+
+function sha256Json(value) {
+  return crypto.createHash("sha256").update(JSON.stringify(value)).digest("hex");
+}
+
+async function createPostedPosSale(app, operator, options = {}) {
+  const orgId = "org-armosphera-demo";
+  app.db.prepare("UPDATE finance_periods SET status = 'open' WHERE org_id = ? AND period_key = ?")
+    .run(orgId, new Date().toISOString().slice(0, 7));
+  const stockLocationId = options.stockLocationId || "stockloc-main-warehouse";
+  const opened = await app.inject({
+    method: "POST",
+    url: "/api/pos/cash-sessions",
+    headers: { cookie: operator },
+    payload: {
+      stockLocationId,
+      registerCode: options.registerCode || "POS-PACKET",
+      openingCash: options.openingCash ?? 10000,
+      fiscalDeviceId: options.fiscalDeviceId ?? "FISCAL-AM-PACKET",
+      openedAt: options.openedAt || "2026-06-22T08:00:00.000Z"
+    }
+  });
+  assert.equal(opened.statusCode, 200, opened.body);
+  const session = opened.json().session;
+  const posted = await app.inject({
+    method: "POST",
+    url: `/api/pos/cash-sessions/${session.id}/sales`,
+    headers: { cookie: operator },
+    payload: {
+      receiptNumber: options.receiptNumber || "R-PACKET-001",
+      paymentMethod: options.paymentMethod || "cash",
+      soldAt: options.soldAt || "2026-06-22T09:15:00.000Z",
+      idempotencyKey: options.idempotencyKey || "pos-receipt-packet-sale",
+      lines: options.lines || [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 1 }]
+    }
+  });
+  assert.equal(posted.statusCode, 200, posted.body);
+  return { session, sale: posted.json().sale };
 }
 
 test("pos: workspace is auth-gated, app-gated, and launcher-assigned", async () => {
@@ -399,6 +439,182 @@ test("pos: cash sale replays duplicate source key and rejects duplicate receipt 
       }
     });
     assert.equal(closedSale.statusCode, 409, closedSale.body);
+  } finally {
+    await app.close();
+  }
+});
+
+test("pos: receipt packet prepares local fiscal handoff evidence for a posted sale", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const owner = await login(app);
+    const orgId = "org-armosphera-demo";
+    const { session, sale } = await createPostedPosSale(app, operator, {
+      registerCode: "POS-PACKET",
+      fiscalDeviceId: "FISCAL-AM-PACKET",
+      receiptNumber: "R-PACKET-001",
+      idempotencyKey: "pos-receipt-packet-sale-1"
+    });
+    const auditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE org_id = ? AND type = ?
+    `).get(orgId, "pos.receipt_packet.prepared").count;
+    const eventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE org_id = ? AND event_type = ?
+    `).get(orgId, "pos.receipt_packet.prepared").count;
+    const beforeAudit = auditCount();
+    const beforeEvents = eventCount();
+
+    const prepared = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/receipt-packet`,
+      headers: { cookie: operator },
+      payload: {}
+    });
+    assert.equal(prepared.statusCode, 200, prepared.body);
+    const body = prepared.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.idempotent, false);
+    assert.equal(body.sale.id, sale.id);
+
+    const packet = body.receiptPacket;
+    assert.match(packet.id, /^pos-receipt-packet-/);
+    assert.equal(packet.saleId, sale.id);
+    assert.equal(packet.cashSessionId, session.id);
+    assert.equal(packet.receiptNumber, "R-PACKET-001");
+    assert.equal(packet.fiscalDeviceId, "FISCAL-AM-PACKET");
+    assert.equal(packet.packetStatus, "prepared");
+    assert.equal(packet.packetKind, "pos-fiscal-receipt-handoff");
+    assert.equal(packet.packetFormat, "json-v1");
+    assert.match(packet.checksum, /^[a-f0-9]{64}$/);
+
+    assert.equal(packet.payload.kind, "armosphera-one-pos-receipt-packet");
+    assert.equal(packet.payload.sale.id, sale.id);
+    assert.equal(packet.payload.sale.status, "posted");
+    assert.deepEqual(packet.payload.sale.totals, {
+      subtotal: sale.subtotal,
+      vat: sale.vat,
+      total: sale.total,
+      paidCash: sale.paidCash
+    });
+    assert.equal(packet.payload.session.id, session.id);
+    assert.equal(packet.payload.session.fiscalDeviceId, "FISCAL-AM-PACKET");
+    assert.equal(packet.payload.lines.length, 1);
+    assert.equal(packet.payload.lines[0].sku, "HW-BARCODE-SCANNER");
+    assert.equal(packet.payload.lines[0].fiscalReceiptRequired, true);
+    assert.equal(packet.payload.fiscal.deviceId, "FISCAL-AM-PACKET");
+    assert.equal(packet.payload.fiscal.liveSubmission, false);
+    assert.equal(packet.payload.fiscal.submissionStatus, "not-submitted");
+    assert.ok(packet.payload.controls.includes("no-live-fiscal-device-submission"));
+    assert.equal(packet.checksum, sha256Json(packet.payload));
+
+    const replayed = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/receipt-packet`,
+      headers: { cookie: operator },
+      payload: { fiscalDeviceId: "FISCAL-AM-IGNORED-ON-REPLAY" }
+    });
+    assert.equal(replayed.statusCode, 200, replayed.body);
+    assert.equal(replayed.json().idempotent, true);
+    assert.equal(replayed.json().receiptPacket.id, packet.id);
+    assert.equal(replayed.json().receiptPacket.fiscalDeviceId, "FISCAL-AM-PACKET");
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_receipt_packets WHERE org_id = ? AND sale_id = ?").get(orgId, sale.id).count, 1);
+    assert.equal(auditCount(), beforeAudit + 1);
+    assert.equal(eventCount(), beforeEvents + 1);
+
+    const backup = await app.inject({
+      method: "POST",
+      url: "/api/admin/backups",
+      headers: { cookie: owner },
+      payload: { note: "POS receipt packet evidence must be restorable." }
+    });
+    assert.equal(backup.statusCode, 200, backup.body);
+    assert.ok(backup.json().backup.payload.tables.pos_receipt_packets.some(row => (
+      row.id === packet.id
+      && row.sale_id === sale.id
+      && row.cash_session_id === session.id
+      && row.packet_status === "prepared"
+      && row.checksum === packet.checksum
+    )));
+  } finally {
+    await app.close();
+  }
+});
+
+test("pos: receipt packet rejects malformed input, missing sales, unposted sales, and missing fiscal device", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const orgId = "org-armosphera-demo";
+
+    const badId = await app.inject({
+      method: "POST",
+      url: "/api/pos/sales/POS-SALE-BAD/receipt-packet",
+      headers: { cookie: operator },
+      payload: {}
+    });
+    assert.equal(badId.statusCode, 400, badId.body);
+
+    const badBody = await app.inject({
+      method: "POST",
+      url: "/api/pos/sales/pos-sale-missing/receipt-packet",
+      headers: { cookie: operator },
+      payload: []
+    });
+    assert.equal(badBody.statusCode, 400, badBody.body);
+
+    const missingSale = await app.inject({
+      method: "POST",
+      url: "/api/pos/sales/pos-sale-missing/receipt-packet",
+      headers: { cookie: operator },
+      payload: {}
+    });
+    assert.equal(missingSale.statusCode, 404, missingSale.body);
+
+    const noFiscal = await createPostedPosSale(app, operator, {
+      registerCode: "POS-PACKET-NOFISCAL",
+      fiscalDeviceId: "",
+      receiptNumber: "R-PACKET-NOFISCAL",
+      idempotencyKey: "pos-receipt-packet-no-fiscal"
+    });
+    const missingFiscalDevice = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${noFiscal.sale.id}/receipt-packet`,
+      headers: { cookie: operator },
+      payload: {}
+    });
+    assert.equal(missingFiscalDevice.statusCode, 400, missingFiscalDevice.body);
+
+    const explicitFiscalDevice = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${noFiscal.sale.id}/receipt-packet`,
+      headers: { cookie: operator },
+      payload: { fiscalDeviceId: "FISCAL-AM-BODY" }
+    });
+    assert.equal(explicitFiscalDevice.statusCode, 200, explicitFiscalDevice.body);
+    assert.equal(explicitFiscalDevice.json().receiptPacket.fiscalDeviceId, "FISCAL-AM-BODY");
+
+    const unposted = await createPostedPosSale(app, operator, {
+      registerCode: "POS-PACKET-UNPOSTED",
+      fiscalDeviceId: "FISCAL-AM-UNPOSTED",
+      receiptNumber: "R-PACKET-UNPOSTED",
+      idempotencyKey: "pos-receipt-packet-unposted"
+    });
+    app.db.prepare("UPDATE pos_sales SET status = 'draft' WHERE org_id = ? AND id = ?")
+      .run(orgId, unposted.sale.id);
+    const notPosted = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${unposted.sale.id}/receipt-packet`,
+      headers: { cookie: operator },
+      payload: {}
+    });
+    assert.equal(notPosted.statusCode, 409, notPosted.body);
   } finally {
     await app.close();
   }
