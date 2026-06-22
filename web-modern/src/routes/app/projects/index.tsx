@@ -1611,9 +1611,12 @@ function BillingView({
                     ) : (
                       fieldVisitCostEvidence.map((visit, index) => {
                         const visitLabel = visit.subject || visit.caseNumber || visit.visitId;
-                        const notPostedCount = (visit.ledgerMappings ?? []).filter(
-                          mapping => mapping.status === "not-posted",
-                        ).length;
+                        const materialStatus = (visit.ledgerMappings ?? []).find(
+                          mapping => mapping.bucket === "materials",
+                        )?.status;
+                        const materialStatusLabel = typeof materialStatus === "string"
+                          ? `materials ${materialStatus}`
+                          : null;
                         return (
                           <tr
                             key={`${visit.visitId}-${index}`}
@@ -1626,9 +1629,9 @@ function BillingView({
                               <span className="block font-mono text-[11px] text-[var(--color-muted)]">
                                 {visit.caseNumber || visit.caseId}
                               </span>
-                              {notPostedCount > 0 && (
+                              {materialStatusLabel && (
                                 <span className="mt-1 inline-flex rounded-[var(--radius-sm)] border border-[var(--color-line)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
-                                  not-posted
+                                  {materialStatusLabel}
                                 </span>
                               )}
                             </td>

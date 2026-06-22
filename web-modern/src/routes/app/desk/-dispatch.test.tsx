@@ -396,8 +396,14 @@ describe("/app/desk/dispatch", () => {
           laborMinutes: 60,
           laborCost: 0,
           travelCost: 0,
-          materialCost: 0,
-          totalCost: 0,
+          materialCost: 62000,
+          totalCost: 62000,
+          ledgerMappings: [
+            {
+              bucket: "materials",
+              status: "posted",
+            },
+          ],
           limitations: ["not-posted-to-ledger"],
         },
       },
@@ -417,8 +423,9 @@ describe("/app/desk/dispatch", () => {
     expect(screen.getByText("saved 8 min")).toBeTruthy();
     expect(screen.getByText("Cost basis")).toBeTruthy();
     expect(screen.getByText("60 min")).toBeTruthy();
-    expect(screen.getByText("AMD 0")).toBeTruthy();
-    expect(screen.getByText("not posted")).toBeTruthy();
+    expect(screen.getByText("AMD 62000")).toBeTruthy();
+    expect(screen.getByText("materials posted")).toBeTruthy();
+    expect(screen.queryByText("not posted")).toBeNull();
     expect(screen.getAllByText("Inspect fiscal printer.").length).toBeGreaterThan(0);
 
     const mapLink = screen.getByRole("link", { name: /map/i });

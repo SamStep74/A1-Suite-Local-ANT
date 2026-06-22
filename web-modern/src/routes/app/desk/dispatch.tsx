@@ -1098,7 +1098,11 @@ function formatCostAllocationParts(
     ? costAllocation.limitations.filter((item): item is string => typeof item === "string")
     : [];
   const notPosted = limitations.includes("not-posted-to-ledger") ? "not posted" : undefined;
-  const parts = [minutes, totalCost, notPosted ?? status].filter((part): part is string => Boolean(part));
+  const materialStatus = Array.isArray(costAllocation.ledgerMappings)
+    ? costAllocation.ledgerMappings.find(mapping => mapping.bucket === "materials")?.status
+    : undefined;
+  const materialStatusLabel = typeof materialStatus === "string" ? `materials ${materialStatus}` : undefined;
+  const parts = [minutes, totalCost, materialStatusLabel ?? notPosted ?? status].filter((part): part is string => Boolean(part));
 
   return parts.length > 0 ? ["Cost basis", ...parts] : [];
 }

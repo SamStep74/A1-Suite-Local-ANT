@@ -393,6 +393,13 @@ describe("ServiceFieldVisitSchema", () => {
             recognitionAccount: "7113",
             status: "not-posted",
           },
+          {
+            bucket: "materials",
+            basis: "stock-move-valuation-journal",
+            amount: 62000,
+            postedAmount: 62000,
+            status: "posted",
+          },
         ],
         limitations: ["labor-rate-not-configured"],
         evidence: { traceId: "cost-basis-1" },
@@ -411,6 +418,13 @@ describe("ServiceFieldVisitSchema", () => {
           managementAccount: "8112",
           recognitionAccount: "7113",
           status: "not-posted",
+        },
+        {
+          bucket: "materials",
+          basis: "stock-move-valuation-journal",
+          amount: 62000,
+          postedAmount: 62000,
+          status: "posted",
         },
       ]);
     }
@@ -1350,6 +1364,14 @@ describe("Project profitability schemas", () => {
                 expenseAccount: "713",
                 status: "not-posted",
               },
+              {
+                bucket: "materials",
+                basis: "linked-stock-moves",
+                amount: 62000,
+                postedAmount: 31000,
+                unpostedAmount: 31000,
+                status: "partial",
+              },
             ],
           },
         ],
@@ -1368,6 +1390,7 @@ describe("Project profitability schemas", () => {
       expect(r.data.profitability.productCostEvidence?.[0]?.variantSku).toBe("IMPL-BASE-PRO");
       expect(r.data.profitability.fieldVisitCostEvidence?.[0]?.scheduledMinutes).toBe(75);
       expect(r.data.profitability.fieldVisitCostEvidence?.[0]?.ledgerMappings?.[0]?.status).toBe("not-posted");
+      expect(r.data.profitability.fieldVisitCostEvidence?.[0]?.ledgerMappings?.find(mapping => mapping.bucket === "materials")?.status).toBe("partial");
       expect(r.data.profitability.fieldVisitCostEvidence?.[0]?.materialEvidence?.[0]?.stockMoveId).toBe("stockmove-1");
     }
   });

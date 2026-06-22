@@ -250,13 +250,13 @@ const PROFITABILITY = {
     billedRevenue: 150000,
     unbilledRevenue: 100000,
     totalRevenue: 250000,
-    costTotal: 153750,
+    costTotal: 215750,
     costRate: 8750,
     laborCostTotal: 87500,
     productCostTotal: 56250,
-    fieldVisitCostTotal: 10000,
-    grossProfit: 96250,
-    grossMarginPct: 38.5,
+    fieldVisitCostTotal: 72000,
+    grossProfit: 34250,
+    grossMarginPct: 13.7,
     invoiceCount: 1,
     taskProfitability: [
       {
@@ -319,9 +319,9 @@ const PROFITABILITY = {
         laborMinutes: 75,
         laborCost: 10000,
         travelCost: 0,
-        materialCost: 0,
-        totalCost: 10000,
-        source: "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at/project_profitability.costRate",
+        materialCost: 62000,
+        totalCost: 72000,
+        source: "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at/stock_moves.service_field_visit_id/project_profitability.costRate",
         limitations: [
           "travel-rate-not-configured",
           "inventory-consumption-not-linked",
@@ -334,6 +334,12 @@ const PROFITABILITY = {
             recognitionAccount: "7113",
             amount: 10000,
             status: "not-posted",
+          },
+          {
+            bucket: "materials",
+            basis: "stock-move-valuation-journal",
+            amount: 62000,
+            status: "posted",
           },
         ],
       },
@@ -800,7 +806,7 @@ describe("Projects — Billing view", () => {
     expect(within(marker as HTMLElement).getByText("Unbilled estimate")).toBeInTheDocument();
     expect(within(marker as HTMLElement).getByText("Gross profit")).toBeInTheDocument();
     expect(within(marker as HTMLElement).getByText("Gross margin")).toBeInTheDocument();
-    expect(within(marker as HTMLElement).getByText("39%")).toBeInTheDocument();
+    expect(within(marker as HTMLElement).getByText("14%")).toBeInTheDocument();
     expect(within(marker as HTMLElement).getByText("Cost rate")).toBeInTheDocument();
     expect(within(marker as HTMLElement).getByText("Labor cost")).toBeInTheDocument();
     expect(within(marker as HTMLElement).getByText("Product cost")).toBeInTheDocument();
@@ -827,7 +833,8 @@ describe("Projects — Billing view", () => {
     expect(within(fieldVisitMarker as HTMLElement).getByText("Fiscal printer field check")).toBeInTheDocument();
     expect(within(fieldVisitMarker as HTMLElement).getByText("AO-CASE-1001")).toBeInTheDocument();
     expect(within(fieldVisitMarker as HTMLElement).getByText("75")).toBeInTheDocument();
-    expect(within(fieldVisitMarker as HTMLElement).getByText("not-posted")).toBeInTheDocument();
+    expect(within(fieldVisitMarker as HTMLElement).queryByText("not-posted")).toBeNull();
+    expect(within(fieldVisitMarker as HTMLElement).getByText("materials posted")).toBeInTheDocument();
     expect(within(marker as HTMLElement).getByText("INV-2026-001")).toBeInTheDocument();
     expect(within(marker as HTMLElement).getByText("2026-06-10")).toBeInTheDocument();
   });

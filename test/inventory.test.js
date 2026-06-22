@@ -336,6 +336,20 @@ test("inventory: linked delivery moves surface material cost on service field vi
     assert.equal(withMaterial.costAllocation.totalCost, 62000);
     assert.ok(!withMaterial.costAllocation.limitations.includes("inventory-consumption-not-linked"));
     assert.ok(withMaterial.costAllocation.limitations.includes("not-posted-to-ledger"));
+    assert.deepEqual(withMaterial.costAllocation.ledgerMappings.find(mapping => mapping.bucket === "materials"), {
+      bucket: "materials",
+      basis: "stock-move-valuation-journal",
+      inventoryAccountClass: "2",
+      recognitionAccount: "7113",
+      amount: 62000,
+      expenseAccount: "711",
+      inventoryAccount: "216",
+      postedAmount: 62000,
+      unpostedAmount: 0,
+      valuationPostingIds: [linkedDelivery.json().move.valuationPosting.id],
+      valuationSourceType: "stock_move_valuation",
+      status: "posted"
+    });
     assert.deepEqual(withMaterial.costAllocation.materialEvidence, [{
       serviceFieldVisitId: visit.json().visit.id,
       stockMoveId: linkedDelivery.json().move.id,

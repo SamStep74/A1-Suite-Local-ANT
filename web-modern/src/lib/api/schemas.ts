@@ -144,6 +144,15 @@ export type ServiceFieldVisitTechnicianLocation = z.infer<
   typeof ServiceFieldVisitTechnicianLocationSchema
 >;
 
+export const ServiceFieldVisitLedgerMappingStatusSchema = z.enum(["posted", "partial", "not-posted"]);
+export const ServiceFieldVisitLedgerMappingSchema = z
+  .object({
+    bucket: z.enum(["labor", "travel", "materials"]).nullable().optional(),
+    status: ServiceFieldVisitLedgerMappingStatusSchema.nullable().optional(),
+  })
+  .passthrough();
+export type ServiceFieldVisitLedgerMapping = z.infer<typeof ServiceFieldVisitLedgerMappingSchema>;
+
 export const ServiceFieldVisitCostAllocationSchema = z
   .object({
     strategy: z.string().nullable().optional(),
@@ -157,7 +166,7 @@ export const ServiceFieldVisitCostAllocationSchema = z
     totalCost: z.number().min(0).max(100_000_000_000).nullable().optional(),
     source: z.string().nullable().optional(),
     computedAt: z.string().nullable().optional(),
-    ledgerMappings: z.array(z.record(z.string(), z.unknown())).max(12).optional(),
+    ledgerMappings: z.array(ServiceFieldVisitLedgerMappingSchema).max(12).optional(),
     limitations: z.array(z.string()).max(12).optional(),
     materialEvidence: z.array(z.record(z.string(), z.unknown())).max(100).optional(),
     evidence: z.unknown().optional(),
@@ -2325,7 +2334,7 @@ export const ProjectProfitabilityFieldVisitCostEvidenceSchema = z
     totalCost: z.number().min(0).max(100_000_000_000),
     source: z.string().nullable().optional(),
     limitations: z.array(z.string()).max(12).optional(),
-    ledgerMappings: z.array(z.record(z.string(), z.unknown())).max(12).optional(),
+    ledgerMappings: z.array(ServiceFieldVisitLedgerMappingSchema).max(12).optional(),
     materialEvidence: z.array(z.record(z.string(), z.unknown())).max(100).optional(),
   })
   .passthrough();

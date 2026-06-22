@@ -57613,6 +57613,7 @@ function buildServiceFieldVisitCostAllocationEvidence(row, options = {}) {
   const materialCost = materialEvidence.reduce((sum, item) => sum + Number(item.totalCost || 0), 0);
   const totalCost = materialCost;
   const hasMaterialEvidence = materialCost > 0;
+  const materialLedgerStatus = summarizeServiceFieldVisitMaterialLedgerStatus(materialEvidence, materialCost);
   return {
     strategy: "scheduled-window-cost-basis-v1",
     status: "estimate",
@@ -57645,11 +57646,19 @@ function buildServiceFieldVisitCostAllocationEvidence(row, options = {}) {
       },
       {
         bucket: "materials",
-        basis: hasMaterialEvidence ? "linked-stock-moves" : "inventory-consumption-not-linked",
+        basis: materialLedgerStatus.basis,
         inventoryAccountClass: "2",
         recognitionAccount: "7113",
         amount: materialCost,
-        status: "not-posted"
+        ...(hasMaterialEvidence ? {
+          expenseAccount: materialLedgerStatus.expenseAccount,
+          inventoryAccount: materialLedgerStatus.inventoryAccount,
+          postedAmount: materialLedgerStatus.postedAmount,
+          unpostedAmount: materialLedgerStatus.unpostedAmount,
+          valuationPostingIds: materialLedgerStatus.valuationPostingIds,
+          valuationSourceType: "stock_move_valuation"
+        } : {}),
+        status: materialLedgerStatus.status
       }
     ],
     limitations: [
@@ -57659,6 +57668,33 @@ function buildServiceFieldVisitCostAllocationEvidence(row, options = {}) {
       "not-posted-to-ledger"
     ],
     materialEvidence
+  };
+}
+
+function summarizeServiceFieldVisitMaterialLedgerStatus(materialEvidence, materialCost) {
+  if (materialCost <= 0) {
+    return {
+      basis: "inventory-consumption-not-linked",
+      status: "not-posted",
+      postedAmount: 0,
+      unpostedAmount: 0,
+      valuationPostingIds: [],
+      expenseAccount: "711",
+      inventoryAccount: "216"
+    };
+  }
+  const postedRows = materialEvidence.filter(item => item.valuationPosting);
+  const postedAmount = postedRows.reduce((sum, item) => sum + Number(item.valuationPosting?.amount || 0), 0);
+  const isFullyPosted = postedRows.length === materialEvidence.length && postedAmount === materialCost;
+  const status = isFullyPosted ? "posted" : (postedAmount > 0 ? "partial" : "not-posted");
+  return {
+    basis: status === "posted" ? "stock-move-valuation-journal" : "linked-stock-moves",
+    status,
+    postedAmount,
+    unpostedAmount: Math.max(0, materialCost - postedAmount),
+    valuationPostingIds: postedRows.map(item => item.valuationPosting.id).filter(Boolean),
+    expenseAccount: "711",
+    inventoryAccount: "216"
   };
 }
 

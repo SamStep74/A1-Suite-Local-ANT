@@ -503,11 +503,17 @@ test("project-billing: profitability rolls up task labor cost and catalog quote 
         },
         {
           bucket: "materials",
-          basis: "linked-stock-moves",
+          basis: "stock-move-valuation-journal",
           inventoryAccountClass: "2",
           recognitionAccount: "7113",
           amount: 62000,
-          status: "not-posted"
+          expenseAccount: "711",
+          inventoryAccount: "216",
+          postedAmount: 62000,
+          unpostedAmount: 0,
+          valuationPostingIds: [linkedMaterialMove.json().move.valuationPosting.id],
+          valuationSourceType: "stock_move_valuation",
+          status: "posted"
         }
       ],
       materialEvidence: [{
