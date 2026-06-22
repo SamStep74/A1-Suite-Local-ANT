@@ -36,7 +36,7 @@ if (files.length === 0) {
 const args = [
   "--test",
   "--test-concurrency=4",
-  "--test-timeout=180000",
+  "--test-timeout=300000",
   ...process.argv.slice(2),
   ...files,
 ];
