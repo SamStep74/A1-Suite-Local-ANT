@@ -46682,6 +46682,7 @@ const ORG_BACKUP_TABLES = [
   "purchase_order_lines",
   "purchase_receipts",
   "purchase_returns",
+  "purchase_credit_notes",
   "integration_connectors",
   "integration_connector_checks",
   "pilot_template_installs",
@@ -54561,7 +54562,7 @@ function getPurchaseOrders(db, orgId) {
     LEFT JOIN users ON users.id = purchase_orders.created_by_user_id
     WHERE purchase_orders.org_id = ?
     ORDER BY purchase_orders.order_date DESC, purchase_orders.created_at DESC
-  `).all(orgId).map(row => formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id)));
+  `).all(orgId).map(row => formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id), getPurchaseCreditNotesForOrder(db, orgId, row.id)));
 }
 
 function getPurchaseOrder(db, orgId, orderId) {
@@ -54575,7 +54576,7 @@ function getPurchaseOrder(db, orgId, orderId) {
     LEFT JOIN users ON users.id = purchase_orders.created_by_user_id
     WHERE purchase_orders.org_id = ? AND purchase_orders.id = ?
   `).get(orgId, orderId);
-  return row ? formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id)) : null;
+  return row ? formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id), getPurchaseCreditNotesForOrder(db, orgId, row.id)) : null;
 }
 
 function getPurchaseAnalytics(db, orgId) {
@@ -54590,12 +54591,16 @@ function getPurchaseAnalytics(db, orgId) {
   `).get(orgId).count;
   const lineStats = summarizePurchaseLines(orders);
   const receivableStats = summarizePurchaseLines(receivableOrders);
+  const creditNoteAmount = orders.reduce((total, order) => total + Number(order.creditNoteAmount || 0), 0);
+  const creditNoteCount = orders.reduce((total, order) => total + Number(order.creditNoteCount || 0), 0);
   const summary = {
     orderCount: orders.length,
     vendorCount: vendors.length,
     activeVendorCount: vendors.filter(vendor => vendor.status === "active").length,
     openValue: orders.filter(order => order.status !== "billed").reduce((total, order) => total + Number(order.total || 0), 0),
     billedValue: orders.filter(order => order.status === "billed").reduce((total, order) => total + Number(order.total || 0), 0),
+    returnCreditNoteAmount: creditNoteAmount,
+    returnCreditNoteCount: creditNoteCount,
     receiptProgressPercent: percent(receivableStats.receivedQuantity, receivableStats.orderedQuantity),
     returnedQuantity: lineStats.returnedQuantity,
     remainingQuantity: receivableStats.remainingQuantity,
@@ -54787,11 +54792,48 @@ function getPurchaseReturnsByLine(db, orgId, orderId) {
   return byLine;
 }
 
-function formatPurchaseOrder(row, lines = []) {
+function getPurchaseCreditNotesForOrder(db, orgId, orderId) {
+  return db.prepare(`
+    SELECT purchase_credit_notes.*, users.name AS created_by_name,
+      GROUP_CONCAT(ledger_journal.id) AS ledger_posting_ids
+    FROM purchase_credit_notes
+    LEFT JOIN users ON users.id = purchase_credit_notes.created_by_user_id
+      AND users.org_id = purchase_credit_notes.org_id
+    LEFT JOIN ledger_journal ON ledger_journal.org_id = purchase_credit_notes.org_id
+      AND ledger_journal.source_type = 'purchase_credit_note'
+      AND ledger_journal.source_id = purchase_credit_notes.id
+    WHERE purchase_credit_notes.org_id = ? AND purchase_credit_notes.po_id = ?
+    GROUP BY purchase_credit_notes.id
+    ORDER BY purchase_credit_notes.created_at, purchase_credit_notes.id
+  `).all(orgId, orderId).map(formatPurchaseCreditNote);
+}
+
+function getPurchaseCreditNotesByReturnIds(db, orgId, returnIds) {
+  const ids = [...new Set((returnIds || []).filter(Boolean))];
+  if (ids.length === 0) return [];
+  const placeholders = ids.map(() => "?").join(", ");
+  return db.prepare(`
+    SELECT purchase_credit_notes.*, users.name AS created_by_name,
+      GROUP_CONCAT(ledger_journal.id) AS ledger_posting_ids
+    FROM purchase_credit_notes
+    LEFT JOIN users ON users.id = purchase_credit_notes.created_by_user_id
+      AND users.org_id = purchase_credit_notes.org_id
+    LEFT JOIN ledger_journal ON ledger_journal.org_id = purchase_credit_notes.org_id
+      AND ledger_journal.source_type = 'purchase_credit_note'
+      AND ledger_journal.source_id = purchase_credit_notes.id
+    WHERE purchase_credit_notes.org_id = ?
+      AND purchase_credit_notes.return_id IN (${placeholders})
+    GROUP BY purchase_credit_notes.id
+    ORDER BY purchase_credit_notes.created_at, purchase_credit_notes.id
+  `).all(orgId, ...ids).map(formatPurchaseCreditNote);
+}
+
+function formatPurchaseOrder(row, lines = [], creditNotes = []) {
   const orderedQuantity = lines.reduce((total, line) => total + Number(line.quantity || 0), 0);
   const receivedQuantity = lines.reduce((total, line) => total + Number(line.receivedQuantity || 0), 0);
   const returnedQuantity = lines.reduce((total, line) => total + Number(line.returnedQuantity || 0), 0);
   const remainingQuantity = Math.max(0, orderedQuantity - receivedQuantity);
+  const creditNoteAmount = creditNotes.reduce((total, note) => total + Number(note.amount || 0), 0);
   return {
     id: row.id,
     vendorId: row.vendor_id || "",
@@ -54817,12 +54859,15 @@ function formatPurchaseOrder(row, lines = []) {
     remainingQuantity,
     receiptCount: lines.reduce((total, line) => total + (line.receipts?.length || 0), 0),
     returnCount: lines.reduce((total, line) => total + (line.returns?.length || 0), 0),
+    creditNoteCount: creditNotes.length,
+    creditNoteAmount,
     note: row.note || "",
     createdByUserId: row.created_by_user_id,
     createdByName: row.created_by_name || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    lines
+    lines,
+    creditNotes
   };
 }
 
@@ -54882,6 +54927,27 @@ function formatPurchaseReturn(row) {
     returnedAt: row.returned_at,
     reference: row.reference || "",
     reason: row.reason || "",
+    createdByUserId: row.created_by_user_id || "",
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at
+  };
+}
+
+function formatPurchaseCreditNote(row) {
+  const ledgerPostingIds = row.ledger_posting_ids
+    ? String(row.ledger_posting_ids).split(",").filter(Boolean)
+    : [];
+  return {
+    id: row.id,
+    poId: row.po_id,
+    billId: row.bill_id || "",
+    returnId: row.return_id || "",
+    amount: row.amount,
+    currency: row.currency,
+    status: row.status,
+    postedAt: row.posted_at || "",
+    note: row.note || "",
+    ledgerPostingIds,
     createdByUserId: row.created_by_user_id || "",
     createdByName: row.created_by_name || "",
     createdAt: row.created_at
@@ -55132,6 +55198,11 @@ function returnPurchaseOrder(db, user, orderId, body) {
   if (!order) throwPurchaseOrderNotFound();
   const input = normalizePurchaseReturnBody(body);
   const reference = resolvePurchaseReturnReference(db, user.org_id, order, input.reference);
+  const billedReturn = order.status === "billed";
+  if (billedReturn) {
+    requireFinanceOperator(user);
+    if (!input.reference) throwPurchaseStateConflict("Billed purchase order returns require a reference");
+  }
   if (input.reference) {
     const existingReturns = getPurchaseReturnsByReference(db, user.org_id, order.id, input.reference);
     if (existingReturns.length > 0) {
@@ -55143,18 +55214,24 @@ function returnPurchaseOrder(db, user, orderId, body) {
         idempotent: true,
         order,
         returns: existingReturns,
+        creditNotes: getPurchaseCreditNotesByReturnIds(db, user.org_id, existingReturns.map(returned => returned.id)),
         stockMoves: existingReturns.map(returned => getStockMove(db, user.org_id, returned.stockMoveId)).filter(Boolean)
       };
     }
   }
-  if (order.status === "billed") throwPurchaseStateConflict("Billed purchase order returns require credit-note handling");
-  if (order.status !== "partial" && order.status !== "received") throwPurchaseStateConflict("Purchase order must have received stock before return");
+  if (order.status !== "partial" && order.status !== "received" && order.status !== "billed") throwPurchaseStateConflict("Purchase order must have received stock before return");
   const mainWarehouse = getStockLocationByCode(db, user.org_id, "WH/STOCK");
   const supplierLocation = getStockLocationByCode(db, user.org_id, "SUPPLIERS");
   if (!mainWarehouse || mainWarehouse.status !== "active" || !supplierLocation || supplierLocation.status !== "active") throwStockLocationNotFound();
   const returnPlan = buildPurchaseReturnPlan(order, input);
+  const creditPlan = billedReturn ? buildPurchaseReturnCreditPlan(order, returnPlan) : [];
+  if (billedReturn) {
+    ledger.assertPeriodOpen(db, user.org_id, input.returnedAt.slice(0, 7));
+    assertPurchaseCreditDoesNotExceedOutstanding(db, user.org_id, order.billId, creditPlan.reduce((total, line) => total + line.amount, 0));
+  }
   const stockMoves = [];
   let returns = [];
+  let creditNotes = [];
   let returnedOrder;
   db.exec("BEGIN");
   try {
@@ -55167,6 +55244,8 @@ function returnPurchaseOrder(db, user, orderId, body) {
     `);
     const now = new Date().toISOString();
     for (const line of returnPlan) {
+      const creditLine = creditPlan.find(item => item.lineId === line.id);
+      if (billedReturn && !creditLine) throwInvalidPurchaseMetadata();
       const move = createStockMoveFromInput(db, user, {
         catalogItemId: line.catalogItemId,
         sourceLocationId: mainWarehouse.id,
@@ -55183,8 +55262,9 @@ function returnPurchaseOrder(db, user, orderId, body) {
         SET received_quantity = received_quantity - ?
         WHERE org_id = ? AND id = ?
       `).run(line.returnQuantity, user.org_id, line.id);
+      const returnId = randomId("purchase-return");
       insertReturn.run(
-        randomId("purchase-return"),
+        returnId,
         user.org_id,
         orderId,
         line.id,
@@ -55196,12 +55276,42 @@ function returnPurchaseOrder(db, user, orderId, body) {
         user.id,
         now
       );
+      if (billedReturn) {
+        const creditNoteId = randomId("purchase-credit-note");
+        db.prepare(`
+          INSERT INTO purchase_credit_notes (
+            id, org_id, po_id, bill_id, return_id, amount, currency, status,
+            posted_at, note, created_by_user_id, created_at
+          )
+          VALUES (?, ?, ?, ?, ?, ?, ?, 'posted', ?, ?, ?, ?)
+        `).run(
+          creditNoteId,
+          user.org_id,
+          orderId,
+          order.billId,
+          returnId,
+          creditLine.amount,
+          order.currency || activeCurrencyCode(),
+          input.returnedAt,
+          input.reason || `Credit note for ${reference}`,
+          user.id,
+          now
+        );
+        ledger.postBillCreditNote(db, user.org_id, {
+          id: creditNoteId,
+          subtotal: fromMinorAmount(creditLine.subtotal),
+          vat: fromMinorAmount(creditLine.vat),
+          total: fromMinorAmount(creditLine.amount),
+          date: input.returnedAt,
+          period_key: input.returnedAt.slice(0, 7)
+        });
+      }
     }
 
     const updatedLines = getPurchaseOrderLines(db, user.org_id, orderId);
     const isFullyReceived = updatedLines.every(line => line.receivedQuantity >= line.quantity);
     const hasAnyReceived = updatedLines.some(line => line.receivedQuantity > 0);
-    const status = isFullyReceived ? "received" : hasAnyReceived ? "partial" : "confirmed";
+    const status = billedReturn ? "billed" : isFullyReceived ? "received" : hasAnyReceived ? "partial" : "confirmed";
     const totalReturnedQuantity = returnPlan.reduce((total, line) => total + line.returnQuantity, 0);
     const totalRemainingQuantity = updatedLines.reduce((total, line) => total + line.remainingQuantity, 0);
     db.prepare(`
@@ -55210,6 +55320,7 @@ function returnPurchaseOrder(db, user, orderId, body) {
       WHERE org_id = ? AND id = ?
     `).run(status, now, user.org_id, orderId);
     returns = getPurchaseReturnsByReference(db, user.org_id, orderId, reference);
+    creditNotes = getPurchaseCreditNotesByReturnIds(db, user.org_id, returns.map(returned => returned.id));
     emitSuiteEvent(db, {
       orgId: user.org_id,
       actorUserId: user.id,
@@ -55222,7 +55333,9 @@ function returnPurchaseOrder(db, user, orderId, body) {
         reference,
         reason: input.reason,
         stockMoveIds: stockMoves.map(move => move.id),
+        creditNoteIds: creditNotes.map(note => note.id),
         returnedQuantity: totalReturnedQuantity,
+        creditNoteAmount: creditNotes.reduce((total, note) => total + Number(note.amount || 0), 0),
         remainingQuantity: totalRemainingQuantity,
         total: order.total
       }
@@ -55233,7 +55346,9 @@ function returnPurchaseOrder(db, user, orderId, body) {
       reference,
       reason: input.reason,
       stockMoveIds: stockMoves.map(move => move.id),
+      creditNoteIds: creditNotes.map(note => note.id),
       returnedQuantity: totalReturnedQuantity,
+      creditNoteAmount: creditNotes.reduce((total, note) => total + Number(note.amount || 0), 0),
       remainingQuantity: totalRemainingQuantity,
       total: order.total
     });
@@ -55243,7 +55358,7 @@ function returnPurchaseOrder(db, user, orderId, body) {
     db.exec("ROLLBACK");
     throw err;
   }
-  return { ok: true, order: returnedOrder, returns, stockMoves };
+  return { ok: true, order: returnedOrder, returns, creditNotes, stockMoves };
 }
 
 function billPurchaseOrder(db, user, orderId, body) {
@@ -55475,6 +55590,40 @@ function buildPurchaseReturnPlan(order, input) {
     }
     return { ...line, returnQuantity: requestedLine.quantity };
   });
+}
+
+function buildPurchaseReturnCreditPlan(order, returnPlan) {
+  if (!order.billId) throwPurchaseStateConflict("Billed purchase order return requires a linked bill");
+  return returnPlan.map(line => {
+    const quantity = Number(line.quantity || 0);
+    const returnQuantity = Number(line.returnQuantity || 0);
+    if (quantity <= 0 || returnQuantity <= 0) throwInvalidPurchaseMetadata();
+    const subtotal = proratePurchaseReturnCreditAmount(line.subtotal, quantity, returnQuantity);
+    const vat = proratePurchaseReturnCreditAmount(line.vat, quantity, returnQuantity);
+    const amount = subtotal + vat;
+    if (!Number.isSafeInteger(amount) || amount <= 0) throwInvalidPurchaseMetadata();
+    return {
+      lineId: line.id,
+      subtotal,
+      vat,
+      amount
+    };
+  });
+}
+
+function proratePurchaseReturnCreditAmount(total, quantity, returnQuantity) {
+  const amount = Math.round((Number(total || 0) * returnQuantity) / quantity);
+  if (!Number.isSafeInteger(amount) || amount < 0) throwInvalidPurchaseMetadata();
+  return amount;
+}
+
+function assertPurchaseCreditDoesNotExceedOutstanding(db, orgId, billId, creditAmount) {
+  const bill = db.prepare("SELECT total FROM bills WHERE org_id = ? AND id = ?").get(orgId, billId);
+  if (!bill) throwPurchaseStateConflict("Billed purchase order return requires a linked bill");
+  const paid = db.prepare("SELECT COALESCE(SUM(amount), 0) AS amount FROM bill_payments WHERE org_id = ? AND bill_id = ?").get(orgId, billId).amount;
+  const credited = db.prepare("SELECT COALESCE(SUM(amount), 0) AS amount FROM purchase_credit_notes WHERE org_id = ? AND bill_id = ? AND status = 'posted'").get(orgId, billId).amount;
+  const outstanding = Math.max(0, Number(bill.total || 0) - Number(paid || 0) - Number(credited || 0));
+  if (creditAmount > outstanding) throwPurchaseStateConflict("Purchase credit note exceeds outstanding bill amount");
 }
 
 function isMatchingPurchaseReceiptRetry(existingReceipts, input) {

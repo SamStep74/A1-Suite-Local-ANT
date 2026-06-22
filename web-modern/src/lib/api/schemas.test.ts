@@ -48,6 +48,9 @@ import {
   ProjectRecurringTasksResponseSchema,
   ProjectTemplateResponseSchema,
   ProjectTemplatesResponseSchema,
+  PurchaseAnalyticsSummarySchema,
+  PurchaseCreditNoteSchema,
+  PurchaseOrderSchema,
   ServiceDispatchAlertAckResponseSchema,
   ServiceDispatchAlertsResponseSchema,
   ServiceDispatchAlertSchema,
@@ -163,6 +166,76 @@ describe("ServiceCaseSchema", () => {
     for (const s of SlaStatus.options) {
       const r = ServiceCaseSchema.safeParse({ ...VALID_CASE, slaStatus: s });
       expect(r.success, `sla ${s}`).toBe(true);
+    }
+  });
+});
+
+describe("Purchase credit-note schemas", () => {
+  const creditNote = {
+    id: "cn-1",
+    poId: "ord-1",
+    billId: "bill-1",
+    returnId: "ret-1",
+    amount: 15_000,
+    currency: "AMD",
+    status: "posted",
+    postedAt: "2026-06-22T09:30:00.000Z",
+    note: "Returned damaged billed goods.",
+    ledgerPostingIds: ["le-1", "le-2"],
+    createdByName: "Anna Hovhannisyan",
+    createdAt: "2026-06-22T09:29:00.000Z",
+  };
+
+  it("accepts billed-return credit-note evidence", () => {
+    const r = PurchaseCreditNoteSchema.safeParse(creditNote);
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.billId).toBe("bill-1");
+      expect(r.data.returnId).toBe("ret-1");
+      expect(r.data.ledgerPostingIds).toEqual(["le-1", "le-2"]);
+    }
+  });
+
+  it("accepts purchase orders with return credit notes", () => {
+    const r = PurchaseOrderSchema.safeParse({
+      id: "ord-1",
+      vendorId: "ven-1",
+      vendorName: "Alpha Wholesale",
+      orderNumber: "PO-0001",
+      supplier: "Alpha Wholesale",
+      status: "billed",
+      subtotal: 100_000,
+      vat: 20_000,
+      total: 120_000,
+      currency: "AMD",
+      orderDate: "2026-06-01",
+      billId: "bill-1",
+      lines: [],
+      creditNotes: [creditNote],
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.creditNotes?.[0]?.amount).toBe(15_000);
+    }
+  });
+
+  it("accepts analytics summary return-credit totals", () => {
+    const r = PurchaseAnalyticsSummarySchema.safeParse({
+      orderCount: 3,
+      vendorCount: 2,
+      activeVendorCount: 2,
+      openValue: 120_000,
+      billedValue: 36_000,
+      returnCreditNoteCount: 2,
+      returnCreditNoteAmount: 18_500,
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.returnCreditNoteCount).toBe(2);
+      expect(r.data.returnCreditNoteAmount).toBe(18_500);
     }
   });
 });

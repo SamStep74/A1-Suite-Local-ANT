@@ -70,6 +70,20 @@ test("accounting-payables: a partially-paid bill carries only its remaining outs
   assert.strictEqual(r.openCount, 1);
 });
 
+test("accounting-payables: posted credit notes reduce outstanding without becoming payments", () => {
+  const account = {
+    bills: [
+      { id: "b1", supplier: "S1", total: 1000, status: "open", date: "2025-12-01", dueDate: "2025-12-15", paidAmount: 250, creditNoteAmount: 150 },
+    ],
+  };
+  const r = calculatePayables(account, { asOf: "2026-02-01" });
+  assert.strictEqual(r.totalBilled, 1000);
+  assert.strictEqual(r.totalPaid, 250);
+  assert.strictEqual(r.totalCredited, 150);
+  assert.strictEqual(r.totalOutstanding, 600);
+  assert.strictEqual(r.openBills[0].creditNoteAmount, 150);
+});
+
 test("accounting-payables: empty or missing bills yields a fully-zero AP snapshot", () => {
   for (const account of [{ bills: [] }, {}]) {
     const r = calculatePayables(account, { asOf: "2026-02-01" });

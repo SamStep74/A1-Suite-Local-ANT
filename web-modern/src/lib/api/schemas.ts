@@ -1188,6 +1188,22 @@ export const PurchaseOrderLineSchema = z.object({
 }).passthrough();
 export type PurchaseOrderLine = z.infer<typeof PurchaseOrderLineSchema>;
 
+export const PurchaseCreditNoteSchema = z.object({
+  id: z.string(),
+  poId: z.string(),
+  billId: z.string().nullable().optional(),
+  returnId: z.string().nullable().optional(),
+  amount: z.number(),
+  currency: z.string(),
+  status: z.string(),
+  postedAt: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
+  ledgerPostingIds: z.array(z.string()).optional(),
+  createdByName: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+}).passthrough();
+export type PurchaseCreditNote = z.infer<typeof PurchaseCreditNoteSchema>;
+
 export const PurchaseOrderStatus = z.enum([
   "draft",
   "confirmed",
@@ -1223,6 +1239,7 @@ export const PurchaseOrderSchema = z.object({
   createdAt: z.string().nullable().optional(),
   updatedAt: z.string().nullable().optional(),
   lines: z.array(PurchaseOrderLineSchema).optional(),
+  creditNotes: z.array(PurchaseCreditNoteSchema).optional(),
 }).passthrough();
 export type PurchaseOrder = z.infer<typeof PurchaseOrderSchema>;
 
@@ -1247,6 +1264,8 @@ export const PurchaseAnalyticsSummarySchema = z.object({
   pricedOrderLinePercent: z.number().nullable().optional(),
   activePriceCount: z.number().nullable().optional(),
   stockableCatalogItemCount: z.number().nullable().optional(),
+  returnCreditNoteCount: z.number().nullable().optional(),
+  returnCreditNoteAmount: z.number().nullable().optional(),
 }).passthrough();
 export type PurchaseAnalyticsSummary = z.infer<typeof PurchaseAnalyticsSummarySchema>;
 

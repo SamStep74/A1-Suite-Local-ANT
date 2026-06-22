@@ -216,6 +216,8 @@ const VALID_ANALYTICS = {
     vendorPricedLineCount: 4,
     lineCount: 5,
     vendorPriceCoveragePercent: 80,
+    returnCreditNoteCount: 2,
+    returnCreditNoteAmount: 15_000,
   },
   receiptBacklog: [],
   vendorPerformance: [],
@@ -369,7 +371,7 @@ describe("PurchaseWorkspace — analytics view", () => {
     mocks.search = { view: "analytics" };
   });
 
-  it("renders the 6 KPI cards", () => {
+  it("renders the KPI cards", () => {
     renderRoute();
     expect(screen.getByText(/Active vendors/i)).toBeInTheDocument();
     expect(screen.getByText(/Open orders/i)).toBeInTheDocument();
@@ -377,6 +379,7 @@ describe("PurchaseWorkspace — analytics view", () => {
     expect(screen.getByText(/Price coverage/i)).toBeInTheDocument();
     expect(screen.getByText(/Billed value/i)).toBeInTheDocument();
     expect(screen.getByText(/Returned quantity/i)).toBeInTheDocument();
+    expect(screen.getByText(/Return credit notes/i)).toBeInTheDocument();
   });
   it("renders the active-vendor count (1) and total vendor count (3)", () => {
     renderRoute();
@@ -388,6 +391,13 @@ describe("PurchaseWorkspace — analytics view", () => {
   it("renders the receipt progress as a percentage", () => {
     renderRoute();
     expect(screen.getByText("50%")).toBeInTheDocument();
+  });
+  it("renders return credit-note amount and count", () => {
+    renderRoute();
+    const heading = screen.getByText(/Return credit notes/i);
+    const card = heading.closest("section") as HTMLElement;
+    expect(within(card).getByText(/15\s*000/)).toBeInTheDocument();
+    expect(within(card).getByText(/2 credit notes/)).toBeInTheDocument();
   });
   it("renders the procurement health footer", () => {
     renderRoute();

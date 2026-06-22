@@ -134,6 +134,17 @@ test("posting a bill debits expense + input VAT and credits payable", () => {
   assert.strictEqual(byCode["521"].balance, -600);
 });
 
+test("posting a bill credit note debits payable and credits expense + input VAT", () => {
+  const { db, orgId } = freshDb();
+  ledger.postBillPosted(db, orgId, { id: "bill-t1", subtotal: 500, vat: 100, total: 600, date: "2026-05-10" });
+  const ids = ledger.postBillCreditNote(db, orgId, { id: "pcn-t1", subtotal: 100, vat: 20, total: 120, date: "2026-05-12" });
+  assert.strictEqual(ids.length, 2);
+  const byCode = Object.fromEntries(ledger.trialBalance(db, orgId).rows.map(r => [r.code, r]));
+  assert.strictEqual(byCode["711"].balance, 400);
+  assert.strictEqual(byCode["226"].balance, 80);
+  assert.strictEqual(byCode["521"].balance, -480);
+});
+
 test("paying a bill settles the payable from cash, staying balanced", () => {
   const { db, orgId } = freshDb();
   ledger.postBillPosted(db, orgId, { id: "bill-t1", subtotal: 500, vat: 100, total: 600, date: "2026-05-10" });

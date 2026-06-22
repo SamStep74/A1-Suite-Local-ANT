@@ -553,6 +553,7 @@ test("purchase: supplier returns reverse stock evidence before billing", async (
       stockMoves: rowCount(app, "stock_moves", orgId),
       receipts: rowCount(app, "purchase_receipts", orgId),
       returns: rowCount(app, "purchase_returns", orgId),
+      creditNotes: rowCount(app, "purchase_credit_notes", orgId),
       bills: rowCount(app, "bills", orgId),
       events: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE org_id = ? AND event_type LIKE ?").get(orgId, "purchase.order.%").count,
       audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type LIKE ?").get(orgId, "purchase.order.%").count,
@@ -740,23 +741,136 @@ test("purchase: supplier returns reverse stock evidence before billing", async (
     assert.equal(billed.json().order.status, "billed");
     assert.equal(billed.json().bill.total, 288000);
 
-    const billedReturn = await app.inject({
+    const operatorBilledReturn = await app.inject({
       method: "POST",
       url: `/api/purchase/orders/${order.id}/return`,
       headers: { cookie: operator },
       payload: {
         returnedAt: `${openPeriod}-16`,
-        reference: "RTN-PO-RETURN-0001-BILLED",
+        reference: "RTN-PO-RETURN-0001-BILLED-DENIED",
         lines: [{ lineId: line.id, quantity: 1 }]
       }
     });
-    assert.equal(billedReturn.statusCode, 409, billedReturn.body);
+    assert.equal(operatorBilledReturn.statusCode, 403, operatorBilledReturn.body);
     assert.equal(rowCount(app, "purchase_returns", orgId), before.returns + 2);
+    assert.equal(rowCount(app, "purchase_credit_notes", orgId), before.creditNotes);
+    assert.equal(stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity, before.mainStock + 4);
+
+    const billedReturn = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/return`,
+      headers: { cookie: accountant },
+      payload: {
+        returnedAt: `${openPeriod}-16`,
+        reference: "RTN-PO-RETURN-0001-BILLED",
+        reason: "Vendor accepted one post-bill scanner return.",
+        lines: [{ lineId: line.id, quantity: 1 }]
+      }
+    });
+    assert.equal(billedReturn.statusCode, 200, billedReturn.body);
+    const billedReturnBody = billedReturn.json();
+    assert.equal(billedReturnBody.order.status, "billed");
+    assert.equal(billedReturnBody.order.receivedQuantity, 3);
+    assert.equal(billedReturnBody.order.returnedQuantity, 5);
+    assert.equal(billedReturnBody.order.returnCount, 3);
+    assert.equal(billedReturnBody.order.creditNoteCount, 1);
+    assert.equal(billedReturnBody.order.creditNoteAmount, 72000);
+    assert.equal(billedReturnBody.order.creditNotes.length, 1);
+    assert.equal(billedReturnBody.returns.length, 1);
+    assert.equal(billedReturnBody.returns[0].quantity, 1);
+    assert.equal(billedReturnBody.creditNotes.length, 1);
+    assert.equal(billedReturnBody.creditNotes[0].billId, billed.json().bill.id);
+    assert.equal(billedReturnBody.creditNotes[0].returnId, billedReturnBody.returns[0].id);
+    assert.equal(billedReturnBody.creditNotes[0].amount, 72000);
+    assert.equal(billedReturnBody.creditNotes[0].status, "posted");
+    assert.equal(billedReturnBody.creditNotes[0].ledgerPostingIds.length, 2);
+    assert.equal(billedReturnBody.stockMoves[0].moveType, "return");
+    assert.equal(billedReturnBody.stockMoves[0].sourceLocationCode, "WH/STOCK");
+    assert.equal(billedReturnBody.stockMoves[0].destinationLocationCode, "SUPPLIERS");
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 5);
+    assert.equal(rowCount(app, "purchase_returns", orgId), before.returns + 3);
+    assert.equal(rowCount(app, "purchase_credit_notes", orgId), before.creditNotes + 1);
+    assert.equal(stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity, before.mainStock + 3);
+    const creditLedgerRows = app.db.prepare(`
+      SELECT debit_code, credit_code, amount
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = 'purchase_credit_note' AND source_id = ?
+    `).all(orgId, billedReturnBody.creditNotes[0].id);
+    assert.equal(creditLedgerRows.length, 2);
+    assert.ok(creditLedgerRows.some(row => row.debit_code === "521" && row.credit_code === "711" && row.amount === 60000));
+    assert.ok(creditLedgerRows.some(row => row.debit_code === "521" && row.credit_code === "226" && row.amount === 12000));
+
+    const payables = await app.inject({ method: "GET", url: `/api/finance/payables?asOf=${openPeriod}-30`, headers: { cookie: owner } });
+    assert.equal(payables.statusCode, 200, payables.body);
+    const creditedBill = payables.json().bills.find(item => item.id === billed.json().bill.id);
+    assert.equal(creditedBill.creditNoteAmount, 72000);
+    assert.equal(creditedBill.outstanding, 216000);
+
+    const duplicateBilledReturn = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/return`,
+      headers: { cookie: accountant },
+      payload: {
+        returnedAt: `${openPeriod}-16`,
+        reference: "RTN-PO-RETURN-0001-BILLED",
+        reason: "Vendor accepted one post-bill scanner return.",
+        lines: [{ lineId: line.id, quantity: 1 }]
+      }
+    });
+    assert.equal(duplicateBilledReturn.statusCode, 200, duplicateBilledReturn.body);
+    assert.equal(duplicateBilledReturn.json().idempotent, true);
+    assert.equal(duplicateBilledReturn.json().creditNotes[0].id, billedReturnBody.creditNotes[0].id);
+    assert.equal(rowCount(app, "stock_moves", orgId), before.stockMoves + 5);
+    assert.equal(rowCount(app, "purchase_returns", orgId), before.returns + 3);
+    assert.equal(rowCount(app, "purchase_credit_notes", orgId), before.creditNotes + 1);
+
+    const conflictingBilledReturn = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/return`,
+      headers: { cookie: accountant },
+      payload: {
+        returnedAt: `${openPeriod}-16`,
+        reference: "RTN-PO-RETURN-0001-BILLED",
+        reason: "Changed billed-return evidence should not rewrite the credit note.",
+        lines: [{ lineId: line.id, quantity: 1 }]
+      }
+    });
+    assert.equal(conflictingBilledReturn.statusCode, 409, conflictingBilledReturn.body);
+    assert.equal(rowCount(app, "purchase_credit_notes", orgId), before.creditNotes + 1);
+
+    app.db.prepare("UPDATE finance_periods SET status = 'closed' WHERE org_id = ? AND period_key = ?").run(orgId, openPeriod);
+    const beforeLockedBilledReturn = {
+      stockMoves: rowCount(app, "stock_moves", orgId),
+      returns: rowCount(app, "purchase_returns", orgId),
+      creditNotes: rowCount(app, "purchase_credit_notes", orgId),
+      mainStock: stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity
+    };
+    const lockedBilledReturn = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${order.id}/return`,
+      headers: { cookie: accountant },
+      payload: {
+        returnedAt: `${openPeriod}-17`,
+        reference: "RTN-PO-RETURN-0001-BILLED-LOCKED",
+        reason: "Closed period must block the credit-note posting.",
+        lines: [{ lineId: line.id, quantity: 1 }]
+      }
+    });
+    assert.equal(lockedBilledReturn.statusCode, 409, lockedBilledReturn.body);
+    assert.match(lockedBilledReturn.body, /PERIOD_LOCKED/);
+    assert.deepEqual({
+      stockMoves: rowCount(app, "stock_moves", orgId),
+      returns: rowCount(app, "purchase_returns", orgId),
+      creditNotes: rowCount(app, "purchase_credit_notes", orgId),
+      mainStock: stockQuantity(app, orgId, "catitem-pos-barcode-scanner", "stockloc-main-warehouse").quantity
+    }, beforeLockedBilledReturn);
 
     const analytics = await app.inject({ method: "GET", url: "/api/purchase/analytics", headers: { cookie: owner } });
     assert.equal(analytics.statusCode, 200, analytics.body);
-    assert.equal(analytics.json().summary.returnedQuantity, 4);
-    assert.equal(analytics.json().vendorPerformance[0].returnedQuantity, 4);
+    assert.equal(analytics.json().summary.returnedQuantity, 5);
+    assert.equal(analytics.json().summary.returnCreditNoteAmount, 72000);
+    assert.equal(analytics.json().summary.returnCreditNoteCount, 1);
+    assert.equal(analytics.json().vendorPerformance[0].returnedQuantity, 5);
 
     const backup = await app.inject({
       method: "POST",
@@ -768,6 +882,8 @@ test("purchase: supplier returns reverse stock evidence before billing", async (
     const backupTables = backup.json().backup.payload.tables;
     assert.ok(backupTables.purchase_returns.some(item => item.purchase_order_id === order.id && item.quantity === 1 && item.reference === "RTN-PO-RETURN-0001-A"));
     assert.ok(backupTables.purchase_returns.some(item => item.purchase_order_id === order.id && item.quantity === 3 && item.reference === "RTN-PO-RETURN-0001-FULL"));
+    assert.ok(backupTables.purchase_returns.some(item => item.purchase_order_id === order.id && item.quantity === 1 && item.reference === "RTN-PO-RETURN-0001-BILLED"));
+    assert.ok(backupTables.purchase_credit_notes.some(item => item.po_id === order.id && item.bill_id === billed.json().bill.id && item.amount === 72000));
   } finally {
     await app.close();
   }

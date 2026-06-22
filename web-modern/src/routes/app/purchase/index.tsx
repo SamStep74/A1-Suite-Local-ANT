@@ -616,6 +616,11 @@ function AnalyticsView({
   const lineCount = summary.lineCount ?? 0;
   const pricedLineCount = summary.vendorPricedLineCount ?? 0;
   const coverage = priceCoverage(lineCount, pricedLineCount);
+  const orderCreditNotes = orders.flatMap((order) => order.creditNotes ?? []);
+  const returnCreditNoteCount = summary.returnCreditNoteCount ?? orderCreditNotes.length;
+  const returnCreditNoteAmount =
+    summary.returnCreditNoteAmount ??
+    orderCreditNotes.reduce((sum, note) => sum + Number(note.amount || 0), 0);
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -657,6 +662,12 @@ function AnalyticsView({
         label="Returned quantity"
         value={String(summary.returnedQuantity ?? 0)}
         subtitle="units returned to vendors"
+        tone="red"
+      />
+      <KpiCard
+        label="Return credit notes"
+        value={formatCurrency(returnCreditNoteAmount, "AMD")}
+        subtitle={`${returnCreditNoteCount} credit note${returnCreditNoteCount === 1 ? "" : "s"}`}
         tone="red"
       />
       <section className="lg:col-span-2 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] p-4 text-[var(--text-sm)] text-[var(--color-muted)]">

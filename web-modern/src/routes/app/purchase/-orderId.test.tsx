@@ -168,6 +168,28 @@ const BILLED_ORDER = {
   lines: [],
 };
 
+const CREDITED_ORDER = {
+  ...BILLED_ORDER,
+  id: "ord-4",
+  orderNumber: "PO-0004",
+  creditNotes: [
+    {
+      id: "cn-1",
+      poId: "ord-4",
+      billId: "bill-1",
+      returnId: "ret-1",
+      amount: 15_000,
+      currency: "AMD",
+      status: "posted",
+      postedAt: "2026-06-22T09:30:00.000Z",
+      note: "Returned damaged billed goods.",
+      ledgerPostingIds: ["le-1", "le-2"],
+      createdByName: "Anna Hovhannisyan",
+      createdAt: "2026-06-22T09:29:00.000Z",
+    },
+  ],
+};
+
 /* ────────── per-test reset ────────── */
 
 beforeEach(() => {
@@ -301,6 +323,24 @@ describe("PurchaseOrderDetail — right rail", () => {
     const aside = screen.getAllByLabelText("Metadata")[0];
     expect(within(aside).getByText("ord-1")).toBeInTheDocument();
     expect(within(aside).getByText("ven-1")).toBeInTheDocument();
+  });
+  it("renders read-only return credit-note evidence for billed returns", () => {
+    mocks.order = CREDITED_ORDER;
+    mocks.params = { orderId: "ord-4" };
+    renderRoute();
+
+    const marker = document.querySelector('[data-entity="purchase-return-credit-note"]');
+    expect(marker).not.toBeNull();
+    expect(marker?.getAttribute("data-count")).toBe("1");
+
+    const heading = screen.getByRole("heading", { name: /Return credit notes/i });
+    const panel = heading.closest("section") as HTMLElement;
+    expect(within(panel).getByText("cn-1")).toBeInTheDocument();
+    expect(within(panel).getAllByText(/15\s*000/).length).toBeGreaterThan(0);
+    expect(within(panel).getByText("bill-1")).toBeInTheDocument();
+    expect(within(panel).getByText("ret-1")).toBeInTheDocument();
+    expect(within(panel).getByText("le-1, le-2")).toBeInTheDocument();
+    expect(within(panel).queryByRole("button")).toBeNull();
   });
 });
 

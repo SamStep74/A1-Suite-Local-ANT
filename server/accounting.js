@@ -245,7 +245,8 @@
     const asOf = period.asOf || period.end || new Date().toISOString().slice(0, 10);
     const bills = filterByPeriod(account.bills || [], period).map((bill) => {
       const paidAmount = invoicePaidAmount(bill);
-      const outstanding = invoiceOutstanding(bill);
+      const creditNoteAmount = roundMoney(Math.max(0, Number(bill.creditNoteAmount) || 0));
+      const outstanding = Math.max(0, roundMoney((Number(bill.total) || 0) - paidAmount - creditNoteAmount));
       const dueDate = bill.dueDate || defaultInvoiceDueDate(bill.date);
       const daysPastDue = outstanding > 0 ? calculateDaysPastDue(dueDate, asOf) : 0;
       return {
@@ -256,6 +257,7 @@
         description: bill.description,
         total: roundMoney(Number(bill.total) || 0),
         paidAmount,
+        creditNoteAmount,
         outstanding,
         status: bill.status,
         daysPastDue,
@@ -268,6 +270,7 @@
       asOf,
       totalBilled: roundMoney(bills.reduce((sum, b) => sum + b.total, 0)),
       totalPaid: roundMoney(bills.reduce((sum, b) => sum + b.paidAmount, 0)),
+      totalCredited: roundMoney(bills.reduce((sum, b) => sum + b.creditNoteAmount, 0)),
       totalOutstanding: roundMoney(openBills.reduce((sum, b) => sum + b.outstanding, 0)),
       overdueOutstanding: roundMoney(openBills.reduce((sum, b) => sum + (b.daysPastDue > 0 ? b.outstanding : 0), 0)),
       billCount: bills.length,

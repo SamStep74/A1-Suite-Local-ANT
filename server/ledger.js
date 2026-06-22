@@ -383,6 +383,20 @@ function postBillPosted(db, orgId, bill) {
   return ids.filter(Boolean);
 }
 
+function postBillCreditNote(db, orgId, creditNote) {
+  const total = toMinor(creditNote.total ?? creditNote.amount);
+  const vat = toMinor(creditNote.vat);
+  const hasSubtotal = creditNote.subtotal !== undefined && creditNote.subtotal !== null && creditNote.subtotal !== "";
+  const net = hasSubtotal ? toMinor(creditNote.subtotal) : total - vat;
+  const date = creditNote.date || creditNote.posted_at || new Date().toISOString().slice(0, 10);
+  const periodKey = creditNote.period_key || "";
+  const C = postingCodesFor(locale.activeLocale());
+  const ids = [];
+  if (net > 0) ids.push(postEntry(db, orgId, { date, debitCode: C.payable, creditCode: C.expense, amount: net, memo: `Bill credit note ${creditNote.id}`, sourceType: "purchase_credit_note", sourceId: creditNote.id, periodKey }));
+  if (vat > 0) ids.push(postEntry(db, orgId, { date, debitCode: C.payable, creditCode: C.inputVat, amount: vat, memo: `Bill credit note VAT ${creditNote.id}`, sourceType: "purchase_credit_note", sourceId: creditNote.id, periodKey }));
+  return ids.filter(Boolean);
+}
+
 function postBillPayment(db, orgId, payment) {
   const C = postingCodesFor(locale.activeLocale());
   return [postEntry(db, orgId, {
@@ -395,7 +409,8 @@ function postBillPayment(db, orgId, payment) {
 function buildPayablesModel(db, orgId) {
   const bills = db.prepare("SELECT id, supplier, bill_date AS date, due_date AS dueDate, total, status FROM bills WHERE org_id = ?").all(orgId).map(b => {
     const paid = db.prepare("SELECT COALESCE(SUM(amount),0) AS p FROM bill_payments WHERE org_id = ? AND bill_id = ?").get(orgId, b.id).p;
-    return { ...b, paidAmount: paid };
+    const credited = db.prepare("SELECT COALESCE(SUM(amount),0) AS c FROM purchase_credit_notes WHERE org_id = ? AND bill_id = ? AND status = 'posted'").get(orgId, b.id).c;
+    return { ...b, paidAmount: paid, creditNoteAmount: credited };
   });
   return { bills };
 }
@@ -404,4 +419,4 @@ function payablesReport(db, orgId, asOf) {
   return accounting.calculatePayables(buildPayablesModel(db, orgId), { asOf: asOf || new Date().toISOString().slice(0, 10) });
 }
 
-module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, OPENING_BALANCE_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, postBillPosted, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, openingBalanceAccountByCode, openingBalanceSideForCode, postOpeningBalance, postOpeningBalances, openingBalances };
+module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, OPENING_BALANCE_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, postBillPosted, postBillCreditNote, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, openingBalanceAccountByCode, openingBalanceSideForCode, postOpeningBalance, postOpeningBalances, openingBalances };

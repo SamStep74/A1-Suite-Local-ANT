@@ -21,7 +21,12 @@ import {
   Truck,
 } from "lucide-react";
 import { getJson } from "../../../lib/api/client";
-import { PurchaseOrderSchema, type PurchaseOrder, type PurchaseOrderLine } from "../../../lib/api/schemas";
+import {
+  PurchaseOrderSchema,
+  type PurchaseCreditNote,
+  type PurchaseOrder,
+  type PurchaseOrderLine,
+} from "../../../lib/api/schemas";
 import { cn } from "../../../lib/utils/cn";
 import {
   classifyOrderStatus,
@@ -127,6 +132,7 @@ function PurchaseOrderDetail() {
 
         <aside className="space-y-3 lg:sticky lg:top-4 lg:self-start">
           <PurchaseActionPanel order={order} />
+          <ReturnCreditNotesPanel order={order} />
           <OrderMetadata order={order} />
         </aside>
       </div>
@@ -453,6 +459,127 @@ function PurchaseActionPanel({ order }: { order: PurchaseOrder }) {
       </ul>
     </section>
   );
+}
+
+/* ────────── right rail: read-only billed-return credit notes ────────── */
+
+function ReturnCreditNotesPanel({ order }: { order: PurchaseOrder }) {
+  const creditNotes = order.creditNotes ?? [];
+  const currency = creditNotes[0]?.currency || order.currency || "AMD";
+  const total = creditNotes.reduce((sum, note) => sum + Number(note.amount || 0), 0);
+
+  return (
+    <section
+      className="rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] p-3"
+      aria-labelledby="purchase-return-credit-notes-heading"
+      data-entity="purchase-return-credit-note"
+      data-count={String(creditNotes.length)}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2
+            id="purchase-return-credit-notes-heading"
+            className="inline-flex items-center gap-1 text-[var(--text-sm)] font-semibold text-[var(--color-ink)]"
+          >
+            <FileText className="size-3.5" /> Return credit notes
+          </h2>
+          <p className="mt-0.5 text-[11px] text-[var(--color-muted)]">
+            Billed-return evidence
+          </p>
+        </div>
+        <span className="font-mono text-[var(--text-xs)] font-semibold text-[var(--color-tag-red)]">
+          {formatCurrency(total, currency)}
+        </span>
+      </div>
+
+      {creditNotes.length === 0 ? (
+        <p className="mt-3 text-[11px] text-[var(--color-muted)]">
+          No return credit notes recorded.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {creditNotes.map((note) => (
+            <ReturnCreditNoteItem
+              key={note.id}
+              note={note}
+              fallbackCurrency={currency}
+            />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function ReturnCreditNoteItem({
+  note,
+  fallbackCurrency,
+}: {
+  note: PurchaseCreditNote;
+  fallbackCurrency: string;
+}) {
+  const ledgerPostingIds = note.ledgerPostingIds ?? [];
+  const evidenceDate = creditNoteDate(note.postedAt ?? note.createdAt);
+
+  return (
+    <li className="rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] p-2">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="font-mono text-[11px] font-semibold text-[var(--color-ink)]">
+            {note.id}
+          </p>
+          <p className="mt-0.5 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
+            {note.status || "status unknown"}
+            {evidenceDate ? ` · ${evidenceDate}` : ""}
+          </p>
+        </div>
+        <span className="font-mono text-[var(--text-xs)] font-semibold text-[var(--color-ink)]">
+          {formatCurrency(note.amount, note.currency || fallbackCurrency)}
+        </span>
+      </div>
+
+      <dl className="mt-2 grid grid-cols-2 gap-x-2 gap-y-1 text-[11px] text-[var(--color-muted)]">
+        {note.billId && (
+          <>
+            <dt>Bill</dt>
+            <dd className="truncate text-right font-mono text-[var(--color-ink)]">{note.billId}</dd>
+          </>
+        )}
+        {note.returnId && (
+          <>
+            <dt>Return</dt>
+            <dd className="truncate text-right font-mono text-[var(--color-ink)]">{note.returnId}</dd>
+          </>
+        )}
+        {ledgerPostingIds.length > 0 && (
+          <>
+            <dt>Ledger</dt>
+            <dd className="text-right font-mono text-[var(--color-ink)]">
+              {ledgerPostingIds.join(", ")}
+            </dd>
+          </>
+        )}
+        {(note.createdByName || note.createdAt) && (
+          <>
+            <dt>Created</dt>
+            <dd className="text-right text-[var(--color-ink)]">
+              {[note.createdByName, creditNoteDate(note.createdAt)]
+                .filter(Boolean)
+                .join(" · ")}
+            </dd>
+          </>
+        )}
+      </dl>
+
+      {note.note && (
+        <p className="mt-2 text-[11px] text-[var(--color-muted)]">{note.note}</p>
+      )}
+    </li>
+  );
+}
+
+function creditNoteDate(value: string | null | undefined) {
+  return value ? value.slice(0, 10) : "";
 }
 
 /* ────────── inline metadata ────────── */
