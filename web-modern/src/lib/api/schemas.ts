@@ -85,6 +85,25 @@ export const ServiceSlaPoliciesResponseSchema = z.union([
 ]);
 export type ServiceSlaPoliciesResponse = z.infer<typeof ServiceSlaPoliciesResponseSchema>;
 
+export const ServiceFieldVisitRouteOptimizationSchema = z
+  .object({
+    stopNumber: z.number().int().min(1).max(10_000).nullable().optional(),
+    totalStops: z.number().int().min(1).max(10_000).nullable().optional(),
+    strategy: z.string().nullable().optional(),
+    summary: z.string().nullable().optional(),
+    estimatedTravelMinutes: z.number().min(0).max(10_080).nullable().optional(),
+    estimatedDistanceKm: z.number().min(0).max(100_000).nullable().optional(),
+    savingsMinutes: z.number().min(0).max(10_080).nullable().optional(),
+    provider: z.string().nullable().optional(),
+    source: z.string().nullable().optional(),
+    limitations: z.unknown().optional(),
+    evidence: z.unknown().optional(),
+  })
+  .passthrough();
+export type ServiceFieldVisitRouteOptimization = z.infer<
+  typeof ServiceFieldVisitRouteOptimizationSchema
+>;
+
 export const ServiceFieldVisitDispatchNavigationSchema = z
   .object({
     address: z.string().optional(),
@@ -100,6 +119,7 @@ export const ServiceFieldVisitDispatchNavigationSchema = z
     longitude: z.number().optional(),
     provider: z.string().optional(),
     source: z.string().optional(),
+    routeOptimization: ServiceFieldVisitRouteOptimizationSchema.nullable().optional(),
   })
   .passthrough();
 export type ServiceFieldVisitDispatchNavigation = z.infer<

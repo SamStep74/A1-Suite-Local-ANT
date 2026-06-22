@@ -84,6 +84,22 @@ function assertNavigationUrlsEncodeSpecialAddress(navigation, address) {
   assert.ok(!navigation.directionsUrl.includes(address), navigation.directionsUrl);
 }
 
+function assertRouteOptimizationEvidence(visit, { stopNumber, totalStops }) {
+  const routeOptimization = visit.dispatchNavigation?.routeOptimization;
+  assert.ok(routeOptimization && typeof routeOptimization === "object");
+  assert.strictEqual(routeOptimization.strategy, "scheduled-window-order-v1");
+  assert.strictEqual(routeOptimization.status, "fallback");
+  assert.strictEqual(routeOptimization.provider, "local-schedule");
+  assert.strictEqual(routeOptimization.source, "service_field_visits.scheduled_start_at");
+  assert.strictEqual(routeOptimization.locationSource, "service_field_visits.location");
+  assert.strictEqual(routeOptimization.stopNumber, stopNumber);
+  assert.strictEqual(routeOptimization.totalStops, totalStops);
+  assert.strictEqual(routeOptimization.referenceAt, visit.scheduledStartAt);
+  assert.strictEqual(routeOptimization.computedAt, visit.updatedAt || visit.createdAt || visit.scheduledStartAt);
+  assert.deepStrictEqual(routeOptimization.limitations, ["distance-matrix-not-run"]);
+  assert.ok(routeOptimization.summary.includes(`stop ${stopNumber} of ${totalStops}`), routeOptimization.summary);
+}
+
 test("service console exposes customers + agents pickers; create + PATCH a case", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -149,6 +165,158 @@ test("service field visits are seeded, listed, and exposed in the service consol
     const consoleVisit = console1.fieldVisits.find(visit => visit.id === visits[0].id);
     assert.ok(consoleVisit);
     assert.deepStrictEqual(consoleVisit.dispatchNavigation, listedNavigation);
+  } finally { await app.close(); }
+});
+
+test("route optimization evidence orders active field visit stops by scheduled window", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const support = console1.agents.find(agent => agent.role === "Support");
+    const manager = console1.agents.find(agent => agent.role === "Service Manager");
+    assert.ok(support);
+    assert.ok(manager);
+
+    const laterSupportVisit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 31,
+      location: "Route stop beta"
+    });
+    const terminalSupportVisit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 30,
+      location: "Route terminal stop",
+      status: "completed"
+    });
+    const earlierSupportVisit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 29,
+      location: "Route stop alpha"
+    });
+    const managerVisit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: manager.id,
+      startOffsetHours: 28,
+      location: "Manager route stop"
+    });
+
+    const listed = await app.inject({ method: "GET", url: "/api/service/field-visits", headers: { cookie: ownerCookie } });
+    assert.strictEqual(listed.statusCode, 200, listed.body);
+    const visits = listed.json().visits;
+    const earlierListed = visits.find(visit => visit.id === earlierSupportVisit.id);
+    const laterListed = visits.find(visit => visit.id === laterSupportVisit.id);
+    const terminalListed = visits.find(visit => visit.id === terminalSupportVisit.id);
+    assert.ok(earlierListed);
+    assert.ok(laterListed);
+    assert.ok(terminalListed);
+    assertDispatchNavigationEvidence(earlierListed, earlierSupportVisit.location);
+    assertDispatchNavigationEvidence(laterListed, laterSupportVisit.location);
+    assertRouteOptimizationEvidence(earlierListed, { stopNumber: 1, totalStops: 2 });
+    assertRouteOptimizationEvidence(laterListed, { stopNumber: 2, totalStops: 2 });
+    assert.strictEqual(terminalListed.dispatchNavigation.routeOptimization, undefined);
+
+    const listedMine = await app.inject({ method: "GET", url: "/api/service/my-field-visits", headers: { cookie: supportCookie } });
+    assert.strictEqual(listedMine.statusCode, 200, listedMine.body);
+    const myVisits = listedMine.json().visits;
+    assert.ok(myVisits.some(visit => visit.id === earlierSupportVisit.id));
+    assert.ok(myVisits.some(visit => visit.id === terminalSupportVisit.id));
+    assert.ok(!myVisits.some(visit => visit.id === managerVisit.id));
+    assert.ok(myVisits.every(visit => visit.assignedUserId === support.id));
+    assertRouteOptimizationEvidence(myVisits.find(visit => visit.id === earlierSupportVisit.id), { stopNumber: 1, totalStops: 2 });
+    assertRouteOptimizationEvidence(myVisits.find(visit => visit.id === laterSupportVisit.id), { stopNumber: 2, totalStops: 2 });
+  } finally { await app.close(); }
+});
+
+test("route optimization evidence on field visit lists preserves tenant isolation", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const support = console1.agents.find(agent => agent.role === "Support");
+    assert.ok(support);
+
+    const ownerVisit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 35,
+      location: "Tenant owner route stop"
+    });
+    const now = new Date().toISOString();
+    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, currency, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run("org-route-foreign", "Route Foreign Org", "Route Foreign Org LLC", "78787878", "AMD", now);
+    app.db.prepare(`
+      INSERT INTO customers (id, org_id, name, tax_id, email, phone, segment, health_score, lifetime_value, open_receivables, last_touch)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("cust-route-foreign", "org-route-foreign", "Route Foreign Customer", "78787879", "route.foreign@example.com", "", "Other", 50, 0, 0, "2026-05-01");
+    app.db.prepare(`
+      INSERT INTO service_cases (
+        id, org_id, customer_id, ticket_id, case_number, subject, status, priority,
+        channel, owner_user_id, sla_due_at, sla_status, ai_suggestion,
+        knowledge_article, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "case-route-foreign",
+      "org-route-foreign",
+      "cust-route-foreign",
+      null,
+      "ROUTE-FOREIGN-1",
+      "Foreign route case",
+      "open",
+      "medium",
+      "Email",
+      null,
+      new Date(Date.now() + 36 * 60 * 60 * 1000).toISOString(),
+      "on-track",
+      "Foreign route suggestion",
+      "KB-GENERAL-SERVICE",
+      now,
+      now
+    );
+    app.db.prepare(`
+      INSERT INTO service_field_visits (
+        id, org_id, case_id, customer_id, assigned_user_id,
+        scheduled_start_at, scheduled_end_at, status, location,
+        worksheet_summary, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "visit-route-foreign",
+      "org-route-foreign",
+      "case-route-foreign",
+      "cust-route-foreign",
+      support.id,
+      new Date(Date.now() + 34 * 60 * 60 * 1000).toISOString(),
+      new Date(Date.now() + 35 * 60 * 60 * 1000).toISOString(),
+      "scheduled",
+      "Foreign route stop",
+      "Foreign route worksheet should remain isolated.",
+      now,
+      now
+    );
+
+    const listed = await app.inject({ method: "GET", url: "/api/service/field-visits", headers: { cookie: ownerCookie } });
+    assert.strictEqual(listed.statusCode, 200, listed.body);
+    assert.ok(!listed.json().visits.some(visit => visit.id === "visit-route-foreign"));
+    const listedVisit = listed.json().visits.find(visit => visit.id === ownerVisit.id);
+    assert.ok(listedVisit);
+    assertRouteOptimizationEvidence(listedVisit, { stopNumber: 1, totalStops: 1 });
+
+    const console2 = await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } });
+    assert.strictEqual(console2.statusCode, 200, console2.body);
+    assert.ok(!console2.json().fieldVisits.some(visit => visit.id === "visit-route-foreign"));
+    const consoleVisit = console2.json().fieldVisits.find(visit => visit.id === ownerVisit.id);
+    assert.ok(consoleVisit);
+    assertRouteOptimizationEvidence(consoleVisit, { stopNumber: 1, totalStops: 1 });
   } finally { await app.close(); }
 });
 

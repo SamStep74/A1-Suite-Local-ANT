@@ -319,18 +319,60 @@ describe("/app/desk/dispatch", () => {
   });
 
   it("renders assigned visits with route, map, and navigation links", async () => {
+    setupApi([
+      {
+        ...VISIT,
+        dispatchNavigation: {
+          ...VISIT.dispatchNavigation,
+          routeOptimization: {
+            stopNumber: 1,
+            totalStops: 3,
+            strategy: "nearest-open-window",
+            estimatedTravelMinutes: 12,
+            estimatedDistanceKm: 4.8,
+            savingsMinutes: 8,
+            provider: "maps-router",
+            source: "field-service-route-optimizer",
+          },
+        },
+      },
+    ]);
+
     renderRoute();
 
     await screen.findByText("AO-CASE-1001");
     expect(screen.getByText("Assigned")).toBeTruthy();
     expect(screen.getByText("Active")).toBeTruthy();
     expect(screen.getByText("Warehouse -> Ani Beauty")).toBeTruthy();
+    expect(screen.getByText("Route plan")).toBeTruthy();
+    expect(screen.getByText("Stop 1/3")).toBeTruthy();
+    expect(screen.getByText("nearest open window")).toBeTruthy();
+    expect(screen.getByText("ETA 12 min")).toBeTruthy();
+    expect(screen.getByText("4.8 km")).toBeTruthy();
+    expect(screen.getByText("saved 8 min")).toBeTruthy();
     expect(screen.getAllByText("Inspect fiscal printer.").length).toBeGreaterThan(0);
 
     const mapLink = screen.getByRole("link", { name: /map/i });
     const navigationLink = screen.getByRole("link", { name: /navigation/i });
     expect(mapLink.getAttribute("href")).toBe("https://maps.example.test/visit-1");
     expect(navigationLink.getAttribute("href")).toBe("https://nav.example.test/visit-1");
+  });
+
+  it("does not render route optimization evidence when it is null", async () => {
+    setupApi([
+      {
+        ...VISIT,
+        dispatchNavigation: {
+          ...VISIT.dispatchNavigation,
+          routeOptimization: null,
+        },
+      },
+    ]);
+
+    renderRoute();
+
+    await screen.findByText("Warehouse -> Ani Beauty");
+    expect(screen.queryByText("Route plan")).toBeNull();
   });
 
   it("sends an idempotencyKey with technician status updates", async () => {

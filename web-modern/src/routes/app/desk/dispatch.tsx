@@ -25,6 +25,7 @@ import {
   UpdateServiceFieldVisitTechnicianLocationResponseSchema,
   type ServiceDispatchAlert,
   type ServiceFieldVisit,
+  type ServiceFieldVisitRouteOptimization,
   type ServiceFieldVisitTechnicianLocation,
   type ServiceFieldVisitTechnicianStatus,
 } from "../../../lib/api/schemas";
@@ -558,6 +559,7 @@ function DispatchVisitCard({
   const terminal = isTerminalVisitStatus(visit.status);
   const isSubmitting = pendingStatus != null;
   const routeLine = getDispatchRouteLine(visit);
+  const routeOptimization = visit.dispatchNavigation?.routeOptimization ?? null;
   const navigationLinks = getDispatchNavigationLinks(visit);
   const latestLocation = capturedLocation ?? visit.technicianLocation ?? null;
   const isCapturingGps = gpsState === "pending";
@@ -704,6 +706,7 @@ function DispatchVisitCard({
             <RouteIcon className="size-3.5 shrink-0" aria-hidden />
             <span className="line-clamp-1">{routeLine}</span>
           </p>
+          <RouteOptimizationChip routeOptimization={routeOptimization} />
           <p className="flex items-center gap-1.5">
             <MapPin className="size-3.5 shrink-0" aria-hidden />
             <span className="line-clamp-1">{visit.location}</span>
@@ -812,6 +815,30 @@ function DispatchVisitCard({
         )}
       </div>
     </article>
+  );
+}
+
+function RouteOptimizationChip({
+  routeOptimization,
+}: {
+  routeOptimization?: ServiceFieldVisitRouteOptimization | null;
+}) {
+  const parts = formatRouteOptimizationParts(routeOptimization);
+  if (parts.length === 0) return null;
+
+  return (
+    <p className="ml-5 flex min-w-0">
+      <span className="inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-[var(--radius-sm)] bg-[var(--color-surface-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-muted)]">
+        {parts.map((part, index) => (
+          <span
+            key={`${index}:${part}`}
+            className={cn(index === 0 ? "font-semibold text-[var(--color-ink)]" : undefined)}
+          >
+            {part}
+          </span>
+        ))}
+      </span>
+    </p>
   );
 }
 
@@ -1000,6 +1027,55 @@ function getDispatchRouteLine(visit: ServiceFieldVisit): string {
   return visit.location;
 }
 
+function formatRouteOptimizationParts(
+  routeOptimization?: ServiceFieldVisitRouteOptimization | null,
+): string[] {
+  if (!routeOptimization) return [];
+
+  const stopLabel = formatRouteStopLabel(routeOptimization.stopNumber, routeOptimization.totalStops);
+  const strategyLabel = formatRouteStrategy(routeOptimization.strategy);
+  const etaLabel = formatRouteMinutes(routeOptimization.estimatedTravelMinutes, "ETA");
+  const distanceLabel = formatRouteDistance(routeOptimization.estimatedDistanceKm);
+  const savingsLabel = formatRouteMinutes(routeOptimization.savingsMinutes, "saved");
+  const summary = firstNonEmpty(routeOptimization.summary);
+  const compactEvidence = [stopLabel, strategyLabel, etaLabel, distanceLabel, savingsLabel].filter(
+    (part): part is string => Boolean(part),
+  );
+
+  if (compactEvidence.length === 0 && summary) return ["Route plan", summary];
+  return ["Route plan", ...compactEvidence];
+}
+
+function formatRouteStopLabel(
+  stopNumber: number | null | undefined,
+  totalStops: number | null | undefined,
+): string | undefined {
+  const safeStop = isPositiveFiniteNumber(stopNumber) ? Math.trunc(stopNumber) : undefined;
+  const safeTotal = isPositiveFiniteNumber(totalStops) ? Math.trunc(totalStops) : undefined;
+  if (safeStop && safeTotal) return `Stop ${safeStop}/${safeTotal}`;
+  if (safeStop) return `Stop ${safeStop}`;
+  if (safeTotal) return `${safeTotal} stops`;
+  return undefined;
+}
+
+function formatRouteStrategy(value: string | null | undefined): string | undefined {
+  const strategy = firstNonEmpty(value);
+  return strategy ? strategy.replace(/[-_]+/g, " ") : undefined;
+}
+
+function formatRouteMinutes(
+  value: number | null | undefined,
+  prefix: "ETA" | "saved",
+): string | undefined {
+  if (!isNonnegativeFiniteNumber(value)) return undefined;
+  return `${prefix} ${formatCompactNumber(value)} min`;
+}
+
+function formatRouteDistance(value: number | null | undefined): string | undefined {
+  if (!isNonnegativeFiniteNumber(value)) return undefined;
+  return `${formatCompactNumber(value)} km`;
+}
+
 function getDispatchNavigationLinks(visit: ServiceFieldVisit): DispatchNavigationLink[] {
   const navigation = visit.dispatchNavigation ?? undefined;
   const mapHref =
@@ -1025,6 +1101,19 @@ function getDispatchNavigationLinks(visit: ServiceFieldVisit): DispatchNavigatio
 
 function firstNonEmpty(...values: Array<string | null | undefined>): string | undefined {
   return values.find((value) => typeof value === "string" && value.trim().length > 0)?.trim();
+}
+
+function isPositiveFiniteNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value > 0;
+}
+
+function isNonnegativeFiniteNumber(value: number | null | undefined): value is number {
+  return typeof value === "number" && Number.isFinite(value) && value >= 0;
+}
+
+function formatCompactNumber(value: number): string {
+  if (Number.isInteger(value)) return String(value);
+  return value.toFixed(1).replace(/\.0$/, "");
 }
 
 function createMapSearchUrl(location: string): string | undefined {

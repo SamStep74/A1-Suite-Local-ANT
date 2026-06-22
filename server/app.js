@@ -57124,7 +57124,9 @@ function getServiceFieldVisits(db, orgId, customerId = "", assignedUserId = "") 
     ORDER BY service_field_visits.scheduled_start_at ASC, service_field_visits.created_at DESC
   `).all(...params);
   const locationsByVisitId = getLatestServiceFieldVisitTechnicianLocations(db, orgId, rows.map(row => row.id));
-  return rows.map(row => formatServiceFieldVisit(row, locationsByVisitId.get(row.id)));
+  return addServiceFieldVisitRouteOptimizationEvidence(
+    rows.map(row => formatServiceFieldVisit(row, locationsByVisitId.get(row.id)))
+  );
 }
 
 function getServiceFieldVisit(db, orgId, visitId) {
@@ -57364,6 +57366,68 @@ function throwInvalidServiceDispatchAlertPathId() {
 
 function isTerminalServiceFieldVisitStatus(status) {
   return status === "completed" || status === "cancelled";
+}
+
+function addServiceFieldVisitRouteOptimizationEvidence(visits) {
+  const activeByAssignee = new Map();
+  for (const visit of visits) {
+    if (!visit.assignedUserId || isTerminalServiceFieldVisitStatus(visit.status)) continue;
+    const key = visit.assignedUserId;
+    if (!activeByAssignee.has(key)) activeByAssignee.set(key, []);
+    activeByAssignee.get(key).push(visit);
+  }
+  for (const stops of activeByAssignee.values()) {
+    stops.sort(compareServiceFieldVisitRouteStops);
+    const totalStops = stops.length;
+    stops.forEach((visit, index) => {
+      visit.dispatchNavigation.routeOptimization = buildServiceFieldVisitRouteOptimizationEvidence(visit, index + 1, totalStops);
+    });
+  }
+  return visits;
+}
+
+function compareServiceFieldVisitRouteStops(a, b) {
+  const start = compareServiceFieldVisitRouteText(a.scheduledStartAt, b.scheduledStartAt);
+  if (start !== 0) return start;
+  const end = compareServiceFieldVisitRouteText(a.scheduledEndAt, b.scheduledEndAt);
+  if (end !== 0) return end;
+  const location = compareServiceFieldVisitRouteText(a.location, b.location);
+  if (location !== 0) return location;
+  return String(a.id || "").localeCompare(String(b.id || ""));
+}
+
+function compareServiceFieldVisitRouteText(a, b) {
+  const left = serviceFieldVisitRouteSortText(a);
+  const right = serviceFieldVisitRouteSortText(b);
+  if (left === right) return 0;
+  if (!left) return 1;
+  if (!right) return -1;
+  return left.localeCompare(right);
+}
+
+function serviceFieldVisitRouteSortText(value) {
+  return serviceFieldVisitNavigationText(value).toLowerCase();
+}
+
+function buildServiceFieldVisitRouteOptimizationEvidence(visit, stopNumber, totalStops) {
+  const destination = serviceFieldVisitNavigationText(visit.dispatchNavigation?.address)
+    || serviceFieldVisitNavigationText(visit.location)
+    || "service field visit";
+  const technicianName = serviceFieldVisitNavigationText(visit.assignedUserName) || "assigned technician";
+  const referenceAt = visit.scheduledStartAt || visit.updatedAt || visit.createdAt || null;
+  return {
+    strategy: "scheduled-window-order-v1",
+    status: "fallback",
+    provider: "local-schedule",
+    source: "service_field_visits.scheduled_start_at",
+    locationSource: "service_field_visits.location",
+    stopNumber,
+    totalStops,
+    summary: `${technicianName} stop ${stopNumber} of ${totalStops} by scheduled window for ${destination}.`,
+    computedAt: visit.updatedAt || visit.createdAt || referenceAt,
+    referenceAt,
+    limitations: ["distance-matrix-not-run"]
+  };
 }
 
 function getLatestServiceFieldVisitTechnicianLocations(db, orgId, visitIds) {

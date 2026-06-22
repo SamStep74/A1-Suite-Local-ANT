@@ -306,6 +306,62 @@ describe("ServiceFieldVisitSchema", () => {
     }
   });
 
+  it("accepts route optimization evidence on dispatch navigation", () => {
+    const r = ServiceFieldVisitSchema.safeParse({
+      ...VALID_FIELD_VISIT,
+      dispatchNavigation: {
+        address: "Ani Beauty, Yerevan",
+        routeLine: "Warehouse -> Ani Beauty",
+        routeOptimization: {
+          stopNumber: 1,
+          totalStops: 3,
+          strategy: "nearest-open-window",
+          summary: "Front-load urgent visits near Kentron.",
+          estimatedTravelMinutes: 12,
+          estimatedDistanceKm: 4.8,
+          savingsMinutes: 8,
+          provider: "maps-router",
+          source: "field-service-route-optimizer",
+          limitations: ["traffic is estimated"],
+          evidence: { scoredAt: "2026-06-22T08:00:00.000Z" },
+          traceId: "route-plan-1",
+        },
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.dispatchNavigation?.routeOptimization?.stopNumber).toBe(1);
+      expect(r.data.dispatchNavigation?.routeOptimization?.totalStops).toBe(3);
+      expect(r.data.dispatchNavigation?.routeOptimization?.strategy).toBe("nearest-open-window");
+      expect(r.data.dispatchNavigation?.routeOptimization?.estimatedTravelMinutes).toBe(12);
+      expect(r.data.dispatchNavigation?.routeOptimization?.savingsMinutes).toBe(8);
+      expect(r.data.dispatchNavigation?.routeOptimization?.provider).toBe("maps-router");
+      expect(r.data.dispatchNavigation?.routeOptimization?.source).toBe("field-service-route-optimizer");
+      expect(r.data.dispatchNavigation?.routeOptimization?.limitations).toEqual(["traffic is estimated"]);
+      expect(r.data.dispatchNavigation?.routeOptimization?.evidence).toEqual({
+        scoredAt: "2026-06-22T08:00:00.000Z",
+      });
+      expect((r.data.dispatchNavigation?.routeOptimization as { traceId?: string }).traceId).toBe("route-plan-1");
+    }
+  });
+
+  it("rejects impossible route optimization stop numbers", () => {
+    const r = ServiceFieldVisitSchema.safeParse({
+      ...VALID_FIELD_VISIT,
+      dispatchNavigation: {
+        routeOptimization: {
+          stopNumber: 0,
+          totalStops: 3,
+          estimatedTravelMinutes: 12,
+          savingsMinutes: 8,
+        },
+      },
+    });
+
+    expect(r.success).toBe(false);
+  });
+
   it("accepts optional technician GPS location evidence", () => {
     const r = ServiceFieldVisitSchema.safeParse({
       ...VALID_FIELD_VISIT,
