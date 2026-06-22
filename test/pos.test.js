@@ -844,6 +844,115 @@ test("pos: cash full refund posts evidence, reduces expected cash, replays idemp
   }
 });
 
+test("pos: cash partial refund reduces expected cash by the partial amount and prorates ledger without restock", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const orgId = "org-armosphera-demo";
+    const { session, sale } = await createPostedPosSale(app, operator, {
+      registerCode: "POS-REFUND-PARTIAL-CASH",
+      openingCash: 20000,
+      fiscalDeviceId: "FISCAL-AM-REFUND-PARTIAL",
+      receiptNumber: "R-REFUND-PARTIAL-001",
+      idempotencyKey: "pos-refund-partial-sale-1"
+    });
+    assert.equal(session.expectedCash, 105000);
+
+    const itemId = "catitem-pos-barcode-scanner";
+    const stockLocationId = "stockloc-main-warehouse";
+    const quant = () => app.db.prepare(`
+      SELECT quantity
+      FROM stock_quants
+      WHERE org_id = ? AND catalog_item_id = ? AND location_id = ?
+    `).get(orgId, itemId, stockLocationId).quantity;
+    const afterSaleQuantity = quant();
+    const stockMoveCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM stock_moves WHERE org_id = ?").get(orgId).count;
+    const beforeMoves = stockMoveCount();
+    const vatAfterSale = ledger.vatReport(app.db, orgId, "2026-06");
+    const refundedTotal = 30000;
+    const refundedVat = Math.round((sale.vat * refundedTotal) / sale.total);
+    const refundedSubtotal = refundedTotal - refundedVat;
+
+    const payload = {
+      idempotencyKey: "pos-refund-partial-cash-1",
+      refundReference: "RF-PARTIAL-CASH-001",
+      reason: "Customer received a partial goodwill refund.",
+      refundMethod: "cash",
+      refundedTotal,
+      refundedAt: "2026-06-22T10:30:00.000Z"
+    };
+    const refunded = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/refund`,
+      headers: { cookie: operator },
+      payload
+    });
+
+    assert.equal(refunded.statusCode, 200, refunded.body);
+    const body = refunded.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.idempotent, false);
+    assert.equal(body.session.expectedCash, session.expectedCash - refundedTotal);
+    assert.equal(body.sale.status, "refunded");
+    assert.equal(body.sale.postings.salePosting, "posted");
+    assert.equal(body.sale.postings.ledgerPosting, "posted");
+
+    const refund = body.refund;
+    assert.equal(refund.saleId, sale.id);
+    assert.equal(refund.cashSessionId, session.id);
+    assert.equal(refund.refundReference, "RF-PARTIAL-CASH-001");
+    assert.equal(refund.refundedTotal, refundedTotal);
+    assert.equal(refund.cashAdjustment, refundedTotal);
+    assert.equal(refund.inventoryPostingStatus, "not-posted");
+    assert.equal(refund.ledgerPostingStatus, "posted");
+    assert.equal(refund.postings.ledgerPostingCount, 2);
+    assert.equal(refund.lineCount, 0);
+    assert.deepEqual(refund.lines, []);
+    assert.equal(stockMoveCount(), beforeMoves);
+    assert.equal(quant(), afterSaleQuantity);
+
+    const refundJournals = app.db.prepare(`
+      SELECT debit_code, credit_code, amount, source_type, source_id, period_key
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = ? AND source_id = ?
+      ORDER BY debit_code
+    `).all(orgId, "pos_sale_refund", refund.id).map(row => ({ ...row }));
+    assert.deepEqual(refundJournals, [
+      { debit_code: "524", credit_code: "251", amount: refundedVat, source_type: "pos_sale_refund", source_id: refund.id, period_key: "2026-06" },
+      { debit_code: "611", credit_code: "251", amount: refundedSubtotal, source_type: "pos_sale_refund", source_id: refund.id, period_key: "2026-06" }
+    ]);
+    const refundVat = ledger.vatReport(app.db, orgId, "2026-06");
+    assert.equal(refundVat.outputVat, vatAfterSale.outputVat - refundedVat);
+    assert.equal(refundVat.netVatPayable, vatAfterSale.netVatPayable - refundedVat);
+    assert.equal(app.db.prepare("SELECT status FROM pos_sales WHERE org_id = ? AND id = ?").get(orgId, sale.id).status, "refunded");
+
+    const replayed = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: { ...payload, reason: "Replay should not alter the partial refund." }
+    });
+    assert.equal(replayed.statusCode, 200, replayed.body);
+    assert.equal(replayed.json().idempotent, true);
+    assert.equal(replayed.json().refund.id, refund.id);
+    assert.equal(replayed.json().refund.reason, "Customer received a partial goodwill refund.");
+    assert.equal(replayed.json().session.expectedCash, session.expectedCash - refundedTotal);
+    assert.equal(stockMoveCount(), beforeMoves);
+    assert.equal(quant(), afterSaleQuantity);
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: { ...payload, idempotencyKey: "pos-refund-partial-cash-2", refundReference: "RF-PARTIAL-CASH-002" }
+    });
+    assert.equal(duplicate.statusCode, 409, duplicate.body);
+  } finally {
+    await app.close();
+  }
+});
+
 test("pos: card and bank full refunds record evidence without changing expected cash", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

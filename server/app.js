@@ -55470,11 +55470,12 @@ function createPosSaleRefund(db, user, saleId, body) {
       err.statusCode = 409;
       throw err;
     }
-    if (input.refundedTotal !== null && input.refundedTotal !== source.sale.total_amd) {
-      const err = new Error("POS refund total must equal the original sale total");
-      err.statusCode = 400;
-      throw err;
-    }
+    const saleTotal = Number(source.sale.total_amd || 0);
+    if (saleTotal <= 0) throwInvalidPosMetadata();
+    const refundedTotal = input.refundedTotal === null
+      ? saleTotal
+      : input.refundedTotal;
+    if (refundedTotal <= 0 || refundedTotal > saleTotal) throwInvalidPosMetadata();
     if (input.refundMethod === "cash" && source.sale.session_status !== "open") {
       const err = new Error("POS cash refund requires an open cash session");
       err.statusCode = 409;
@@ -55483,13 +55484,19 @@ function createPosSaleRefund(db, user, saleId, body) {
 
     const now = new Date().toISOString();
     const refundedAt = input.refundedAt || now;
-    const refundedTotal = Number(source.sale.total_amd || 0);
+    const refundAmounts = splitPosRefundAmounts(source.sale, refundedTotal);
+    const refundLines = buildPosRefundLineEvidence(source.lines, saleTotal, refundedTotal);
+    const isFullRefund = refundedTotal === saleTotal;
     const paidCash = Number(source.sale.paid_cash_amd || 0);
     const cashAdjustment = input.refundMethod === "cash" && paidCash > 0
       ? Math.min(paidCash, refundedTotal)
       : 0;
-    const returnStockMoves = createPosRefundReturnStockMoves(db, user, source, input);
-    const inventoryPostingStatus = returnStockMoves.size > 0 ? "posted" : "not-posted";
+    const returnStockMoves = isFullRefund
+      ? createPosRefundReturnStockMoves(db, user, source, input)
+      : new Map();
+    const inventoryPostingStatus = isFullRefund && returnStockMoves.size > 0
+      ? "posted"
+      : "not-posted";
     const ledgerPostingStatus = source.sale.ledger_posting_status === "posted"
       ? "posted"
       : "not-posted";
@@ -55529,28 +55536,28 @@ function createPosSaleRefund(db, user, saleId, body) {
       )
       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
-    for (const line of source.lines) {
+    for (const line of refundLines) {
       insertLine.run(
         randomId("pos-sale-refund-line"),
         user.org_id,
         refundId,
         source.sale.id,
-        line.id,
-        line.line_number,
-        line.catalog_item_id,
-        line.catalog_item_variant_id || null,
+        line.sourceLineId,
+        line.lineNumber,
+        line.catalogItemId,
+        line.catalogItemVariantId || null,
         line.sku,
         line.name,
         line.description || "",
         line.quantity,
-        line.unit_price_amd,
-        line.subtotal_amd,
-        line.vat_amd,
-        line.total_amd,
-        line.vat_mode,
-        line.fiscal_receipt_required ? 1 : 0,
-        line.stock_move_id || null,
-        returnStockMoves.get(line.id) || null,
+        line.unitPrice,
+        line.subtotal,
+        line.vat,
+        line.total,
+        line.vatMode,
+        line.fiscalReceiptRequired ? 1 : 0,
+        line.sourceStockMoveId || null,
+        returnStockMoves.get(line.sourceLineId) || null,
         now
       );
     }
@@ -55573,19 +55580,20 @@ function createPosSaleRefund(db, user, saleId, body) {
         id: refundId,
         refundReference: input.refundReference,
         refundMethod: input.refundMethod,
-        subtotal: source.sale.subtotal_amd,
-        vat: source.sale.vat_amd,
+        subtotal: refundAmounts.subtotal,
+        vat: refundAmounts.vat,
         total: refundedTotal,
         date: refundedAt,
         period_key: refundedAt.slice(0, 7)
       });
     }
 
+    const saleRefundStatus = isFullRefund ? "refunded_full" : "refunded";
     const saleInfo = db.prepare(`
       UPDATE pos_sales
-      SET status = 'refunded_full', updated_at = ?
+      SET status = ?, updated_at = ?
       WHERE org_id = ? AND id = ? AND status = 'posted'
-    `).run(now, user.org_id, source.sale.id);
+    `).run(saleRefundStatus, now, user.org_id, source.sale.id);
     if (saleInfo.changes === 0) {
       const err = new Error("POS sale must be posted and not already refunded before refund evidence can be posted");
       err.statusCode = 409;
@@ -55605,6 +55613,7 @@ function createPosSaleRefund(db, user, saleId, body) {
         refundReference: input.refundReference,
         refundMethod: input.refundMethod,
         refundedTotal,
+        refundStatus: saleRefundStatus,
         cashAdjustment,
         inventoryPostingStatus,
         ledgerPostingStatus
@@ -55617,6 +55626,7 @@ function createPosSaleRefund(db, user, saleId, body) {
       refundReference: input.refundReference,
       refundMethod: input.refundMethod,
       refundedTotal,
+      refundStatus: saleRefundStatus,
       cashAdjustment,
       idempotencyKey: input.idempotencyKey,
       inventoryPostingStatus,
@@ -55767,6 +55777,57 @@ function createPosTerminalSettlement(db, user, sessionId, body) {
     throw err;
   }
   return buildPosTerminalSettlementResponse(db, user.org_id, settlementId, sessionId, false);
+}
+
+function splitPosRefundAmounts(sale, refundedTotal) {
+  const saleTotal = Number(sale.total_amd || 0);
+  const saleSubtotal = Number(sale.subtotal_amd || 0);
+  const saleVat = Number(sale.vat_amd || 0);
+  if (!Number.isSafeInteger(saleTotal) || saleTotal <= 0) throwInvalidPosMetadata();
+  if (!Number.isSafeInteger(saleSubtotal) || !Number.isSafeInteger(saleVat) || saleSubtotal < 0 || saleVat < 0) {
+    throwInvalidPosMetadata();
+  }
+  if (saleSubtotal + saleVat !== saleTotal) throwInvalidPosMetadata();
+  if (!Number.isSafeInteger(refundedTotal) || refundedTotal <= 0 || refundedTotal > saleTotal) {
+    throwInvalidPosMetadata();
+  }
+  if (refundedTotal === saleTotal) {
+    return {
+      subtotal: saleSubtotal,
+      vat: saleVat,
+      total: refundedTotal
+    };
+  }
+  const vat = Math.min(saleVat, Math.round((saleVat * refundedTotal) / saleTotal));
+  return {
+    subtotal: refundedTotal - vat,
+    vat,
+    total: refundedTotal
+  };
+}
+
+function buildPosRefundLineEvidence(lines, saleTotal, refundedTotal) {
+  if (!Array.isArray(lines) || lines.length === 0) throwInvalidPosMetadata();
+  if (refundedTotal === saleTotal) {
+    return lines.map(line => ({
+      sourceLineId: line.id,
+      lineNumber: line.line_number,
+      catalogItemId: line.catalog_item_id,
+      catalogItemVariantId: line.catalog_item_variant_id || null,
+      sku: line.sku,
+      name: line.name,
+      description: line.description || "",
+      quantity: line.quantity,
+      unitPrice: line.unit_price_amd,
+      subtotal: line.subtotal_amd,
+      vat: line.vat_amd,
+      total: line.total_amd,
+      vatMode: line.vat_mode,
+      fiscalReceiptRequired: Boolean(line.fiscal_receipt_required),
+      sourceStockMoveId: line.stock_move_id || null
+    }));
+  }
+  return [];
 }
 
 function createPosRefundReturnStockMoves(db, user, source, input) {
@@ -56483,7 +56544,7 @@ function normalizePosSaleRefundBody(body) {
     refundMethod: normalizePosChoice(body, "refundMethod", ["cash", "card", "bank-transfer"], "", true),
     refundedAt: normalizePosTimestamp(body, "refundedAt", ""),
     refundedTotal: hasRefundedTotal
-      ? normalizePosMoney(body, "refundedTotal", { required: true, min: 0, max: 100000000000 })
+      ? normalizePosMoney(body, "refundedTotal", { required: true, min: 1, max: 100000000000 })
       : null
   };
 }

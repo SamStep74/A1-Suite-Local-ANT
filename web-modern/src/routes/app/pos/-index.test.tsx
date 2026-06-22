@@ -318,6 +318,41 @@ const VALID_REFUND_RESPONSE = {
   },
 };
 
+const VALID_PARTIAL_REFUND_RESPONSE = {
+  ...VALID_REFUND_RESPONSE,
+  refund: {
+    ...VALID_REFUND_RESPONSE.refund,
+    id: "pos-sale-refund-partial-1",
+    refundReference: "RF-PARTIAL-001",
+    sourceKey: "pos-refund-ui-pos-sale-1-1782113400000",
+    reason: "Partial goodwill refund.",
+    refundedTotal: 20000,
+    cashAdjustment: 20000,
+    inventoryPostingStatus: "not-posted",
+    postings: {
+      ...VALID_REFUND_RESPONSE.refund.postings,
+      inventoryPosting: "not-posted",
+    },
+    lines: [
+      {
+        ...VALID_REFUND_RESPONSE.refund.lines[0],
+        id: "pos-sale-refund-line-partial-1",
+        subtotal: 20000,
+        total: 20000,
+        returnStockMoveId: null,
+      },
+    ],
+  },
+  sale: {
+    ...VALID_SALE_RESPONSE.sale,
+    status: "refunded",
+  },
+  session: {
+    ...OPEN_SESSION,
+    expectedCash: 80000,
+  },
+};
+
 const VALID_TERMINAL_SETTLEMENT_PREVIEW = {
   cashSessionId: CLOSED_SESSION.id,
   sessionStatus: "closed",
@@ -687,6 +722,78 @@ describe("POS route", () => {
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["pos", "workspace"],
     });
+  });
+
+  it("records a single partial refund amount and renders returned status evidence", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+    mocks.postJson
+      .mockResolvedValueOnce(VALID_SALE_RESPONSE)
+      .mockResolvedValueOnce(VALID_PARTIAL_REFUND_RESPONSE);
+
+    renderRoute();
+
+    fireEvent.change(screen.getByTestId("pos-sale-quantity"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-receipt-number"), {
+      target: { value: "R-2026-0002" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-payment-method"), {
+      target: { value: "cash" },
+    });
+    fireEvent.click(screen.getByTestId("pos-sale-submit"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-refund-form")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByTestId("pos-refund-reference"), {
+      target: { value: " rf-partial-001 " },
+    });
+    fireEvent.change(screen.getByTestId("pos-refund-refunded-total"), {
+      target: { value: "20000" },
+    });
+    fireEvent.change(screen.getByTestId("pos-refund-reason"), {
+      target: { value: " Partial goodwill refund. " },
+    });
+    fireEvent.click(screen.getByTestId("pos-refund-submit"));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(2);
+    });
+    const [path, body] = mocks.postJson.mock.calls[1]!;
+    expect(path).toBe("/api/pos/sales/pos-sale-1/refund");
+    expect(body).toEqual({
+      idempotencyKey: expect.stringMatching(/^pos-refund-ui-pos-sale-1-\d+$/),
+      refundReference: "rf-partial-001",
+      refundMethod: "cash",
+      refundedTotal: 20000,
+      reason: "Partial goodwill refund.",
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+        /Refund evidence posted/,
+      );
+    });
+    expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(/Refunded sale/);
+    expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(/status refunded/);
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+      /Sale status\s*refunded/,
+    );
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+      /Refunded total\s*20[,\s]000 ֏/,
+    );
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+      /Cash adjustment\s*20[,\s]000 ֏/,
+    );
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+      /Refund amount evidence is recorded without stock return moves/,
+    );
   });
 
   it("closes the current cash session with fiscal closeout evidence", async () => {

@@ -219,12 +219,15 @@ function PosWorkspace() {
       idempotencyKey: string;
       refundReference: string;
       refundMethod: PosRefundMethod;
+      refundedTotal: string;
       reason: string;
     }) => {
+      const refundedTotal = optionalAmount(input.refundedTotal);
       const payload = PosRefundRequestSchema.parse({
         idempotencyKey: input.idempotencyKey,
         refundReference: input.refundReference.trim(),
         refundMethod: input.refundMethod,
+        ...(refundedTotal !== undefined ? { refundedTotal } : {}),
         reason: input.reason.trim(),
       });
       return postJson(
@@ -661,6 +664,7 @@ export function SaleCapturePanel({
     idempotencyKey: string;
     refundReference: string;
     refundMethod: PosRefundMethod;
+    refundedTotal: string;
     reason: string;
   }) => void;
   isRefunding?: boolean;
@@ -958,6 +962,7 @@ export function RefundEvidencePanel({
     idempotencyKey: string;
     refundReference: string;
     refundMethod: PosRefundMethod;
+    refundedTotal: string;
     reason: string;
   }) => void;
   isPending?: boolean;
@@ -968,15 +973,28 @@ export function RefundEvidencePanel({
   );
   const [refundReference, setRefundReference] = useState("");
   const [refundMethod, setRefundMethod] = useState<PosRefundMethod>("cash");
+  const [refundedTotal, setRefundedTotal] = useState("");
   const [reason, setReason] = useState("");
   const alreadyRefunded = isRefundedSale(sale) || Boolean(refund);
+  const refundedAmount = optionalAmount(refundedTotal);
+  const refundedTotalValid =
+    refundedTotal.trim().length === 0 ||
+    (typeof refundedAmount === "number" &&
+      Number.isSafeInteger(refundedAmount) &&
+      refundedAmount > 0 &&
+      refundedAmount <= sale.total);
   const returnStockMoveCount = refund?.lines.filter((line) => line.returnStockMoveId).length ?? 0;
   const refundLedgerCount =
     refund?.postings.ledgerPostingCount ?? refund?.postings.ledgerPostingIds?.length;
   const refundLedgerStatus = refund?.ledgerPostingStatus ?? "ready";
+  const refundStockEvidenceCopy =
+    returnStockMoveCount > 0
+      ? "Return stock evidence is recorded for tracked lines."
+      : "Refund amount evidence is recorded without stock return moves.";
   const canSubmit =
     !alreadyRefunded &&
     refundReference.trim().length > 0 &&
+    refundedTotalValid &&
     reason.trim().length > 0 &&
     !isPending;
 
@@ -993,7 +1011,7 @@ export function RefundEvidencePanel({
             Refund evidence
           </h4>
           <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
-            Full-sale evidence · stock return evidence · ledger {refundLedgerStatus}
+            Refund amount evidence · stock return evidence · ledger {refundLedgerStatus}
           </p>
         </div>
       </div>
@@ -1009,6 +1027,8 @@ export function RefundEvidencePanel({
           </p>
           <dl className="grid gap-1 sm:grid-cols-2">
             <EvidenceRow label="Reference" value={refund.refundReference} />
+            <EvidenceRow label="Sale status" value={sale.status} />
+            <EvidenceRow label="Refunded total" value={money(refund.refundedTotal)} />
             <EvidenceRow label="Cash adjustment" value={money(refund.cashAdjustment)} />
             <EvidenceRow label="Inventory" value={refund.inventoryPostingStatus} />
             <EvidenceRow label="Return stock moves" value={String(returnStockMoveCount)} />
@@ -1023,8 +1043,8 @@ export function RefundEvidencePanel({
           </dl>
           <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
             {refund.ledgerPostingStatus === "posted"
-              ? "Return stock evidence is recorded for tracked lines. Ledger reversal journals are posted; fiscal refunds and receipt printing remain deferred."
-              : "Return stock evidence is recorded for tracked lines. Ledger journals, fiscal refunds, and receipt printing remain deferred."}
+              ? `${refundStockEvidenceCopy} Ledger reversal journals are posted; fiscal refunds and receipt printing remain deferred.`
+              : `${refundStockEvidenceCopy} Ledger journals, fiscal refunds, and receipt printing remain deferred.`}
           </p>
         </div>
       ) : alreadyRefunded ? (
@@ -1036,7 +1056,7 @@ export function RefundEvidencePanel({
         </p>
       ) : (
         <form
-          className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_150px] lg:grid-cols-[minmax(0,1fr)_150px_minmax(0,1.2fr)_auto]"
+          className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_150px] lg:grid-cols-[minmax(0,1fr)_150px_150px_minmax(0,1.2fr)_auto]"
           data-testid="pos-refund-form"
           onSubmit={(event) => {
             event.preventDefault();
@@ -1046,6 +1066,7 @@ export function RefundEvidencePanel({
               idempotencyKey,
               refundReference,
               refundMethod,
+              refundedTotal,
               reason,
             });
           }}
@@ -1074,6 +1095,21 @@ export function RefundEvidencePanel({
                 </option>
               ))}
             </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+            Amount
+            <input
+              type="number"
+              min="1"
+              max={sale.total}
+              step="1"
+              value={refundedTotal}
+              onChange={(event) => setRefundedTotal(event.target.value)}
+              placeholder={money(sale.total)}
+              className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+              data-testid="pos-refund-refunded-total"
+            />
           </label>
 
           <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
