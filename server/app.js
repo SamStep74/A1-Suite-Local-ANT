@@ -6298,8 +6298,62 @@ function registerApi(app, db, options = {}) {
         grossMarginPct: projectGrossMarginPct(revenue, grossProfit)
       };
     }) : [];
+    const fieldVisitCostEvidence = db.prepare(`
+      SELECT
+        service_field_visits.*,
+        service_cases.case_number,
+        service_cases.subject,
+        users.name AS assigned_user_name
+      FROM service_field_visits
+      JOIN service_cases
+        ON service_cases.org_id = service_field_visits.org_id
+       AND service_cases.id = service_field_visits.case_id
+      LEFT JOIN users
+        ON users.org_id = service_field_visits.org_id
+       AND users.id = service_field_visits.assigned_user_id
+      WHERE service_field_visits.org_id = ?
+        AND service_field_visits.project_id = ?
+      ORDER BY service_field_visits.scheduled_start_at, service_field_visits.id
+    `).all(user.org_id, project.id).map(row => {
+      const allocation = buildServiceFieldVisitCostAllocationEvidence(row);
+      const laborCost = projectTimeAmount(allocation.laborMinutes, costRate, vatRate);
+      const totalCost = laborCost + allocation.travelCost + allocation.materialCost;
+      const laborRateConfigured = costRate > 0;
+      const ledgerMappings = allocation.ledgerMappings.map(mapping => mapping.bucket === "labor"
+        ? {
+            ...mapping,
+            basis: laborRateConfigured ? "project-profitability-cost-rate" : mapping.basis,
+            amount: laborCost
+          }
+        : mapping);
+      const limitations = laborRateConfigured
+        ? allocation.limitations.filter(item => item !== "labor-rate-not-configured")
+        : allocation.limitations;
+      return {
+        visitId: row.id,
+        caseId: row.case_id,
+        caseNumber: row.case_number,
+        subject: row.subject,
+        assignedUserId: row.assigned_user_id,
+        assignedUserName: row.assigned_user_name || null,
+        scheduledStartAt: row.scheduled_start_at,
+        scheduledEndAt: row.scheduled_end_at,
+        scheduledMinutes: allocation.scheduledMinutes,
+        laborMinutes: allocation.laborMinutes,
+        laborCost,
+        travelCost: allocation.travelCost,
+        materialCost: allocation.materialCost,
+        totalCost,
+        source: laborRateConfigured
+          ? `${allocation.source}/project_profitability.costRate`
+          : allocation.source,
+        limitations,
+        ledgerMappings
+      };
+    });
     const productCostTotal = productCostEvidence.reduce((sum, row) => sum + row.cost, 0);
-    const costTotal = laborCostTotal + productCostTotal;
+    const fieldVisitCostTotal = fieldVisitCostEvidence.reduce((sum, row) => sum + row.totalCost, 0);
+    const costTotal = laborCostTotal + productCostTotal + fieldVisitCostTotal;
     const grossProfit = totalRevenue - costTotal;
     const grossMarginPct = projectGrossMarginPct(totalRevenue, grossProfit);
     return {
@@ -6320,11 +6374,14 @@ function registerApi(app, db, options = {}) {
         totalRevenue,
         laborCostTotal,
         productCostTotal,
+        fieldVisitCostTotal,
         costTotal,
         grossProfit,
         grossMarginPct,
         taskProfitability,
         productCostEvidence,
+        fieldVisitCount: fieldVisitCostEvidence.length,
+        fieldVisitCostEvidence,
         invoiceCount: invoices.length,
         invoices
       }
@@ -49365,6 +49422,7 @@ function normalizeServiceFieldVisitCreateInput(body) {
     caseId: normalizeServiceText(body, "caseId", { required: true, minLength: 1, maxLength: 120 }),
     customerId: normalizeServiceText(body, "customerId", { required: true, minLength: 1, maxLength: 120 }),
     assignedUserId: normalizeServiceText(body, "assignedUserId", { required: true, minLength: 1, maxLength: 120 }),
+    projectId: normalizeServiceFieldVisitProjectId(body),
     scheduledStartAt: normalizeServiceFieldVisitTimestamp(body, "scheduledStartAt"),
     scheduledEndAt: normalizeServiceFieldVisitTimestamp(body, "scheduledEndAt"),
     status: normalizeServiceChoice(body, "status", SERVICE_FIELD_VISIT_STATUSES, "scheduled"),
@@ -49398,6 +49456,9 @@ function normalizeServiceFieldVisitPatchInput(body, existing) {
   }
   if (Object.prototype.hasOwnProperty.call(body, "assignedUserId")) {
     input.assignedUserId = normalizeServiceText(body, "assignedUserId", { required: true, minLength: 1, maxLength: 120 });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "projectId")) {
+    input.projectId = normalizeServiceFieldVisitProjectId(body);
   }
   if (Object.keys(input).length === 0) {
     const err = new Error("No updatable fields provided");
@@ -49497,6 +49558,17 @@ function normalizeServiceFieldVisitTechnicianIdempotencyKey(body) {
     throwInvalidServiceFieldVisitMetadata();
   }
   return key;
+}
+
+function normalizeServiceFieldVisitProjectId(body) {
+  if (!Object.prototype.hasOwnProperty.call(body, "projectId") || body.projectId === "" || body.projectId === null) {
+    return null;
+  }
+  const projectId = normalizeServiceText(body, "projectId", { required: true, minLength: 1, maxLength: 160 });
+  if (!/^[a-z0-9-]+$/.test(projectId) || looksLikeSensitiveToken(projectId)) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  return projectId;
 }
 
 function looksLikeSensitiveToken(value) {
@@ -57158,6 +57230,7 @@ function formatServiceFieldVisit(row, technicianLocation = null) {
     subject: row.subject,
     customerId: row.customer_id,
     customerName: row.customer_name,
+    projectId: row.project_id || null,
     assignedUserId: row.assigned_user_id,
     assignedUserName: row.assigned_user_name,
     scheduledStartAt: row.scheduled_start_at,
@@ -57576,21 +57649,23 @@ function createServiceFieldVisit(db, user, body) {
   const input = normalizeServiceFieldVisitCreateInput(body);
   assertCustomer(db, user.org_id, input.customerId);
   const serviceCase = assertServiceFieldVisitCase(db, user.org_id, input.caseId, input.customerId);
+  const project = assertServiceFieldVisitProject(db, user.org_id, input.projectId, input.customerId);
   const assignedUser = assertServiceFieldVisitAssignedUser(db, user.org_id, input.assignedUserId);
   const now = new Date().toISOString();
   const visitId = randomId("svc-visit");
   db.prepare(`
     INSERT INTO service_field_visits (
-      id, org_id, case_id, customer_id, assigned_user_id,
+      id, org_id, case_id, customer_id, project_id, assigned_user_id,
       scheduled_start_at, scheduled_end_at, status, location,
       worksheet_summary, created_at, updated_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     visitId,
     user.org_id,
     serviceCase.id,
     input.customerId,
+    project?.id || null,
     assignedUser.id,
     input.scheduledStartAt,
     input.scheduledEndAt,
@@ -57604,6 +57679,7 @@ function createServiceFieldVisit(db, user, body) {
     visitId,
     caseId: serviceCase.id,
     customerId: input.customerId,
+    projectId: project?.id || null,
     assignedUserId: assignedUser.id,
     status: input.status
   });
@@ -57651,6 +57727,12 @@ function updateServiceFieldVisit(db, user, visitId, body) {
     sets.push("assigned_user_id = ?");
     values.push(assignedUser.id);
     changedFields.push("assignedUserId");
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "projectId")) {
+    const project = assertServiceFieldVisitProject(db, user.org_id, input.projectId, existing.customerId);
+    sets.push("project_id = ?");
+    values.push(project?.id || null);
+    changedFields.push("projectId");
   }
   const now = new Date().toISOString();
   sets.push("updated_at = ?");
@@ -57921,6 +58003,20 @@ function assertServiceFieldVisitCase(db, orgId, caseId, customerId) {
     throw err;
   }
   return serviceCase;
+}
+
+function assertServiceFieldVisitProject(db, orgId, projectId, customerId) {
+  if (!projectId) return null;
+  const project = db.prepare("SELECT id, customer_id AS customerId FROM projects WHERE org_id = ? AND id = ?").get(orgId, projectId);
+  if (!project) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  if (project.customerId !== customerId) {
+    const err = new Error("Project/customer mismatch");
+    err.statusCode = 400;
+    throw err;
+  }
+  return project;
 }
 
 function assertServiceFieldVisitAssignedUser(db, orgId, userId) {

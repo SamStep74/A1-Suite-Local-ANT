@@ -138,7 +138,7 @@ Source: [the reference ERP Helpdesk](https://www.the reference ERP.com/documenta
 
 Comparison to A1:
 
-- A1 has projects, project template evidence, recurring task evidence, tasks, subtask hierarchy evidence, task dependency evidence, milestones, time entries, project billing, project-level profitability evidence, task/product cost-basis profitability evidence, service cases, SLA policy evidence and editing UX, field service visit planning evidence, worksheet summaries, assigned-technician visit workflow, offline-safe technician dispatch queue and idempotent replay evidence, mobile/PWA technician dispatch shell evidence with map/navigation links, technician GPS/geolocation capture evidence, browser dispatch alert feed and acknowledgement evidence, local service-worker dispatch notification readiness, schedule/location route-plan evidence, field-service cost allocation evidence, support replies, escalations, and Customer 360.
+- A1 has projects, project template evidence, recurring task evidence, tasks, subtask hierarchy evidence, task dependency evidence, milestones, time entries, project billing, project-level profitability evidence, task/product/field-visit cost-basis profitability evidence, service cases, SLA policy evidence and editing UX, field service visit planning evidence, worksheet summaries, assigned-technician visit workflow, offline-safe technician dispatch queue and idempotent replay evidence, mobile/PWA technician dispatch shell evidence with map/navigation links, technician GPS/geolocation capture evidence, browser dispatch alert feed and acknowledgement evidence, local service-worker dispatch notification readiness, schedule/location route-plan evidence, field-service cost allocation evidence, support replies, escalations, and Customer 360.
 - Missing the reference ERP-style depth: native offline map tiles, externally triggered background push dispatch alerts, live distance-matrix/traffic-aware route optimization, and posted accounting-grade field-service cost allocation across payroll, inventory consumption, procurement, and ledger journals.
 
 ### Documents, Sign, Knowledge, Spreadsheet, Dashboards
@@ -212,7 +212,7 @@ Current A1 strengths:
 - Desk: service cases, replies, escalations, knowledge-grounded support summaries.
 - People-HR: employee registry and payroll seam.
 - Docs & Sign: templates, signer lifecycle, evidence packets, export certificate.
-- Projects: project/task/milestone/time entries, task dependency evidence, project billing, project-level profitability evidence, task/product cost-basis profitability evidence.
+- Projects: project/task/milestone/time entries, task dependency evidence, project billing, project-level profitability evidence, task/product/field-visit cost-basis profitability evidence.
 - Forms/Campaigns: public forms, lead intake, rate limits.
 - Copilot: Armenian legal/accounting advisory, citations, guarded proposed actions, Open Notebook supplemental sources.
 - Security/governance: RBAC, MFA/session controls, audit packets, tenant routing, public route throttling, payload redaction, many malformed-input/path-id guards.

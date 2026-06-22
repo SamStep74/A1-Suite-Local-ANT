@@ -2058,6 +2058,7 @@ function initSchema(db) {
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       case_id TEXT NOT NULL REFERENCES service_cases(id) ON DELETE CASCADE,
       customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
       assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       scheduled_start_at TEXT NOT NULL,
       scheduled_end_at TEXT NOT NULL,
@@ -8390,6 +8391,7 @@ function ensureServiceFieldVisitSchema(db) {
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
       case_id TEXT NOT NULL REFERENCES service_cases(id) ON DELETE CASCADE,
       customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      project_id TEXT REFERENCES projects(id) ON DELETE SET NULL,
       assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       scheduled_start_at TEXT NOT NULL,
       scheduled_end_at TEXT NOT NULL,
@@ -8414,6 +8416,11 @@ function ensureServiceFieldVisitSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_service_field_visits_assignee
       ON service_field_visits(org_id, assigned_user_id, scheduled_start_at);
   `);
+  const columns = new Set(db.prepare("PRAGMA table_info(service_field_visits)").all().map(column => column.name));
+  if (!columns.has("project_id")) {
+    db.exec("ALTER TABLE service_field_visits ADD COLUMN project_id TEXT REFERENCES projects(id) ON DELETE SET NULL");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_service_field_visits_project ON service_field_visits(org_id, project_id, scheduled_start_at DESC)");
 }
 
 function ensureServiceSlaPolicySchema(db) {

@@ -117,8 +117,10 @@ test("project-billing: project profitability reports billed and unbilled revenue
       "totalMinutes", "totalEntries",
       "billedRevenue", "unbilledRevenue", "totalRevenue",
       "laborCostTotal", "productCostTotal",
+      "fieldVisitCostTotal",
       "costTotal", "grossProfit", "grossMarginPct",
       "taskProfitability", "productCostEvidence",
+      "fieldVisitCount", "fieldVisitCostEvidence",
       "invoiceCount",
       "invoices"
     ]);
@@ -139,6 +141,7 @@ test("project-billing: project profitability reports billed and unbilled revenue
       totalRevenue: 30000,
       laborCostTotal: 0,
       productCostTotal: 0,
+      fieldVisitCostTotal: 0,
       costTotal: 0,
       grossProfit: 30000,
       grossMarginPct: 100,
@@ -156,6 +159,8 @@ test("project-billing: project profitability reports billed and unbilled revenue
         grossMarginPct: 100
       }],
       productCostEvidence: [],
+      fieldVisitCount: 0,
+      fieldVisitCostEvidence: [],
       invoiceCount: 0,
       invoices: []
     });
@@ -207,6 +212,7 @@ test("project-billing: project profitability reports billed and unbilled revenue
       totalRevenue: 30000,
       laborCostTotal: 0,
       productCostTotal: 0,
+      fieldVisitCostTotal: 0,
       costTotal: 0,
       grossProfit: 30000,
       grossMarginPct: 100,
@@ -224,6 +230,8 @@ test("project-billing: project profitability reports billed and unbilled revenue
         grossMarginPct: 100
       }],
       productCostEvidence: [],
+      fieldVisitCount: 0,
+      fieldVisitCostEvidence: [],
       invoiceCount: 1,
       invoices: [{
         id: invoice.id,
@@ -293,6 +301,32 @@ test("project-billing: profitability rolls up task labor cost and catalog quote 
     await app.inject({ method: "POST", url: `/api/projects/${projectId}/time-entries`, headers: { cookie: owner }, payload: { taskId: build.id, minutes: 30, entryDate: "2026-05-11", note: "build" } });
     await app.inject({ method: "POST", url: `/api/projects/${projectId}/time-entries`, headers: { cookie: owner }, payload: { minutes: 60, entryDate: "2026-05-12", note: "unassigned handoff" } });
 
+    const serviceCase = (await app.inject({
+      method: "POST",
+      url: "/api/service/cases",
+      headers: { cookie: owner },
+      payload: { customerId: "cust-ani", subject: "Project-linked field visit", priority: "medium", channel: "Email" }
+    })).json().case;
+    const serviceConsole = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: owner } })).json();
+    const assignee = serviceConsole.agents.find(agent => agent.role === "Service Manager") || serviceConsole.agents[0];
+    const linkedVisit = await app.inject({
+      method: "POST",
+      url: "/api/service/field-visits",
+      headers: { cookie: owner },
+      payload: {
+        caseId: serviceCase.id,
+        customerId: "cust-ani",
+        projectId,
+        assignedUserId: assignee.id,
+        scheduledStartAt: "2026-05-14T08:00:00.000Z",
+        scheduledEndAt: "2026-05-14T09:15:00.000Z",
+        status: "scheduled",
+        location: "Ani Beauty project site",
+        worksheetSummary: "Project-linked field-service evidence."
+      }
+    });
+    assert.strictEqual(linkedVisit.statusCode, 200, linkedVisit.body);
+
     const quote = await app.inject({
       method: "POST",
       url: "/api/crm/quotes",
@@ -336,6 +370,8 @@ test("project-billing: profitability rolls up task labor cost and catalog quote 
     assert.strictEqual(zeroCostRate.statusCode, 200, zeroCostRate.body);
     assert.strictEqual(zeroCostRate.json().profitability.laborCostTotal, 0);
     assert.strictEqual(zeroCostRate.json().profitability.productCostTotal, 124000);
+    assert.strictEqual(zeroCostRate.json().profitability.fieldVisitCostTotal, 0);
+    assert.strictEqual(zeroCostRate.json().profitability.fieldVisitCount, 1);
     assert.strictEqual(zeroCostRate.json().profitability.costTotal, 124000);
     assert.strictEqual(zeroCostRate.json().profitability.grossProfit, 56000);
     assert.strictEqual(zeroCostRate.json().profitability.grossMarginPct, 31.11);
@@ -406,9 +442,57 @@ test("project-billing: profitability rolls up task labor cost and catalog quote 
     assert.strictEqual(detailed.json().profitability.totalRevenue, 180000);
     assert.strictEqual(detailed.json().profitability.laborCostTotal, 9000);
     assert.strictEqual(detailed.json().profitability.productCostTotal, 124000);
-    assert.strictEqual(detailed.json().profitability.costTotal, 133000);
-    assert.strictEqual(detailed.json().profitability.grossProfit, 47000);
-    assert.strictEqual(detailed.json().profitability.grossMarginPct, 26.11);
+    assert.strictEqual(detailed.json().profitability.fieldVisitCostTotal, 3750);
+    assert.deepStrictEqual(detailed.json().profitability.fieldVisitCostEvidence, [{
+      visitId: linkedVisit.json().visit.id,
+      caseId: serviceCase.id,
+      caseNumber: serviceCase.caseNumber,
+      subject: "Project-linked field visit",
+      assignedUserId: assignee.id,
+      assignedUserName: assignee.name,
+      scheduledStartAt: "2026-05-14T08:00:00.000Z",
+      scheduledEndAt: "2026-05-14T09:15:00.000Z",
+      scheduledMinutes: 75,
+      laborMinutes: 75,
+      laborCost: 3750,
+      travelCost: 0,
+      materialCost: 0,
+      totalCost: 3750,
+      source: "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at/project_profitability.costRate",
+      limitations: [
+        "travel-rate-not-configured",
+        "inventory-consumption-not-linked",
+        "not-posted-to-ledger"
+      ],
+      ledgerMappings: [
+        {
+          bucket: "labor",
+          basis: "project-profitability-cost-rate",
+          managementAccount: "8112",
+          recognitionAccount: "7113",
+          amount: 3750,
+          status: "not-posted"
+        },
+        {
+          bucket: "travel",
+          basis: "rate-not-configured",
+          expenseAccount: "713",
+          amount: 0,
+          status: "not-posted"
+        },
+        {
+          bucket: "materials",
+          basis: "inventory-consumption-not-linked",
+          inventoryAccountClass: "2",
+          recognitionAccount: "7113",
+          amount: 0,
+          status: "not-posted"
+        }
+      ]
+    }]);
+    assert.strictEqual(detailed.json().profitability.costTotal, 136750);
+    assert.strictEqual(detailed.json().profitability.grossProfit, 43250);
+    assert.strictEqual(detailed.json().profitability.grossMarginPct, 24.03);
   } finally { await app.close(); }
 });
 

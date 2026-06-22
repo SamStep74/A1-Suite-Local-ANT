@@ -171,6 +171,7 @@ export const ServiceFieldVisitSchema = z
     id: z.string(),
     caseId: z.string(),
     customerId: z.string(),
+    projectId: z.string().nullable().optional(),
     assignedUserId: z.string().nullable(),
     scheduledStartAt: z.string(),
     scheduledEndAt: z.string(),
@@ -2303,6 +2304,31 @@ export type ProjectProfitabilityProductCostEvidence = z.infer<
   typeof ProjectProfitabilityProductCostEvidenceSchema
 >;
 
+export const ProjectProfitabilityFieldVisitCostEvidenceSchema = z
+  .object({
+    visitId: z.string(),
+    caseId: z.string(),
+    caseNumber: z.string().nullable().optional(),
+    subject: z.string().nullable().optional(),
+    assignedUserId: z.string().nullable().optional(),
+    assignedUserName: z.string().nullable().optional(),
+    scheduledStartAt: z.string(),
+    scheduledEndAt: z.string(),
+    scheduledMinutes: z.number().int().min(0).max(10_080),
+    laborMinutes: z.number().int().min(0).max(10_080),
+    laborCost: z.number().min(0).max(100_000_000_000),
+    travelCost: z.number().min(0).max(100_000_000_000),
+    materialCost: z.number().min(0).max(100_000_000_000),
+    totalCost: z.number().min(0).max(100_000_000_000),
+    source: z.string().nullable().optional(),
+    limitations: z.array(z.string()).max(12).optional(),
+    ledgerMappings: z.array(z.record(z.string(), z.unknown())).max(12).optional(),
+  })
+  .passthrough();
+export type ProjectProfitabilityFieldVisitCostEvidence = z.infer<
+  typeof ProjectProfitabilityFieldVisitCostEvidenceSchema
+>;
+
 export const ProjectProfitabilitySchema = z
   .object({
     projectId: z.string(),
@@ -2322,6 +2348,7 @@ export const ProjectProfitabilitySchema = z
     costTotal: z.number(),
     laborCostTotal: z.number().optional(),
     productCostTotal: z.number().optional(),
+    fieldVisitCostTotal: z.number().optional(),
     grossProfit: z.number(),
     grossMarginPct: z.number().nullable(),
     invoiceCount: z.number().int(),
@@ -2329,6 +2356,10 @@ export const ProjectProfitabilitySchema = z
     taskProfitability: z.array(ProjectProfitabilityTaskSchema).optional(),
     productCostEvidence: z
       .array(ProjectProfitabilityProductCostEvidenceSchema)
+      .optional(),
+    fieldVisitCount: z.number().int().optional(),
+    fieldVisitCostEvidence: z
+      .array(ProjectProfitabilityFieldVisitCostEvidenceSchema)
       .optional(),
   })
   .passthrough();

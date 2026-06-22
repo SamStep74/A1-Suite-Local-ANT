@@ -1260,9 +1260,11 @@ function BillingView({
   const hasCostBreakdown =
     profitability?.costRate != null ||
     profitability?.laborCostTotal != null ||
-    profitability?.productCostTotal != null;
+    profitability?.productCostTotal != null ||
+    profitability?.fieldVisitCostTotal != null;
   const taskProfitability = profitability?.taskProfitability ?? [];
   const productCostEvidence = profitability?.productCostEvidence ?? [];
+  const fieldVisitCostEvidence = profitability?.fieldVisitCostEvidence ?? [];
 
   return (
     <div className="space-y-4">
@@ -1329,7 +1331,7 @@ function BillingView({
 
           {hasCostBreakdown && (
             <div
-              className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3"
+              className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-4"
               data-entity="projects-cost-breakdown"
             >
               <div>
@@ -1356,6 +1358,14 @@ function BillingView({
                 </p>
                 <p className="mt-1 font-mono text-[var(--text-sm)] text-[var(--color-ink)]">
                   {formatCurrency(profitability.productCostTotal, profitability.currency)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+                  Field visit cost
+                </p>
+                <p className="mt-1 font-mono text-[var(--text-sm)] text-[var(--color-ink)]">
+                  {formatCurrency(profitability.fieldVisitCostTotal, profitability.currency)}
                 </p>
               </div>
             </div>
@@ -1539,6 +1549,116 @@ function BillingView({
                             </td>
                             <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
                               {formatPercent(line.grossMarginPct)}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {profitability.fieldVisitCostEvidence !== undefined && (
+            <div
+              className="mt-4"
+              data-entity="projects-field-visit-cost-evidence"
+              data-count={String(fieldVisitCostEvidence.length)}
+            >
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[var(--text-xs)] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                  Field visit cost evidence
+                </p>
+                <p className="font-mono text-[11px] text-[var(--color-muted)]">
+                  {fieldVisitCostEvidence.length} visits
+                </p>
+              </div>
+              <div className="overflow-x-auto rounded-[var(--radius-sm)] border border-[var(--color-line)]">
+                <table className="min-w-[760px] w-full text-[var(--text-sm)]" role="table">
+                  <thead className="bg-[var(--color-surface-soft)] text-[var(--text-xs)] uppercase tracking-wide text-[var(--color-muted)]">
+                    <tr>
+                      <th scope="col" className="px-3 py-2 text-left font-semibold">
+                        Visit
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-left font-semibold">
+                        Technician
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Minutes
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Labor
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Travel
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Materials
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Total
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--color-line)]">
+                    {fieldVisitCostEvidence.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-3 text-center text-[var(--color-muted)]">
+                          No field visit cost evidence yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      fieldVisitCostEvidence.map((visit, index) => {
+                        const visitLabel = visit.subject || visit.caseNumber || visit.visitId;
+                        const notPostedCount = (visit.ledgerMappings ?? []).filter(
+                          mapping => mapping.status === "not-posted",
+                        ).length;
+                        return (
+                          <tr
+                            key={`${visit.visitId}-${index}`}
+                            className="hover:bg-[var(--color-surface-soft)]"
+                          >
+                            <td className="px-3 py-2 text-[var(--color-ink)]">
+                              <span className="block max-w-[18rem] truncate" title={visitLabel}>
+                                {visitLabel}
+                              </span>
+                              <span className="block font-mono text-[11px] text-[var(--color-muted)]">
+                                {visit.caseNumber || visit.caseId}
+                              </span>
+                              {notPostedCount > 0 && (
+                                <span className="mt-1 inline-flex rounded-[var(--radius-sm)] border border-[var(--color-line)] px-2 py-0.5 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
+                                  not-posted
+                                </span>
+                              )}
+                            </td>
+                            <td className="px-3 py-2 text-[var(--color-ink)]">
+                              <span className="block max-w-[12rem] truncate" title={visit.assignedUserName || visit.assignedUserId || "Unassigned"}>
+                                {visit.assignedUserName || visit.assignedUserId || "Unassigned"}
+                              </span>
+                              <span className="block font-mono text-[11px] text-[var(--color-muted)]">
+                                {visit.scheduledStartAt}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-[var(--color-muted)]">
+                              <span className="block text-[var(--color-ink)]">
+                                {visit.scheduledMinutes}
+                              </span>
+                              <span className="block text-[11px]">
+                                {visit.laborMinutes} labor
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                              {formatCurrency(visit.laborCost, profitability.currency)}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                              {formatCurrency(visit.travelCost, profitability.currency)}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                              {formatCurrency(visit.materialCost, profitability.currency)}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                              {formatCurrency(visit.totalCost, profitability.currency)}
                             </td>
                           </tr>
                         );

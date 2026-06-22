@@ -204,6 +204,44 @@ test("existing quote line tables receive catalog columns before app startup inde
   }
 });
 
+test("existing service field visit tables receive project link before app startup indexes", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "a1-suite-service-field-visit-layer-"));
+  const dbPath = path.join(root, "suite.sqlite");
+  const legacyDb = new DatabaseSync(dbPath);
+  try {
+    legacyDb.exec(`
+      CREATE TABLE service_field_visits (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        case_id TEXT NOT NULL,
+        customer_id TEXT NOT NULL,
+        assigned_user_id TEXT,
+        scheduled_start_at TEXT NOT NULL,
+        scheduled_end_at TEXT NOT NULL,
+        status TEXT NOT NULL,
+        location TEXT NOT NULL,
+        worksheet_summary TEXT NOT NULL DEFAULT '',
+        created_at TEXT NOT NULL,
+        updated_at TEXT NOT NULL
+      );
+    `);
+  } finally {
+    legacyDb.close();
+  }
+
+  const app = buildApp({ dbPath });
+  await app.ready();
+  try {
+    const columns = new Set(app.db.prepare("PRAGMA table_info(service_field_visits)").all().map(column => column.name));
+    assert.equal(columns.has("project_id"), true);
+    const index = app.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get("idx_service_field_visits_project");
+    assert.equal(index.name, "idx_service_field_visits_project");
+  } finally {
+    await app.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("global audit feed is limited to audit reader roles", async () => {
   await withApp(async app => {
     const unauthenticated = await app.inject({ method: "GET", url: "/api/audit" });

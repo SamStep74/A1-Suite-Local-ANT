@@ -94,6 +94,7 @@ const VALID_FIELD_VISIT = {
   id: "visit-1",
   caseId: "case-1",
   customerId: "cust-1",
+  projectId: "p-1",
   assignedUserId: "user-1",
   scheduledStartAt: "2026-06-22T09:00:00.000Z",
   scheduledEndAt: "2026-06-22T10:00:00.000Z",
@@ -268,6 +269,7 @@ describe("ServiceFieldVisitSchema", () => {
     if (r.success) {
       expect(r.data.caseNumber).toBe("AO-CASE-1001");
       expect(r.data.customerName).toBe("Ani Beauty");
+      expect(r.data.projectId).toBe("p-1");
       expect(r.data.assignedUserName).toBe("Samvel");
     }
   });
@@ -1293,6 +1295,46 @@ describe("Project profitability schemas", () => {
             grossMarginPct: 70,
           },
         ],
+        fieldVisitCostTotal: 0,
+        fieldVisitCount: 1,
+        fieldVisitCostEvidence: [
+          {
+            visitId: "visit-1",
+            caseId: "case-1",
+            caseNumber: "AO-CASE-1001",
+            subject: "Fiscal printer field check",
+            assignedUserId: "user-1",
+            assignedUserName: "Samvel",
+            scheduledStartAt: "2026-06-22T09:00:00.000Z",
+            scheduledEndAt: "2026-06-22T10:15:00.000Z",
+            scheduledMinutes: 75,
+            laborMinutes: 75,
+            laborCost: 0,
+            travelCost: 0,
+            materialCost: 0,
+            totalCost: 0,
+            source: "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at",
+            limitations: [
+              "labor-rate-not-configured",
+              "travel-rate-not-configured",
+              "inventory-consumption-not-linked",
+              "not-posted-to-ledger",
+            ],
+            ledgerMappings: [
+              {
+                bucket: "labor",
+                managementAccount: "8112",
+                recognitionAccount: "7113",
+                status: "not-posted",
+              },
+              {
+                bucket: "travel",
+                expenseAccount: "713",
+                status: "not-posted",
+              },
+            ],
+          },
+        ],
       },
     });
 
@@ -1301,9 +1343,13 @@ describe("Project profitability schemas", () => {
       expect(r.data.profitability.costRate).toBe(8750);
       expect(r.data.profitability.laborCostTotal).toBe(87500);
       expect(r.data.profitability.productCostTotal).toBe(56250);
+      expect(r.data.profitability.fieldVisitCostTotal).toBe(0);
+      expect(r.data.profitability.fieldVisitCount).toBe(1);
       expect(r.data.profitability.taskProfitability?.[0]?.taskTitle).toBe("Implementation");
       expect(r.data.profitability.taskProfitability?.[1]?.taskId).toBeNull();
       expect(r.data.profitability.productCostEvidence?.[0]?.variantSku).toBe("IMPL-BASE-PRO");
+      expect(r.data.profitability.fieldVisitCostEvidence?.[0]?.scheduledMinutes).toBe(75);
+      expect(r.data.profitability.fieldVisitCostEvidence?.[0]?.ledgerMappings?.[0]?.status).toBe("not-posted");
     }
   });
 

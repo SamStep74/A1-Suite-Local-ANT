@@ -13,6 +13,7 @@ async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
 async function createFieldVisit(app, cookie, {
   serviceCase,
   assignedUserId,
+  projectId = null,
   startOffsetHours = 12,
   location = "Customer site",
   worksheetSummary = "Technician worksheet prepared for service evidence.",
@@ -27,6 +28,7 @@ async function createFieldVisit(app, cookie, {
     payload: {
       caseId: serviceCase.id,
       customerId: serviceCase.customerId,
+      ...(projectId ? { projectId } : {}),
       assignedUserId,
       scheduledStartAt,
       scheduledEndAt,
@@ -364,6 +366,17 @@ test("creating a service field visit validates case/customer/user and appears in
     const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie } })).json();
     const serviceCase = console1.cases[0];
     const assignee = console1.agents.find(agent => agent.role === "Service Manager") || console1.agents[0];
+    const linkedProject = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: {
+        name: "Service-linked project",
+        customerId: serviceCase.customerId,
+        status: "active"
+      }
+    });
+    assert.strictEqual(linkedProject.statusCode, 200, linkedProject.body);
     const scheduledStartAt = new Date(Date.now() + 4 * 60 * 60 * 1000).toISOString();
     const scheduledEndAt = new Date(Date.now() + 5 * 60 * 60 * 1000).toISOString();
     const location = "Nare Clinic & Warehouse #7 / Komitas 12";
@@ -375,6 +388,7 @@ test("creating a service field visit validates case/customer/user and appears in
       payload: {
         caseId: serviceCase.id,
         customerId: serviceCase.customerId,
+        projectId: linkedProject.json().project.id,
         assignedUserId: assignee.id,
         scheduledStartAt,
         scheduledEndAt,
@@ -388,6 +402,7 @@ test("creating a service field visit validates case/customer/user and appears in
     assert.strictEqual(visit.caseId, serviceCase.id);
     assert.strictEqual(visit.caseNumber, serviceCase.caseNumber);
     assert.strictEqual(visit.customerId, serviceCase.customerId);
+    assert.strictEqual(visit.projectId, linkedProject.json().project.id);
     assert.strictEqual(visit.customerName, serviceCase.customerName);
     assert.strictEqual(visit.assignedUserId, assignee.id);
     assert.strictEqual(visit.assignedUserName, assignee.name);
@@ -402,6 +417,37 @@ test("creating a service field visit validates case/customer/user and appears in
     assertDispatchNavigationEvidence(consoleVisit, location);
     const auditCount = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.field_visit.created").count;
     assert.strictEqual(auditCount, 1);
+
+    const otherCustomer = console1.customers.find(customer => customer.id !== serviceCase.customerId);
+    assert.ok(otherCustomer);
+    const mismatchedProject = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: {
+        name: "Wrong customer project",
+        customerId: otherCustomer.id,
+        status: "active"
+      }
+    });
+    assert.strictEqual(mismatchedProject.statusCode, 200, mismatchedProject.body);
+    const rejectedProject = await app.inject({
+      method: "POST",
+      url: "/api/service/field-visits",
+      headers: { cookie },
+      payload: {
+        caseId: serviceCase.id,
+        customerId: serviceCase.customerId,
+        projectId: mismatchedProject.json().project.id,
+        assignedUserId: assignee.id,
+        scheduledStartAt,
+        scheduledEndAt,
+        status: "scheduled",
+        location,
+        worksheetSummary: "This visit should not link to a mismatched customer project."
+      }
+    });
+    assert.strictEqual(rejectedProject.statusCode, 400, rejectedProject.body);
   } finally { await app.close(); }
 });
 
@@ -413,6 +459,17 @@ test("PATCH updates service field visit worksheet, status, time, and assignee", 
     const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie } })).json();
     const visit = console1.fieldVisits[0];
     const assignee = console1.agents.find(agent => agent.id !== visit.assignedUserId) || console1.agents[0];
+    const linkedProject = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: {
+        name: "PATCH-linked service project",
+        customerId: visit.customerId,
+        status: "active"
+      }
+    });
+    assert.strictEqual(linkedProject.statusCode, 200, linkedProject.body);
     const scheduledStartAt = new Date(Date.now() + 6 * 60 * 60 * 1000).toISOString();
     const scheduledEndAt = new Date(Date.now() + 7 * 60 * 60 * 1000).toISOString();
     const location = "Nare Clinic & Server #2 / Komitas 18";
@@ -427,7 +484,8 @@ test("PATCH updates service field visit worksheet, status, time, and assignee", 
         worksheetSummary: "Technician confirmed router power cycle and attached service notes.",
         scheduledStartAt,
         scheduledEndAt,
-        assignedUserId: assignee.id
+        assignedUserId: assignee.id,
+        projectId: linkedProject.json().project.id
       }
     });
     assert.strictEqual(patched.statusCode, 200, patched.body);
@@ -438,8 +496,39 @@ test("PATCH updates service field visit worksheet, status, time, and assignee", 
     assert.strictEqual(patchedVisit.scheduledStartAt, scheduledStartAt);
     assert.strictEqual(patchedVisit.scheduledEndAt, scheduledEndAt);
     assert.strictEqual(patchedVisit.assignedUserId, assignee.id);
+    assert.strictEqual(patchedVisit.projectId, linkedProject.json().project.id);
     assert.notStrictEqual(patchedVisit.dispatchNavigation.address, visit.dispatchNavigation.address);
     assertNavigationUrlsEncodeSpecialAddress(assertDispatchNavigationEvidence(patchedVisit, location), location);
+
+    const otherCustomer = console1.customers.find(customer => customer.id !== visit.customerId);
+    assert.ok(otherCustomer);
+    const mismatchedProject = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie },
+      payload: {
+        name: "PATCH wrong customer project",
+        customerId: otherCustomer.id,
+        status: "active"
+      }
+    });
+    assert.strictEqual(mismatchedProject.statusCode, 200, mismatchedProject.body);
+    const rejectedProject = await app.inject({
+      method: "PATCH",
+      url: `/api/service/field-visits/${visit.id}`,
+      headers: { cookie },
+      payload: { projectId: mismatchedProject.json().project.id }
+    });
+    assert.strictEqual(rejectedProject.statusCode, 400, rejectedProject.body);
+
+    const clearedProject = await app.inject({
+      method: "PATCH",
+      url: `/api/service/field-visits/${visit.id}`,
+      headers: { cookie },
+      payload: { projectId: null }
+    });
+    assert.strictEqual(clearedProject.statusCode, 200, clearedProject.body);
+    assert.strictEqual(clearedProject.json().visit.projectId, null);
 
     const badWindow = await app.inject({
       method: "PATCH",
@@ -449,7 +538,7 @@ test("PATCH updates service field visit worksheet, status, time, and assignee", 
     });
     assert.strictEqual(badWindow.statusCode, 400);
     const auditCount = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.field_visit.updated").count;
-    assert.strictEqual(auditCount, 1);
+    assert.strictEqual(auditCount, 2);
   } finally { await app.close(); }
 });
 
