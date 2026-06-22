@@ -407,6 +407,189 @@ test("technician status supports offline-safe idempotent dispatch replay", async
   } finally { await app.close(); }
 });
 
+test("assigned technician captures GPS evidence and read paths surface latest location", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const support = console1.agents.find(agent => agent.role === "Support");
+    const manager = console1.agents.find(agent => agent.role === "Service Manager");
+    assert.ok(support);
+    assert.ok(manager);
+
+    const supportVisit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 21,
+      location: "Nare Clinic GPS capture desk"
+    });
+    const managerVisit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: manager.id,
+      startOffsetHours: 22,
+      location: "Nare Clinic supervisor capture desk"
+    });
+    const capturedAt = "2026-06-22T09:15:00.000Z";
+    const firstLocation = {
+      latitude: 40.181111,
+      longitude: 44.513611,
+      accuracyMeters: 8.5,
+      capturedAt,
+      source: "browser-geolocation"
+    };
+
+    const captured = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${supportVisit.id}/technician-location`,
+      headers: { cookie: supportCookie },
+      payload: firstLocation
+    });
+    assert.strictEqual(captured.statusCode, 200, captured.body);
+    assert.strictEqual(captured.json().visit.technicianLocation.latitude, firstLocation.latitude);
+    assert.strictEqual(captured.json().visit.technicianLocation.longitude, firstLocation.longitude);
+    assert.strictEqual(captured.json().visit.technicianLocation.accuracyMeters, firstLocation.accuracyMeters);
+    assert.strictEqual(captured.json().visit.technicianLocation.capturedAt, capturedAt);
+    assert.strictEqual(captured.json().visit.technicianLocation.source, "browser-geolocation");
+    assert.strictEqual(captured.json().visit.technicianLocation.capturedByUserId, support.id);
+    assert.strictEqual(captured.json().visit.technicianLocation.provider, "google-maps");
+    assert.ok(captured.json().visit.technicianLocation.mapUrl.includes("www.google.com/maps/search"), captured.json().visit.technicianLocation.mapUrl);
+
+    const listedMine = await app.inject({ method: "GET", url: "/api/service/my-field-visits", headers: { cookie: supportCookie } });
+    assert.strictEqual(listedMine.statusCode, 200, listedMine.body);
+    const mineVisit = listedMine.json().visits.find(visit => visit.id === supportVisit.id);
+    assert.ok(mineVisit);
+    assert.deepStrictEqual(mineVisit.technicianLocation, captured.json().visit.technicianLocation);
+
+    const listedAll = await app.inject({ method: "GET", url: "/api/service/field-visits", headers: { cookie: ownerCookie } });
+    assert.strictEqual(listedAll.statusCode, 200, listedAll.body);
+    const listedVisit = listedAll.json().visits.find(visit => visit.id === supportVisit.id);
+    assert.ok(listedVisit);
+    assert.deepStrictEqual(listedVisit.technicianLocation, captured.json().visit.technicianLocation);
+
+    const moved = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${supportVisit.id}/technician-status`,
+      headers: { cookie: supportCookie },
+      payload: { status: "en-route" }
+    });
+    assert.strictEqual(moved.statusCode, 200, moved.body);
+    assert.deepStrictEqual(moved.json().visit.technicianLocation, captured.json().visit.technicianLocation);
+
+    const supervisorCapture = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${managerVisit.id}/technician-location`,
+      headers: { cookie: ownerCookie },
+      payload: { latitude: 40.19, longitude: 44.52, accuracyMeters: 20, capturedAt, source: "manual" }
+    });
+    assert.strictEqual(supervisorCapture.statusCode, 200, supervisorCapture.body);
+    assert.strictEqual(supervisorCapture.json().visit.technicianLocation.source, "manual");
+    assert.strictEqual(supervisorCapture.json().visit.technicianLocation.capturedByUserId, "user-owner");
+
+    const auditRows = app.db.prepare(`
+      SELECT user_id, details
+      FROM audit_events
+      WHERE type = ?
+      ORDER BY id ASC
+    `).all("service.field_visit.technician_location");
+    assert.strictEqual(auditRows.length, 2);
+    const supportDetails = JSON.parse(auditRows[0].details);
+    assert.strictEqual(auditRows[0].user_id, support.id);
+    assert.strictEqual(supportDetails.visitId, supportVisit.id);
+    assert.strictEqual(supportDetails.caseId, serviceCase.id);
+    assert.strictEqual(supportDetails.customerId, serviceCase.customerId);
+    assert.strictEqual(supportDetails.actorUserId, support.id);
+    assert.strictEqual(supportDetails.latitude, firstLocation.latitude);
+    assert.strictEqual(supportDetails.longitude, firstLocation.longitude);
+  } finally { await app.close(); }
+});
+
+test("technician location supports idempotent replay and mismatched-key conflict", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const support = console1.agents.find(agent => agent.role === "Support");
+    assert.ok(support);
+    const visit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 23,
+      location: "Nare Clinic idempotent GPS desk"
+    });
+    const idempotencyKey = "field-visit-location-001";
+    const payload = {
+      latitude: "40.187654",
+      longitude: "44.526543",
+      accuracyMeters: "11.25",
+      source: "mobile",
+      idempotencyKey
+    };
+
+    const first = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-location`,
+      headers: { cookie: supportCookie },
+      payload
+    });
+    assert.strictEqual(first.statusCode, 200, first.body);
+    assert.strictEqual(first.json().idempotent, false);
+    assert.strictEqual(first.json().locationSync.idempotencyKey, idempotencyKey);
+    assert.strictEqual(first.json().locationSync.replayed, false);
+    assert.ok(first.json().locationSync.capturedAt);
+    assert.strictEqual(first.json().visit.technicianLocation.latitude, 40.187654);
+    assert.strictEqual(first.json().visit.technicianLocation.longitude, 44.526543);
+    assert.strictEqual(first.json().visit.technicianLocation.accuracyMeters, 11.25);
+
+    const replay = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-location`,
+      headers: { cookie: supportCookie },
+      payload
+    });
+    assert.strictEqual(replay.statusCode, 200, replay.body);
+    assert.strictEqual(replay.json().idempotent, true);
+    assert.strictEqual(replay.json().locationSync.idempotencyKey, idempotencyKey);
+    assert.strictEqual(replay.json().locationSync.replayed, true);
+    assert.strictEqual(replay.json().locationSync.capturedAt, first.json().locationSync.capturedAt);
+    assert.deepStrictEqual(replay.json().visit.technicianLocation, first.json().visit.technicianLocation);
+
+    const mismatchedLocation = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-location`,
+      headers: { cookie: supportCookie },
+      payload: { ...payload, latitude: 40.2 }
+    });
+    assert.strictEqual(mismatchedLocation.statusCode, 409, mismatchedLocation.body);
+    assert.ok(!mismatchedLocation.body.includes(idempotencyKey), mismatchedLocation.body);
+
+    const auditRows = app.db.prepare(`
+      SELECT details
+      FROM audit_events
+      WHERE type = ?
+      ORDER BY id ASC
+    `).all("service.field_visit.technician_location");
+    assert.strictEqual(auditRows.length, 1);
+    const details = JSON.parse(auditRows[0].details);
+    assert.strictEqual(details.idempotencyKey, idempotencyKey);
+    assert.strictEqual(details.locationSync.idempotencyKey, idempotencyKey);
+    assert.strictEqual(details.locationSync.replayed, false);
+    assert.deepStrictEqual(Object.keys(details.locationSync.locationIntent).sort(), [
+      "accuracyMeters",
+      "capturedAt",
+      "capturedAtProvided",
+      "latitude",
+      "longitude",
+      "source"
+    ]);
+  } finally { await app.close(); }
+});
+
 test("unassigned support user cannot update another technician visit, but supervisor can", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -431,10 +614,18 @@ test("unassigned support user cannot update another technician visit, but superv
       payload: { status: "en-route", worksheetSummary: "Support should not change this." }
     });
     assert.strictEqual(blocked.statusCode, 403);
+    const blockedLocation = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${managerVisit.id}/technician-location`,
+      headers: { cookie: supportCookie },
+      payload: { latitude: 40.1, longitude: 44.1 }
+    });
+    assert.strictEqual(blockedLocation.statusCode, 403);
     const unchanged = app.db.prepare("SELECT status, worksheet_summary FROM service_field_visits WHERE id = ?").get(managerVisit.id);
     assert.strictEqual(unchanged.status, "scheduled");
     assert.strictEqual(unchanged.worksheet_summary, "Manager-owned worksheet.");
     assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.field_visit.technician_status").count, 0);
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.field_visit.technician_location").count, 0);
 
     const allowed = await app.inject({
       method: "POST",
@@ -444,6 +635,66 @@ test("unassigned support user cannot update another technician visit, but superv
     });
     assert.strictEqual(allowed.statusCode, 200, allowed.body);
     assert.strictEqual(allowed.json().visit.status, "en-route");
+  } finally { await app.close(); }
+});
+
+test("malformed technician location requests have no side effects and no secret echo", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const support = console1.agents.find(agent => agent.role === "Support");
+    assert.ok(support);
+    const visit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 24,
+      worksheetSummary: "Location malformed request should not alter this."
+    });
+    const secret = "sk-live-technician-location-secret";
+
+    const badPath = await app.inject({
+      method: "POST",
+      url: "/api/service/field-visits/NOT-SAFE/technician-location",
+      headers: { cookie: supportCookie },
+      payload: { latitude: 40.1, longitude: 44.1, idempotencyKey: secret }
+    });
+    assert.strictEqual(badPath.statusCode, 400);
+    assert.ok(!badPath.body.includes(secret), badPath.body);
+
+    const badLatitude = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-location`,
+      headers: { cookie: supportCookie },
+      payload: { latitude: 91, longitude: 44.1, capturedAt: secret }
+    });
+    assert.strictEqual(badLatitude.statusCode, 400);
+    assert.ok(!badLatitude.body.includes(secret), badLatitude.body);
+
+    const badIdempotencyKey = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-location`,
+      headers: { cookie: supportCookie },
+      payload: { latitude: 40.1, longitude: 44.1, idempotencyKey: `${secret}\nqueue` }
+    });
+    assert.strictEqual(badIdempotencyKey.statusCode, 400);
+    assert.ok(!badIdempotencyKey.body.includes(secret), badIdempotencyKey.body);
+
+    const badSource = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-location`,
+      headers: { cookie: supportCookie },
+      payload: { latitude: 40.1, longitude: 44.1, source: "satellite\nsecret" }
+    });
+    assert.strictEqual(badSource.statusCode, 400);
+
+    const unchanged = app.db.prepare("SELECT status, worksheet_summary FROM service_field_visits WHERE id = ?").get(visit.id);
+    assert.strictEqual(unchanged.status, "scheduled");
+    assert.strictEqual(unchanged.worksheet_summary, "Location malformed request should not alter this.");
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.field_visit.technician_location").count, 0);
   } finally { await app.close(); }
 });
 
@@ -581,8 +832,16 @@ test("technician field visit routes preserve tenant isolation", async () => {
       payload: { status: "en-route" }
     });
     assert.strictEqual(crossOrgUpdate.statusCode, 404);
+    const crossOrgLocation = await app.inject({
+      method: "POST",
+      url: "/api/service/field-visits/visit-tech-foreign/technician-location",
+      headers: { cookie: ownerCookie },
+      payload: { latitude: 40.1, longitude: 44.1 }
+    });
+    assert.strictEqual(crossOrgLocation.statusCode, 404);
     assert.strictEqual(app.db.prepare("SELECT status FROM service_field_visits WHERE org_id = ? AND id = ?").get("org-tech-foreign", "visit-tech-foreign").status, "scheduled");
     assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM service_field_visits WHERE org_id = ? AND id = ?").get(ownerOrgId, "visit-tech-foreign").count, 0);
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?").get("org-tech-foreign", "service.field_visit.technician_location").count, 0);
   } finally { await app.close(); }
 });
 

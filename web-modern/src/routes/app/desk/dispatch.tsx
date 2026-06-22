@@ -14,10 +14,13 @@ import {
   Route as RouteIcon,
   Send,
 } from "lucide-react";
-import { getJson } from "../../../lib/api/client";
+import { getJson, postJson } from "../../../lib/api/client";
 import {
   ServiceFieldVisitsResponseSchema,
+  UpdateServiceFieldVisitTechnicianLocationInputSchema,
+  UpdateServiceFieldVisitTechnicianLocationResponseSchema,
   type ServiceFieldVisit,
+  type ServiceFieldVisitTechnicianLocation,
   type ServiceFieldVisitTechnicianStatus,
 } from "../../../lib/api/schemas";
 import { cn } from "../../../lib/utils/cn";
@@ -80,6 +83,8 @@ type DispatchNavigationLink = {
   label: "Map" | "Navigation";
   href: string;
 };
+
+type GpsCaptureState = "idle" | "pending" | "locked" | "unsupported" | "error";
 
 function DeskDispatch() {
   const qc = useQueryClient();
@@ -298,9 +303,13 @@ function DispatchVisitCard({
   syncing?: boolean;
   onStatusSubmit: (input: TechnicianVisitMutationInput) => Promise<TechnicianVisitSubmitResult>;
 }) {
+  const qc = useQueryClient();
   const [worksheetSummary, setWorksheetSummary] = useState(visit.worksheetSummary);
   const [pendingStatus, setPendingStatus] = useState<ServiceFieldVisitTechnicianStatus | null>(null);
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [gpsState, setGpsState] = useState<GpsCaptureState>("idle");
+  const [gpsError, setGpsError] = useState<string | null>(null);
+  const [capturedLocation, setCapturedLocation] = useState<ServiceFieldVisitTechnicianLocation | null>(null);
   const normalizedStatus = normalizeVisitStatus(visit.status);
   const statusTone = FIELD_VISIT_STATUS_TONE[normalizedStatus] ?? FIELD_VISIT_STATUS_TONE.default;
   const caseLabel = visit.caseNumber ?? visit.subject ?? visit.caseId;
@@ -309,10 +318,18 @@ function DispatchVisitCard({
   const isSubmitting = pendingStatus != null;
   const routeLine = getDispatchRouteLine(visit);
   const navigationLinks = getDispatchNavigationLinks(visit);
+  const latestLocation = capturedLocation ?? visit.technicianLocation ?? null;
+  const isCapturingGps = gpsState === "pending";
 
   useEffect(() => {
     setWorksheetSummary(visit.worksheetSummary);
   }, [visit.id, visit.worksheetSummary]);
+
+  useEffect(() => {
+    setCapturedLocation(null);
+    setGpsState("idle");
+    setGpsError(null);
+  }, [visit.id]);
 
   const submitStatus = async (status: ServiceFieldVisitTechnicianStatus) => {
     setPendingStatus(status);
@@ -328,6 +345,70 @@ function DispatchVisitCard({
     } finally {
       setPendingStatus(null);
     }
+  };
+
+  const captureGps = () => {
+    if (typeof navigator === "undefined" || !navigator.geolocation) {
+      setGpsState("unsupported");
+      setGpsError("GPS unavailable");
+      return;
+    }
+
+    setGpsState("pending");
+    setGpsError(null);
+    navigator.geolocation.getCurrentPosition(
+      (position) => {
+        const capturedAt = Number.isFinite(position.timestamp)
+          ? new Date(position.timestamp).toISOString()
+          : new Date().toISOString();
+        const payload = UpdateServiceFieldVisitTechnicianLocationInputSchema.parse({
+          latitude: position.coords.latitude,
+          longitude: position.coords.longitude,
+          ...(typeof position.coords.accuracy === "number"
+            ? { accuracyMeters: position.coords.accuracy }
+            : {}),
+          capturedAt,
+          source: "browser-geolocation",
+          idempotencyKey: generateTechnicianLocationIdempotencyKey(visit.id),
+        });
+
+        postJson(
+          `/api/service/field-visits/${visit.id}/technician-location`,
+          payload,
+          UpdateServiceFieldVisitTechnicianLocationResponseSchema,
+        )
+          .then((response) => {
+            const responseLocation = response.visit?.technicianLocation ?? null;
+            setCapturedLocation(
+              responseLocation ?? {
+                latitude: payload.latitude,
+                longitude: payload.longitude,
+                capturedAt: payload.capturedAt ?? capturedAt,
+                source: payload.source,
+                ...(payload.accuracyMeters !== undefined ? { accuracyMeters: payload.accuracyMeters } : {}),
+              },
+            );
+            setGpsState("locked");
+            setGpsError(null);
+            void qc.invalidateQueries({ queryKey: ["service", "console"] });
+            void qc.invalidateQueries({ queryKey: ["service", "field-visits"] });
+            void qc.invalidateQueries({ queryKey: ["service", "my-field-visits"] });
+          })
+          .catch((error) => {
+            setGpsState("error");
+            setGpsError(error instanceof Error ? error.message : "GPS capture failed");
+          });
+      },
+      (error) => {
+        setGpsState("error");
+        setGpsError(getGpsPositionErrorMessage(error));
+      },
+      {
+        enableHighAccuracy: true,
+        maximumAge: 30_000,
+        timeout: 15_000,
+      },
+    );
   };
 
   return (
@@ -411,6 +492,29 @@ function DispatchVisitCard({
           ))}
         </div>
 
+        <div className="flex flex-wrap items-center gap-1.5 text-[11px]">
+          <button
+            type="button"
+            disabled={terminal || isSubmitting || syncing || isCapturingGps}
+            onClick={captureGps}
+            className={cn(
+              "inline-flex h-7 items-center gap-1 rounded-[var(--radius-md)] px-2 font-medium",
+              terminal || isSubmitting || syncing || isCapturingGps
+                ? "bg-[var(--color-surface-soft)] text-[var(--color-muted)] opacity-60"
+                : "bg-[var(--color-ink)] text-white hover:opacity-90",
+            )}
+          >
+            <MapPin className="size-3" aria-hidden />
+            {isCapturingGps ? "Locking GPS" : gpsState === "locked" ? "GPS locked" : "Capture GPS"}
+          </button>
+          {latestLocation && <TechnicianLocationEvidence location={latestLocation} />}
+        </div>
+        {gpsError && (
+          <p className="text-[11px] text-[var(--color-ruby)]">
+            {gpsError}
+          </p>
+        )}
+
         <p className="flex items-start gap-1.5 text-[11px] text-[var(--color-ink)]">
           <ClipboardCheck className="mt-0.5 size-3.5 shrink-0 text-[var(--color-muted)]" aria-hidden />
           <span className="line-clamp-2">{visit.worksheetSummary || "Worksheet pending"}</span>
@@ -466,6 +570,32 @@ function DispatchVisitCard({
         )}
       </div>
     </article>
+  );
+}
+
+function TechnicianLocationEvidence({ location }: { location: ServiceFieldVisitTechnicianLocation }) {
+  const accuracyLabel = formatAccuracyMeters(location.accuracyMeters);
+  const capturedAtLabel = formatCapturedAt(location.capturedAt);
+  const mapHref = getTechnicianLocationMapUrl(location);
+
+  return (
+    <span className="inline-flex min-h-7 flex-wrap items-center gap-1 rounded-[var(--radius-md)] bg-[var(--color-surface-soft)] px-2 py-1 text-[var(--color-muted)]">
+      <span className="font-medium text-[var(--color-ink)]">GPS</span>
+      <span className="font-mono">{formatCoordinate(location.latitude)}, {formatCoordinate(location.longitude)}</span>
+      {accuracyLabel && <span>accuracy {accuracyLabel}</span>}
+      <span>captured {capturedAtLabel}</span>
+      {mapHref && (
+        <a
+          href={mapHref}
+          target="_blank"
+          rel="noreferrer"
+          className="inline-flex items-center gap-1 font-medium text-[var(--color-brand)] hover:underline"
+        >
+          GPS map
+          <ExternalLink className="size-3" aria-hidden />
+        </a>
+      )}
+    </span>
   );
 }
 
@@ -550,6 +680,27 @@ function createMapSearchUrl(location: string): string | undefined {
   return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(query)}`;
 }
 
+function createCoordinateMapSearchUrl(latitude: number, longitude: number): string | undefined {
+  if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return undefined;
+  if (latitude < -90 || latitude > 90 || longitude < -180 || longitude > 180) return undefined;
+  return `https://www.google.com/maps/search/?api=1&query=${encodeURIComponent(`${latitude},${longitude}`)}`;
+}
+
+function getTechnicianLocationMapUrl(location: ServiceFieldVisitTechnicianLocation): string | undefined {
+  return sanitizeExternalMapUrl(location.mapUrl) ?? createCoordinateMapSearchUrl(location.latitude, location.longitude);
+}
+
+function sanitizeExternalMapUrl(value: string | undefined): string | undefined {
+  if (!value) return undefined;
+  try {
+    const url = new URL(value);
+    if (url.protocol === "https:") return url.toString();
+  } catch {
+    return undefined;
+  }
+  return undefined;
+}
+
 function createDirectionsUrl(location: string): string | undefined {
   const query = location.trim();
   if (!query) return undefined;
@@ -568,4 +719,34 @@ function formatVisitDateTime(value: string): string {
   const timestamp = Date.parse(value);
   if (Number.isNaN(timestamp)) return value.trim();
   return VISIT_TIME_FORMATTER.format(new Date(timestamp));
+}
+
+function formatCoordinate(value: number): string {
+  return Number.isFinite(value) ? value.toFixed(6) : String(value);
+}
+
+function formatAccuracyMeters(value: number | null | undefined): string | undefined {
+  if (typeof value !== "number" || !Number.isFinite(value)) return undefined;
+  if (value < 10) return `${value.toFixed(1)} m`;
+  return `${Math.round(value)} m`;
+}
+
+function formatCapturedAt(value: string): string {
+  const parsed = formatVisitDateTime(value);
+  return parsed || value;
+}
+
+function generateTechnicianLocationIdempotencyKey(visitId: string): string {
+  const random =
+    typeof crypto !== "undefined" && "randomUUID" in crypto
+      ? crypto.randomUUID()
+      : Math.random().toString(36).slice(2);
+  return `desk-visit:${visitId}:technician-location:${Date.now()}:${random}`.slice(0, 200);
+}
+
+function getGpsPositionErrorMessage(error: GeolocationPositionError): string {
+  if (error.code === error.PERMISSION_DENIED) return "GPS permission denied";
+  if (error.code === error.POSITION_UNAVAILABLE) return "GPS position unavailable";
+  if (error.code === error.TIMEOUT) return "GPS timeout";
+  return error.message || "GPS capture failed";
 }

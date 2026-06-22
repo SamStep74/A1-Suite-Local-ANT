@@ -78,7 +78,7 @@ const VISIT = {
   },
 };
 
-function setupApi(visits = [VISIT]) {
+function setupApi(visits: Array<Record<string, unknown>> = [VISIT]) {
   mocks.getJson.mockImplementation((path: string) => {
     if (path === "/api/service/my-field-visits") return Promise.resolve({ visits });
     return Promise.resolve({});
@@ -104,17 +104,28 @@ function readQueue() {
   return JSON.parse(localStorage.getItem(QUEUE_KEY) ?? "[]") as Array<Record<string, unknown>>;
 }
 
+function setGeolocationMock(
+  getCurrentPosition: Geolocation["getCurrentPosition"] | undefined,
+) {
+  Object.defineProperty(navigator, "geolocation", {
+    configurable: true,
+    value: getCurrentPosition ? { getCurrentPosition } : undefined,
+  });
+}
+
 beforeEach(() => {
   localStorage.clear();
   mocks.getJson.mockReset();
   mocks.postJson.mockReset();
   setupApi();
+  setGeolocationMock(undefined);
 });
 
 afterEach(() => {
   cleanup();
   vi.clearAllMocks();
   localStorage.clear();
+  setGeolocationMock(undefined);
 });
 
 describe("/app/desk/dispatch", () => {
@@ -149,6 +160,121 @@ describe("/app/desk/dispatch", () => {
     });
     expect((body as Record<string, unknown>).idempotencyKey).toEqual(expect.any(String));
     expect((body as Record<string, unknown>).idempotencyKey).toContain("visit-1:en-route");
+  });
+
+  it("captures browser GPS with location evidence and idempotency", async () => {
+    const getCurrentPosition = vi.fn((success: PositionCallback) => {
+      success({
+        coords: {
+          latitude: 40.1791864,
+          longitude: 44.4991027,
+          accuracy: 12.4,
+          altitude: null,
+          altitudeAccuracy: null,
+          heading: null,
+          speed: null,
+          toJSON: () => ({}),
+        },
+        timestamp: Date.parse("2026-06-22T08:30:00.000Z"),
+        toJSON: () => ({}),
+      });
+    }) as Geolocation["getCurrentPosition"];
+    setGeolocationMock(getCurrentPosition);
+    mocks.postJson.mockResolvedValue({
+      ok: true,
+      visit: {
+        ...VISIT,
+        technicianLocation: {
+          latitude: 40.1791864,
+          longitude: 44.4991027,
+          accuracyMeters: 12.4,
+          capturedAt: "2026-06-22T08:30:00.000Z",
+          source: "browser-geolocation",
+          mapUrl: "https://maps.example.test/gps/visit-1",
+        },
+      },
+    });
+
+    renderRoute();
+
+    await screen.findByText("AO-CASE-1001");
+    fireEvent.click(screen.getByRole("button", { name: /capture gps/i }));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledWith(
+        "/api/service/field-visits/visit-1/technician-location",
+        expect.objectContaining({
+          latitude: 40.1791864,
+          longitude: 44.4991027,
+          accuracyMeters: 12.4,
+          source: "browser-geolocation",
+          capturedAt: expect.any(String),
+          idempotencyKey: expect.stringContaining("visit-1:technician-location"),
+        }),
+        expect.anything(),
+      );
+    });
+    expect(screen.getByText("GPS locked")).toBeTruthy();
+    expect(screen.getByText(/40\.179186, 44\.499103/)).toBeTruthy();
+    expect(screen.getByText("accuracy 12 m")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /gps map/i }).getAttribute("href")).toBe(
+      "https://maps.example.test/gps/visit-1",
+    );
+  });
+
+  it("renders latest GPS evidence from the visit", async () => {
+    setupApi([
+      {
+        ...VISIT,
+        technicianLocation: {
+          latitude: 40.179186,
+          longitude: 44.499103,
+          accuracyMeters: 8.5,
+          capturedAt: "2026-06-22T08:30:00.000Z",
+          source: "browser-geolocation",
+        },
+      },
+    ]);
+
+    renderRoute();
+
+    await screen.findByText("AO-CASE-1001");
+    expect(screen.getByText(/40\.179186, 44\.499103/)).toBeTruthy();
+    expect(screen.getByText("accuracy 8.5 m")).toBeTruthy();
+    expect(screen.getByRole("link", { name: /gps map/i }).getAttribute("href")).toContain(
+      "www.google.com/maps/search",
+    );
+  });
+
+  it("shows unsupported GPS state without posting", async () => {
+    renderRoute();
+
+    await screen.findByText("AO-CASE-1001");
+    fireEvent.click(screen.getByRole("button", { name: /capture gps/i }));
+
+    expect(await screen.findByText("GPS unavailable")).toBeTruthy();
+    expect(mocks.postJson).not.toHaveBeenCalled();
+  });
+
+  it("shows geolocation callback errors without posting", async () => {
+    const getCurrentPosition = vi.fn((_success: PositionCallback, error?: PositionErrorCallback | null) => {
+      error?.({
+        code: 1,
+        message: "denied",
+        PERMISSION_DENIED: 1,
+        POSITION_UNAVAILABLE: 2,
+        TIMEOUT: 3,
+      } as GeolocationPositionError);
+    }) as Geolocation["getCurrentPosition"];
+    setGeolocationMock(getCurrentPosition);
+
+    renderRoute();
+
+    await screen.findByText("AO-CASE-1001");
+    fireEvent.click(screen.getByRole("button", { name: /capture gps/i }));
+
+    expect(await screen.findByText("GPS permission denied")).toBeTruthy();
+    expect(mocks.postJson).not.toHaveBeenCalled();
   });
 
   it("queues a failed network action and shows pending evidence", async () => {

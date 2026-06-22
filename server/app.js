@@ -22,6 +22,7 @@ const ARMENIA_TIME_ZONE = "Asia/Yerevan";
 const SYSTEM_APP_ASSIGNMENT_ROLES = new Set(["Admin"]);
 const SERVICE_FIELD_VISIT_STATUSES = ["scheduled", "en-route", "in-progress", "completed", "cancelled"];
 const SERVICE_FIELD_VISIT_TECHNICIAN_STATUSES = ["en-route", "in-progress", "completed"];
+const SERVICE_FIELD_VISIT_LOCATION_SOURCES = ["browser-geolocation", "gps", "browser", "mobile", "manual", "device"];
 const APP_ASSIGNMENT_ROLE_GUARDS = {
   inventory: new Set(["Owner", "Admin", "Operator", "Accountant"]),
   purchase: new Set(["Owner", "Admin", "Operator", "Accountant"])
@@ -6638,6 +6639,17 @@ function registerApi(app, db, options = {}) {
       return envelope;
     }
     return { ok: true, visit: result };
+  });
+
+  app.post("/api/service/field-visits/:id/technician-location", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "desk");
+    const visitId = normalizeServiceFieldVisitPathId(request.params.id);
+    const result = captureServiceFieldVisitTechnicianLocation(db, user, visitId, request.body === undefined ? {} : request.body);
+    const envelope = { ok: true, visit: result.visit };
+    if (Object.prototype.hasOwnProperty.call(result, "idempotent")) envelope.idempotent = result.idempotent;
+    if (result.locationSync) envelope.locationSync = result.locationSync;
+    return envelope;
   });
 
   app.get("/api/service/sla-policies", async request => {
@@ -49400,6 +49412,69 @@ function normalizeServiceFieldVisitTechnicianStatusInput(body) {
   return input;
 }
 
+function normalizeServiceFieldVisitTechnicianLocationInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  const capturedAtProvided = Object.prototype.hasOwnProperty.call(body, "capturedAt") && body.capturedAt !== "";
+  const input = {
+    latitude: normalizeServiceFieldVisitLocationCoordinate(body, "latitude", -90, 90),
+    longitude: normalizeServiceFieldVisitLocationCoordinate(body, "longitude", -180, 180),
+    capturedAt: normalizeServiceFieldVisitOptionalCapturedAt(body),
+    capturedAtProvided,
+    source: normalizeServiceChoice(body, "source", SERVICE_FIELD_VISIT_LOCATION_SOURCES, "gps")
+  };
+  if (Object.prototype.hasOwnProperty.call(body, "accuracyMeters")) {
+    input.accuracyMeters = normalizeServiceFieldVisitAccuracyMeters(body);
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "idempotencyKey")) {
+    input.idempotencyKey = normalizeServiceFieldVisitTechnicianIdempotencyKey(body);
+  }
+  return input;
+}
+
+function normalizeServiceFieldVisitLocationCoordinate(body, field, min, max) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "" || value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  if (typeof value === "string" && /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  const coordinate = Number(value);
+  if (!Number.isFinite(coordinate) || coordinate < min || coordinate > max) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  return Number(coordinate.toFixed(6));
+}
+
+function normalizeServiceFieldVisitAccuracyMeters(body) {
+  const value = body.accuracyMeters;
+  if (value === "" || value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  if (typeof value === "string" && /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  const accuracy = Number(value);
+  if (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 100000) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  return Number(accuracy.toFixed(2));
+}
+
+function normalizeServiceFieldVisitOptionalCapturedAt(body) {
+  if (!Object.prototype.hasOwnProperty.call(body, "capturedAt") || body.capturedAt === "") {
+    return new Date().toISOString();
+  }
+  const text = normalizeServiceText(body, "capturedAt", { required: true, minLength: 10, maxLength: 40 });
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  return parsed.toISOString();
+}
+
 function normalizeServiceFieldVisitTechnicianIdempotencyKey(body) {
   const key = normalizeServiceText(body, "idempotencyKey", { required: true, minLength: 1, maxLength: 200 });
   if (!/^[A-Za-z0-9._:-]+$/.test(key) || looksLikeSensitiveToken(key)) {
@@ -57016,7 +57091,7 @@ function getServiceFieldVisits(db, orgId, customerId = "", assignedUserId = "") 
     where += " AND service_field_visits.assigned_user_id = ?";
     params.push(assignedUserId);
   }
-  return db.prepare(`
+  const rows = db.prepare(`
     SELECT service_field_visits.*, service_cases.case_number, service_cases.subject,
       customers.name AS customer_name, users.name AS assigned_user_name
     FROM service_field_visits
@@ -57031,7 +57106,9 @@ function getServiceFieldVisits(db, orgId, customerId = "", assignedUserId = "") 
       AND users.id = service_field_visits.assigned_user_id
     ${where}
     ORDER BY service_field_visits.scheduled_start_at ASC, service_field_visits.created_at DESC
-  `).all(...params).map(formatServiceFieldVisit);
+  `).all(...params);
+  const locationsByVisitId = getLatestServiceFieldVisitTechnicianLocations(db, orgId, rows.map(row => row.id));
+  return rows.map(row => formatServiceFieldVisit(row, locationsByVisitId.get(row.id)));
 }
 
 function getServiceFieldVisit(db, orgId, visitId) {
@@ -57050,11 +57127,13 @@ function getServiceFieldVisit(db, orgId, visitId) {
       AND users.id = service_field_visits.assigned_user_id
     WHERE service_field_visits.org_id = ? AND service_field_visits.id = ?
   `).get(orgId, visitId);
-  return row ? formatServiceFieldVisit(row) : null;
+  if (!row) return null;
+  const locationsByVisitId = getLatestServiceFieldVisitTechnicianLocations(db, orgId, [row.id]);
+  return formatServiceFieldVisit(row, locationsByVisitId.get(row.id));
 }
 
-function formatServiceFieldVisit(row) {
-  return {
+function formatServiceFieldVisit(row, technicianLocation = null) {
+  const visit = {
     id: row.id,
     caseId: row.case_id,
     caseNumber: row.case_number,
@@ -57072,6 +57151,53 @@ function formatServiceFieldVisit(row) {
     updatedAt: row.updated_at,
     dispatchNavigation: buildServiceFieldVisitDispatchNavigation(row)
   };
+  if (technicianLocation) {
+    visit.technicianLocation = technicianLocation;
+  }
+  return visit;
+}
+
+function getLatestServiceFieldVisitTechnicianLocations(db, orgId, visitIds) {
+  const targetVisitIds = new Set(visitIds.filter(Boolean));
+  const locationsByVisitId = new Map();
+  if (targetVisitIds.size === 0) return locationsByVisitId;
+  const rows = db.prepare(`
+    SELECT id, user_id, details, created_at
+    FROM audit_events
+    WHERE org_id = ? AND type = ?
+    ORDER BY id DESC
+  `).all(orgId, "service.field_visit.technician_location");
+  for (const row of rows) {
+    let details;
+    try {
+      details = JSON.parse(row.details || "{}");
+    } catch {
+      continue;
+    }
+    if (!targetVisitIds.has(details.visitId) || locationsByVisitId.has(details.visitId)) {
+      continue;
+    }
+    locationsByVisitId.set(details.visitId, formatServiceFieldVisitTechnicianLocation(details, row));
+    if (locationsByVisitId.size === targetVisitIds.size) break;
+  }
+  return locationsByVisitId;
+}
+
+function formatServiceFieldVisitTechnicianLocation(details, row = {}) {
+  const location = {
+    latitude: details.latitude,
+    longitude: details.longitude,
+    capturedAt: details.capturedAt,
+    source: details.source,
+    capturedByUserId: details.actorUserId || row.user_id || null,
+    recordedAt: row.created_at || details.recordedAt || null,
+    mapUrl: buildServiceFieldVisitNavigationUrl("/maps/search/", { api: "1", query: `${details.latitude},${details.longitude}` }),
+    provider: "google-maps"
+  };
+  if (Object.prototype.hasOwnProperty.call(details, "accuracyMeters")) {
+    location.accuracyMeters = details.accuracyMeters;
+  }
+  return location;
 }
 
 function buildServiceFieldVisitDispatchNavigation(row) {
@@ -57285,6 +57411,73 @@ function updateServiceFieldVisitTechnicianStatus(db, user, visitId, body) {
   return visit;
 }
 
+function captureServiceFieldVisitTechnicianLocation(db, user, visitId, body) {
+  const existing = getServiceFieldVisit(db, user.org_id, visitId);
+  if (!existing) {
+    const err = new Error("Service field visit not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (existing.assignedUserId !== user.id && !["Owner", "Admin", "Service Manager"].includes(user.role)) {
+    const err = new Error("Assigned technician or service supervisor role required");
+    err.statusCode = 403;
+    throw err;
+  }
+  const input = normalizeServiceFieldVisitTechnicianLocationInput(body);
+  if (input.idempotencyKey) {
+    const replay = findServiceFieldVisitTechnicianLocationReplay(db, user, existing.id, input);
+    if (replay) {
+      if (replay.matches) {
+        return {
+          visit: getServiceFieldVisit(db, user.org_id, existing.id),
+          idempotent: true,
+          locationSync: {
+            idempotencyKey: input.idempotencyKey,
+            replayed: true,
+            capturedAt: replay.capturedAt
+          }
+        };
+      }
+      throwServiceFieldVisitTechnicianLocationIdempotencyConflict();
+    }
+  }
+  const details = {
+    visitId: existing.id,
+    caseId: existing.caseId,
+    customerId: existing.customerId,
+    actorUserId: user.id,
+    latitude: input.latitude,
+    longitude: input.longitude,
+    capturedAt: input.capturedAt,
+    source: input.source
+  };
+  if (Object.prototype.hasOwnProperty.call(input, "accuracyMeters")) {
+    details.accuracyMeters = input.accuracyMeters;
+  }
+  if (input.idempotencyKey) {
+    details.idempotencyKey = input.idempotencyKey;
+    details.locationSync = {
+      idempotencyKey: input.idempotencyKey,
+      replayed: false,
+      locationIntent: buildServiceFieldVisitTechnicianLocationIntent(input)
+    };
+  }
+  audit(db, user.org_id, user.id, "service.field_visit.technician_location", details);
+  const visit = getServiceFieldVisit(db, user.org_id, existing.id);
+  if (input.idempotencyKey) {
+    return {
+      visit,
+      idempotent: false,
+      locationSync: {
+        idempotencyKey: input.idempotencyKey,
+        replayed: false,
+        capturedAt: input.capturedAt
+      }
+    };
+  }
+  return { visit };
+}
+
 function findServiceFieldVisitTechnicianStatusReplay(db, user, visitId, input) {
   const incomingIntent = buildServiceFieldVisitTechnicianWorksheetIntent(input);
   const rows = db.prepare(`
@@ -57319,6 +57512,54 @@ function buildServiceFieldVisitTechnicianWorksheetIntent(input) {
   };
 }
 
+function findServiceFieldVisitTechnicianLocationReplay(db, user, visitId, input) {
+  const incomingIntent = buildServiceFieldVisitTechnicianLocationIntent(input);
+  const rows = db.prepare(`
+    SELECT details
+    FROM audit_events
+    WHERE org_id = ? AND user_id = ? AND type = ?
+    ORDER BY id DESC
+  `).all(user.org_id, user.id, "service.field_visit.technician_location");
+  for (const row of rows) {
+    let details;
+    try {
+      details = JSON.parse(row.details || "{}");
+    } catch {
+      continue;
+    }
+    if (details.idempotencyKey !== input.idempotencyKey) {
+      continue;
+    }
+    const storedIntent = details.locationSync?.locationIntent;
+    return {
+      capturedAt: details.capturedAt,
+      matches: details.visitId === visitId && serviceFieldVisitTechnicianLocationIntentMatches(storedIntent, incomingIntent)
+    };
+  }
+  return null;
+}
+
+function buildServiceFieldVisitTechnicianLocationIntent(input) {
+  return {
+    latitude: input.latitude,
+    longitude: input.longitude,
+    accuracyMeters: Object.prototype.hasOwnProperty.call(input, "accuracyMeters") ? input.accuracyMeters : null,
+    capturedAtProvided: Boolean(input.capturedAtProvided),
+    capturedAt: input.capturedAtProvided ? input.capturedAt : null,
+    source: input.source
+  };
+}
+
+function serviceFieldVisitTechnicianLocationIntentMatches(storedIntent, incomingIntent) {
+  return Boolean(storedIntent)
+    && storedIntent.latitude === incomingIntent.latitude
+    && storedIntent.longitude === incomingIntent.longitude
+    && storedIntent.accuracyMeters === incomingIntent.accuracyMeters
+    && storedIntent.capturedAtProvided === incomingIntent.capturedAtProvided
+    && storedIntent.capturedAt === incomingIntent.capturedAt
+    && storedIntent.source === incomingIntent.source;
+}
+
 function serviceFieldVisitTechnicianWorksheetIntentMatches(storedIntent, incomingIntent) {
   return Boolean(storedIntent)
     && storedIntent.provided === incomingIntent.provided
@@ -57327,6 +57568,12 @@ function serviceFieldVisitTechnicianWorksheetIntentMatches(storedIntent, incomin
 
 function throwServiceFieldVisitTechnicianIdempotencyConflict() {
   const err = new Error("Idempotency key already used for a different technician dispatch action");
+  err.statusCode = 409;
+  throw err;
+}
+
+function throwServiceFieldVisitTechnicianLocationIdempotencyConflict() {
+  const err = new Error("Idempotency key already used for a different technician location capture");
   err.statusCode = 409;
   throw err;
 }

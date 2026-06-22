@@ -106,6 +106,24 @@ export type ServiceFieldVisitDispatchNavigation = z.infer<
   typeof ServiceFieldVisitDispatchNavigationSchema
 >;
 
+export const ServiceFieldVisitTechnicianLocationSchema = z
+  .object({
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    accuracyMeters: z.number().nonnegative().nullable().optional(),
+    capturedAt: z.string(),
+    capturedByUserId: z.string().nullable().optional(),
+    capturedByUserName: z.string().nullable().optional(),
+    source: z.string().optional(),
+    mapUrl: z.string().optional(),
+    provider: z.unknown().optional(),
+    evidence: z.unknown().optional(),
+  })
+  .passthrough();
+export type ServiceFieldVisitTechnicianLocation = z.infer<
+  typeof ServiceFieldVisitTechnicianLocationSchema
+>;
+
 export const ServiceFieldVisitSchema = z
   .object({
     id: z.string(),
@@ -124,6 +142,7 @@ export const ServiceFieldVisitSchema = z
     customerName: z.string().nullable().optional(),
     assignedUserName: z.string().nullable().optional(),
     dispatchNavigation: ServiceFieldVisitDispatchNavigationSchema.nullable().optional(),
+    technicianLocation: ServiceFieldVisitTechnicianLocationSchema.nullable().optional(),
   })
   .passthrough();
 export type ServiceFieldVisit = z.infer<typeof ServiceFieldVisitSchema>;
@@ -159,6 +178,32 @@ export const UpdateServiceFieldVisitTechnicianStatusResponseSchema = z
   .passthrough();
 export type UpdateServiceFieldVisitTechnicianStatusResponse = z.infer<
   typeof UpdateServiceFieldVisitTechnicianStatusResponseSchema
+>;
+
+export const UpdateServiceFieldVisitTechnicianLocationInputSchema = z
+  .object({
+    latitude: z.number().min(-90).max(90),
+    longitude: z.number().min(-180).max(180),
+    accuracyMeters: z.number().nonnegative().optional(),
+    capturedAt: z.string().optional(),
+    source: z.literal("browser-geolocation"),
+    idempotencyKey: z.string().min(1).max(200).optional(),
+  })
+  .strict();
+export type UpdateServiceFieldVisitTechnicianLocationInput = z.infer<
+  typeof UpdateServiceFieldVisitTechnicianLocationInputSchema
+>;
+
+export const UpdateServiceFieldVisitTechnicianLocationResponseSchema = z
+  .object({
+    ok: z.boolean().optional(),
+    visit: ServiceFieldVisitSchema.optional(),
+    idempotent: z.boolean().optional(),
+    locationSync: z.unknown().optional(),
+  })
+  .passthrough();
+export type UpdateServiceFieldVisitTechnicianLocationResponse = z.infer<
+  typeof UpdateServiceFieldVisitTechnicianLocationResponseSchema
 >;
 
 export const ServiceCaseSchema = z.object({

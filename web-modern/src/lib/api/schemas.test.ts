@@ -48,6 +48,8 @@ import {
   ProjectRecurringTasksResponseSchema,
   ProjectTemplateResponseSchema,
   ProjectTemplatesResponseSchema,
+  UpdateServiceFieldVisitTechnicianLocationInputSchema,
+  UpdateServiceFieldVisitTechnicianLocationResponseSchema,
   UpdateServiceFieldVisitTechnicianStatusInputSchema,
   UpdateServiceFieldVisitTechnicianStatusResponseSchema,
 } from "./schemas";
@@ -281,6 +283,32 @@ describe("ServiceFieldVisitSchema", () => {
     }
   });
 
+  it("accepts optional technician GPS location evidence", () => {
+    const r = ServiceFieldVisitSchema.safeParse({
+      ...VALID_FIELD_VISIT,
+      technicianLocation: {
+        latitude: 40.179186,
+        longitude: 44.499103,
+        accuracyMeters: 14.6,
+        capturedAt: "2026-06-22T08:30:00.000Z",
+        capturedByUserId: "user-1",
+        capturedByUserName: "Samvel",
+        source: "browser-geolocation",
+        mapUrl: "https://www.google.com/maps/search/?api=1&query=40.179186%2C44.499103",
+        provider: { name: "browser" },
+        evidence: { idempotencyKey: "gps-key-1" },
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.technicianLocation?.latitude).toBe(40.179186);
+      expect(r.data.technicianLocation?.longitude).toBe(44.499103);
+      expect(r.data.technicianLocation?.accuracyMeters).toBe(14.6);
+      expect(r.data.technicianLocation?.source).toBe("browser-geolocation");
+    }
+  });
+
   it("accepts standalone field visit response envelopes", () => {
     const response = ServiceFieldVisitsResponseSchema.parse({
       visits: [VALID_FIELD_VISIT],
@@ -294,6 +322,53 @@ describe("ServiceFieldVisitSchema", () => {
     const r = ServiceFieldVisitSchema.safeParse({
       ...VALID_FIELD_VISIT,
       status: "needs-parts",
+    });
+
+    expect(r.success).toBe(true);
+  });
+});
+
+describe("UpdateServiceFieldVisitTechnicianLocationSchema", () => {
+  it("accepts browser geolocation capture payloads", () => {
+    const r = UpdateServiceFieldVisitTechnicianLocationInputSchema.safeParse({
+      latitude: 40.179186,
+      longitude: 44.499103,
+      accuracyMeters: 9.4,
+      capturedAt: "2026-06-22T08:30:00.000Z",
+      source: "browser-geolocation",
+      idempotencyKey: "desk-visit:visit-1:technician-location:key",
+    });
+
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects non-browser geolocation sources", () => {
+    const r = UpdateServiceFieldVisitTechnicianLocationInputSchema.safeParse({
+      latitude: 40.179186,
+      longitude: 44.499103,
+      source: "manual",
+    });
+
+    expect(r.success).toBe(false);
+  });
+
+  it("accepts technician location response sync evidence when present", () => {
+    const r = UpdateServiceFieldVisitTechnicianLocationResponseSchema.safeParse({
+      ok: true,
+      visit: {
+        ...VALID_FIELD_VISIT,
+        technicianLocation: {
+          latitude: 40.179186,
+          longitude: 44.499103,
+          capturedAt: "2026-06-22T08:30:00.000Z",
+          source: "browser-geolocation",
+        },
+      },
+      idempotent: true,
+      locationSync: {
+        idempotencyKey: "desk-visit:visit-1:technician-location:key",
+        replayedAt: "2026-06-22T08:31:00.000Z",
+      },
     });
 
     expect(r.success).toBe(true);
