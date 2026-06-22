@@ -3409,15 +3409,23 @@ export type ProcurementRfq = z.infer<typeof ProcurementRfqSchema>;
 
 export const ProcurementBlanketOrderSchema = z.object({
   id: z.string(),
+  status: z.string().nullable().optional(),
   vendorId: z.string(),
+  vendorName: z.string().nullable().optional(),
   catalogItemId: z.string(),
+  sku: z.string().nullable().optional(),
+  name: z.string().nullable().optional(),
   startDate: z.string(),
   endDate: z.string(),
   committedQty: z.number().int().nonnegative(),
+  consumedQty: z.number().int().nonnegative().optional(),
+  remainingQty: z.number().int().nonnegative().optional(),
   unitPrice: z.number().nonnegative(),
   currency: z.string().min(3).max(3),
+  uom: z.string().nullable().optional(),
+  note: z.string().nullable().optional(),
   createdAt: z.string(),
-});
+}).passthrough();
 export type ProcurementBlanketOrder = z.infer<
   typeof ProcurementBlanketOrderSchema
 >;
@@ -3425,8 +3433,11 @@ export type ProcurementBlanketOrder = z.infer<
 export const ProcurementCoverageSchema = z.object({
   committedQty: z.number().nonnegative(),
   openPoQty: z.number().nonnegative(),
+  remainingQty: z.number().nonnegative().optional(),
+  uncoveredOpenPoQty: z.number().nonnegative().optional(),
+  blanketOrderCount: z.number().int().nonnegative().optional(),
   blanketOrders: z.array(ProcurementBlanketOrderSchema),
-});
+}).passthrough();
 export type ProcurementCoverage = z.infer<
   typeof ProcurementCoverageSchema
 >;
@@ -3576,7 +3587,8 @@ export type ProcurementRfqConvertResponse = z.infer<
 export const ProcurementBlanketOrderCreateResponseSchema = z.object({
   ok: z.literal(true),
   blanket: ProcurementBlanketOrderSchema,
-});
+  blanketOrder: ProcurementBlanketOrderSchema.optional(),
+}).passthrough();
 export type ProcurementBlanketOrderCreateResponse = z.infer<
   typeof ProcurementBlanketOrderCreateResponseSchema
 >;

@@ -48,6 +48,8 @@ import {
   ProjectRecurringTasksResponseSchema,
   ProjectTemplateResponseSchema,
   ProjectTemplatesResponseSchema,
+  ProcurementBlanketOrderCreateResponseSchema,
+  ProcurementCoverageResponseSchema,
   ProcurementReplenishmentResponseSchema,
   PurchaseAnalyticsResponseSchema,
   PurchaseAnalyticsSummarySchema,
@@ -426,6 +428,62 @@ describe("Purchase replenishment schemas", () => {
     if (r.success) {
       expect(r.data.replenishment?.summary.suggestedQty).toBe(40);
       expect(r.data.summary.replenishmentSuggestionCount).toBe(1);
+    }
+  });
+});
+
+describe("Procurement blanket-order schemas", () => {
+  const blanket = {
+    id: "bo-yerevan-scanners",
+    status: "open",
+    vendorId: "vendor-yerevan-hardware-supply",
+    vendorName: "Yerevan Hardware Supply",
+    catalogItemId: "catitem-pos-barcode-scanner",
+    sku: "POS-SCAN-001",
+    name: "POS barcode scanner",
+    startDate: "2026-06-01",
+    endDate: "2026-12-31",
+    committedQty: 100,
+    consumedQty: 10,
+    remainingQty: 90,
+    unitPrice: 80_000,
+    currency: "AMD",
+    uom: "հատ",
+    note: "Scanner annual agreement",
+    createdAt: "2026-06-22T08:00:00.000Z",
+  };
+
+  it("accepts blanket create responses with legacy and canonical aliases", () => {
+    const r = ProcurementBlanketOrderCreateResponseSchema.safeParse({
+      ok: true,
+      blanket,
+      blanketOrder: blanket,
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.blanket.remainingQty).toBe(90);
+      expect(r.data.blanketOrder?.vendorName).toBe("Yerevan Hardware Supply");
+    }
+  });
+
+  it("accepts blanket coverage rows with consumed and remaining evidence", () => {
+    const r = ProcurementCoverageResponseSchema.safeParse({
+      ok: true,
+      coverage: {
+        committedQty: 100,
+        openPoQty: 10,
+        remainingQty: 90,
+        uncoveredOpenPoQty: 0,
+        blanketOrderCount: 1,
+        blanketOrders: [blanket],
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.coverage.blanketOrders[0]?.consumedQty).toBe(10);
+      expect(r.data.coverage.remainingQty).toBe(90);
     }
   });
 });

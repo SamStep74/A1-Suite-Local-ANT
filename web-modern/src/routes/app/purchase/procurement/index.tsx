@@ -5,11 +5,16 @@ import { ChevronLeft, Lock, PackageSearch, ShoppingCart } from "lucide-react";
 import { z } from "zod";
 import { getJson, postJson } from "../../../../lib/api/client";
 import {
+  ProcurementBlanketOrderCreateRequestSchema,
+  ProcurementBlanketOrderCreateResponseSchema,
+  ProcurementCoverageResponseSchema,
   ProcurementReplenishmentResponseSchema,
   ProcurementRequisitionCreateRequestSchema,
   ProcurementRequisitionCreateResponseSchema,
   ProcurementRfqConvertRequestSchema,
   ProcurementRfqConvertResponseSchema,
+  type ProcurementBlanketOrder,
+  type ProcurementCoverage,
   type ProcurementReplenishmentSuggestion,
 } from "../../../../lib/api/schemas";
 import { cn } from "../../../../lib/utils/cn";
@@ -23,9 +28,8 @@ export const Route = createFileRoute("/app/purchase/procurement/")({
 });
 
 // ---------------------------------------------------------------------------
-// Tabs (route-local). Worker-1's PROCUREMENT_TABS uses a different vocabulary
-// (blanket/landed/credit) so this route owns its own vocabulary that matches
-// the procurement spec: requisition → rfq → quote → po → receipt → demand.
+// Tabs (route-local). This route owns the modern procurement vocabulary:
+// requisition → rfq → quote → po → receipt → blanket coverage → demand.
 // ---------------------------------------------------------------------------
 
 export const PROCUREMENT_ROUTE_TABS = [
@@ -34,6 +38,7 @@ export const PROCUREMENT_ROUTE_TABS = [
   "quote",
   "po",
   "receipt",
+  "blanket",
   "replenishment",
 ] as const;
 
@@ -113,6 +118,7 @@ const PROCUREMENT_TAB_LABELS: Readonly<
   quote: { armenian: "Quotes", english: "Quote" },
   po: { armenian: "POs", english: "PO" },
   receipt: { armenian: "Receipts", english: "Receipt" },
+  blanket: { armenian: "Blanket", english: "Coverage" },
   replenishment: { armenian: "Replenishment", english: "Demand" },
 };
 
@@ -697,6 +703,382 @@ export function ProcurementReceiptForm({
   );
 }
 
+// ----- Blanket order + coverage panel -------------------------------------
+
+export function ProcurementBlanketCoveragePanel({
+  pill,
+  onCreated,
+}: {
+  pill: React.ReactNode;
+  onCreated: (id: string) => void;
+}) {
+  const [coverageCatalogItemId, setCoverageCatalogItemId] = useState<
+    string | null
+  >(null);
+
+  const coverageQuery = useQuery({
+    queryKey: ["procurement-blanket-coverage", coverageCatalogItemId],
+    enabled: coverageCatalogItemId !== null && coverageCatalogItemId.length > 0,
+    queryFn: async () => {
+      const productId = encodeURIComponent(coverageCatalogItemId ?? "");
+      const raw = await getJson(
+        `/api/procurement/blanket-orders/coverage?productId=${productId}`,
+      );
+      return ProcurementCoverageResponseSchema.parse(raw).coverage;
+    },
+  });
+
+  const mutation = useMutation({
+    mutationFn: async (formData: FormData) => {
+      const catalogItemId = String(formData.get("catalogItemId") ?? "").trim();
+      const payload: z.infer<
+        typeof ProcurementBlanketOrderCreateRequestSchema
+      > = {
+        vendorId: String(formData.get("vendorId") ?? "").trim(),
+        catalogItemId,
+        startDate: String(formData.get("startDate") ?? "").trim(),
+        endDate: String(formData.get("endDate") ?? "").trim(),
+        committedQty: Number(formData.get("committedQty") ?? 0),
+        unitPrice: Number(formData.get("unitPrice") ?? 0),
+        currency: String(formData.get("currency") ?? "AMD")
+          .trim()
+          .toUpperCase(),
+        idempotencyKey: `blanket-ui-${Date.now()}`,
+      };
+      const result = await postJson(
+        "/api/procurement/blanket-orders",
+        payload,
+        ProcurementBlanketOrderCreateResponseSchema,
+      );
+      return result.blanket;
+    },
+    onSuccess: (blanket) => {
+      onCreated(blanket.id);
+      setCoverageCatalogItemId(blanket.catalogItemId);
+    },
+  });
+
+  return (
+    <section
+      data-testid="procurement-blanket-panel"
+      data-entity="procurement-blanket"
+      className="space-y-4"
+    >
+      <ProcurementFormShell
+        tab="blanket"
+        titleArmenian="Blanket order"
+        titleEnglish="Create blanket purchase coverage"
+        disabled={false}
+        disabledReason="Blanket order form is always available."
+        pill={pill}
+        pending={mutation.isPending}
+        error={mutation.isError ? errorMessage(mutation.error) : null}
+        success={mutation.isSuccess ? "Blanket order created" : null}
+        onSubmit={(event) => {
+          event.preventDefault();
+          const form = event.currentTarget;
+          mutation.mutate(new FormData(form));
+        }}
+      >
+        <div className="space-y-1">
+          <ProcurementFieldLabel htmlFor="procurement-blanket-vendorId">
+            Vendor id
+          </ProcurementFieldLabel>
+          <ProcurementTextInput
+            id="procurement-blanket-vendorId"
+            name="vendorId"
+            required
+            placeholder="vendor-..."
+          />
+        </div>
+        <div className="space-y-1">
+          <ProcurementFieldLabel htmlFor="procurement-blanket-catalogItemId">
+            Catalog item id
+          </ProcurementFieldLabel>
+          <ProcurementTextInput
+            id="procurement-blanket-catalogItemId"
+            name="catalogItemId"
+            required
+            placeholder="catitem-..."
+          />
+        </div>
+        <div className="grid gap-3 sm:grid-cols-2">
+          <div className="space-y-1">
+            <ProcurementFieldLabel htmlFor="procurement-blanket-startDate">
+              Start date
+            </ProcurementFieldLabel>
+            <ProcurementTextInput
+              id="procurement-blanket-startDate"
+              name="startDate"
+              required
+              placeholder="2026-07-01"
+            />
+          </div>
+          <div className="space-y-1">
+            <ProcurementFieldLabel htmlFor="procurement-blanket-endDate">
+              End date
+            </ProcurementFieldLabel>
+            <ProcurementTextInput
+              id="procurement-blanket-endDate"
+              name="endDate"
+              required
+              placeholder="2026-12-31"
+            />
+          </div>
+        </div>
+        <div className="grid gap-3 sm:grid-cols-3">
+          <div className="space-y-1">
+            <ProcurementFieldLabel htmlFor="procurement-blanket-committedQty">
+              Committed qty
+            </ProcurementFieldLabel>
+            <ProcurementTextInput
+              id="procurement-blanket-committedQty"
+              name="committedQty"
+              required
+              placeholder="100"
+            />
+          </div>
+          <div className="space-y-1">
+            <ProcurementFieldLabel htmlFor="procurement-blanket-unitPrice">
+              Unit price
+            </ProcurementFieldLabel>
+            <ProcurementTextInput
+              id="procurement-blanket-unitPrice"
+              name="unitPrice"
+              required
+              placeholder="25000"
+            />
+          </div>
+          <div className="space-y-1">
+            <ProcurementFieldLabel htmlFor="procurement-blanket-currency">
+              Currency
+            </ProcurementFieldLabel>
+            <ProcurementTextInput
+              id="procurement-blanket-currency"
+              name="currency"
+              required
+              defaultValue="AMD"
+              placeholder="AMD"
+            />
+          </div>
+        </div>
+      </ProcurementFormShell>
+
+      <form
+        data-testid="procurement-blanket-coverage-form"
+        data-entity="procurement-blanket-coverage-form"
+        className="space-y-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+        onSubmit={(event) => {
+          event.preventDefault();
+          const formData = new FormData(event.currentTarget);
+          const nextCatalogItemId = String(
+            formData.get("coverageCatalogItemId") ?? "",
+          ).trim();
+          setCoverageCatalogItemId(nextCatalogItemId);
+        }}
+      >
+        <header>
+          <h3 className="text-base font-semibold text-[var(--color-text)]">
+            Coverage lookup
+          </h3>
+          <p className="text-xs text-[var(--color-text-muted)]">
+            Show active blanket coverage by catalog item id
+          </p>
+        </header>
+        <div className="space-y-1">
+          <ProcurementFieldLabel htmlFor="procurement-blanket-coverage-catalogItemId">
+            Catalog item id
+          </ProcurementFieldLabel>
+          <ProcurementTextInput
+            id="procurement-blanket-coverage-catalogItemId"
+            name="coverageCatalogItemId"
+            required
+            defaultValue={coverageCatalogItemId ?? ""}
+            placeholder="catitem-..."
+          />
+        </div>
+        <div className="flex items-center justify-end">
+          <button
+            type="submit"
+            data-testid="procurement-blanket-coverage-submit"
+            className="rounded-[var(--radius-md)] border border-[var(--color-accent)] bg-[var(--color-accent)] px-3 py-1.5 text-sm font-medium text-[var(--color-surface)] disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={coverageQuery.isFetching}
+          >
+            {coverageQuery.isFetching ? "Checking..." : "Check coverage"}
+          </button>
+        </div>
+      </form>
+
+      <ProcurementBlanketCoverageState
+        catalogItemId={coverageCatalogItemId}
+        coverage={coverageQuery.data ?? null}
+        isLoading={coverageQuery.isLoading}
+        isError={coverageQuery.isError}
+      />
+    </section>
+  );
+}
+
+function ProcurementBlanketCoverageState({
+  catalogItemId,
+  coverage,
+  isLoading,
+  isError,
+}: {
+  catalogItemId: string | null;
+  coverage: ProcurementCoverage | null;
+  isLoading: boolean;
+  isError: boolean;
+}) {
+  if (catalogItemId === null) {
+    return (
+      <section
+        data-testid="procurement-blanket-coverage-idle"
+        data-entity="procurement-blanket-coverage"
+        className="rounded-[var(--radius-md)] border border-dashed border-[var(--color-border)] bg-[var(--color-surface-muted)] p-4 text-sm text-[var(--color-text-muted)]"
+      >
+        Enter a catalog item id to check blanket coverage.
+      </section>
+    );
+  }
+
+  if (isLoading) {
+    return (
+      <section
+        data-testid="procurement-blanket-coverage-loading"
+        data-entity="procurement-blanket-coverage"
+        className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-sm text-[var(--color-text-muted)]"
+      >
+        Loading blanket coverage…
+      </section>
+    );
+  }
+
+  if (isError || coverage === null) {
+    return (
+      <section
+        data-testid="procurement-blanket-coverage-error"
+        data-entity="procurement-blanket-coverage"
+        className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-sm text-[var(--color-danger)]"
+      >
+        Failed to load blanket coverage.
+      </section>
+    );
+  }
+
+  return (
+    <section
+      data-testid="procurement-blanket-coverage-panel"
+      data-entity="procurement-blanket-coverage"
+      data-count={String(coverage.blanketOrders.length)}
+      className="space-y-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+    >
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="inline-flex items-center gap-2 text-base font-semibold text-[var(--color-text)]">
+            <PackageSearch className="h-4 w-4" aria-hidden="true" />
+            Coverage
+          </h3>
+          <p className="text-xs text-[var(--color-text-muted)]">
+            {catalogItemId}
+          </p>
+        </div>
+        <div className="text-right font-mono text-xs text-[var(--color-text-muted)]">
+          <div>{formatProcurementQuantity(coverage.committedQty)} committed</div>
+          <div>{formatProcurementQuantity(coverage.openPoQty)} open PO</div>
+          <div>{formatProcurementQuantity(coverage.remainingQty)} remaining</div>
+          <div>{formatProcurementQuantity(coverage.uncoveredOpenPoQty)} uncovered</div>
+        </div>
+      </header>
+
+      {coverage.blanketOrders.length === 0 ? (
+        <p
+          data-testid="procurement-blanket-coverage-empty"
+          className="rounded-[var(--radius-sm)] border border-dashed border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-sm text-[var(--color-text-muted)]"
+        >
+          No active blanket coverage for this catalog item.
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-border)]">
+          <table
+            role="table"
+            data-testid="procurement-blanket-coverage-table"
+            className="w-full text-sm"
+          >
+            <thead className="bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
+              <tr>
+                <th scope="col" className="px-3 py-2 text-left font-semibold">Blanket</th>
+                <th scope="col" className="px-3 py-2 text-left font-semibold">Vendor</th>
+                <th scope="col" className="px-3 py-2 text-left font-semibold">Item</th>
+                <th scope="col" className="px-3 py-2 text-left font-semibold">Dates</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold">Committed</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold">Remaining</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold">Unit price</th>
+              </tr>
+            </thead>
+            <tbody>
+              {coverage.blanketOrders.map((blanket) => (
+                <ProcurementBlanketCoverageRow
+                  key={blanket.id}
+                  blanket={blanket}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ProcurementBlanketCoverageRow({
+  blanket,
+}: {
+  blanket: ProcurementBlanketOrder;
+}) {
+  const vendor = blanket.vendorName || blanket.vendorId;
+  const itemLabel = blanket.sku || blanket.catalogItemId;
+  return (
+    <tr
+      data-testid="procurement-blanket-coverage-row"
+      className="border-t border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]"
+    >
+      <td className="px-3 py-2">
+        <span className="font-mono text-[var(--color-text)]">
+          {blanket.id}
+        </span>
+        <p className="text-xs text-[var(--color-text-muted)]">
+          {blanket.catalogItemId}
+        </p>
+      </td>
+      <td className="px-3 py-2 text-[var(--color-text-muted)]">
+        <span className="block text-[var(--color-text)]">{vendor}</span>
+        <span className="font-mono text-xs">{blanket.vendorId}</span>
+      </td>
+      <td className="px-3 py-2 text-[var(--color-text-muted)]">
+        <span className="block font-mono text-[var(--color-text)]">{itemLabel}</span>
+        <span className="text-xs">{blanket.name || blanket.catalogItemId}</span>
+      </td>
+      <td className="px-3 py-2 text-[var(--color-text-muted)]">
+        <span className="block">{blanket.startDate}</span>
+        <span className="text-xs">to {blanket.endDate}</span>
+      </td>
+      <td className="px-3 py-2 text-right font-mono font-semibold text-[var(--color-text)]">
+        {formatProcurementQuantity(blanket.committedQty)}
+      </td>
+      <td className="px-3 py-2 text-right font-mono text-[var(--color-text)]">
+        {formatProcurementQuantity(blanket.remainingQty)}
+        <p className="text-xs text-[var(--color-text-muted)]">
+          {formatProcurementQuantity(blanket.consumedQty)} consumed
+        </p>
+      </td>
+      <td className="px-3 py-2 text-right font-mono text-[var(--color-text-muted)]">
+        {formatProcurementMoney(blanket.unitPrice, blanket.currency)}
+      </td>
+    </tr>
+  );
+}
+
 // ---------------------------------------------------------------------------
 // Header
 // ---------------------------------------------------------------------------
@@ -775,6 +1157,7 @@ export function ProcurementWorkspace({
   const [quoteId, setQuoteId] = useState<string | null>(null);
   const [poId, setPoId] = useState<string | null>(null);
   const [receiptId, setReceiptId] = useState<string | null>(null);
+  const [blanketId, setBlanketId] = useState<string | null>(null);
 
   useEffect(() => {
     if (typeof window === "undefined") return undefined;
@@ -803,7 +1186,7 @@ export function ProcurementWorkspace({
       >
         <ProcurementHeader
           titleArmenian="Գ Procurement"
-          titleEnglish="Procurement requisitions · RFQs · quotes · POs · receipts · replenishment"
+          titleEnglish="Procurement requisitions · RFQs · quotes · POs · receipts · blanket coverage · replenishment"
         />
         <ProcurementAccessDeniedCard resource="procurement" />
       </main>
@@ -818,7 +1201,7 @@ export function ProcurementWorkspace({
     >
       <ProcurementHeader
         titleArmenian="Գ Procurement"
-        titleEnglish="Procurement requisitions · RFQs · quotes · POs · receipts · replenishment"
+        titleEnglish="Procurement requisitions · RFQs · quotes · POs · receipts · blanket coverage · replenishment"
       />
       <ProcurementTabStrip active={activeTab} onChange={setActiveTabWithHash} />
 
@@ -861,6 +1244,13 @@ export function ProcurementWorkspace({
           disabled={poId === null}
           pill={<ProcurementIdPill tab="receipt" id={receiptId} />}
           onCreated={setReceiptId}
+        />
+      ) : null}
+
+      {activeTab === "blanket" ? (
+        <ProcurementBlanketCoveragePanel
+          pill={<ProcurementIdPill tab="blanket" id={blanketId} />}
+          onCreated={setBlanketId}
         />
       ) : null}
 
@@ -1025,6 +1415,16 @@ function ProcurementReplenishmentRow({
 
 function formatProcurementQuantity(value: number | null | undefined): string {
   return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(value || 0));
+}
+
+function formatProcurementMoney(
+  value: number | null | undefined,
+  currency: string,
+): string {
+  const amount = new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 2,
+  }).format(Number(value || 0));
+  return `${currency} ${amount}`;
 }
 
 // ---------------------------------------------------------------------------

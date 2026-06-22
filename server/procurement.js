@@ -182,22 +182,123 @@ function awardRfq(db, user, rfqId, body) {
 function createBlanketOrder(db, user, body) {
   const now = new Date().toISOString();
   const id = newId("bo");
+  const vendorId = required(body.vendorId, "vendorId");
+  const catalogItemId = required(body.catalogItemId, "catalogItemId");
+  const startDate = required(body.startDate, "startDate");
+  const endDate = required(body.endDate, "endDate");
+  if (startDate > endDate) {
+    const err = new Error("endDate must be on or after startDate");
+    err.statusCode = 400;
+    throw err;
+  }
+  const vendor = db.prepare("SELECT id FROM purchase_vendors WHERE org_id = ? AND id = ? AND status = 'active'")
+    .get(user.org_id, vendorId);
+  if (!vendor) {
+    const err = new Error("Active vendor not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const item = db.prepare("SELECT id FROM catalog_items WHERE org_id = ? AND id = ? AND status = 'active'")
+    .get(user.org_id, catalogItemId);
+  if (!item) {
+    const err = new Error("Active catalog item not found");
+    err.statusCode = 404;
+    throw err;
+  }
   db.prepare("INSERT INTO blanket_orders (id, org_id, vendor_id, catalog_item_id, start_date, end_date, committed_qty, unit_price, currency, uom, note, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(id, user.org_id, required(body.vendorId, "vendorId"), required(body.catalogItemId, "catalogItemId"),
-         required(body.startDate, "startDate"), required(body.endDate, "endDate"),
+    .run(id, user.org_id, vendorId, catalogItemId, startDate, endDate,
          positiveInt(body.committedQty, "committedQty"), nonNegativeInt(body.unitPrice, "unitPrice"),
          String(body.currency || "AMD").toUpperCase(), String(body.uom || "հատ"),
          String(body.note || ""), now);
-  return { id, status: "open", createdAt: now };
+  return getBlanketOrder(db, user.org_id, id) || { id, status: "open", createdAt: now };
 }
 
 function checkBlanketCoverage(db, orgId, catalogItemId) {
-  const rows = db.prepare("SELECT * FROM blanket_orders WHERE org_id = ? AND catalog_item_id = ? AND end_date >= ?")
-    .all(orgId, catalogItemId, new Date().toISOString().slice(0, 10));
-  const openPo = db.prepare("SELECT COALESCE(SUM(pol.quantity - pol.received_quantity), 0) AS openQty FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id WHERE po.org_id = ? AND pol.catalog_item_id = ? AND po.status IN ('rfq', 'confirmed', 'partial')")
+  const today = new Date().toISOString().slice(0, 10);
+  const rows = db.prepare(`
+    SELECT blanket_orders.*, purchase_vendors.name AS vendor_name,
+      catalog_items.sku AS catalog_sku, catalog_items.name AS catalog_name
+    FROM blanket_orders
+    JOIN purchase_vendors ON purchase_vendors.id = blanket_orders.vendor_id
+      AND purchase_vendors.org_id = blanket_orders.org_id
+    JOIN catalog_items ON catalog_items.id = blanket_orders.catalog_item_id
+      AND catalog_items.org_id = blanket_orders.org_id
+    WHERE blanket_orders.org_id = ?
+      AND blanket_orders.catalog_item_id = ?
+      AND blanket_orders.start_date <= ?
+      AND blanket_orders.end_date >= ?
+    ORDER BY blanket_orders.end_date ASC,
+      purchase_vendors.name ASC,
+      blanket_orders.created_at ASC
+  `).all(orgId, catalogItemId, today, today);
+  const openPo = db.prepare(`
+    SELECT COALESCE(SUM(
+      CASE
+        WHEN pol.quantity - pol.received_quantity > 0 THEN pol.quantity - pol.received_quantity
+        ELSE 0
+      END
+    ), 0) AS openQty
+    FROM purchase_order_lines pol
+    JOIN purchase_orders po ON po.id = pol.purchase_order_id
+      AND po.org_id = pol.org_id
+    WHERE po.org_id = ?
+      AND pol.catalog_item_id = ?
+      AND po.status IN ('rfq', 'confirmed', 'partial')
+  `)
     .get(orgId, catalogItemId);
   const committedQty = rows.reduce((s, r) => s + r.committed_qty, 0);
-  return { committedQty, openPoQty: Number(openPo?.openQty || 0), blanketOrders: rows.length };
+  const openPoQty = Number(openPo?.openQty || 0);
+  let remainingOpenPoQty = openPoQty;
+  const blanketOrders = rows.map(row => {
+    const consumedQty = Math.min(Number(row.committed_qty || 0), remainingOpenPoQty);
+    remainingOpenPoQty = Math.max(0, remainingOpenPoQty - consumedQty);
+    return formatBlanketOrder(row, consumedQty);
+  });
+  return {
+    committedQty,
+    openPoQty,
+    remainingQty: Math.max(0, committedQty - openPoQty),
+    uncoveredOpenPoQty: Math.max(0, openPoQty - committedQty),
+    blanketOrderCount: blanketOrders.length,
+    blanketOrders
+  };
+}
+
+function getBlanketOrder(db, orgId, id) {
+  const row = db.prepare(`
+    SELECT blanket_orders.*, purchase_vendors.name AS vendor_name,
+      catalog_items.sku AS catalog_sku, catalog_items.name AS catalog_name
+    FROM blanket_orders
+    JOIN purchase_vendors ON purchase_vendors.id = blanket_orders.vendor_id
+      AND purchase_vendors.org_id = blanket_orders.org_id
+    JOIN catalog_items ON catalog_items.id = blanket_orders.catalog_item_id
+      AND catalog_items.org_id = blanket_orders.org_id
+    WHERE blanket_orders.org_id = ? AND blanket_orders.id = ?
+  `).get(orgId, id);
+  return row ? formatBlanketOrder(row, 0) : null;
+}
+
+function formatBlanketOrder(row, consumedQty = 0) {
+  const committedQty = Number(row.committed_qty || 0);
+  return {
+    id: row.id,
+    status: row.end_date >= new Date().toISOString().slice(0, 10) ? "open" : "expired",
+    vendorId: row.vendor_id,
+    vendorName: row.vendor_name || "",
+    catalogItemId: row.catalog_item_id,
+    sku: row.catalog_sku || "",
+    name: row.catalog_name || "",
+    startDate: row.start_date,
+    endDate: row.end_date,
+    committedQty,
+    consumedQty,
+    remainingQty: Math.max(0, committedQty - consumedQty),
+    unitPrice: Number(row.unit_price || 0),
+    currency: row.currency,
+    uom: row.uom,
+    note: row.note || "",
+    createdAt: row.created_at
+  };
 }
 
 function allocateLandedCost(db, user, body) {

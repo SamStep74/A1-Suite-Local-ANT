@@ -1058,7 +1058,7 @@ function registerApi(app, db, options = {}) {
     const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
     if (existing) return JSON.parse(existing.response_json);
     const blanketOrder = procurement.createBlanketOrder(db, user, body);
-    const envelope = { ok: true, blanketOrder };
+    const envelope = { ok: true, blanket: blanketOrder, blanketOrder };
     db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
     audit(db, user.org_id, user.id, "procurement.blanket_order.created", { blanketOrderId: blanketOrder.id, vendorId: body.vendorId, catalogItemId: body.catalogItemId, idempotencyKey: idem });
     return envelope;

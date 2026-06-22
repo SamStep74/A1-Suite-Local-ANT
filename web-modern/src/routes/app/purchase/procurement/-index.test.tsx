@@ -3,12 +3,12 @@
  *
  * Mirrors the cabinet test pattern. Mocks the three layers
  * (Router, Query, API client), then exercises the public
- * surface: 6 tabs, 5 POST flows, replenishment queue, the 403 access gate, the
- * back link, and the route-local hash helpers.
+ * surface: 7 tabs, 6 POST flows, blanket coverage, replenishment queue, the
+ * 403 access gate, the back link, and the route-local hash helpers.
  *
  * Coverage (Phase 8.4 layer 2):
  *  1.  Page shell — H2 contains Armenian title
- *  2.  Six tab buttons render in the strip
+ *  2.  Seven tab buttons render in the strip
  *  3.  Default tab is Requisition
  *  4.  Tab switching reveals the matching form
  *  5.  Requisition form posts to /api/procurement/requisitions
@@ -16,14 +16,16 @@
  *  7.  Quote form posts to /api/procurement/quotes (when enabled)
  *  8.  PO form posts to /api/procurement/purchase-orders (when enabled)
  *  9.  Receipt form posts to /api/procurement/receipts (when enabled)
- * 10.  RFQ form is disabled until a requisition id exists
- * 11.  Quote form is disabled until an RFQ id exists
- * 12.  PO form is disabled until a quote id exists
- * 13.  Receipt form is disabled until a PO id exists
- * 14.  Cross-tab flow: requisitionId → rfqId → quoteId → poId → receiptId
- * 15.  procurementRouteTabFromHash('#quote') returns 'quote'; nullish safe
- * 16.  403 branch: userAccess='none' renders the access-denied card
- * 17.  Back link points to /app/purchase
+ * 10.  Blanket form posts to /api/procurement/blanket-orders
+ * 11.  Blanket coverage lookup fetches by catalog item id
+ * 12.  RFQ form is disabled until a requisition id exists
+ * 13.  Quote form is disabled until an RFQ id exists
+ * 14.  PO form is disabled until a quote id exists
+ * 15.  Receipt form is disabled until a PO id exists
+ * 16.  Cross-tab flow: requisitionId → rfqId → quoteId → poId → receiptId
+ * 17.  procurementRouteTabFromHash('#quote') returns 'quote'; nullish safe
+ * 18.  403 branch: userAccess='none' renders the access-denied card
+ * 19.  Back link points to /app/purchase
  */
 import {
   describe,
@@ -57,6 +59,7 @@ const mocks = vi.hoisted(() => ({
     quote: vi.fn(),
     po: vi.fn(),
     receipt: vi.fn(),
+    blanket: vi.fn(),
   },
   // isPending flags, one per mutation.
   pendingFlags: {
@@ -65,6 +68,7 @@ const mocks = vi.hoisted(() => ({
     quote: false,
     po: false,
     receipt: false,
+    blanket: false,
   },
 }));
 
@@ -120,7 +124,9 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
               ? "po"
               : fn.includes("/api/procurement/receipts")
                 ? "receipt"
-                : null;
+                : fn.includes("/api/procurement/blanket-orders")
+                  ? "blanket"
+                  : null;
       if (which === null) {
         throw new Error("Unknown procurement mutation in test mock");
       }
@@ -163,6 +169,7 @@ import {
   ProcurementQuoteForm,
   ProcurementPoForm,
   ProcurementReceiptForm,
+  ProcurementBlanketCoveragePanel,
   ProcurementTabStrip,
   ProcurementWorkspace,
   procurementRouteTabFromHash,
@@ -200,6 +207,8 @@ const RFQ_ID = "rfq-xyz-002";
 const QUOTE_ID = "quote-def-003";
 const PO_ID = "po-ghi-004";
 const RECEIPT_ID = "receipt-jkl-005";
+const BLANKET_ID = "bo-mno-006";
+const BLANKET_CATALOG_ITEM_ID = "catitem-blanket-001";
 
 /** Pretend postJson succeeded with the right envelope for a given path. */
 function installPostJsonByPath() {
@@ -234,8 +243,60 @@ function installPostJsonByPath() {
         receipt: { id: RECEIPT_ID },
       });
     }
+    if (path === "/api/procurement/blanket-orders") {
+      return Promise.resolve({
+        ok: true as const,
+        blanket: {
+          id: BLANKET_ID,
+          vendorId: "vendor-yerevan-001",
+          catalogItemId: BLANKET_CATALOG_ITEM_ID,
+          startDate: "2026-07-01",
+          endDate: "2026-12-31",
+          committedQty: 100,
+          unitPrice: 25000,
+          currency: "AMD",
+          createdAt: "2026-06-22T00:00:00.000Z",
+        },
+      });
+    }
     return Promise.reject(new Error(`Unexpected postJson path: ${path}`));
   });
+}
+
+function makeBlanketCoverageResponse(
+  blanketOrders: Array<Record<string, unknown>> = [
+    {
+      id: BLANKET_ID,
+      vendorId: "vendor-yerevan-001",
+      vendorName: "Yerevan Hardware Supply",
+      catalogItemId: BLANKET_CATALOG_ITEM_ID,
+      sku: "POS-SCAN-001",
+      name: "POS barcode scanner",
+      startDate: "2026-07-01",
+      endDate: "2026-12-31",
+      committedQty: 100,
+      consumedQty: 25,
+      remainingQty: 75,
+      unitPrice: 25000,
+      currency: "AMD",
+      createdAt: "2026-06-22T00:00:00.000Z",
+    },
+  ],
+) {
+  return {
+    ok: true,
+    coverage: {
+      committedQty: blanketOrders.reduce(
+        (sum, order) => sum + Number(order.committedQty ?? 0),
+        0,
+      ),
+      openPoQty: 25,
+      remainingQty: 75,
+      uncoveredOpenPoQty: 0,
+      blanketOrderCount: blanketOrders.length,
+      blanketOrders,
+    },
+  };
 }
 
 beforeEach(() => {
@@ -290,7 +351,7 @@ describe("procurement page shell", () => {
     renderRoute();
     const subtitle = screen.getByTestId("procurement-subtitle");
     expect(subtitle.textContent ?? "").toMatch(
-      /Procurement requisitions.*RFQs.*quotes.*POs.*receipts.*replenishment/,
+      /Procurement requisitions.*RFQs.*quotes.*POs.*receipts.*blanket coverage.*replenishment/,
     );
     expect(screen.getByTestId("procurement-header")).toBeInTheDocument();
   });
@@ -303,7 +364,7 @@ describe("procurement page shell", () => {
 });
 
 describe("procurement tab strip", () => {
-  it("renders all 6 tab buttons in the strip", () => {
+  it("renders all 7 tab buttons in the strip", () => {
     renderRoute();
     const strip = screen.getByTestId("procurement-tab-strip");
     expect(strip).toBeInTheDocument();
@@ -313,6 +374,7 @@ describe("procurement tab strip", () => {
       "quote",
       "po",
       "receipt",
+      "blanket",
       "replenishment",
     ];
     for (const t of tabs) {
@@ -335,6 +397,15 @@ describe("procurement tab strip", () => {
     await waitFor(() => {
       expect(screen.getByTestId("procurement-replenishment-empty")).toBeInTheDocument();
     });
+  });
+
+  it("initializes from the blanket hash", () => {
+    window.location.hash = "#blanket";
+    renderRoute();
+    const blanketTab = screen.getByTestId("procurement-tab-blanket");
+    expect(blanketTab.getAttribute("data-active")).toBe("true");
+    expect(screen.getByTestId("procurement-blanket-form")).toBeInTheDocument();
+    expect(screen.getByTestId("procurement-blanket-coverage-idle")).toBeInTheDocument();
   });
 
   it("switches tabs when a tab button is clicked", () => {
@@ -427,6 +498,123 @@ describe("procurement replenishment queue", () => {
     renderWorkspaceWithAccess("none");
     expect(screen.getByTestId("procurement-403")).toBeInTheDocument();
     expect(mocks.getJson).not.toHaveBeenCalled();
+  });
+});
+
+describe("procurement blanket coverage", () => {
+  it("posts a blanket order and seeds the created id pill", async () => {
+    mocks.getJson.mockResolvedValueOnce(makeBlanketCoverageResponse());
+    renderRoute();
+    fireEvent.click(screen.getByTestId("procurement-tab-blanket"));
+
+    fireEvent.change(screen.getByTestId("procurement-blanket-vendorId"), {
+      target: { value: "vendor-yerevan-001" },
+    });
+    fireEvent.change(screen.getByTestId("procurement-blanket-catalogItemId"), {
+      target: { value: BLANKET_CATALOG_ITEM_ID },
+    });
+    fireEvent.change(screen.getByTestId("procurement-blanket-startDate"), {
+      target: { value: "2026-07-01" },
+    });
+    fireEvent.change(screen.getByTestId("procurement-blanket-endDate"), {
+      target: { value: "2026-12-31" },
+    });
+    fireEvent.change(screen.getByTestId("procurement-blanket-committedQty"), {
+      target: { value: "100" },
+    });
+    fireEvent.change(screen.getByTestId("procurement-blanket-unitPrice"), {
+      target: { value: "25000" },
+    });
+    fireEvent.change(screen.getByTestId("procurement-blanket-currency"), {
+      target: { value: "amd" },
+    });
+    fireEvent.click(screen.getByTestId("procurement-blanket-submit"));
+
+    await waitFor(() => {
+      expect(mocks.mutateImpls.blanket).toHaveBeenCalled();
+      expect(
+        screen.getByTestId("procurement-blanket-id-pill").getAttribute("data-state"),
+      ).toBe("ready");
+    });
+
+    const call = mocks.postJson.mock.calls.find(
+      ([path]: unknown[]) => path === "/api/procurement/blanket-orders",
+    );
+    expect(call).toBeDefined();
+    const [, body] = call as [string, Record<string, unknown>];
+    expect(body.vendorId).toBe("vendor-yerevan-001");
+    expect(body.catalogItemId).toBe(BLANKET_CATALOG_ITEM_ID);
+    expect(body.committedQty).toBe(100);
+    expect(body.unitPrice).toBe(25000);
+    expect(body.currency).toBe("AMD");
+    expect(typeof body.idempotencyKey).toBe("string");
+  });
+
+  it("fetches and renders blanket coverage by catalog item id", async () => {
+    mocks.getJson.mockResolvedValueOnce(makeBlanketCoverageResponse());
+    renderRoute();
+    fireEvent.click(screen.getByTestId("procurement-tab-blanket"));
+    fireEvent.change(
+      screen.getByTestId("procurement-blanket-coverage-catalogItemId"),
+      { target: { value: BLANKET_CATALOG_ITEM_ID } },
+    );
+    fireEvent.click(screen.getByTestId("procurement-blanket-coverage-submit"));
+
+    await waitFor(() => {
+      expect(mocks.getJson).toHaveBeenCalledWith(
+        `/api/procurement/blanket-orders/coverage?productId=${BLANKET_CATALOG_ITEM_ID}`,
+      );
+      expect(screen.getByTestId("procurement-blanket-coverage-table")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText(BLANKET_ID)).toBeInTheDocument();
+    expect(screen.getByText("Yerevan Hardware Supply")).toBeInTheDocument();
+    expect(screen.getByText("POS-SCAN-001")).toBeInTheDocument();
+    expect(screen.getByText("vendor-yerevan-001")).toBeInTheDocument();
+    expect(screen.getByText(/25 consumed/)).toBeInTheDocument();
+    expect(screen.getByText("AMD 25,000")).toBeInTheDocument();
+  });
+
+  it("renders an empty blanket coverage state", async () => {
+    mocks.getJson.mockResolvedValueOnce(makeBlanketCoverageResponse([]));
+    renderRoute();
+    fireEvent.click(screen.getByTestId("procurement-tab-blanket"));
+    fireEvent.change(
+      screen.getByTestId("procurement-blanket-coverage-catalogItemId"),
+      { target: { value: BLANKET_CATALOG_ITEM_ID } },
+    );
+    fireEvent.click(screen.getByTestId("procurement-blanket-coverage-submit"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("procurement-blanket-coverage-empty")).toBeInTheDocument();
+    });
+  });
+
+  it("renders loading while blanket coverage is pending", () => {
+    mocks.getJson.mockReturnValueOnce(new Promise(() => undefined));
+    renderRoute();
+    fireEvent.click(screen.getByTestId("procurement-tab-blanket"));
+    fireEvent.change(
+      screen.getByTestId("procurement-blanket-coverage-catalogItemId"),
+      { target: { value: BLANKET_CATALOG_ITEM_ID } },
+    );
+    fireEvent.click(screen.getByTestId("procurement-blanket-coverage-submit"));
+    expect(screen.getByTestId("procurement-blanket-coverage-loading")).toBeInTheDocument();
+  });
+
+  it("renders an error when blanket coverage fails", async () => {
+    mocks.getJson.mockRejectedValueOnce(new Error("coverage down"));
+    renderRoute();
+    fireEvent.click(screen.getByTestId("procurement-tab-blanket"));
+    fireEvent.change(
+      screen.getByTestId("procurement-blanket-coverage-catalogItemId"),
+      { target: { value: BLANKET_CATALOG_ITEM_ID } },
+    );
+    fireEvent.click(screen.getByTestId("procurement-blanket-coverage-submit"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("procurement-blanket-coverage-error")).toBeInTheDocument();
+    });
   });
 });
 
@@ -776,6 +964,9 @@ describe("route-local hash helpers", () => {
   it("procurementRouteTabFromHash('#quote') returns 'quote'", () => {
     expect(procurementRouteTabFromHash("#quote")).toBe("quote");
   });
+  it("procurementRouteTabFromHash('#blanket') returns 'blanket'", () => {
+    expect(procurementRouteTabFromHash("#blanket")).toBe("blanket");
+  });
   it("procurementRouteTabFromHash('') returns 'requisition' (default)", () => {
     expect(procurementRouteTabFromHash("")).toBe("requisition");
   });
@@ -790,6 +981,9 @@ describe("route-local hash helpers", () => {
   });
   it("procurementRouteTabToHash('po') returns '#po'", () => {
     expect(procurementRouteTabToHash("po")).toBe("#po");
+  });
+  it("procurementRouteTabToHash('blanket') returns '#blanket'", () => {
+    expect(procurementRouteTabToHash("blanket")).toBe("#blanket");
   });
 });
 
@@ -819,11 +1013,12 @@ describe("named subcomponents export", () => {
   it("exports ProcurementTabStrip as a named export", () => {
     expect(typeof ProcurementTabStrip).toBe("function");
   });
-  it("exports the 5 form components as named exports", () => {
+  it("exports the form components as named exports", () => {
     expect(typeof ProcurementRequisitionForm).toBe("function");
     expect(typeof ProcurementRfqForm).toBe("function");
     expect(typeof ProcurementQuoteForm).toBe("function");
     expect(typeof ProcurementPoForm).toBe("function");
     expect(typeof ProcurementReceiptForm).toBe("function");
+    expect(typeof ProcurementBlanketCoveragePanel).toBe("function");
   });
 });

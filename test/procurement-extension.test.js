@@ -119,14 +119,98 @@ test("procurement/blanket-orders coverage check returns committed qty", async ()
   const app = buildApp({ dbPath: ":memory:" });
   try {
     await app.ready();
-    const { cookie, itemId, vendorId } = await seedPurchaseFixtures(app);
+    const { cookie, itemId, vendorId, orderId } = await seedPurchaseFixtures(app);
     const createRes = await app.inject({ method: "POST", url: "/api/procurement/blanket-orders", headers: { cookie },
       payload: { vendorId, catalogItemId: itemId, startDate: "2026-06-01", endDate: "2026-12-31", committedQty: 100, unitPrice: 80000, currency: "AMD", idempotencyKey: "bo-1" } });
     assert.strictEqual(createRes.statusCode, 200, createRes.body);
+    const created = createRes.json();
+    const item = app.db.prepare("SELECT sku FROM catalog_items WHERE org_id = ? AND id = ?").get("org-armosphera-demo", itemId);
+    assert.strictEqual(created.blanket.id, created.blanketOrder.id);
+    assert.strictEqual(created.blanket.vendorId, vendorId);
+    assert.strictEqual(created.blanket.catalogItemId, itemId);
+    assert.strictEqual(created.blanket.vendorName, "Yerevan Hardware Supply");
+    assert.strictEqual(created.blanket.sku, item.sku);
+    assert.strictEqual(created.blanket.remainingQty, 100);
     const covRes = await app.inject({ method: "GET", url: `/api/procurement/blanket-orders/coverage?productId=${itemId}`, headers: { cookie } });
     assert.strictEqual(covRes.statusCode, 200);
     const body = covRes.json();
-    assert.ok(body.coverage.committedQty >= 100);
+    assert.strictEqual(body.coverage.committedQty, 100);
+    assert.strictEqual(body.coverage.openPoQty, 10);
+    assert.strictEqual(body.coverage.remainingQty, 90);
+    assert.strictEqual(body.coverage.uncoveredOpenPoQty, 0);
+    assert.strictEqual(body.coverage.blanketOrderCount, 1);
+    assert.strictEqual(body.coverage.blanketOrders.length, 1);
+    assert.strictEqual(body.coverage.blanketOrders[0].id, created.blanket.id);
+    assert.strictEqual(body.coverage.blanketOrders[0].consumedQty, 10);
+    assert.strictEqual(body.coverage.blanketOrders[0].remainingQty, 90);
+    assert.strictEqual(body.coverage.blanketOrders[0].unitPrice, 80000);
+
+    const today = new Date();
+    const offsetDate = days => new Date(today.getTime() + (days * 24 * 60 * 60 * 1000)).toISOString().slice(0, 10);
+    const now = new Date().toISOString();
+    const insertBlanket = app.db.prepare(`
+      INSERT INTO blanket_orders (
+        id, org_id, vendor_id, catalog_item_id, start_date, end_date,
+        committed_qty, unit_price, currency, uom, note, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    insertBlanket.run(
+      "bo-expired-coverage",
+      "org-armosphera-demo",
+      vendorId,
+      itemId,
+      offsetDate(-30),
+      offsetDate(-1),
+      500,
+      75000,
+      "AMD",
+      "հատ",
+      "Expired agreement must not cover demand.",
+      now
+    );
+    insertBlanket.run(
+      "bo-future-coverage",
+      "org-armosphera-demo",
+      vendorId,
+      itemId,
+      offsetDate(10),
+      offsetDate(40),
+      600,
+      74000,
+      "AMD",
+      "հատ",
+      "Future agreement must not cover demand yet.",
+      now
+    );
+    const filteredCov = await app.inject({ method: "GET", url: `/api/procurement/blanket-orders/coverage?productId=${itemId}`, headers: { cookie } });
+    assert.strictEqual(filteredCov.statusCode, 200, filteredCov.body);
+    assert.strictEqual(filteredCov.json().coverage.committedQty, 100);
+    assert.deepStrictEqual(filteredCov.json().coverage.blanketOrders.map(item => item.id), [created.blanket.id]);
+
+    app.db.prepare("UPDATE purchase_order_lines SET quantity = ? WHERE org_id = ? AND purchase_order_id = ? AND catalog_item_id = ?")
+      .run(160, "org-armosphera-demo", orderId, itemId);
+    const uncoveredCov = await app.inject({ method: "GET", url: `/api/procurement/blanket-orders/coverage?productId=${itemId}`, headers: { cookie } });
+    assert.strictEqual(uncoveredCov.statusCode, 200, uncoveredCov.body);
+    assert.strictEqual(uncoveredCov.json().coverage.openPoQty, 160);
+    assert.strictEqual(uncoveredCov.json().coverage.remainingQty, 0);
+    assert.strictEqual(uncoveredCov.json().coverage.uncoveredOpenPoQty, 60);
+    assert.strictEqual(uncoveredCov.json().coverage.blanketOrders[0].consumedQty, 100);
+    assert.strictEqual(uncoveredCov.json().coverage.blanketOrders[0].remainingQty, 0);
+
+    const invalidWindow = await app.inject({ method: "POST", url: "/api/procurement/blanket-orders", headers: { cookie },
+      payload: { vendorId, catalogItemId: itemId, startDate: "2026-12-31", endDate: "2026-06-01", committedQty: 10, unitPrice: 80000, currency: "AMD", idempotencyKey: "bo-invalid-window" } });
+    assert.strictEqual(invalidWindow.statusCode, 400, invalidWindow.body);
+
+    app.db.prepare("UPDATE purchase_vendors SET status = 'inactive' WHERE org_id = ? AND id = ?").run("org-armosphera-demo", vendorId);
+    const inactiveVendor = await app.inject({ method: "POST", url: "/api/procurement/blanket-orders", headers: { cookie },
+      payload: { vendorId, catalogItemId: itemId, startDate: "2026-06-01", endDate: "2026-12-31", committedQty: 10, unitPrice: 80000, currency: "AMD", idempotencyKey: "bo-inactive-vendor" } });
+    assert.strictEqual(inactiveVendor.statusCode, 404, inactiveVendor.body);
+
+    const emptyCov = await app.inject({ method: "GET", url: "/api/procurement/blanket-orders/coverage?productId=catitem-router", headers: { cookie } });
+    assert.strictEqual(emptyCov.statusCode, 200, emptyCov.body);
+    assert.deepStrictEqual(emptyCov.json().coverage.blanketOrders, []);
+    assert.strictEqual(emptyCov.json().coverage.committedQty, 0);
   } finally { await app.close(); }
 });
 
