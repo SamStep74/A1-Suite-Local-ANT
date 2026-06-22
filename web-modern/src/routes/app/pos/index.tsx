@@ -1178,7 +1178,7 @@ export function RefundEvidencePanel({
   const [refundMethod, setRefundMethod] = useState<PosRefundMethod>("cash");
   const [refundedTotal, setRefundedTotal] = useState("");
   const [reason, setReason] = useState("");
-  const alreadyRefunded = isRefundedSale(sale) || Boolean(refund);
+  const alreadyRefunded = isTerminalSale(sale) || Boolean(refund);
   const refundedAmount = optionalAmount(refundedTotal);
   const refundedTotalValid =
     refundedTotal.trim().length === 0 ||
@@ -1255,7 +1255,7 @@ export function RefundEvidencePanel({
           className="text-[var(--text-sm)] text-[var(--color-muted)]"
           data-testid="pos-refund-locked"
         >
-          Refund evidence is already recorded for this sale.
+          Refund or void evidence is already recorded for this sale.
         </p>
       ) : (
         <form
@@ -1344,6 +1344,171 @@ export function RefundEvidencePanel({
           role="alert"
           className="text-[var(--text-sm)] text-[var(--color-ruby)]"
           data-testid="pos-refund-error"
+        >
+          {error}
+        </p>
+      ) : null}
+    </section>
+  );
+}
+
+export function VoidEvidencePanel({
+  sale,
+  voidEvidence,
+  onSubmit,
+  isPending,
+  error,
+}: {
+  sale: PosCreateSaleResponse["sale"];
+  voidEvidence: PosVoid | null;
+  onSubmit: (input: {
+    saleId: string;
+    idempotencyKey: string;
+    voidReference: string;
+    reason: string;
+    voidedAt: string;
+  }) => void;
+  isPending?: boolean;
+  error?: string;
+}) {
+  const [idempotencyKey] = useState(() => `pos-void-ui-${sale.id}-${Date.now()}`);
+  const [voidReference, setVoidReference] = useState("");
+  const [reason, setReason] = useState("");
+  const [voidedAt, setVoidedAt] = useState("");
+  const alreadyClosed = isTerminalSale(sale) || Boolean(voidEvidence);
+  const returnStockMoveCount =
+    voidEvidence?.lines.filter((line) => line.returnStockMoveId).length ?? 0;
+  const voidLedgerCount =
+    voidEvidence?.postings.ledgerPostingCount ?? voidEvidence?.postings.ledgerPostingIds?.length;
+  const voidLedgerStatus = voidEvidence?.ledgerPostingStatus ?? "ready";
+  const voidStockEvidenceCopy =
+    returnStockMoveCount > 0
+      ? "Return stock evidence is recorded for tracked lines."
+      : "Void amount evidence is recorded without stock return moves.";
+  const canSubmit =
+    !alreadyClosed &&
+    voidReference.trim().length > 0 &&
+    reason.trim().length > 0 &&
+    !isPending;
+
+  return (
+    <section
+      className="grid gap-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] p-2"
+      data-testid="pos-void-panel"
+      data-entity="pos-void-evidence"
+    >
+      <div className="flex items-start gap-2">
+        <ClipboardCheck className="mt-0.5 size-4 text-[var(--color-brand)]" aria-hidden />
+        <div>
+          <h4 className="text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+            Void evidence
+          </h4>
+          <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+            Pre-receipt cancellation · stock return evidence · ledger {voidLedgerStatus}
+          </p>
+        </div>
+      </div>
+
+      {voidEvidence ? (
+        <div className="grid gap-2 text-[var(--text-sm)]" data-testid="pos-void-success">
+          <p className="font-medium text-[var(--color-tag-green)]">
+            Void evidence {voidEvidence.status} · {money(voidEvidence.voidedTotal)}
+          </p>
+          <dl className="grid gap-1 sm:grid-cols-2">
+            <EvidenceRow label="Reference" value={voidEvidence.voidReference} />
+            <EvidenceRow label="Sale status" value={sale.status} />
+            <EvidenceRow label="Voided total" value={money(voidEvidence.voidedTotal)} />
+            <EvidenceRow label="Cash adjustment" value={money(voidEvidence.cashAdjustment)} />
+            <EvidenceRow label="Inventory" value={voidEvidence.inventoryPostingStatus} />
+            <EvidenceRow label="Return stock moves" value={String(returnStockMoveCount)} />
+            <EvidenceRow
+              label="Ledger journals"
+              value={
+                typeof voidLedgerCount === "number"
+                  ? `${voidEvidence.ledgerPostingStatus} (${journalCountLabel(voidLedgerCount)})`
+                  : voidEvidence.ledgerPostingStatus
+              }
+            />
+          </dl>
+          <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+            {voidEvidence.ledgerPostingStatus === "posted"
+              ? `${voidStockEvidenceCopy} Ledger reversal journals are posted; fiscal voids and receipt printing remain deferred.`
+              : `${voidStockEvidenceCopy} Ledger journals, fiscal voids, and receipt printing remain deferred.`}
+          </p>
+        </div>
+      ) : alreadyClosed ? (
+        <p
+          className="text-[var(--text-sm)] text-[var(--color-muted)]"
+          data-testid="pos-void-locked"
+        >
+          Void evidence is available only for posted sales before receipt handoff, refund, or void.
+        </p>
+      ) : (
+        <form
+          className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)] lg:grid-cols-[minmax(0,1fr)_minmax(0,1.4fr)_180px_auto]"
+          data-testid="pos-void-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!canSubmit) return;
+            onSubmit({
+              saleId: sale.id,
+              idempotencyKey,
+              voidReference,
+              reason,
+              voidedAt,
+            });
+          }}
+        >
+          <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+            Reference
+            <input
+              value={voidReference}
+              onChange={(event) => setVoidReference(event.target.value)}
+              className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+              data-testid="pos-void-reference"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+            Reason
+            <input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+              data-testid="pos-void-reason"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+            Voided at
+            <input
+              type="datetime-local"
+              value={voidedAt}
+              onChange={(event) => setVoidedAt(event.target.value)}
+              className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+              data-testid="pos-void-voided-at"
+            />
+          </label>
+
+          <div className="flex items-end">
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-3 text-[var(--text-sm)] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              data-testid="pos-void-submit"
+            >
+              <ClipboardCheck className="size-4" aria-hidden />
+              {isPending ? "Recording…" : "Record void"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {error ? (
+        <p
+          role="alert"
+          className="text-[var(--text-sm)] text-[var(--color-ruby)]"
+          data-testid="pos-void-error"
         >
           {error}
         </p>
@@ -2141,6 +2306,16 @@ function optionalText(value: string): string | undefined {
 
 function isRefundedSale(sale: { status: string }): boolean {
   return sale.status === "refunded" || sale.status === "refunded_full";
+}
+
+function isTerminalSale(sale: { status: string }): boolean {
+  return isRefundedSale(sale) || sale.status === "voided";
+}
+
+function saleOutcomeLabel(sale: { status: string }): string {
+  if (sale.status === "voided") return "Voided sale";
+  if (isRefundedSale(sale)) return "Refunded sale";
+  return "Posted sale";
 }
 
 function refundMethodLabel(method: PosRefundMethod): string {
