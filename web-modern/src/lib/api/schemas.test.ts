@@ -2039,9 +2039,14 @@ describe("POS cash-session schemas", () => {
       refundReference: "RF-CASH-001",
       refundMethod: "cash",
       reason: "Customer returned sealed scanner.",
+      refundedTotal: 30000,
+      lines: [{ saleLineId: "pos-sale-line-1", quantity: 1 }],
     });
 
     expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.lines?.[0]).toEqual({ saleLineId: "pos-sale-line-1", quantity: 1 });
+    }
   });
 
   it("rejects refund evidence metadata that the backend safe guards reject", () => {
@@ -2067,6 +2072,24 @@ describe("POS cash-session schemas", () => {
         refundReference: "RF-CASH-001",
         refundMethod: "cash",
         reason: "unsafe\u0000reason",
+      }).success,
+    ).toBe(false);
+    expect(
+      PosRefundRequestSchema.safeParse({
+        idempotencyKey: "pos-refund-ui-pos-sale-1-1782113400000",
+        refundReference: "RF-CASH-001",
+        refundMethod: "cash",
+        reason: "Customer returned sealed scanner.",
+        lines: [{ saleLineId: "POS-SALE-LINE-1", quantity: 1 }],
+      }).success,
+    ).toBe(false);
+    expect(
+      PosRefundRequestSchema.safeParse({
+        idempotencyKey: "pos-refund-ui-pos-sale-1-1782113400000",
+        refundReference: "RF-CASH-001",
+        refundMethod: "cash",
+        reason: "Customer returned sealed scanner.",
+        lines: [{ saleLineId: "pos-sale-line-1", quantity: 0 }],
       }).success,
     ).toBe(false);
   });
