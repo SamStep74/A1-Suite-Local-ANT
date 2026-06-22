@@ -37,25 +37,6 @@ function sidFromSetCookie(setCookieHeader: string | null): string | null {
   return null;
 }
 
-/** Extract the `sid` cookie value from a `set-cookie` response header.
- *  The current /api/login response sets the session in an HttpOnly
- *  `sid` cookie (the JSON body returns `{ok,user}` but not the
- *  token). The Bearer-token strategy used by the new SPA reads the
- *  same value from `sessionStorage["ant.bearerSid"]`, so we treat
- *  the cookie value as the Bearer token. */
-function sidFromSetCookie(setCookieHeader: string | null): string | null {
-  if (!setCookieHeader) return null;
-  // A response may include several Set-Cookie headers combined
-  // (comma-separated) when fetched through the request fixture;
-  // we walk each segment looking for `sid=<value>`.
-  const segments = setCookieHeader.split(/,(?=\s*[A-Za-z0-9_-]+=)/);
-  for (const raw of segments) {
-    const m = raw.match(/(?:^|,\s*)sid=([^;]+)/);
-    if (m) return decodeURIComponent(m[1]!);
-  }
-  return null;
-}
-
 /** POST /api/login. Returns the session id (sid). Throws on non-200. */
 export async function login(
   request: APIRequestContext,

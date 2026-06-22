@@ -51,7 +51,7 @@ async function createPostedPosSale(app, operator, options = {}) {
     }
   });
   assert.equal(posted.statusCode, 200, posted.body);
-  return { session, sale: posted.json().sale };
+  return { session: posted.json().session || session, sale: posted.json().sale };
 }
 
 test("pos: workspace is auth-gated, app-gated, and launcher-assigned", async () => {
@@ -75,6 +75,7 @@ test("pos: workspace is auth-gated, app-gated, and launcher-assigned", async () 
     const workspace = await app.inject({ method: "GET", url: "/api/pos/workspace", headers: { cookie: owner } });
     assert.equal(workspace.statusCode, 200, workspace.body);
     assert.equal(workspace.json().capabilityStatus.salePosting, "available");
+    assert.equal(workspace.json().capabilityStatus.refunds, "available");
     assert.equal(workspace.json().capabilityStatus.receiptPrinting, "not-implemented");
 
     const support = await login(app, "support@armosphera.local");
@@ -157,7 +158,7 @@ test("pos: open, list, and workspace return the bounded cash-session spine", asy
     assert.equal(session.status, "open");
     assert.equal(session.openingCash, 10000);
     assert.equal(session.expectedCash, 10000);
-    assert.equal(session.expectedCashBasis, "opening-cash-plus-cash-sales");
+    assert.equal(session.expectedCashBasis, "opening-cash-plus-cash-sales-minus-cash-refunds");
     assert.equal(session.postings.salePosting, "not-posted");
     assert.equal(session.fiscalDeviceId, "FISCAL-AM-01");
 
@@ -180,7 +181,7 @@ test("pos: open, list, and workspace return the bounded cash-session spine", asy
     assert.ok(body.activeFiscalCatalogItems.some(item => item.id === "catitem-pos-barcode-scanner" && item.fiscalReceiptRequired === true));
     assert.ok(body.activeStockLocations.some(location => location.id === "stockloc-main-warehouse"));
     assert.ok(body.activeStockLocations.every(location => location.status === "active" && location.locationType === "internal"));
-    assert.equal(body.evidenceMetadata.expectedCashBasis, "opening-cash-plus-cash-sales");
+    assert.equal(body.evidenceMetadata.expectedCashBasis, "opening-cash-plus-cash-sales-minus-cash-refunds");
     assert.equal(body.capabilityStatus.inventoryPosting, "available");
     assert.equal(body.capabilityStatus.ledgerPosting, "not-implemented");
   } finally {
@@ -615,6 +616,334 @@ test("pos: receipt packet rejects malformed input, missing sales, unposted sales
       payload: {}
     });
     assert.equal(notPosted.statusCode, 409, notPosted.body);
+  } finally {
+    await app.close();
+  }
+});
+
+test("pos: cash full refund posts evidence, reduces expected cash, replays idempotently, and backs up", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const owner = await login(app);
+    const orgId = "org-armosphera-demo";
+    const { session, sale } = await createPostedPosSale(app, operator, {
+      registerCode: "POS-REFUND-CASH",
+      openingCash: 20000,
+      fiscalDeviceId: "FISCAL-AM-REFUND-CASH",
+      receiptNumber: "R-REFUND-CASH-001",
+      idempotencyKey: "pos-refund-cash-sale-1"
+    });
+    assert.equal(session.expectedCash, 105000);
+
+    const stockMoveCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM stock_moves WHERE org_id = ?").get(orgId).count;
+    const auditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE org_id = ? AND type = ?
+    `).get(orgId, "pos.sale.refunded").count;
+    const eventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE org_id = ? AND event_type = ?
+    `).get(orgId, "pos.sale.refunded").count;
+    const beforeMoves = stockMoveCount();
+    const beforeAudit = auditCount();
+    const beforeEvents = eventCount();
+
+    const payload = {
+      idempotencyKey: "pos-refund-cash-1",
+      refundReference: "rf-cash-001",
+      reason: "Customer returned sealed scanner.",
+      refundMethod: "cash",
+      refundedAt: "2026-06-22T10:00:00.000Z"
+    };
+    const refunded = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/refund`,
+      headers: { cookie: operator },
+      payload
+    });
+    assert.equal(refunded.statusCode, 200, refunded.body);
+    const body = refunded.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.idempotent, false);
+    assert.equal(body.session.id, session.id);
+    assert.equal(body.session.expectedCash, 20000);
+    assert.equal(body.sale.id, sale.id);
+    assert.equal(body.sale.status, "refunded_full");
+    assert.deepEqual(body.sale.postings, { salePosting: "posted", inventoryPosting: "posted", ledgerPosting: "not-posted" });
+
+    const refund = body.refund;
+    assert.match(refund.id, /^pos-sale-refund-/);
+    assert.equal(refund.saleId, sale.id);
+    assert.equal(refund.cashSessionId, session.id);
+    assert.equal(refund.refundReference, "RF-CASH-001");
+    assert.equal(refund.sourceKey, "pos-refund-cash-1");
+    assert.equal(refund.reason, "Customer returned sealed scanner.");
+    assert.equal(refund.refundMethod, "cash");
+    assert.equal(refund.refundedTotal, sale.total);
+    assert.equal(refund.cashAdjustment, sale.paidCash);
+    assert.equal(refund.status, "posted");
+    assert.equal(refund.inventoryPostingStatus, "not-posted");
+    assert.equal(refund.ledgerPostingStatus, "not-posted");
+    assert.equal(refund.refundedAt, "2026-06-22T10:00:00.000Z");
+    assert.equal(refund.lineCount, sale.lineCount);
+    assert.equal(refund.lines[0].saleLineId, sale.lines[0].id);
+    assert.equal(refund.lines[0].quantity, sale.lines[0].quantity);
+    assert.equal(refund.lines[0].total, sale.lines[0].total);
+    assert.equal(refund.lines[0].sourceStockMoveId, sale.lines[0].stockMoveId);
+    assert.equal(stockMoveCount(), beforeMoves);
+    assert.equal(auditCount(), beforeAudit + 1);
+    assert.equal(eventCount(), beforeEvents + 1);
+
+    const replayed = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: { ...payload, reason: "Replay should not alter the stored refund." }
+    });
+    assert.equal(replayed.statusCode, 200, replayed.body);
+    assert.equal(replayed.json().idempotent, true);
+    assert.equal(replayed.json().refund.id, refund.id);
+    assert.equal(replayed.json().refund.reason, "Customer returned sealed scanner.");
+    assert.equal(replayed.json().session.expectedCash, 20000);
+    assert.equal(stockMoveCount(), beforeMoves);
+    assert.equal(auditCount(), beforeAudit + 1);
+    assert.equal(eventCount(), beforeEvents + 1);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_sale_refunds WHERE org_id = ? AND sale_id = ?").get(orgId, sale.id).count, 1);
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: { ...payload, idempotencyKey: "pos-refund-cash-2", refundReference: "RF-CASH-002" }
+    });
+    assert.equal(duplicate.statusCode, 409, duplicate.body);
+
+    const backup = await app.inject({
+      method: "POST",
+      url: "/api/admin/backups",
+      headers: { cookie: owner },
+      payload: { note: "POS refund evidence must be restorable." }
+    });
+    assert.equal(backup.statusCode, 200, backup.body);
+    const tables = backup.json().backup.payload.tables;
+    assert.ok(tables.pos_sale_refunds.some(row => (
+      row.id === refund.id
+      && row.sale_id === sale.id
+      && row.cash_session_id === session.id
+      && row.refund_reference === "RF-CASH-001"
+      && row.source_key === "pos-refund-cash-1"
+      && row.refunded_total_amd === sale.total
+      && row.cash_adjustment_amd === sale.paidCash
+      && row.inventory_posting_status === "not-posted"
+      && row.ledger_posting_status === "not-posted"
+    )));
+    assert.ok(tables.pos_sale_refund_lines.some(row => (
+      row.refund_id === refund.id
+      && row.sale_id === sale.id
+      && row.sale_line_id === sale.lines[0].id
+      && row.source_stock_move_id === sale.lines[0].stockMoveId
+    )));
+  } finally {
+    await app.close();
+  }
+});
+
+test("pos: card and bank full refunds record evidence without changing expected cash", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+
+    const card = await createPostedPosSale(app, operator, {
+      registerCode: "POS-REFUND-CARD",
+      openingCash: 30000,
+      fiscalDeviceId: "FISCAL-AM-REFUND-CARD",
+      receiptNumber: "R-REFUND-CARD-001",
+      paymentMethod: "card",
+      idempotencyKey: "pos-refund-card-sale-1"
+    });
+    assert.equal(card.session.expectedCash, 30000);
+    const cardRefund = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${card.sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: {
+        idempotencyKey: "pos-refund-card-1",
+        refundReference: "RF-CARD-001",
+        reason: "Card processor reversal recorded.",
+        refundMethod: "card"
+      }
+    });
+    assert.equal(cardRefund.statusCode, 200, cardRefund.body);
+    assert.equal(cardRefund.json().refund.refundMethod, "card");
+    assert.equal(cardRefund.json().refund.cashAdjustment, 0);
+    assert.equal(cardRefund.json().refund.inventoryPostingStatus, "not-posted");
+    assert.equal(cardRefund.json().refund.ledgerPostingStatus, "not-posted");
+    assert.equal(cardRefund.json().session.expectedCash, 30000);
+
+    const bank = await createPostedPosSale(app, operator, {
+      registerCode: "POS-REFUND-BANK",
+      openingCash: 40000,
+      fiscalDeviceId: "FISCAL-AM-REFUND-BANK",
+      receiptNumber: "R-REFUND-BANK-001",
+      paymentMethod: "bank-transfer",
+      idempotencyKey: "pos-refund-bank-sale-1"
+    });
+    assert.equal(bank.session.expectedCash, 40000);
+    const bankRefund = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${bank.sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: {
+        idempotencyKey: "pos-refund-bank-1",
+        refundReference: "RF-BANK-001",
+        reason: "Bank transfer refund reference captured.",
+        refundMethod: "bank-transfer"
+      }
+    });
+    assert.equal(bankRefund.statusCode, 200, bankRefund.body);
+    assert.equal(bankRefund.json().refund.refundMethod, "bank-transfer");
+    assert.equal(bankRefund.json().refund.cashAdjustment, 0);
+    assert.equal(bankRefund.json().session.expectedCash, 40000);
+  } finally {
+    await app.close();
+  }
+});
+
+test("pos: closed cash-session cash refund is rejected for this first slice", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const orgId = "org-armosphera-demo";
+    const { session, sale } = await createPostedPosSale(app, operator, {
+      registerCode: "POS-REFUND-CLOSED",
+      openingCash: 15000,
+      fiscalDeviceId: "FISCAL-AM-REFUND-CLOSED",
+      receiptNumber: "R-REFUND-CLOSED-001",
+      idempotencyKey: "pos-refund-closed-sale-1"
+    });
+    const closed = await app.inject({
+      method: "POST",
+      url: `/api/pos/cash-sessions/${session.id}/close`,
+      headers: { cookie: operator },
+      payload: {
+        countedCash: session.expectedCash,
+        fiscalDeviceId: "FISCAL-AM-REFUND-CLOSED",
+        zReportNumber: "Z-REFUND-CLOSED-001",
+        receiptNumberStart: "R-REFUND-CLOSED-001",
+        receiptNumberEnd: "R-REFUND-CLOSED-001"
+      }
+    });
+    assert.equal(closed.statusCode, 200, closed.body);
+
+    const rejected = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: {
+        idempotencyKey: "pos-refund-closed-1",
+        refundReference: "RF-CLOSED-001",
+        reason: "Cash refunds after Z-close wait for the next slice.",
+        refundMethod: "cash"
+      }
+    });
+    assert.equal(rejected.statusCode, 409, rejected.body);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_sale_refunds WHERE org_id = ? AND sale_id = ?").get(orgId, sale.id).count, 0);
+    assert.equal(app.db.prepare("SELECT status FROM pos_sales WHERE org_id = ? AND id = ?").get(orgId, sale.id).status, "posted");
+  } finally {
+    await app.close();
+  }
+});
+
+test("pos: refund rejects malformed ids, unsafe bodies, missing sales, and non-posted sales", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const orgId = "org-armosphera-demo";
+    const validPayload = {
+      idempotencyKey: "pos-refund-valid-missing",
+      refundReference: "RF-MISSING-001",
+      reason: "Validated missing-sale rejection.",
+      refundMethod: "card"
+    };
+
+    const badId = await app.inject({
+      method: "POST",
+      url: "/api/pos/sales/POS-SALE-BAD/refund",
+      headers: { cookie: operator },
+      payload: validPayload
+    });
+    assert.equal(badId.statusCode, 400, badId.body);
+
+    const badBody = await app.inject({
+      method: "POST",
+      url: "/api/pos/sales/pos-sale-missing/refund",
+      headers: { cookie: operator },
+      payload: []
+    });
+    assert.equal(badBody.statusCode, 400, badBody.body);
+
+    const missingFields = await app.inject({
+      method: "POST",
+      url: "/api/pos/sales/pos-sale-missing/refund",
+      headers: { cookie: operator },
+      payload: { refundReference: "RF-MISSING-FIELDS", reason: "Missing idempotency key.", refundMethod: "card" }
+    });
+    assert.equal(missingFields.statusCode, 400, missingFields.body);
+
+    const missingSale = await app.inject({
+      method: "POST",
+      url: "/api/pos/sales/pos-sale-missing/refund",
+      headers: { cookie: operator },
+      payload: validPayload
+    });
+    assert.equal(missingSale.statusCode, 404, missingSale.body);
+
+    const unposted = await createPostedPosSale(app, operator, {
+      registerCode: "POS-REFUND-UNPOSTED",
+      receiptNumber: "R-REFUND-UNPOSTED",
+      idempotencyKey: "pos-refund-unposted-sale"
+    });
+    app.db.prepare("UPDATE pos_sales SET status = 'draft' WHERE org_id = ? AND id = ?")
+      .run(orgId, unposted.sale.id);
+    const notPosted = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${unposted.sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: {
+        idempotencyKey: "pos-refund-unposted-1",
+        refundReference: "RF-UNPOSTED-001",
+        reason: "Draft sales cannot be refunded.",
+        refundMethod: "card"
+      }
+    });
+    assert.equal(notPosted.statusCode, 409, notPosted.body);
+
+    const voided = await createPostedPosSale(app, operator, {
+      registerCode: "POS-REFUND-VOIDED",
+      receiptNumber: "R-REFUND-VOIDED",
+      idempotencyKey: "pos-refund-voided-sale"
+    });
+    app.db.prepare("UPDATE pos_sales SET status = 'voided' WHERE org_id = ? AND id = ?")
+      .run(orgId, voided.sale.id);
+    const alreadyVoided = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${voided.sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: {
+        idempotencyKey: "pos-refund-voided-1",
+        refundReference: "RF-VOIDED-001",
+        reason: "Voided sales cannot be refunded again.",
+        refundMethod: "card"
+      }
+    });
+    assert.equal(alreadyVoided.statusCode, 409, alreadyVoided.body);
   } finally {
     await app.close();
   }

@@ -98,28 +98,31 @@ export const getActiveLocale = (): Locale => {
  * the source tree) — not user input. The content is
  * deterministic and reviewed via the `.po` files in git.
  */
-const RAW_CATALOGS = import.meta.glob<string>(
-  "/src/locales/*/messages.js",
-  { query: "?raw", import: "default" },
+type CatalogModule = {
+  default?: { messages: Record<string, string> };
+  messages?: Record<string, string>;
+};
+
+const CATALOG_MODULES = import.meta.glob<CatalogModule>(
+  "/src/locales/*/messages.js"
 );
 
-const loadCJS = async (
+const loadCatalog = async (
   localeKey: string,
 ): Promise<{ messages: Record<string, string> }> => {
-  const loader = RAW_CATALOGS[`/src/locales/${localeKey}/messages.js`];
+  const loader = CATALOG_MODULES[`/src/locales/${localeKey}/messages.js`];
   if (!loader) {
     throw new Error(`No compiled catalog for locale "${localeKey}"`);
   }
-  const raw: string = await loader();
-  const mod: { exports: unknown } = { exports: {} };
-  new Function("module", raw)(mod);
-  return mod.exports as { messages: Record<string, string> };
+  const mod = await loader();
+  const catalog = mod.default ?? mod;
+  return { messages: catalog.messages ?? {} };
 };
 
 const CATALOG_LOADERS: Record<Locale, () => Promise<{ messages: Record<string, string> }>> = {
-  hy: () => loadCJS("hy"),
-  ru: () => loadCJS("ru"),
-  en: () => loadCJS("en"),
+  hy: () => loadCatalog("hy"),
+  ru: () => loadCatalog("ru"),
+  en: () => loadCatalog("en"),
 };
 
 export const activateLocale = async (l: Locale): Promise<void> => {

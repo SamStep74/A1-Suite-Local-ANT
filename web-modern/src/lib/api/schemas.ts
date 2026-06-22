@@ -913,6 +913,9 @@ export type PosCloseCashSessionResponse = z.infer<typeof PosCloseCashSessionResp
 export const PosPaymentMethodSchema = z.enum(["cash", "card", "bank-transfer"]);
 export type PosPaymentMethod = z.infer<typeof PosPaymentMethodSchema>;
 
+export const PosRefundMethodSchema = PosPaymentMethodSchema;
+export type PosRefundMethod = z.infer<typeof PosRefundMethodSchema>;
+
 export const PosSaleLineRequestSchema = z
   .object({
     catalogItemId: z.string().min(1),
@@ -961,12 +964,15 @@ export const PosSaleLineSchema = z
   .passthrough();
 export type PosSaleLine = z.infer<typeof PosSaleLineSchema>;
 
+export const PosSaleStatusSchema = z.enum(["posted", "refunded", "refunded_full"]);
+export type PosSaleStatus = z.infer<typeof PosSaleStatusSchema>;
+
 export const PosSaleSchema = z
   .object({
     id: z.string(),
     cashSessionId: z.string(),
     receiptNumber: z.string(),
-    status: z.literal("posted"),
+    status: PosSaleStatusSchema,
     paymentMethod: PosPaymentMethodSchema,
     currency: PosCurrencySchema,
     subtotal: z.number(),
@@ -1024,6 +1030,92 @@ export const PosReceiptPacketResponseSchema = z
   })
   .passthrough();
 export type PosReceiptPacketResponse = z.infer<typeof PosReceiptPacketResponseSchema>;
+
+export const PosRefundRequestSchema = z
+  .object({
+    idempotencyKey: z
+      .string()
+      .min(1)
+      .max(160)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/),
+    refundReference: z
+      .string()
+      .min(1)
+      .max(120)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$/),
+    refundMethod: PosRefundMethodSchema,
+    reason: z.string().min(1).max(500).refine((value) => !/[\x00-\x1f\x7f]/.test(value)),
+    refundedAt: z.string().min(1).optional(),
+  })
+  .strict();
+export type PosRefundRequest = z.infer<typeof PosRefundRequestSchema>;
+
+export const PosRefundLineSchema = z
+  .object({
+    id: z.string(),
+    saleLineId: z.string(),
+    catalogItemId: z.string(),
+    catalogItemVariantId: z.string().nullable().optional(),
+    sku: z.string(),
+    name: z.string(),
+    description: z.string().optional(),
+    quantity: z.number().int().positive(),
+    unitPrice: z.number(),
+    subtotal: z.number(),
+    vat: z.number(),
+    total: z.number(),
+    vatMode: z.string().nullable().optional(),
+    fiscalReceiptRequired: z.boolean().nullable().optional(),
+    sourceStockMoveId: z.string().nullable().optional(),
+    createdAt: z.string(),
+  })
+  .passthrough();
+export type PosRefundLine = z.infer<typeof PosRefundLineSchema>;
+
+export const PosRefundPostingsSchema = z
+  .object({
+    refundPosting: z.string(),
+    inventoryPosting: z.string(),
+    ledgerPosting: z.string(),
+  })
+  .passthrough();
+export type PosRefundPostings = z.infer<typeof PosRefundPostingsSchema>;
+
+export const PosRefundSchema = z
+  .object({
+    id: z.string(),
+    saleId: z.string(),
+    cashSessionId: z.string(),
+    refundReference: z.string(),
+    sourceKey: z.string(),
+    reason: z.string(),
+    refundMethod: PosRefundMethodSchema,
+    refundedTotal: z.number(),
+    cashAdjustment: z.number(),
+    status: z.string(),
+    inventoryPostingStatus: z.string(),
+    ledgerPostingStatus: z.string(),
+    postings: PosRefundPostingsSchema,
+    refundedAt: z.string(),
+    lineCount: z.number().int().min(0),
+    lines: z.array(PosRefundLineSchema),
+    createdByUserId: z.string().optional(),
+    createdByName: z.string().optional(),
+    createdAt: z.string(),
+  })
+  .passthrough();
+export type PosRefund = z.infer<typeof PosRefundSchema>;
+
+export const PosRefundResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    idempotent: z.boolean(),
+    refund: PosRefundSchema,
+    sale: PosSaleSchema,
+    session: PosCashSessionSchema.optional(),
+  })
+  .passthrough();
+export type PosRefundResponse = z.infer<typeof PosRefundResponseSchema>;
 
 /** Stock balance — a (catalogItemId, locationId) row.
  *  Source: /api/inventory/stock. */
@@ -5878,6 +5970,176 @@ export const SmbCrmListCustomersResponseSchema = z.object({
 export type SmbCrmListCustomersResponse = z.infer<
   typeof SmbCrmListCustomersResponseSchema
 >;
+
+export const SmbCrmCustomerListResponseSchema = SmbCrmListCustomersResponseSchema;
+export type SmbCrmCustomerListResponse = SmbCrmListCustomersResponse;
+
+export const QuoteTemplateLineItemSchema = z
+  .object({
+    name: z.string(),
+    description: z.string().optional(),
+    quantity: z.number(),
+    unitPrice: z.number(),
+  })
+  .passthrough();
+export type QuoteTemplateLineItem = z.infer<typeof QuoteTemplateLineItemSchema>;
+
+export const QuoteTemplateSchema = z
+  .object({
+    id: z.string(),
+    orgId: z.string().optional(),
+    name: z.string(),
+    description: z.string().optional(),
+    lineItems: z.array(QuoteTemplateLineItemSchema),
+    builtin: z.boolean().optional(),
+    createdAt: z.string().optional(),
+    updatedAt: z.string().optional(),
+  })
+  .passthrough();
+export type QuoteTemplate = z.infer<typeof QuoteTemplateSchema>;
+
+export const QuoteTemplateListResponseSchema = z
+  .object({
+    templates: z.array(QuoteTemplateSchema),
+  })
+  .passthrough();
+export type QuoteTemplateListResponse = z.infer<
+  typeof QuoteTemplateListResponseSchema
+>;
+
+export const QuoteTemplateRequestLineItemSchema = z
+  .object({
+    name: z.string().min(1),
+    description: z.string().optional(),
+    quantity: z.number(),
+    unitPrice: z.number(),
+  })
+  .strict();
+
+export const QuoteFromTemplateRequestSchema = z
+  .object({
+    templateId: z.string().min(1),
+    number: z.string().min(1),
+    customerId: z.string().min(1).optional(),
+    issueDate: z.string().min(1).optional(),
+    expiryDate: z.string().min(1).optional(),
+    currency: z.string().min(1).max(8),
+    overrides: z
+      .array(
+        z
+          .object({
+            quantity: z.number(),
+            unitPrice: z.number(),
+          })
+          .strict(),
+      )
+      .optional(),
+    idempotencyKey: z.string().min(1),
+  })
+  .strict();
+export type QuoteFromTemplateRequest = z.infer<
+  typeof QuoteFromTemplateRequestSchema
+>;
+
+export const QuoteFromTemplateResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    quote: z
+      .object({
+        id: z.string(),
+      })
+      .passthrough(),
+    lineItems: z.array(z.unknown()).optional(),
+    totalAmount: z.number().optional(),
+  })
+  .passthrough();
+export type QuoteFromTemplateResponse = z.infer<
+  typeof QuoteFromTemplateResponseSchema
+>;
+
+export const SaveAsTemplateRequestSchema = z
+  .object({
+    name: z.string().min(1).max(100),
+    description: z.string().optional(),
+    lineItems: z.array(QuoteTemplateRequestLineItemSchema).min(1),
+    sourceTemplateId: z.string().min(1).optional(),
+  })
+  .strict();
+export type SaveAsTemplateRequest = z.infer<
+  typeof SaveAsTemplateRequestSchema
+>;
+
+export const SaveAsTemplateResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    template: QuoteTemplateSchema,
+  })
+  .passthrough();
+export type SaveAsTemplateResponse = z.infer<
+  typeof SaveAsTemplateResponseSchema
+>;
+
+export const UpdateTemplateRequestSchema = z
+  .object({
+    name: z.string().min(1).max(100).optional(),
+    description: z.string().optional(),
+    lineItems: z.array(QuoteTemplateRequestLineItemSchema).min(1).optional(),
+  })
+  .strict();
+export type UpdateTemplateRequest = z.infer<
+  typeof UpdateTemplateRequestSchema
+>;
+
+export const UpdateTemplateResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    template: QuoteTemplateSchema.optional(),
+  })
+  .passthrough();
+export type UpdateTemplateResponse = z.infer<
+  typeof UpdateTemplateResponseSchema
+>;
+
+export const DeleteTemplateResponseSchema = z
+  .object({
+    ok: z.literal(true),
+  })
+  .passthrough();
+export type DeleteTemplateResponse = z.infer<
+  typeof DeleteTemplateResponseSchema
+>;
+
+export const AiStatusResponseSchema = z
+  .object({
+    provider: z.string(),
+    baseURL: z.string().optional(),
+    models: z.array(z.string()).default([]),
+    ok: z.boolean(),
+    error: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type AiStatusResponse = z.infer<typeof AiStatusResponseSchema>;
+
+export const AiChatRequestSchema = z
+  .object({
+    system: z.string().min(1),
+    user: z.string().min(1),
+    temperature: z.number().min(0).max(2).optional(),
+    maxTokens: z.number().int().min(1).max(4096).optional(),
+  })
+  .strict();
+export type AiChatRequest = z.infer<typeof AiChatRequestSchema>;
+
+export const AiChatResponseSchema = z
+  .object({
+    ok: z.boolean(),
+    provider: z.string(),
+    model: z.string().nullable().optional(),
+    data: z.unknown().optional(),
+    error: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type AiChatResponse = z.infer<typeof AiChatResponseSchema>;
 
 /** Response body for GET /api/smb-crm/customers/:id. */
 export const SmbCrmGetCustomerResponseSchema = z.object({

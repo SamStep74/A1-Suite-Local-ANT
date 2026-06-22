@@ -766,6 +766,61 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_pos_receipt_packets_status
       ON pos_receipt_packets(org_id, packet_status, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS pos_sale_refunds (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      sale_id TEXT NOT NULL REFERENCES pos_sales(id) ON DELETE CASCADE,
+      cash_session_id TEXT NOT NULL REFERENCES pos_cash_sessions(id) ON DELETE CASCADE,
+      refund_reference TEXT NOT NULL,
+      source_key TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      refund_method TEXT NOT NULL,
+      refunded_total_amd INTEGER NOT NULL DEFAULT 0,
+      cash_adjustment_amd INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'posted',
+      inventory_posting_status TEXT NOT NULL DEFAULT 'not-posted',
+      ledger_posting_status TEXT NOT NULL DEFAULT 'not-posted',
+      refunded_at TEXT NOT NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, source_key),
+      UNIQUE(org_id, sale_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_refunds_session
+      ON pos_sale_refunds(org_id, cash_session_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_refunds_status
+      ON pos_sale_refunds(org_id, status, created_at DESC);
+
+    CREATE TABLE IF NOT EXISTS pos_sale_refund_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      refund_id TEXT NOT NULL REFERENCES pos_sale_refunds(id) ON DELETE CASCADE,
+      sale_id TEXT NOT NULL REFERENCES pos_sales(id) ON DELETE CASCADE,
+      sale_line_id TEXT NOT NULL REFERENCES pos_sale_lines(id) ON DELETE CASCADE,
+      line_number INTEGER NOT NULL,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      catalog_item_variant_id TEXT REFERENCES catalog_item_variants(id) ON DELETE SET NULL,
+      sku TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      quantity INTEGER NOT NULL,
+      unit_price_amd INTEGER NOT NULL,
+      subtotal_amd INTEGER NOT NULL DEFAULT 0,
+      vat_amd INTEGER NOT NULL DEFAULT 0,
+      total_amd INTEGER NOT NULL DEFAULT 0,
+      vat_mode TEXT NOT NULL DEFAULT 'standard',
+      fiscal_receipt_required INTEGER NOT NULL DEFAULT 0,
+      source_stock_move_id TEXT REFERENCES stock_moves(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, refund_id, line_number),
+      UNIQUE(org_id, refund_id, sale_line_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_refund_lines_refund
+      ON pos_sale_refund_lines(org_id, refund_id, line_number);
+
     CREATE TABLE IF NOT EXISTS stock_quants (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

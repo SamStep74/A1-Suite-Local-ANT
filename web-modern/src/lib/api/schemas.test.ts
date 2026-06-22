@@ -44,6 +44,8 @@ import {
   PosCreateSaleResponseSchema,
   PosReceiptPacketRequestSchema,
   PosReceiptPacketResponseSchema,
+  PosRefundRequestSchema,
+  PosRefundResponseSchema,
   PosPricePreviewSchema,
   StockBalanceSchema,
   StockLocationSchema,
@@ -1972,6 +1974,149 @@ describe("POS cash-session schemas", () => {
       expect(r.data.receiptPacket.status).toBe("prepared");
       expect(r.data.receiptPacket.checksum).toBe("a1fiscalchecksum");
       expect(r.data.sale.id).toBe("pos-sale-1");
+    }
+  });
+
+  it("validates the refund evidence POST body", () => {
+    const r = PosRefundRequestSchema.safeParse({
+      idempotencyKey: "pos-refund-ui-pos-sale-1-1782113400000",
+      refundReference: "RF-CASH-001",
+      refundMethod: "cash",
+      reason: "Customer returned sealed scanner.",
+    });
+
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects refund evidence metadata that the backend safe guards reject", () => {
+    expect(
+      PosRefundRequestSchema.safeParse({
+        idempotencyKey: "not safe",
+        refundReference: "RF-CASH-001",
+        refundMethod: "cash",
+        reason: "Customer returned sealed scanner.",
+      }).success,
+    ).toBe(false);
+    expect(
+      PosRefundRequestSchema.safeParse({
+        idempotencyKey: "pos-refund-ui-pos-sale-1-1782113400000",
+        refundReference: " RF-CASH-001 ",
+        refundMethod: "cash",
+        reason: "Customer returned sealed scanner.",
+      }).success,
+    ).toBe(false);
+    expect(
+      PosRefundRequestSchema.safeParse({
+        idempotencyKey: "pos-refund-ui-pos-sale-1-1782113400000",
+        refundReference: "RF-CASH-001",
+        refundMethod: "cash",
+        reason: "unsafe\u0000reason",
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts the refund evidence response envelope", () => {
+    const sale = {
+      id: "pos-sale-1",
+      cashSessionId: "pos-session-1",
+      receiptNumber: "R-2026-0001",
+      status: "refunded_full",
+      paymentMethod: "cash",
+      currency: "AMD",
+      subtotal: 50000,
+      vat: 10000,
+      total: 60000,
+      paidCash: 60000,
+      lineCount: 1,
+      soldAt: "2026-06-22T09:30:00.000Z",
+      cashierUserId: "user-1",
+      stockLocationId: "loc-pos-1",
+      postings: {
+        salePosting: "posted",
+        inventoryPosting: "posted",
+        ledgerPosting: "not-posted",
+      },
+      lines: [
+        {
+          id: "pos-sale-line-1",
+          catalogItemId: "catitem-pos-scanner",
+          catalogItemVariantId: null,
+          sku: "POS-SCANNER",
+          name: "POS barcode scanner",
+          quantity: 2,
+          unitPrice: 25000,
+          subtotal: 50000,
+          vat: 10000,
+          total: 60000,
+          vatMode: "standard",
+          fiscalReceiptRequired: true,
+          stockMoveId: "stock-move-1",
+        },
+      ],
+      createdAt: "2026-06-22T09:30:01.000Z",
+    };
+
+    const r = PosRefundResponseSchema.safeParse({
+      ok: true,
+      idempotent: false,
+      refund: {
+        id: "pos-sale-refund-1",
+        saleId: "pos-sale-1",
+        cashSessionId: "pos-session-1",
+        refundReference: "RF-CASH-001",
+        sourceKey: "pos-refund-ui-pos-sale-1-1782113400000",
+        reason: "Customer returned sealed scanner.",
+        refundMethod: "cash",
+        refundedTotal: 60000,
+        cashAdjustment: 60000,
+        status: "posted",
+        inventoryPostingStatus: "not-posted",
+        ledgerPostingStatus: "not-posted",
+        postings: {
+          refundPosting: "posted",
+          inventoryPosting: "not-posted",
+          ledgerPosting: "not-posted",
+        },
+        refundedAt: "2026-06-22T10:00:00.000Z",
+        lineCount: 1,
+        lines: [
+          {
+            id: "pos-sale-refund-line-1",
+            saleLineId: "pos-sale-line-1",
+            catalogItemId: "catitem-pos-scanner",
+            catalogItemVariantId: null,
+            sku: "POS-SCANNER",
+            name: "POS barcode scanner",
+            description: "",
+            quantity: 2,
+            unitPrice: 25000,
+            subtotal: 50000,
+            vat: 10000,
+            total: 60000,
+            vatMode: "standard",
+            fiscalReceiptRequired: true,
+            sourceStockMoveId: "stock-move-1",
+            createdAt: "2026-06-22T10:00:01.000Z",
+          },
+        ],
+        createdByUserId: "user-1",
+        createdByName: "Ani Petrosyan",
+        createdAt: "2026-06-22T10:00:01.000Z",
+      },
+      sale,
+      session: {
+        ...VALID_POS_CASH_SESSION,
+        expectedCash: -10000,
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.sale.status).toBe("refunded_full");
+      expect(r.data.refund.inventoryPostingStatus).toBe("not-posted");
+      expect(r.data.refund.ledgerPostingStatus).toBe("not-posted");
+      expect(r.data.refund.lines[0]?.sourceStockMoveId).toBe("stock-move-1");
+      expect(r.data.session?.expectedCash).toBe(-10000);
     }
   });
 });

@@ -5,6 +5,7 @@
  *   - loading and error states for /api/pos/workspace
  *   - opening a cash session via POST /api/pos/cash-sessions
  *   - posting a one-line sale via POST /api/pos/cash-sessions/:id/sales
+ *   - recording full-sale refund evidence via POST /api/pos/sales/:id/refund
  *   - closing the current cash session via POST /api/pos/cash-sessions/:id/close
  *   - app-tier 403 via UserAccessProvider
  */
@@ -34,6 +35,7 @@ const mocks = vi.hoisted(() => ({
   mutateImpls: [] as Array<ReturnType<typeof vi.fn>>,
   pendingFlags: [] as boolean[],
   invalidateQueries: vi.fn(),
+  setQueryData: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -72,7 +74,9 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
       onError?: (...args: unknown[]) => void;
     }) => {
       const fn = opts.mutationFn.toString();
-      const slot = fn.includes("receipt-packet")
+      const slot = fn.includes("/refund")
+        ? 4
+        : fn.includes("receipt-packet")
         ? 3
         : fn.includes("/sales")
         ? 2
@@ -100,7 +104,10 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
         error: null,
       };
     },
-    useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
+    useQueryClient: () => ({
+      invalidateQueries: mocks.invalidateQueries,
+      setQueryData: mocks.setQueryData,
+    }),
   };
 });
 
@@ -246,6 +253,63 @@ const VALID_RECEIPT_PACKET_RESPONSE = {
   sale: VALID_SALE_RESPONSE.sale,
 };
 
+const VALID_REFUND_RESPONSE = {
+  ok: true,
+  idempotent: false,
+  refund: {
+    id: "pos-sale-refund-1",
+    saleId: "pos-sale-1",
+    cashSessionId: "pos-session-1",
+    refundReference: "RF-CASH-001",
+    sourceKey: "pos-refund-ui-pos-sale-1-1782113400000",
+    reason: "Customer returned sealed scanner.",
+    refundMethod: "cash",
+    refundedTotal: 50000,
+    cashAdjustment: 50000,
+    status: "posted",
+    inventoryPostingStatus: "not-posted",
+    ledgerPostingStatus: "not-posted",
+    postings: {
+      refundPosting: "posted",
+      inventoryPosting: "not-posted",
+      ledgerPosting: "not-posted",
+    },
+    refundedAt: "2026-06-22T10:00:00.000Z",
+    lineCount: 1,
+    lines: [
+      {
+        id: "pos-sale-refund-line-1",
+        saleLineId: "pos-sale-line-1",
+        catalogItemId: "catitem-pos-scanner",
+        catalogItemVariantId: null,
+        sku: "POS-SCANNER",
+        name: "POS barcode scanner",
+        description: "",
+        quantity: 2,
+        unitPrice: 25000,
+        subtotal: 50000,
+        vat: 0,
+        total: 50000,
+        vatMode: "exempt",
+        fiscalReceiptRequired: true,
+        sourceStockMoveId: "stock-move-1",
+        createdAt: "2026-06-22T10:00:01.000Z",
+      },
+    ],
+    createdByUserId: "user-1",
+    createdByName: "Ani Petrosyan",
+    createdAt: "2026-06-22T10:00:01.000Z",
+  },
+  sale: {
+    ...VALID_SALE_RESPONSE.sale,
+    status: "refunded_full",
+  },
+  session: {
+    ...OPEN_SESSION,
+    expectedCash: 50000,
+  },
+};
+
 function renderRoute(opts?: { noPosAccess?: boolean }) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -270,6 +334,7 @@ beforeEach(() => {
   mocks.mutateImpls = [];
   mocks.pendingFlags = [];
   mocks.invalidateQueries.mockReset();
+  mocks.setQueryData.mockReset();
 });
 
 afterEach(() => {
@@ -303,6 +368,7 @@ describe("POS route", () => {
     expect(screen.queryByTestId("pos-sale-form")).toBeNull();
     expect(screen.queryByTestId("pos-receipt-packet-form")).toBeNull();
     expect(screen.queryByTestId("pos-receipt-packet-success")).toBeNull();
+    expect(screen.queryByTestId("pos-refund-panel")).toBeNull();
   });
 
   it("keeps receipt packet handoff hidden until a sale succeeds", () => {
@@ -317,6 +383,7 @@ describe("POS route", () => {
     expect(screen.getByTestId("pos-sale-form")).toBeInTheDocument();
     expect(screen.queryByTestId("pos-receipt-packet-form")).toBeNull();
     expect(screen.queryByTestId("pos-receipt-packet-success")).toBeNull();
+    expect(screen.queryByTestId("pos-refund-panel")).toBeNull();
   });
 
   it("opens a cash session with stock location, opening cash, and optional openedAt", async () => {
@@ -457,6 +524,82 @@ describe("POS route", () => {
     expect(screen.getByTestId("pos-receipt-packet-success")).toHaveTextContent(
       /fiscal-packet-checksum-123/,
     );
+  });
+
+  it("records full-sale refund evidence for the last posted sale", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+    mocks.postJson
+      .mockResolvedValueOnce(VALID_SALE_RESPONSE)
+      .mockResolvedValueOnce(VALID_REFUND_RESPONSE);
+
+    renderRoute();
+
+    fireEvent.change(screen.getByTestId("pos-sale-quantity"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-receipt-number"), {
+      target: { value: "R-2026-0002" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-payment-method"), {
+      target: { value: "cash" },
+    });
+    fireEvent.click(screen.getByTestId("pos-sale-submit"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-refund-form")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByTestId("pos-refund-reference"), {
+      target: { value: " rf-cash-001 " },
+    });
+    fireEvent.change(screen.getByTestId("pos-refund-method"), {
+      target: { value: "cash" },
+    });
+    fireEvent.change(screen.getByTestId("pos-refund-reason"), {
+      target: { value: " Customer returned sealed scanner. " },
+    });
+    fireEvent.click(screen.getByTestId("pos-refund-submit"));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(2);
+    });
+    const [path, body] = mocks.postJson.mock.calls[1]!;
+    expect(path).toBe("/api/pos/sales/pos-sale-1/refund");
+    expect(body).toEqual({
+      idempotencyKey: expect.stringMatching(/^pos-refund-ui-pos-sale-1-\d+$/),
+      refundReference: "rf-cash-001",
+      refundMethod: "cash",
+      reason: "Customer returned sealed scanner.",
+    });
+    expect(mocks.mutateImpls[4]).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+        /Refund evidence posted/,
+      );
+    });
+    expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(/Refunded sale/);
+    expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(
+      /status refunded_full/,
+    );
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(/Cash/);
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(/not-posted/);
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+      /does not restock inventory/,
+    );
+    expect(screen.queryByTestId("pos-refund-form")).toBeNull();
+    expect(screen.queryByTestId("pos-receipt-packet-form")).toBeNull();
+    expect(mocks.setQueryData).toHaveBeenCalledWith(
+      ["pos", "workspace"],
+      expect.any(Function),
+    );
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["pos", "workspace"],
+    });
   });
 
   it("closes the current cash session with fiscal closeout evidence", async () => {

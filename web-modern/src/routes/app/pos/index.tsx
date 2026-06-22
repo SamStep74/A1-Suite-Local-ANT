@@ -1,9 +1,10 @@
 /**
  * /app/pos — POS cash-session spine.
  *
- * Slice 422 frontend scope: open/close cash sessions plus minimal
- * one-line POS sale capture. Refunds, offline replay, receipt printing,
- * and full ledger browsing stay outside this surface.
+ * Slice 424 frontend scope: open/close cash sessions, one-line sale
+ * capture, receipt packet handoff, and full-sale refund evidence.
+ * Terminal refunds, fiscal submission, stock restock, receipt printing,
+ * offline replay, and ledger posting stay outside this surface.
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,6 +15,7 @@ import {
   ClipboardCheck,
   Lock,
   ReceiptText,
+  RotateCcw,
   ShoppingCart,
   Store,
 } from "lucide-react";
@@ -27,12 +29,17 @@ import {
   PosOpenCashSessionResponseSchema,
   PosReceiptPacketRequestSchema,
   PosReceiptPacketResponseSchema,
+  PosRefundRequestSchema,
+  PosRefundResponseSchema,
   PosWorkspaceResponseSchema,
   type CatalogItem,
   type PosCashSession,
   type PosCreateSaleResponse,
-  type PosReceiptPacketResponse,
   type PosPaymentMethod,
+  type PosReceiptPacketResponse,
+  type PosRefund,
+  type PosRefundMethod,
+  type PosWorkspaceResponse,
   type PosFiscalCloseoutLabels,
   type StockLocation,
 } from "../../../lib/api/schemas";
@@ -50,6 +57,11 @@ const POS_PAYMENT_METHODS: Array<{ value: PosPaymentMethod; label: string }> = [
   { value: "card", label: "Card" },
   { value: "bank-transfer", label: "Bank transfer" },
 ];
+const POS_REFUND_METHODS: Array<{ value: PosRefundMethod; label: string }> = [
+  { value: "cash", label: "Cash" },
+  { value: "card", label: "Card" },
+  { value: "bank-transfer", label: "Bank transfer" },
+];
 
 function PosWorkspace() {
   const hasAccess = useUserAccess("pos");
@@ -57,6 +69,7 @@ function PosWorkspace() {
   const [lastSale, setLastSale] = useState<PosCreateSaleResponse["sale"] | null>(null);
   const [lastReceiptPacket, setLastReceiptPacket] =
     useState<PosReceiptPacketResponse["receiptPacket"] | null>(null);
+  const [lastRefund, setLastRefund] = useState<PosRefund | null>(null);
 
   const workspaceQ = useQuery({
     queryKey: POS_WORKSPACE_QUERY_KEY,
@@ -67,6 +80,24 @@ function PosWorkspace() {
 
   const refreshWorkspace = () => {
     void queryClient.invalidateQueries({ queryKey: POS_WORKSPACE_QUERY_KEY });
+  };
+
+  const updateWorkspaceSession = (session: PosCashSession | undefined) => {
+    if (!session) return;
+    queryClient.setQueryData<PosWorkspaceResponse | undefined>(
+      POS_WORKSPACE_QUERY_KEY,
+      (current) => {
+        if (!current) return current;
+        const sessions = current.sessions.some((row) => row.id === session.id)
+          ? current.sessions.map((row) => (row.id === session.id ? session : row))
+          : [session, ...current.sessions];
+        return {
+          ...current,
+          openSession: current.openSession?.id === session.id ? session : current.openSession,
+          sessions,
+        };
+      },
+    );
   };
 
   const openMutation = useMutation({
@@ -148,6 +179,7 @@ function PosWorkspace() {
     onSuccess: (response) => {
       setLastSale(response.sale);
       setLastReceiptPacket(null);
+      setLastRefund(null);
       refreshWorkspace();
     },
   });
@@ -169,6 +201,34 @@ function PosWorkspace() {
     onSuccess: (response) => {
       setLastSale(response.sale);
       setLastReceiptPacket(response.receiptPacket);
+      refreshWorkspace();
+    },
+  });
+
+  const refundMutation = useMutation({
+    mutationFn: async (input: {
+      saleId: string;
+      idempotencyKey: string;
+      refundReference: string;
+      refundMethod: PosRefundMethod;
+      reason: string;
+    }) => {
+      const payload = PosRefundRequestSchema.parse({
+        idempotencyKey: input.idempotencyKey,
+        refundReference: input.refundReference.trim(),
+        refundMethod: input.refundMethod,
+        reason: input.reason.trim(),
+      });
+      return postJson(
+        `/api/pos/sales/${input.saleId}/refund`,
+        payload,
+        PosRefundResponseSchema,
+      );
+    },
+    onSuccess: (response) => {
+      setLastRefund(response.refund);
+      setLastSale(response.sale);
+      updateWorkspaceSession(response.session);
       refreshWorkspace();
     },
   });
@@ -256,6 +316,12 @@ function PosWorkspace() {
                     receiptPacketMutation.error
                       ? (receiptPacketMutation.error as Error).message
                       : ""
+                  }
+                  lastRefund={lastRefund}
+                  onRefund={(input) => refundMutation.mutate(input)}
+                  isRefunding={refundMutation.isPending}
+                  refundError={
+                    refundMutation.error ? (refundMutation.error as Error).message : ""
                   }
                 />
                 <div className="space-y-3 border-t border-[var(--color-line)] pt-4 opacity-90">
@@ -501,6 +567,10 @@ export function SaleCapturePanel({
   onPrepareReceiptPacket,
   isPreparingReceiptPacket,
   receiptPacketError,
+  lastRefund,
+  onRefund,
+  isRefunding,
+  refundError,
 }: {
   session: PosCashSession;
   catalogItems: readonly CatalogItem[];
@@ -522,6 +592,16 @@ export function SaleCapturePanel({
   }) => void;
   isPreparingReceiptPacket?: boolean;
   receiptPacketError?: string;
+  lastRefund?: PosRefund | null;
+  onRefund: (input: {
+    saleId: string;
+    idempotencyKey: string;
+    refundReference: string;
+    refundMethod: PosRefundMethod;
+    reason: string;
+  }) => void;
+  isRefunding?: boolean;
+  refundError?: string;
 }) {
   const [catalogItemId, setCatalogItemId] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -685,16 +765,27 @@ export function SaleCapturePanel({
             className="text-[var(--text-sm)] font-medium text-[var(--color-tag-green)]"
             data-testid="pos-sale-success"
           >
-            Posted sale {lastSale.id} · receipt {lastSale.receiptNumber} · {money(lastSale.total)}
+            {isRefundedSale(lastSale) ? "Refunded sale" : "Posted sale"} {lastSale.id} · receipt{" "}
+            {lastSale.receiptNumber} · {money(lastSale.total)} · status {lastSale.status}
           </p>
-          <ReceiptPacketHandoff
-            key={`${lastSale.id}-${session.fiscalDeviceId ?? ""}`}
+          {!isRefundedSale(lastSale) || receiptPacket ? (
+            <ReceiptPacketHandoff
+              key={`${lastSale.id}-${session.fiscalDeviceId ?? ""}`}
+              sale={lastSale}
+              defaultFiscalDeviceId={session.fiscalDeviceId ?? ""}
+              packet={receiptPacket ?? null}
+              onSubmit={onPrepareReceiptPacket}
+              isPending={isPreparingReceiptPacket}
+              error={receiptPacketError}
+            />
+          ) : null}
+          <RefundEvidencePanel
+            key={`${lastSale.id}-refund`}
             sale={lastSale}
-            defaultFiscalDeviceId={session.fiscalDeviceId ?? ""}
-            packet={receiptPacket ?? null}
-            onSubmit={onPrepareReceiptPacket}
-            isPending={isPreparingReceiptPacket}
-            error={receiptPacketError}
+            refund={lastRefund ?? null}
+            onSubmit={onRefund}
+            isPending={isRefunding}
+            error={refundError}
           />
         </div>
       ) : null}
@@ -781,6 +872,162 @@ export function ReceiptPacketHandoff({
         </p>
       ) : null}
     </form>
+  );
+}
+
+export function RefundEvidencePanel({
+  sale,
+  refund,
+  onSubmit,
+  isPending,
+  error,
+}: {
+  sale: PosCreateSaleResponse["sale"];
+  refund: PosRefund | null;
+  onSubmit: (input: {
+    saleId: string;
+    idempotencyKey: string;
+    refundReference: string;
+    refundMethod: PosRefundMethod;
+    reason: string;
+  }) => void;
+  isPending?: boolean;
+  error?: string;
+}) {
+  const [idempotencyKey] = useState(
+    () => `pos-refund-ui-${sale.id}-${Date.now()}`,
+  );
+  const [refundReference, setRefundReference] = useState("");
+  const [refundMethod, setRefundMethod] = useState<PosRefundMethod>("cash");
+  const [reason, setReason] = useState("");
+  const alreadyRefunded = isRefundedSale(sale) || Boolean(refund);
+  const canSubmit =
+    !alreadyRefunded &&
+    refundReference.trim().length > 0 &&
+    reason.trim().length > 0 &&
+    !isPending;
+
+  return (
+    <section
+      className="grid gap-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] p-2"
+      data-testid="pos-refund-panel"
+      data-entity="pos-refund-evidence"
+    >
+      <div className="flex items-start gap-2">
+        <RotateCcw className="mt-0.5 size-4 text-[var(--color-brand)]" aria-hidden />
+        <div>
+          <h4 className="text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+            Refund evidence
+          </h4>
+          <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+            Full-sale evidence only · no stock restock · no ledger posting
+          </p>
+        </div>
+      </div>
+
+      {refund ? (
+        <div
+          className="grid gap-2 text-[var(--text-sm)]"
+          data-testid="pos-refund-success"
+        >
+          <p className="font-medium text-[var(--color-tag-green)]">
+            Refund evidence {refund.status} · {money(refund.refundedTotal)} ·{" "}
+            {refundMethodLabel(refund.refundMethod)}
+          </p>
+          <dl className="grid gap-1 sm:grid-cols-2">
+            <EvidenceRow label="Reference" value={refund.refundReference} />
+            <EvidenceRow label="Cash adjustment" value={money(refund.cashAdjustment)} />
+            <EvidenceRow label="Inventory" value={refund.inventoryPostingStatus} />
+            <EvidenceRow label="Ledger" value={refund.ledgerPostingStatus} />
+          </dl>
+          <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+            Evidence-only record. It does not restock inventory, post ledger journals,
+            submit fiscal refunds, or print receipts.
+          </p>
+        </div>
+      ) : alreadyRefunded ? (
+        <p
+          className="text-[var(--text-sm)] text-[var(--color-muted)]"
+          data-testid="pos-refund-locked"
+        >
+          Refund evidence is already recorded for this sale.
+        </p>
+      ) : (
+        <form
+          className="grid gap-2 sm:grid-cols-[minmax(0,1fr)_150px] lg:grid-cols-[minmax(0,1fr)_150px_minmax(0,1.2fr)_auto]"
+          data-testid="pos-refund-form"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!canSubmit) return;
+            onSubmit({
+              saleId: sale.id,
+              idempotencyKey,
+              refundReference,
+              refundMethod,
+              reason,
+            });
+          }}
+        >
+          <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+            Reference
+            <input
+              value={refundReference}
+              onChange={(event) => setRefundReference(event.target.value)}
+              className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+              data-testid="pos-refund-reference"
+            />
+          </label>
+
+          <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+            Method
+            <select
+              value={refundMethod}
+              onChange={(event) => setRefundMethod(event.target.value as PosRefundMethod)}
+              className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+              data-testid="pos-refund-method"
+            >
+              {POS_REFUND_METHODS.map((method) => (
+                <option key={method.value} value={method.value}>
+                  {method.label}
+                </option>
+              ))}
+            </select>
+          </label>
+
+          <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+            Reason
+            <input
+              value={reason}
+              onChange={(event) => setReason(event.target.value)}
+              className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+              data-testid="pos-refund-reason"
+            />
+          </label>
+
+          <div className="flex items-end">
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-3 text-[var(--text-sm)] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              data-testid="pos-refund-submit"
+            >
+              <RotateCcw className="size-4" aria-hidden />
+              {isPending ? "Recording…" : "Record refund"}
+            </button>
+          </div>
+        </form>
+      )}
+
+      {error ? (
+        <p
+          role="alert"
+          className="text-[var(--text-sm)] text-[var(--color-ruby)]"
+          data-testid="pos-refund-error"
+        >
+          {error}
+        </p>
+      ) : null}
+    </section>
   );
 }
 
@@ -1189,6 +1436,14 @@ function toPositiveInteger(value: string): number {
 function optionalText(value: string): string | undefined {
   const text = value.trim();
   return text.length > 0 ? text : undefined;
+}
+
+function isRefundedSale(sale: { status: string }): boolean {
+  return sale.status === "refunded" || sale.status === "refunded_full";
+}
+
+function refundMethodLabel(method: PosRefundMethod): string {
+  return POS_REFUND_METHODS.find((entry) => entry.value === method)?.label ?? method;
 }
 
 function sessionCashierName(session: PosCashSession): string {
