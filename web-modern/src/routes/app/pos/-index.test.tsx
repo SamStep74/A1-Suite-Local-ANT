@@ -11,6 +11,7 @@
  *   - closing the current cash session via POST /api/pos/cash-sessions/:id/close
  *   - posting closed-session terminal settlement evidence
  *   - queueing and marking local offline replay readiness evidence
+ *   - persisting and retrying browser-local sale drafts
  *   - app-tier 403 via UserAccessProvider
  */
 import {
@@ -139,12 +140,25 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
 });
 
 vi.mock("../../../lib/api/client", () => ({
+  ApiError: class ApiError extends Error {
+    constructor(
+      public readonly status: number,
+      public readonly code: string,
+      message: string,
+      public readonly details?: unknown,
+    ) {
+      super(message);
+      this.name = "ApiError";
+    }
+  },
   getJson: vi.fn(),
   postJson: mocks.postJson,
 }));
 
 import { Route, PosAccessDeniedCard } from "./index";
 import { UserAccessProvider } from "../../../lib/rbac/access.tsx";
+
+const POS_LOCAL_SALE_DRAFTS_STORAGE_KEY = "a1:pos:local-sale-drafts:v1";
 
 const OPEN_SESSION = {
   id: "pos-session-1",
@@ -672,6 +686,12 @@ function renderRoute(opts?: { noPosAccess?: boolean }) {
   );
 }
 
+function readStoredSaleDrafts(): Array<Record<string, unknown>> {
+  return JSON.parse(
+    localStorage.getItem(POS_LOCAL_SALE_DRAFTS_STORAGE_KEY) ?? "[]",
+  ) as Array<Record<string, unknown>>;
+}
+
 beforeEach(() => {
   mocks.workspace = WORKSPACE_NO_OPEN;
   mocks.offlineReplayItems = { items: [] };
@@ -685,10 +705,12 @@ beforeEach(() => {
   mocks.pendingFlags = [];
   mocks.invalidateQueries.mockReset();
   mocks.setQueryData.mockReset();
+  localStorage.removeItem(POS_LOCAL_SALE_DRAFTS_STORAGE_KEY);
 });
 
 afterEach(() => {
   cleanup();
+  localStorage.removeItem(POS_LOCAL_SALE_DRAFTS_STORAGE_KEY);
 });
 
 describe("POS route", () => {
@@ -892,6 +914,193 @@ describe("POS route", () => {
     expect(evidence).toHaveTextContent(/Card\s*25[,\s]000 ֏/);
     expect(evidence).toHaveTextContent(/Bank transfer\s*5[,\s]000 ֏/);
     expect(evidence).toHaveTextContent(/Paid cash\s*20[,\s]000 ֏/);
+  });
+
+  it("persists a browser-local sale draft when sale posting fails", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+    mocks.postJson.mockRejectedValueOnce(new Error("network offline"));
+
+    renderRoute();
+
+    fireEvent.change(screen.getByTestId("pos-sale-quantity"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-receipt-number"), {
+      target: { value: "R-LOCAL-FAIL-1" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-customer"), {
+      target: { value: "cust-retail-1" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-payment-method"), {
+      target: { value: "card" },
+    });
+    fireEvent.click(screen.getByTestId("pos-sale-submit"));
+
+    await waitFor(() => {
+      expect(readStoredSaleDrafts()).toHaveLength(1);
+    });
+    expect(mocks.postJson).toHaveBeenCalledTimes(1);
+    const [, postedBody] = mocks.postJson.mock.calls[0]!;
+    const [draft] = readStoredSaleDrafts() as Array<{
+      cashSessionId: string;
+      queueReason: string;
+      lastError: string;
+      payload: Record<string, unknown>;
+      evidence: Record<string, unknown>;
+    }>;
+
+    expect(draft.cashSessionId).toBe("pos-session-1");
+    expect(draft.queueReason).toBe("post-failed");
+    expect(draft.lastError).toBe("network offline");
+    expect(draft.payload).toEqual(postedBody);
+    expect(draft.evidence).toMatchObject({
+      receiptNumber: "R-LOCAL-FAIL-1",
+      customerLabel: "Ararat Market",
+      paymentLabel: "Card",
+      total: 50000,
+    });
+    expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
+      /R-LOCAL-FAIL-1/,
+    );
+    expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
+      /Ararat Market/,
+    );
+    expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(/Card/);
+    expect(screen.getByTestId("pos-local-sale-draft-queue-success")).toHaveTextContent(
+      /Queued after post failed/,
+    );
+  });
+
+  it("does not queue business validation sale failures as offline drafts", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+    mocks.postJson.mockRejectedValueOnce(new Error("finance period 2026-06 is closed"));
+
+    renderRoute();
+
+    fireEvent.change(screen.getByTestId("pos-sale-quantity"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-receipt-number"), {
+      target: { value: "R-BUSINESS-FAIL-1" },
+    });
+    fireEvent.click(screen.getByTestId("pos-sale-submit"));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(1);
+    });
+    expect(readStoredSaleDrafts()).toHaveLength(0);
+    expect(screen.queryByTestId("pos-local-sale-draft")).toBeNull();
+    expect(screen.getByTestId("pos-local-sale-draft-panel")).toHaveTextContent(
+      /No browser-local sale drafts queued/,
+    );
+  });
+
+  it("queues a sale locally on operator action and retries the same payload", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+
+    renderRoute();
+
+    fireEvent.change(screen.getByTestId("pos-sale-quantity"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-receipt-number"), {
+      target: { value: "R-LOCAL-QUEUE-1" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-customer"), {
+      target: { value: "cust-retail-2" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-split-cash"), {
+      target: { value: "20000" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-split-card"), {
+      target: { value: "25000" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-split-bank-transfer"), {
+      target: { value: "5000" },
+    });
+    fireEvent.click(screen.getByTestId("pos-sale-queue-local"));
+
+    await waitFor(() => {
+      expect(readStoredSaleDrafts()).toHaveLength(1);
+    });
+    expect(mocks.postJson).not.toHaveBeenCalled();
+    const [storedDraft] = readStoredSaleDrafts() as Array<{
+      payload: Record<string, unknown>;
+      evidence: Record<string, unknown>;
+    }>;
+    const storedPayload = storedDraft.payload;
+
+    expect(storedDraft.evidence).toMatchObject({
+      receiptNumber: "R-LOCAL-QUEUE-1",
+      customerLabel: "Vanadzor Retail",
+      total: 50000,
+    });
+    expect(String(storedDraft.evidence.paymentLabel)).toMatch(
+      /Cash 20[,\s]000\s*֏ \/ Card 25[,\s]000\s*֏ \/ Bank transfer 5[,\s]000\s*֏/,
+    );
+    expect(storedPayload).toMatchObject({
+      customerId: "cust-retail-2",
+      receiptNumber: "R-LOCAL-QUEUE-1",
+      paymentMethod: "cash",
+      payments: [
+        { paymentMethod: "cash", amount: 20000 },
+        { paymentMethod: "card", amount: 25000 },
+        { paymentMethod: "bank-transfer", amount: 5000 },
+      ],
+      idempotencyKey: expect.stringMatching(/^pos-sale-ui-\d+$/),
+      lines: [{ catalogItemId: "catitem-pos-scanner", quantity: 2 }],
+    });
+    expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
+      /R-LOCAL-QUEUE-1/,
+    );
+    expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
+      /Vanadzor Retail/,
+    );
+    expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
+      /Cash 20[,\s]000 ֏ \/ Card 25[,\s]000 ֏ \/ Bank transfer 5[,\s]000 ֏/,
+    );
+
+    mocks.postJson.mockResolvedValueOnce({
+      ...VALID_SALE_RESPONSE,
+      sale: {
+        ...VALID_SALE_RESPONSE.sale,
+        id: "pos-sale-local-retry-1",
+        receiptNumber: "R-LOCAL-QUEUE-1",
+        customerId: "cust-retail-2",
+        customerName: "Vanadzor Retail",
+      },
+    });
+    fireEvent.click(screen.getByTestId("pos-local-sale-draft-retry"));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(1);
+    });
+    const [path, retryBody] = mocks.postJson.mock.calls[0]!;
+    expect(path).toBe("/api/pos/cash-sessions/pos-session-1/sales");
+    expect(retryBody).toEqual(storedPayload);
+
+    await waitFor(() => {
+      expect(readStoredSaleDrafts()).toHaveLength(0);
+    });
+    expect(screen.getByTestId("pos-local-sale-draft-retry-success")).toHaveTextContent(
+      /local draft removed/,
+    );
+    expect(screen.queryByTestId("pos-local-sale-draft")).toBeNull();
+    expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(
+      /pos-sale-local-retry-1/,
+    );
   });
 
   it("prepares fiscal receipt and local print-preview evidence for the last posted sale", async () => {

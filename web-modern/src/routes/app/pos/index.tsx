@@ -5,9 +5,10 @@
  * capture, receipt packet handoff, refund evidence, pre-receipt void evidence,
  * and tracked-line stock return evidence with POS ledger journal visibility,
  * plus closed-session card terminal settlement evidence, local receipt print
- * previews, and offline replay readiness evidence. Terminal refunds, live
- * fiscal submission, live receipt printing, and true browser-offline execution
- * stay outside this surface.
+ * previews, offline replay readiness evidence, and a browser-local manual sale
+ * draft queue. Terminal refunds, live fiscal submission, live receipt printing,
+ * automatic replay, and true browser-offline execution stay outside this
+ * surface.
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -50,6 +51,7 @@ import {
   type CatalogItem,
   type CustomerOption,
   type PosCashSession,
+  type PosCreateSaleRequest,
   type PosCreateSaleResponse,
   type PosCapabilityStatus,
   type PosOfflineReplayItem,
@@ -72,6 +74,15 @@ import {
 import { useUserAccess } from "../../../lib/rbac/access.tsx";
 import { money } from "../../../lib/utils/money";
 import { cn } from "../../../lib/utils/cn";
+import {
+  createQueuedPosSaleDraft,
+  persistQueuedPosSaleDrafts,
+  readQueuedPosSaleDrafts,
+  sendQueuedPosSaleDraft,
+  shouldQueuePosSaleDraftError,
+  type PosLocalSaleDraft,
+  type PosLocalSaleDraftReason,
+} from "./-sale-draft-queue";
 
 export const Route = createFileRoute("/app/pos/")({
   component: PosWorkspace,
@@ -89,6 +100,21 @@ const POS_REFUND_METHODS: Array<{ value: PosRefundMethod; label: string }> = [
   { value: "card", label: "Card" },
   { value: "bank-transfer", label: "Bank transfer" },
 ];
+type PosSaleCaptureInput = {
+  sessionId: string;
+  catalogItemId: string;
+  quantity: string;
+  receiptNumber: string;
+  paymentMethod: PosPaymentMethod;
+  payments?: PosSalePaymentRequest[];
+  soldAt: string;
+  customerId: string;
+  idempotencyKey: string;
+};
+
+type PosSaleMutationInput =
+  | { mode: "capture"; input: PosSaleCaptureInput }
+  | { mode: "retry-draft"; draft: PosLocalSaleDraft };
 
 function PosWorkspace() {
   const hasAccess = useUserAccess("pos");
@@ -109,6 +135,14 @@ function PosWorkspace() {
     useState<PosOfflineReplayItem | null>(null);
   const [lastMarkedOfflineReplayItem, setLastMarkedOfflineReplayItem] =
     useState<PosOfflineReplayItem | null>(null);
+  const [localSaleDrafts, setLocalSaleDrafts] = useState<PosLocalSaleDraft[]>(
+    () => readQueuedPosSaleDrafts(),
+  );
+  const [lastQueuedLocalSaleDraft, setLastQueuedLocalSaleDraft] =
+    useState<PosLocalSaleDraft | null>(null);
+  const [lastRetriedLocalSaleDraftId, setLastRetriedLocalSaleDraftId] =
+    useState<string | null>(null);
+  const [localSaleDraftError, setLocalSaleDraftError] = useState("");
 
   const workspaceQ = useQuery({
     queryKey: POS_WORKSPACE_QUERY_KEY,
@@ -150,6 +184,35 @@ function PosWorkspace() {
         };
       },
     );
+  };
+
+  const persistLocalSaleDrafts = (
+    updater: (current: PosLocalSaleDraft[]) => PosLocalSaleDraft[],
+  ) => {
+    const next = persistQueuedPosSaleDrafts(updater(localSaleDrafts));
+    setLocalSaleDraftError("");
+    setLocalSaleDrafts(next);
+  };
+
+  const queueLocalSaleDraftFromCapture = (
+    input: PosSaleCaptureInput,
+    queueReason: PosLocalSaleDraftReason,
+    error?: unknown,
+  ) => {
+    try {
+      const draft = createLocalSaleDraft({
+        input,
+        queueReason,
+        error,
+        catalogItems,
+        customers,
+      });
+      persistLocalSaleDrafts((current) => upsertLocalSaleDraft(current, draft));
+      setLastQueuedLocalSaleDraft(draft);
+      setLastRetriedLocalSaleDraftId(null);
+    } catch (draftError) {
+      setLocalSaleDraftError(`Could not queue sale draft: ${errorMessage(draftError)}`);
+    }
   };
 
   const openMutation = useMutation({
@@ -202,43 +265,51 @@ function PosWorkspace() {
   });
 
   const saleMutation = useMutation({
-    mutationFn: async (input: {
-      sessionId: string;
-      catalogItemId: string;
-      quantity: string;
-      receiptNumber: string;
-      paymentMethod: PosPaymentMethod;
-      payments?: PosSalePaymentRequest[];
-      soldAt: string;
-      customerId: string;
-    }) => {
-      const payload = PosCreateSaleRequestSchema.parse({
-        ...(input.customerId ? { customerId: input.customerId } : {}),
-        receiptNumber: input.receiptNumber.trim(),
-        paymentMethod: input.paymentMethod,
-        ...(input.payments ? { payments: input.payments } : {}),
-        soldAt: optionalText(input.soldAt),
-        idempotencyKey: `pos-sale-ui-${Date.now()}`,
-        lines: [
-          {
-            catalogItemId: input.catalogItemId,
-            quantity: toPositiveInteger(input.quantity),
-          },
-        ],
-      });
+    mutationFn: async (input: PosSaleMutationInput) => {
+      if (input.mode === "retry-draft") {
+        return sendQueuedPosSaleDraft(input.draft);
+      }
+      const payload = createSalePayload(input.input);
       return postJson(
-        `/api/pos/cash-sessions/${input.sessionId}/sales`,
+        `/api/pos/cash-sessions/${input.input.sessionId}/sales`,
         payload,
         PosCreateSaleResponseSchema,
       );
     },
-    onSuccess: (response) => {
+    onSuccess: (response, input) => {
       setLastSale(response.sale);
       setLastReceiptPacket(null);
       setLastReceiptPrint(null);
       setLastRefund(null);
       setLastVoid(null);
+      if (input.mode === "retry-draft") {
+        persistLocalSaleDrafts((current) =>
+          current.filter((draft) => draft.id !== input.draft.id),
+        );
+        setLastRetriedLocalSaleDraftId(input.draft.id);
+        setLastQueuedLocalSaleDraft(null);
+      }
       refreshWorkspace();
+    },
+    onError: (error, input) => {
+      if (input.mode === "capture" && shouldQueuePosSaleDraftError(error)) {
+        queueLocalSaleDraftFromCapture(input.input, "post-failed", error);
+        return;
+      }
+      if (input.mode === "capture") return;
+      const retryError = errorMessage(error);
+      persistLocalSaleDrafts((current) =>
+        current.map((draft) =>
+          draft.id === input.draft.id
+            ? {
+                ...draft,
+                lastError: retryError,
+                lastRetryAt: new Date().toISOString(),
+              }
+            : draft,
+        ),
+      );
+      setLastRetriedLocalSaleDraftId(null);
     },
   });
 
@@ -535,7 +606,10 @@ function PosWorkspace() {
                   session={openSession}
                   catalogItems={catalogItems}
                   customers={customers}
-                  onSubmit={(input) => saleMutation.mutate(input)}
+                  onSubmit={(input) => saleMutation.mutate({ mode: "capture", input })}
+                  onQueueDraft={(input) =>
+                    queueLocalSaleDraftFromCapture(input, "manual")
+                  }
                   isPending={saleMutation.isPending}
                   error={saleMutation.error ? (saleMutation.error as Error).message : ""}
                   lastSale={lastSale}
@@ -619,6 +693,14 @@ function PosWorkspace() {
                 lastSale={lastSale}
                 queuedItem={lastQueuedOfflineReplayItem}
                 markedItem={lastMarkedOfflineReplayItem}
+                localSaleDrafts={localSaleDrafts}
+                lastQueuedSaleDraft={lastQueuedLocalSaleDraft}
+                lastRetriedSaleDraftId={lastRetriedLocalSaleDraftId}
+                onRetrySaleDraft={(draft) =>
+                  saleMutation.mutate({ mode: "retry-draft", draft })
+                }
+                isRetryingSaleDraft={saleMutation.isPending}
+                localSaleDraftError={localSaleDraftError}
                 onQueueSample={(input) => queueOfflineReplayMutation.mutate(input)}
                 isQueuePending={queueOfflineReplayMutation.isPending}
                 queueError={
@@ -843,6 +925,7 @@ export function SaleCapturePanel({
   catalogItems,
   customers,
   onSubmit,
+  onQueueDraft,
   isPending,
   error,
   lastSale,
@@ -866,16 +949,8 @@ export function SaleCapturePanel({
   session: PosCashSession;
   catalogItems: readonly CatalogItem[];
   customers: readonly CustomerOption[];
-  onSubmit: (input: {
-    sessionId: string;
-    catalogItemId: string;
-    quantity: string;
-    receiptNumber: string;
-    paymentMethod: PosPaymentMethod;
-    payments?: PosSalePaymentRequest[];
-    soldAt: string;
-    customerId: string;
-  }) => void;
+  onSubmit: (input: PosSaleCaptureInput) => void;
+  onQueueDraft: (input: PosSaleCaptureInput) => void;
   isPending?: boolean;
   error?: string;
   lastSale?: PosCreateSaleResponse["sale"] | null;
@@ -996,6 +1071,17 @@ export function SaleCapturePanel({
     quantityNumber > 0 &&
     splitPaymentsMatchTotal &&
     !isPending;
+  const createInput = (): PosSaleCaptureInput => ({
+    sessionId: session.id,
+    catalogItemId: selectedCatalogItemId,
+    quantity,
+    receiptNumber,
+    paymentMethod,
+    ...(hasSplitPayments ? { payments: splitPayments } : {}),
+    soldAt,
+    customerId,
+    idempotencyKey: `pos-sale-ui-${Date.now()}`,
+  });
 
   return (
     <div
@@ -1016,16 +1102,7 @@ export function SaleCapturePanel({
         onSubmit={(event) => {
           event.preventDefault();
           if (!canSubmit) return;
-          onSubmit({
-            sessionId: session.id,
-            catalogItemId: selectedCatalogItemId,
-            quantity,
-            receiptNumber,
-            paymentMethod,
-            ...(hasSplitPayments ? { payments: splitPayments } : {}),
-            soldAt,
-            customerId,
-          });
+          onSubmit(createInput());
         }}
       >
         <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
@@ -1177,15 +1254,30 @@ export function SaleCapturePanel({
           <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
             Unit price: {money(unitPrice)}
           </p>
-          <button
-            type="submit"
-            disabled={!canSubmit}
-            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-3 text-[var(--text-sm)] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
-            data-testid="pos-sale-submit"
-          >
-            <ReceiptText className="size-4" aria-hidden />
-            {isPending ? "Posting…" : "Post sale"}
-          </button>
+          <div className="flex flex-col gap-2 sm:flex-row">
+            <button
+              type="button"
+              disabled={!canSubmit}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-3 text-[var(--text-sm)] font-semibold text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-50"
+              data-testid="pos-sale-queue-local"
+              onClick={() => {
+                if (!canSubmit) return;
+                onQueueDraft(createInput());
+              }}
+            >
+              <RotateCcw className="size-4" aria-hidden />
+              Queue locally
+            </button>
+            <button
+              type="submit"
+              disabled={!canSubmit}
+              className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-3 text-[var(--text-sm)] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+              data-testid="pos-sale-submit"
+            >
+              <ReceiptText className="size-4" aria-hidden />
+              {isPending ? "Posting…" : "Post sale"}
+            </button>
+          </div>
         </div>
 
         {error ? (
@@ -2188,6 +2280,12 @@ export function OfflineReplayReadinessPanel({
   lastSale,
   queuedItem,
   markedItem,
+  localSaleDrafts,
+  lastQueuedSaleDraft,
+  lastRetriedSaleDraftId,
+  onRetrySaleDraft,
+  isRetryingSaleDraft,
+  localSaleDraftError,
   onQueueSample,
   isQueuePending,
   queueError,
@@ -2202,6 +2300,12 @@ export function OfflineReplayReadinessPanel({
   lastSale?: PosCreateSaleResponse["sale"] | null;
   queuedItem?: PosOfflineReplayItem | null;
   markedItem?: PosOfflineReplayItem | null;
+  localSaleDrafts: readonly PosLocalSaleDraft[];
+  lastQueuedSaleDraft?: PosLocalSaleDraft | null;
+  lastRetriedSaleDraftId?: string | null;
+  onRetrySaleDraft: (draft: PosLocalSaleDraft) => void;
+  isRetryingSaleDraft?: boolean;
+  localSaleDraftError?: string;
   onQueueSample: (input: {
     cashSessionId?: string;
     saleId?: string;
@@ -2218,6 +2322,7 @@ export function OfflineReplayReadinessPanel({
   listError?: string;
 }) {
   const visibleItems = items.slice(0, 5);
+  const visibleSaleDrafts = localSaleDrafts.slice(0, 5);
   const queuedItems = items.filter((item) => item.replayStatus === "queued");
   const canQueueSample = Boolean(openSession) && !isQueuePending;
 
@@ -2257,6 +2362,127 @@ export function OfflineReplayReadinessPanel({
           Replay list unavailable: {listError}
         </p>
       ) : null}
+
+      <div
+        className="space-y-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] p-2"
+        data-testid="pos-local-sale-draft-panel"
+      >
+        <div>
+          <h3 className="text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+            Browser sale draft queue
+          </h3>
+          <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+            Manual retry only; automatic replay and fiscal submission remain deferred.
+          </p>
+        </div>
+
+        <dl className="grid gap-1 text-[var(--text-xs)] sm:grid-cols-2">
+          <EvidenceRow label="Local drafts" value={String(localSaleDrafts.length)} />
+          <EvidenceRow
+            label="Last queued"
+            value={lastQueuedSaleDraft?.evidence.receiptNumber ?? "—"}
+          />
+        </dl>
+
+        {lastQueuedSaleDraft ? (
+          <p
+            className="text-[var(--text-sm)] font-medium text-[var(--color-tag-green)]"
+            data-testid="pos-local-sale-draft-queue-success"
+          >
+            Queued local sale draft {lastQueuedSaleDraft.evidence.receiptNumber} ·{" "}
+            {localSaleDraftReasonLabel(lastQueuedSaleDraft.queueReason)}
+          </p>
+        ) : null}
+
+        {lastRetriedSaleDraftId ? (
+          <p
+            className="text-[var(--text-sm)] font-medium text-[var(--color-tag-green)]"
+            data-testid="pos-local-sale-draft-retry-success"
+          >
+            Retried sale draft {lastRetriedSaleDraftId}; local draft removed.
+          </p>
+        ) : null}
+
+        {localSaleDraftError ? (
+          <p
+            role="alert"
+            className="text-[var(--text-sm)] text-[var(--color-ruby)]"
+            data-testid="pos-local-sale-draft-error"
+          >
+            {localSaleDraftError}
+          </p>
+        ) : null}
+
+        {visibleSaleDrafts.length === 0 ? (
+          <p className="text-[var(--text-sm)] text-[var(--color-muted)]">
+            No browser-local sale drafts queued.
+          </p>
+        ) : (
+          <ul className="space-y-2" data-testid="pos-local-sale-drafts">
+            {visibleSaleDrafts.map((draft) => (
+              <li
+                key={draft.id}
+                className="rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] p-2"
+                data-testid="pos-local-sale-draft"
+              >
+                <div className="flex flex-col gap-2">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="truncate text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+                        Receipt {draft.evidence.receiptNumber}
+                      </p>
+                      <p className="truncate font-mono text-[11px] text-[var(--color-muted)]">
+                        {draft.payload.idempotencyKey}
+                      </p>
+                    </div>
+                    <span className="shrink-0 rounded-full bg-[color-mix(in_srgb,var(--color-brand)_12%,transparent)] px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-brand)]">
+                      local
+                    </span>
+                  </div>
+                  <dl className="grid gap-1 text-[var(--text-xs)]">
+                    <EvidenceRow label="Session" value={draft.cashSessionId} />
+                    <EvidenceRow label="Customer" value={draft.evidence.customerLabel} />
+                    <EvidenceRow label="Payment" value={draft.evidence.paymentLabel} />
+                    <EvidenceRow label="Total" value={moneyOrDash(draft.evidence.total ?? Number.NaN)} />
+                    <EvidenceRow label="Line" value={draft.evidence.lineLabel} />
+                    <EvidenceRow label="Queued" value={formatDateTime(draft.queuedAt)} />
+                    <EvidenceRow
+                      label="Reason"
+                      value={localSaleDraftReasonLabel(draft.queueReason)}
+                    />
+                    {draft.lastRetryAt ? (
+                      <EvidenceRow
+                        label="Last retry"
+                        value={formatDateTime(draft.lastRetryAt)}
+                      />
+                    ) : null}
+                  </dl>
+                  {draft.lastError ? (
+                    <p
+                      className="text-[var(--text-xs)] text-[var(--color-ruby)]"
+                      data-testid="pos-local-sale-draft-last-error"
+                    >
+                      {draft.lastError}
+                    </p>
+                  ) : null}
+                  <div>
+                    <button
+                      type="button"
+                      disabled={isRetryingSaleDraft}
+                      className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] px-2 text-[var(--text-xs)] font-semibold text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-50"
+                      data-testid="pos-local-sale-draft-retry"
+                      onClick={() => onRetrySaleDraft(draft)}
+                    >
+                      <RotateCcw className="size-3.5" aria-hidden />
+                      {isRetryingSaleDraft ? "Retrying..." : "Retry sale"}
+                    </button>
+                  </div>
+                </div>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
 
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
@@ -2950,6 +3176,99 @@ function mergeOfflineReplayItems(
     }
   }
   return Array.from(byId.values());
+}
+
+function createSalePayload(input: PosSaleCaptureInput): PosCreateSaleRequest {
+  return PosCreateSaleRequestSchema.parse({
+    ...(input.customerId ? { customerId: input.customerId } : {}),
+    receiptNumber: input.receiptNumber.trim(),
+    paymentMethod: input.paymentMethod,
+    ...(input.payments ? { payments: input.payments } : {}),
+    soldAt: optionalText(input.soldAt),
+    idempotencyKey: input.idempotencyKey,
+    lines: [
+      {
+        catalogItemId: input.catalogItemId,
+        quantity: toPositiveInteger(input.quantity),
+      },
+    ],
+  });
+}
+
+function createLocalSaleDraft({
+  input,
+  queueReason,
+  error,
+  catalogItems,
+  customers,
+}: {
+  input: PosSaleCaptureInput;
+  queueReason: PosLocalSaleDraftReason;
+  error?: unknown;
+  catalogItems: readonly CatalogItem[];
+  customers: readonly CustomerOption[];
+}): PosLocalSaleDraft {
+  const payload = createSalePayload(input);
+  const firstLine = payload.lines[0];
+  const selectedItem = catalogItems.find(
+    (item) => item.id === firstLine?.catalogItemId,
+  );
+  const quantity = payload.lines.reduce((sum, line) => sum + line.quantity, 0);
+  const listPrice = finiteAmount(selectedItem?.listPrice);
+  const lineTotal = listPrice !== undefined ? listPrice * quantity : null;
+  const paymentTotal = payload.payments?.reduce((sum, payment) => sum + payment.amount, 0);
+  const customer =
+    payload.customerId
+      ? customers.find((candidate) => candidate.id === payload.customerId)
+      : undefined;
+  const lineName = selectedItem
+    ? `${selectedItem.sku} · ${selectedItem.name}`
+    : firstLine?.catalogItemId ?? "Sale line";
+
+  return createQueuedPosSaleDraft({
+    cashSessionId: input.sessionId,
+    payload,
+    queueReason,
+    ...(error ? { lastError: errorMessage(error) } : {}),
+    evidence: {
+      receiptNumber: payload.receiptNumber,
+      customerLabel: customer?.name ?? payload.customerId ?? "Walk-in customer",
+      paymentLabel: localSaleDraftPaymentLabel(payload),
+      lineLabel: `${quantity} x ${lineName}`,
+      quantity,
+      total: lineTotal ?? paymentTotal ?? null,
+    },
+  });
+}
+
+function upsertLocalSaleDraft(
+  current: readonly PosLocalSaleDraft[],
+  draft: PosLocalSaleDraft,
+): PosLocalSaleDraft[] {
+  const existingIndex = current.findIndex(
+    (entry) =>
+      entry.id === draft.id ||
+      entry.payload.idempotencyKey === draft.payload.idempotencyKey,
+  );
+  if (existingIndex === -1) return [draft, ...current];
+  return current.map((entry, index) => (index === existingIndex ? draft : entry));
+}
+
+function localSaleDraftPaymentLabel(payload: PosCreateSaleRequest): string {
+  if (payload.payments?.length) {
+    return payload.payments
+      .map((payment) => `${paymentMethodLabel(payment.paymentMethod)} ${money(payment.amount)}`)
+      .join(" / ");
+  }
+  return paymentMethodLabel(payload.paymentMethod);
+}
+
+function localSaleDraftReasonLabel(reason: PosLocalSaleDraftReason): string {
+  return reason === "post-failed" ? "Queued after post failed" : "Queued by operator";
+}
+
+function errorMessage(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
 }
 
 function offlineReplayCapabilityLabel(status?: PosCapabilityStatus): string {

@@ -1,0 +1,193 @@
+import { ApiError, postJson } from "../../../lib/api/client";
+import {
+  PosCreateSaleRequestSchema,
+  PosCreateSaleResponseSchema,
+  type PosCreateSaleRequest,
+  type PosCreateSaleResponse,
+} from "../../../lib/api/schemas";
+
+export const POS_SALE_DRAFT_QUEUE_STORAGE_KEY = "a1:pos:local-sale-drafts:v1";
+const POS_SALE_DRAFT_QUEUE_LIMIT = 25;
+
+export type PosLocalSaleDraftReason = "manual" | "post-failed";
+
+export type PosLocalSaleDraftEvidence = {
+  receiptNumber: string;
+  customerLabel: string;
+  paymentLabel: string;
+  lineLabel: string;
+  quantity: number;
+  total: number | null;
+};
+
+export type PosLocalSaleDraft = {
+  id: string;
+  cashSessionId: string;
+  payload: PosCreateSaleRequest;
+  queuedAt: string;
+  queueReason: PosLocalSaleDraftReason;
+  lastError?: string;
+  lastRetryAt?: string;
+  evidence: PosLocalSaleDraftEvidence;
+};
+
+function getSaleDraftQueueStorage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function resetQueuedPosSaleDrafts(): void {
+  const storage = getSaleDraftQueueStorage();
+  if (!storage) return;
+  try {
+    storage.setItem(POS_SALE_DRAFT_QUEUE_STORAGE_KEY, "[]");
+  } catch {
+    // Storage can be unavailable in private browsing or quota pressure.
+  }
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function stringValue(value: unknown): string | undefined {
+  return typeof value === "string" && value.trim().length > 0 ? value : undefined;
+}
+
+function numberValue(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function normalizeSaleDraftReason(value: unknown): PosLocalSaleDraftReason {
+  return value === "post-failed" || value === "manual" ? value : "manual";
+}
+
+function normalizeSaleDraftEvidence(
+  value: unknown,
+  payload: PosCreateSaleRequest,
+): PosLocalSaleDraftEvidence | null {
+  if (!isRecord(value)) return null;
+  return {
+    receiptNumber: stringValue(value.receiptNumber) || payload.receiptNumber,
+    customerLabel:
+      stringValue(value.customerLabel) || payload.customerId || "Walk-in customer",
+    paymentLabel: stringValue(value.paymentLabel) || payload.paymentMethod,
+    lineLabel:
+      stringValue(value.lineLabel) ||
+      `${payload.lines.length} sale line${payload.lines.length === 1 ? "" : "s"}`,
+    quantity: numberValue(value.quantity) ?? payload.lines.length,
+    total: numberValue(value.total) ?? null,
+  };
+}
+
+function normalizeQueuedPosSaleDraft(value: unknown): PosLocalSaleDraft | null {
+  if (!isRecord(value)) return null;
+  const payloadResult = PosCreateSaleRequestSchema.safeParse(value.payload);
+  if (!payloadResult.success) return null;
+  const payload = payloadResult.data;
+  const cashSessionId = stringValue(value.cashSessionId);
+  const queuedAt = stringValue(value.queuedAt);
+  const evidence = normalizeSaleDraftEvidence(value.evidence, payload);
+  if (!cashSessionId || !queuedAt || !evidence) return null;
+
+  return {
+    id: stringValue(value.id) || `pos-sale-draft-${payload.idempotencyKey}`,
+    cashSessionId,
+    payload,
+    queuedAt,
+    queueReason: normalizeSaleDraftReason(value.queueReason),
+    ...(stringValue(value.lastError) ? { lastError: stringValue(value.lastError) } : {}),
+    ...(stringValue(value.lastRetryAt)
+      ? { lastRetryAt: stringValue(value.lastRetryAt) }
+      : {}),
+    evidence,
+  };
+}
+
+export function persistQueuedPosSaleDrafts(
+  queue: readonly PosLocalSaleDraft[],
+): PosLocalSaleDraft[] {
+  const bounded = queue.slice(-POS_SALE_DRAFT_QUEUE_LIMIT);
+  const storage = getSaleDraftQueueStorage();
+  if (!storage) return [...bounded];
+  try {
+    storage.setItem(POS_SALE_DRAFT_QUEUE_STORAGE_KEY, JSON.stringify(bounded));
+  } catch {
+    // Keep the in-memory queue usable even if persistence fails.
+  }
+  return [...bounded];
+}
+
+export function readQueuedPosSaleDrafts(): PosLocalSaleDraft[] {
+  const storage = getSaleDraftQueueStorage();
+  if (!storage) return [];
+  const raw = storage.getItem(POS_SALE_DRAFT_QUEUE_STORAGE_KEY);
+  if (!raw) return [];
+
+  try {
+    const parsed: unknown = JSON.parse(raw);
+    if (!Array.isArray(parsed)) {
+      resetQueuedPosSaleDrafts();
+      return [];
+    }
+    const normalized = parsed.flatMap((value) => {
+      const draft = normalizeQueuedPosSaleDraft(value);
+      return draft ? [draft] : [];
+    });
+    if (normalized.length !== parsed.length) {
+      resetQueuedPosSaleDrafts();
+      return [];
+    }
+    return persistQueuedPosSaleDrafts(normalized);
+  } catch {
+    resetQueuedPosSaleDrafts();
+    return [];
+  }
+}
+
+export function createQueuedPosSaleDraft(input: {
+  cashSessionId: string;
+  payload: PosCreateSaleRequest;
+  evidence: PosLocalSaleDraftEvidence;
+  queueReason: PosLocalSaleDraftReason;
+  lastError?: string;
+}): PosLocalSaleDraft {
+  const payload = PosCreateSaleRequestSchema.parse(input.payload);
+  return {
+    id: `pos-sale-draft-${payload.idempotencyKey.replace(/[^a-zA-Z0-9_-]/g, "-")}`,
+    cashSessionId: input.cashSessionId,
+    payload,
+    queuedAt: new Date().toISOString(),
+    queueReason: input.queueReason,
+    ...(input.lastError ? { lastError: input.lastError.slice(0, 240) } : {}),
+    evidence: input.evidence,
+  };
+}
+
+export async function sendQueuedPosSaleDraft(
+  draft: PosLocalSaleDraft,
+): Promise<PosCreateSaleResponse> {
+  return postJson(
+    `/api/pos/cash-sessions/${draft.cashSessionId}/sales`,
+    draft.payload,
+    PosCreateSaleResponseSchema,
+  );
+}
+
+export function shouldQueuePosSaleDraftError(error: unknown): boolean {
+  if (typeof navigator !== "undefined" && navigator.onLine === false) return true;
+  if (error instanceof ApiError) return error.status === 0 || error.status >= 500;
+  if (error instanceof TypeError) return true;
+
+  const message = error instanceof Error ? error.message.toLowerCase() : "";
+  return (
+    message.includes("failed to fetch") ||
+    message.includes("network") ||
+    message.includes("load failed") ||
+    message.includes("backend unavailable")
+  );
+}
