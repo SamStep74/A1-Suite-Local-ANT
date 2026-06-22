@@ -41,11 +41,13 @@ async function createPostedPosSale(app, operator, options = {}) {
   const session = opened.json().session;
   const posted = await app.inject({
     method: "POST",
-    url: `/api/pos/cash-sessions/${session.id}/sales`,
+    url: options.useSalesEndpoint ? "/api/pos/sales" : `/api/pos/cash-sessions/${session.id}/sales`,
     headers: { cookie: operator },
     payload: {
+      ...(options.useSalesEndpoint ? { cashSessionId: session.id } : {}),
       receiptNumber: options.receiptNumber || "R-PACKET-001",
       paymentMethod: options.paymentMethod || "cash",
+      ...(options.payments ? { payments: options.payments } : {}),
       soldAt: options.soldAt || "2026-06-22T09:15:00.000Z",
       idempotencyKey: options.idempotencyKey || "pos-receipt-packet-sale",
       lines: options.lines || [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 1 }]
@@ -225,10 +227,14 @@ test("pos: cash sale validates input, fiscal catalog, and stock availability", a
     await expectRejected({ receiptNumber: "R-VAL-3", paymentMethod: "cash", idempotencyKey: "pos-val-bad-qty", lines: [{ ...line, quantity: 0 }] });
     await expectRejected({ receiptNumber: "R-VAL-4", paymentMethod: "cash", idempotencyKey: "pos-val-missing-item", lines: [{ catalogItemId: "catitem-missing", quantity: 1 }] }, 404);
     await expectRejected({ receiptNumber: "R-VAL-5", paymentMethod: "cash", idempotencyKey: "pos-val-stock", lines: [{ ...line, quantity: 999 }] }, 409);
+    await expectRejected({ receiptNumber: "R-VAL-6", paymentMethod: "cash", idempotencyKey: "pos-val-empty-split", payments: [], lines: [line] }, 422);
+    await expectRejected({ receiptNumber: "R-VAL-7", paymentMethod: "cash", idempotencyKey: "pos-val-bad-split-method", payments: [{ paymentMethod: "crypto", amount: 85000 }], lines: [line] }, 422);
+    await expectRejected({ receiptNumber: "R-VAL-8", paymentMethod: "cash", idempotencyKey: "pos-val-decimal-split", payments: [{ paymentMethod: "cash", amount: "1.50" }], lines: [line] }, 422);
+    await expectRejected({ receiptNumber: "R-VAL-9", paymentMethod: "cash", idempotencyKey: "pos-val-wrong-split-total", payments: [{ paymentMethod: "cash", amount: 1000 }, { paymentMethod: "card", amount: 1000 }], lines: [line] }, 422);
 
     app.db.prepare("UPDATE catalog_items SET fiscal_receipt_required = 0 WHERE org_id = ? AND id = ?")
       .run("org-armosphera-demo", "catitem-pos-barcode-scanner");
-    await expectRejected({ receiptNumber: "R-VAL-6", paymentMethod: "cash", idempotencyKey: "pos-val-non-fiscal", lines: [line] }, 422);
+    await expectRejected({ receiptNumber: "R-VAL-10", paymentMethod: "cash", idempotencyKey: "pos-val-non-fiscal", lines: [line] }, 422);
   } finally {
     await app.close();
   }
@@ -382,6 +388,123 @@ test("pos: cash sale posts sale rows, delivery stock move, expected cash, and ba
   }
 });
 
+test("pos: split cash and card sale records payment evidence, ledger split, expected cash, and terminal clearing", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const owner = await login(app);
+    const orgId = "org-armosphera-demo";
+    const { session, sale } = await createPostedPosSale(app, operator, {
+      registerCode: "POS-SPLIT-SALE",
+      openingCash: 10000,
+      fiscalDeviceId: "FISCAL-AM-SPLIT",
+      receiptNumber: "R-SPLIT-001",
+      paymentMethod: "cash",
+      payments: [
+        { paymentMethod: "cash", amount: 20000 },
+        { paymentMethod: "card", amount: 65000 }
+      ],
+      idempotencyKey: "pos-split-sale-1",
+      useSalesEndpoint: true
+    });
+
+    assert.equal(session.expectedCash, 30000);
+    assert.equal(sale.total, 85000);
+    assert.equal(sale.paidCash, 20000);
+    assert.equal(sale.paymentMethod, "cash");
+    assert.equal(sale.paymentCount, 2);
+    assert.deepEqual(sale.paymentTotals, { cash: 20000, card: 65000, "bank-transfer": 0 });
+    assert.deepEqual(sale.payments.map(payment => ({
+      paymentMethod: payment.paymentMethod,
+      amount: payment.amount
+    })), [
+      { paymentMethod: "cash", amount: 20000 },
+      { paymentMethod: "card", amount: 65000 }
+    ]);
+
+    const paymentRows = app.db.prepare(`
+      SELECT payment_method, amount_amd
+      FROM pos_sale_payments
+      WHERE org_id = ? AND sale_id = ?
+      ORDER BY line_number
+    `).all(orgId, sale.id).map(row => ({ ...row }));
+    assert.deepEqual(paymentRows, [
+      { payment_method: "cash", amount_amd: 20000 },
+      { payment_method: "card", amount_amd: 65000 }
+    ]);
+
+    const saleJournals = app.db.prepare(`
+      SELECT debit_code, credit_code, amount, source_type, source_id, period_key
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = ? AND source_id = ?
+      ORDER BY debit_code, credit_code
+    `).all(orgId, "pos_sale", sale.id).map(row => ({ ...row }));
+    assert.deepEqual(saleJournals, [
+      { debit_code: "251", credit_code: "524", amount: 3333, source_type: "pos_sale", source_id: sale.id, period_key: "2026-06" },
+      { debit_code: "251", credit_code: "611", amount: 16667, source_type: "pos_sale", source_id: sale.id, period_key: "2026-06" },
+      { debit_code: "255", credit_code: "524", amount: 10834, source_type: "pos_sale", source_id: sale.id, period_key: "2026-06" },
+      { debit_code: "255", credit_code: "611", amount: 54166, source_type: "pos_sale", source_id: sale.id, period_key: "2026-06" }
+    ]);
+
+    const closed = await app.inject({
+      method: "POST",
+      url: `/api/pos/cash-sessions/${session.id}/close`,
+      headers: { cookie: operator },
+      payload: {
+        countedCash: 30000,
+        fiscalDeviceId: "FISCAL-AM-SPLIT",
+        zReportNumber: "ZR-SPLIT-001",
+        receiptNumberStart: "R-SPLIT-001",
+        receiptNumberEnd: "R-SPLIT-001",
+        closeNote: "Split sale ready for card batch."
+      }
+    });
+    assert.equal(closed.statusCode, 200, closed.body);
+
+    const preview = await app.inject({
+      method: "GET",
+      url: `/api/pos/cash-sessions/${session.id}/terminal-settlement-preview`,
+      headers: { cookie: operator }
+    });
+    assert.equal(preview.statusCode, 200, preview.body);
+    assert.equal(preview.json().preview.cardSalesTotal, 65000);
+    assert.equal(preview.json().preview.cardSalesCount, 1);
+    assert.equal(preview.json().preview.outstandingAmount, 65000);
+
+    const settlement = await app.inject({
+      method: "POST",
+      url: `/api/pos/cash-sessions/${session.id}/terminal-settlements`,
+      headers: { cookie: operator },
+      payload: {
+        idempotencyKey: "pos-split-terminal-settlement-1",
+        settlementReference: "TERM-SPLIT-001",
+        provider: "Acba POS",
+        settledTotal: 65000
+      }
+    });
+    assert.equal(settlement.statusCode, 200, settlement.body);
+    assert.equal(settlement.json().settlement.expectedTotal, 65000);
+    assert.equal(settlement.json().settlement.settledTotal, 65000);
+    assert.equal(settlement.json().preview.outstandingAmount, 0);
+
+    const backup = await app.inject({
+      method: "POST",
+      url: "/api/admin/backups",
+      headers: { cookie: owner },
+      payload: { note: "POS split payment rows must be restorable." }
+    });
+    assert.equal(backup.statusCode, 200, backup.body);
+    assert.ok(backup.json().backup.payload.tables.pos_sale_payments.some(row => (
+      row.sale_id === sale.id
+      && row.payment_method === "card"
+      && row.amount_amd === 65000
+    )));
+  } finally {
+    await app.close();
+  }
+});
+
 test("pos: cash sale replays duplicate source key and rejects duplicate receipt and closed sessions", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -528,11 +651,18 @@ test("pos: receipt packet prepares local fiscal handoff evidence for a posted sa
     assert.equal(packet.payload.kind, "armosphera-one-pos-receipt-packet");
     assert.equal(packet.payload.sale.id, sale.id);
     assert.equal(packet.payload.sale.status, "posted");
+    assert.deepEqual(packet.payload.sale.payments.map(payment => ({
+      paymentMethod: payment.paymentMethod,
+      amount: payment.amount
+    })), [
+      { paymentMethod: "cash", amount: sale.total }
+    ]);
     assert.deepEqual(packet.payload.sale.totals, {
       subtotal: sale.subtotal,
       vat: sale.vat,
       total: sale.total,
-      paidCash: sale.paidCash
+      paidCash: sale.paidCash,
+      paymentTotals: { cash: sale.total, card: 0, "bank-transfer": 0 }
     });
     assert.equal(packet.payload.session.id, session.id);
     assert.equal(packet.payload.session.fiscalDeviceId, "FISCAL-AM-PACKET");

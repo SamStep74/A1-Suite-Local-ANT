@@ -738,6 +738,16 @@ function registerApi(app, db, options = {}) {
     return createPosCashSale(db, user, sessionId, request.body === undefined ? {} : request.body);
   });
 
+  app.post("/api/pos/sales", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosWriter(user);
+    const body = request.body === undefined ? {} : request.body;
+    if (!isPlainObject(body)) throwInvalidPosMetadata();
+    const sessionId = normalizePosCashSessionPathId(body.cashSessionId);
+    return createPosCashSale(db, user, sessionId, body);
+  });
+
   app.post("/api/pos/sales/:id/receipt-packet", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "pos");
@@ -47103,6 +47113,7 @@ const ORG_BACKUP_TABLES = [
   "catalog_margin_rules",
   "pos_cash_sessions",
   "pos_sales",
+  "pos_sale_payments",
   "pos_sale_lines",
   "pos_receipt_packets",
   "pos_sale_refunds",
@@ -54903,6 +54914,8 @@ function getPosWorkspace(db, user) {
   };
 }
 
+const POS_PAYMENT_METHODS = ["cash", "card", "bank-transfer"];
+
 function getOpenPosCashSession(db, orgId, cashierUserId) {
   const row = selectPosCashSessionRows(db, orgId, "pos_cash_sessions.status = 'open' AND pos_cash_sessions.cashier_user_id = ?", [cashierUserId], 1)[0];
   return row ? formatPosCashSession(row) : null;
@@ -54957,7 +54970,16 @@ function getPosSale(db, orgId, saleId) {
     WHERE org_id = ? AND sale_id = ?
     ORDER BY line_number, id
   `).all(orgId, saleId);
-  return formatPosSale(row, lines);
+  return formatPosSale(row, lines, getPosSalePayments(db, orgId, saleId));
+}
+
+function getPosSalePayments(db, orgId, saleId) {
+  return db.prepare(`
+    SELECT *
+    FROM pos_sale_payments
+    WHERE org_id = ? AND sale_id = ?
+    ORDER BY line_number, id
+  `).all(orgId, saleId);
 }
 
 function getPosSaleSourceRow(db, orgId, sourceKey) {
@@ -55016,11 +55038,28 @@ function getPosTerminalSettlementPreview(db, orgId, sessionId) {
   const session = getPosCashSessionRow(db, orgId, sessionId);
   if (!session) throwPosCashSessionNotFound();
   const accounts = ledger.posTerminalSettlementAccounts("card");
-  const cardSales = db.prepare(`
+  const cardPaymentSales = db.prepare(`
+    SELECT COALESCE(SUM(pos_sale_payments.amount_amd), 0) AS total,
+      COUNT(DISTINCT pos_sale_payments.sale_id) AS count
+    FROM pos_sale_payments
+    JOIN pos_sales ON pos_sales.id = pos_sale_payments.sale_id
+      AND pos_sales.org_id = pos_sale_payments.org_id
+    WHERE pos_sale_payments.org_id = ?
+      AND pos_sale_payments.cash_session_id = ?
+      AND pos_sale_payments.payment_method = 'card'
+      AND pos_sales.status IN ('posted', 'refunded', 'refunded_full')
+  `).get(orgId, sessionId);
+  const legacyCardSales = db.prepare(`
     SELECT COALESCE(SUM(total_amd), 0) AS total, COUNT(*) AS count
     FROM pos_sales
     WHERE org_id = ? AND cash_session_id = ? AND payment_method = 'card'
       AND status IN ('posted', 'refunded', 'refunded_full')
+      AND NOT EXISTS (
+        SELECT 1
+        FROM pos_sale_payments
+        WHERE pos_sale_payments.org_id = pos_sales.org_id
+          AND pos_sale_payments.sale_id = pos_sales.id
+      )
   `).get(orgId, sessionId);
   const cardRefunds = db.prepare(`
     SELECT COALESCE(SUM(refunded_total_amd), 0) AS total, COUNT(*) AS count
@@ -55034,7 +55073,9 @@ function getPosTerminalSettlementPreview(db, orgId, sessionId) {
     FROM pos_terminal_settlements
     WHERE org_id = ? AND cash_session_id = ? AND payment_method = 'card' AND status = 'posted'
   `).get(orgId, sessionId);
-  const netCardClearing = Number(cardSales.total || 0) - Number(cardRefunds.total || 0);
+  const cardSalesTotal = Number(cardPaymentSales.total || 0) + Number(legacyCardSales.total || 0);
+  const cardSalesCount = Number(cardPaymentSales.count || 0) + Number(legacyCardSales.count || 0);
+  const netCardClearing = cardSalesTotal - Number(cardRefunds.total || 0);
   const settledTotal = Number(postedSettlements.total || 0);
   const processorFeeTotal = Number(postedSettlements.processor_fee_total || 0);
   const clearingReductionTotal = settledTotal + processorFeeTotal;
@@ -55047,8 +55088,8 @@ function getPosTerminalSettlementPreview(db, orgId, sessionId) {
     bankAccountCode: accounts.bankCode,
     feeAccountCode: accounts.feeExpenseCode,
     processorFeeAccountCode: accounts.feeExpenseCode,
-    cardSalesTotal: Number(cardSales.total || 0),
-    cardSalesCount: Number(cardSales.count || 0),
+    cardSalesTotal,
+    cardSalesCount,
     cardRefundsTotal: Number(cardRefunds.total || 0),
     cardRefundsCount: Number(cardRefunds.count || 0),
     settledTotal,
@@ -55124,6 +55165,20 @@ function assertPosSaleUniqueness(db, orgId, sessionId, input) {
     err.statusCode = 409;
     throw err;
   }
+}
+
+function buildPosSalePaymentRows(input, saleTotal) {
+  const sourcePayments = input.payments.length > 0
+    ? input.payments
+    : [{ paymentMethod: input.paymentMethod, amount: saleTotal }];
+  const paymentTotal = sourcePayments.reduce((sum, payment) => sum + payment.amount, 0);
+  if (paymentTotal !== saleTotal) throwInvalidPosPaymentSplit();
+  return sourcePayments.map((payment, index) => ({
+    id: randomId("pos-sale-payment"),
+    lineNumber: index + 1,
+    paymentMethod: payment.paymentMethod,
+    amount: payment.amount
+  }));
 }
 
 function selectPosCashSessionRows(db, orgId, extraWhere = "", extraParams = [], limit = 50) {
@@ -55291,7 +55346,10 @@ function createPosCashSale(db, user, sessionId, body) {
     if (!Number.isSafeInteger(totals.subtotal) || !Number.isSafeInteger(totals.vat) || !Number.isSafeInteger(totals.total)) {
       throwInvalidPosMetadata();
     }
-    const paidCash = input.paymentMethod === "cash" ? totals.total : 0;
+    const payments = buildPosSalePaymentRows(input, totals.total);
+    const paidCash = payments
+      .filter(payment => payment.paymentMethod === "cash")
+      .reduce((sum, payment) => sum + payment.amount, 0);
     const now = new Date().toISOString();
     const soldAt = input.soldAt || now;
     const ledgerPostingStatus = "posted";
@@ -55323,6 +55381,26 @@ function createPosCashSale(db, user, sessionId, body) {
       now,
       now
     );
+
+    const insertPayment = db.prepare(`
+      INSERT INTO pos_sale_payments (
+        id, org_id, sale_id, cash_session_id, line_number,
+        payment_method, amount_amd, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const payment of payments) {
+      insertPayment.run(
+        payment.id,
+        user.org_id,
+        saleId,
+        session.id,
+        payment.lineNumber,
+        payment.paymentMethod,
+        payment.amount,
+        now
+      );
+    }
 
     const insertLine = db.prepare(`
       INSERT INTO pos_sale_lines (
@@ -55380,6 +55458,7 @@ function createPosCashSale(db, user, sessionId, body) {
         id: saleId,
         receiptNumber: input.receiptNumber,
         paymentMethod: input.paymentMethod,
+        payments,
         subtotal: totals.subtotal,
         vat: totals.vat,
         total: totals.total,
@@ -55412,6 +55491,14 @@ function createPosCashSale(db, user, sessionId, body) {
         cashSessionId: session.id,
         receiptNumber: input.receiptNumber,
         paymentMethod: input.paymentMethod,
+        payments: payments.map(payment => ({
+          paymentMethod: payment.paymentMethod,
+          amount: payment.amount
+        })),
+        paymentTotals: buildPosPaymentTotals(payments.map(payment => ({
+          payment_method: payment.paymentMethod,
+          amount_amd: payment.amount
+        }))),
         total: totals.total,
         paidCash,
         lineCount: lines.length,
@@ -55424,7 +55511,12 @@ function createPosCashSale(db, user, sessionId, body) {
       cashSessionId: session.id,
       receiptNumber: input.receiptNumber,
       paymentMethod: input.paymentMethod,
+      payments: payments.map(payment => ({
+        paymentMethod: payment.paymentMethod,
+        amount: payment.amount
+      })),
       total: totals.total,
+      paidCash,
       idempotencyKey: input.idempotencyKey
     });
     db.exec("COMMIT");
@@ -56008,7 +56100,7 @@ function getPosReceiptPacketSource(db, orgId, saleId) {
     WHERE org_id = ? AND sale_id = ?
     ORDER BY line_number, id
   `).all(orgId, saleId);
-  return { sale, lines };
+  return { sale, lines, payments: getPosSalePayments(db, orgId, saleId) };
 }
 
 function buildPosReceiptPacketPayload(source, input, fiscalDeviceId, user, preparedAt) {
@@ -56034,6 +56126,15 @@ function buildPosReceiptPacketPayload(source, input, fiscalDeviceId, user, prepa
       soldAt: sale.sold_at,
       currency: sale.currency,
       paymentMethod: sale.payment_method,
+      payments: (source.payments && source.payments.length > 0
+        ? source.payments
+        : [{
+            line_number: 1,
+            payment_method: sale.payment_method,
+            amount_amd: sale.total_amd,
+            created_at: sale.created_at
+          }]
+      ).map(formatPosSalePayment),
       cashierUserId: sale.cashier_user_id,
       stockLocationId: sale.stock_location_id,
       registerCode: sale.register_code,
@@ -56041,7 +56142,14 @@ function buildPosReceiptPacketPayload(source, input, fiscalDeviceId, user, prepa
         subtotal: sale.subtotal_amd,
         vat: sale.vat_amd,
         total: sale.total_amd,
-        paidCash: sale.paid_cash_amd
+        paidCash: sale.paid_cash_amd,
+        paymentTotals: buildPosPaymentTotals(source.payments && source.payments.length > 0
+          ? source.payments
+          : [{
+              payment_method: sale.payment_method,
+              amount_amd: sale.total_amd
+            }]
+        )
       },
       postings: {
         salePosting: sale.status === "posted" ? "posted" : "not-posted",
@@ -56417,10 +56525,20 @@ function formatPosCashSession(row) {
   };
 }
 
-function formatPosSale(row, lines) {
+function formatPosSale(row, lines, payments = []) {
   const ledgerPostingIds = row.ledger_posting_ids
     ? String(row.ledger_posting_ids).split(",").filter(Boolean)
     : [];
+  const paymentEvidence = payments.length > 0
+    ? payments
+    : [{
+        id: "",
+        line_number: 1,
+        payment_method: row.payment_method,
+        amount_amd: row.total_amd,
+        created_at: row.created_at
+      }];
+  const paymentTotals = buildPosPaymentTotals(paymentEvidence);
   return {
     id: row.id,
     cashSessionId: row.cash_session_id,
@@ -56432,6 +56550,9 @@ function formatPosSale(row, lines) {
     vat: row.vat_amd,
     total: row.total_amd,
     paidCash: row.paid_cash_amd,
+    paymentCount: paymentEvidence.length,
+    payments: paymentEvidence.map(formatPosSalePayment),
+    paymentTotals,
     lineCount: lines.length,
     soldAt: row.sold_at,
     cashierUserId: row.cashier_user_id,
@@ -56453,6 +56574,26 @@ function formatPosSale(row, lines) {
     createdAt: row.created_at,
     updatedAt: row.updated_at
   };
+}
+
+function formatPosSalePayment(row) {
+  return {
+    id: row.id || "",
+    lineNumber: row.line_number,
+    paymentMethod: row.payment_method,
+    amount: row.amount_amd,
+    createdAt: row.created_at || ""
+  };
+}
+
+function buildPosPaymentTotals(payments) {
+  const totals = { cash: 0, card: 0, "bank-transfer": 0 };
+  for (const payment of payments) {
+    if (Object.prototype.hasOwnProperty.call(totals, payment.payment_method)) {
+      totals[payment.payment_method] += Number(payment.amount_amd || 0);
+    }
+  }
+  return totals;
 }
 
 function formatPosSaleLine(row) {
@@ -56514,13 +56655,55 @@ function normalizePosCashSessionCloseBody(body, session) {
 function normalizePosCashSaleBody(body) {
   if (!isPlainObject(body)) throwInvalidPosMetadata();
   if (!Array.isArray(body.lines) || body.lines.length === 0 || body.lines.length > 100) throwInvalidPosMetadata();
+  const hasPayments = Object.prototype.hasOwnProperty.call(body, "payments")
+    && body.payments !== undefined
+    && body.payments !== "";
+  const payments = hasPayments ? normalizePosSalePayments(body.payments) : [];
+  if (
+    payments.length > 0
+    && Object.prototype.hasOwnProperty.call(body, "paymentMethod")
+    && body.paymentMethod !== undefined
+    && body.paymentMethod !== ""
+  ) {
+    normalizePosChoice(body, "paymentMethod", POS_PAYMENT_METHODS, "", true);
+  }
   return {
     receiptNumber: normalizePosReceiptNumber(body, "receiptNumber"),
-    paymentMethod: normalizePosChoice(body, "paymentMethod", ["cash", "card", "bank-transfer"], "", true),
+    paymentMethod: payments.length > 0
+      ? payments[0].paymentMethod
+      : normalizePosChoice(body, "paymentMethod", POS_PAYMENT_METHODS, "", true),
+    payments,
     soldAt: normalizePosTimestamp(body, "soldAt", ""),
     idempotencyKey: normalizePosSourceKey(body, "idempotencyKey"),
     lines: body.lines.map(normalizePosCashSaleLine)
   };
+}
+
+function normalizePosSalePayments(payments) {
+  if (!Array.isArray(payments) || payments.length === 0 || payments.length > 10) throwInvalidPosPaymentSplit();
+  return payments.map(payment => {
+    if (!isPlainObject(payment)) throwInvalidPosPaymentSplit();
+    return {
+      paymentMethod: normalizePosPaymentMethod(payment, "paymentMethod"),
+      amount: normalizePosPaymentAmount(payment, "amount")
+    };
+  });
+}
+
+function normalizePosPaymentMethod(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "" || value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidPosPaymentSplit();
+  }
+  const text = value.trim();
+  if (!POS_PAYMENT_METHODS.includes(text)) throwInvalidPosPaymentSplit();
+  return text;
+}
+
+function normalizePosPaymentAmount(body, field) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") throwInvalidPosPaymentSplit();
+  return toStoredMoneyInput(value, throwInvalidPosPaymentSplit, { min: 1, max: 100000000000, positive: true, zeroSubunitFraction: "none" });
 }
 
 function normalizePosReceiptPacketBody(body) {
@@ -56763,6 +56946,12 @@ function throwPosSaleNotFound() {
 function throwInvalidPosMetadata() {
   const err = new Error("POS request requires safe metadata");
   err.statusCode = 400;
+  throw err;
+}
+
+function throwInvalidPosPaymentSplit() {
+  const err = new Error("POS payment split must use supported methods and sum to the sale total");
+  err.statusCode = 422;
   throw err;
 }
 

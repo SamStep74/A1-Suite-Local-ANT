@@ -309,6 +309,59 @@ function posTerminalSettlementAccounts(paymentMethod = "card") {
   return { clearingCode: posSettlementAccountCode(paymentMethod), bankCode: C.cash, feeExpenseCode: C.expense };
 }
 
+function normalizePosSalePaymentEvidence(sale, total) {
+  const source = Array.isArray(sale.payments) && sale.payments.length > 0
+    ? sale.payments
+    : [{ paymentMethod: sale.paymentMethod || sale.payment_method || "cash", amount: total }];
+  const payments = source.map(payment => {
+    const paymentMethod = payment.paymentMethod || payment.payment_method || "";
+    const amount = assertMinorUnitInteger(payment.amount ?? payment.amount_amd);
+    if (!paymentMethod || amount <= 0) {
+      const err = new Error("Ledger POS payment split is invalid");
+      err.code = "INVALID_LEDGER_PAYMENT_SPLIT";
+      err.statusCode = 400;
+      throw err;
+    }
+    return { paymentMethod, amount };
+  });
+  const sum = payments.reduce((totalAmount, payment) => totalAmount + payment.amount, 0);
+  if (sum !== total) {
+    const err = new Error("Ledger POS payment split must equal sale total");
+    err.code = "INVALID_LEDGER_PAYMENT_SPLIT";
+    err.statusCode = 400;
+    throw err;
+  }
+  return payments;
+}
+
+function splitPosSalePaymentComponents(payments, net, vat, total) {
+  let remainingNet = net;
+  let remainingVat = vat;
+  return payments.map((payment, index) => {
+    let netAmount;
+    let vatAmount;
+    if (index === payments.length - 1) {
+      netAmount = remainingNet;
+      vatAmount = remainingVat;
+    } else {
+      vatAmount = Math.round((vat * payment.amount) / total);
+      vatAmount = Math.max(0, Math.min(vatAmount, remainingVat, payment.amount));
+      netAmount = payment.amount - vatAmount;
+      if (netAmount > remainingNet) {
+        netAmount = remainingNet;
+        vatAmount = payment.amount - netAmount;
+      }
+    }
+    remainingNet -= netAmount;
+    remainingVat -= vatAmount;
+    return {
+      ...payment,
+      netAmount,
+      vatAmount
+    };
+  });
+}
+
 function postPosSale(db, orgId, sale) {
   const total = assertMinorUnitInteger(sale.total);
   const vat = assertMinorUnitInteger(sale.vat || 0);
@@ -317,28 +370,34 @@ function postPosSale(db, orgId, sale) {
   const date = sale.date || sale.sold_at || new Date().toISOString().slice(0, 10);
   const periodKey = sale.period_key || String(date).slice(0, 7);
   const C = postingCodesFor(locale.activeLocale());
-  const settlementCode = posSettlementAccountCode(sale.paymentMethod || sale.payment_method || "cash");
+  const payments = splitPosSalePaymentComponents(normalizePosSalePaymentEvidence(sale, total), net, vat, total);
+  const reference = sale.receiptNumber || sale.receipt_number || sale.id;
+  const splitMemo = payments.length > 1;
   const ids = [];
-  if (net > 0) ids.push(postEntry(db, orgId, {
-    date,
-    debitCode: settlementCode,
-    creditCode: C.revenue,
-    amount: net,
-    memo: `POS sale ${sale.receiptNumber || sale.receipt_number || sale.id}`,
-    sourceType: "pos_sale",
-    sourceId: sale.id,
-    periodKey
-  }));
-  if (vat > 0) ids.push(postEntry(db, orgId, {
-    date,
-    debitCode: settlementCode,
-    creditCode: C.outputVat,
-    amount: vat,
-    memo: `POS sale VAT ${sale.receiptNumber || sale.receipt_number || sale.id}`,
-    sourceType: "pos_sale",
-    sourceId: sale.id,
-    periodKey
-  }));
+  for (const payment of payments) {
+    const settlementCode = posSettlementAccountCode(payment.paymentMethod);
+    const memoSuffix = splitMemo ? ` ${payment.paymentMethod}` : "";
+    if (payment.netAmount > 0) ids.push(postEntry(db, orgId, {
+      date,
+      debitCode: settlementCode,
+      creditCode: C.revenue,
+      amount: payment.netAmount,
+      memo: `POS sale ${reference}${memoSuffix}`,
+      sourceType: "pos_sale",
+      sourceId: sale.id,
+      periodKey
+    }));
+    if (payment.vatAmount > 0) ids.push(postEntry(db, orgId, {
+      date,
+      debitCode: settlementCode,
+      creditCode: C.outputVat,
+      amount: payment.vatAmount,
+      memo: `POS sale VAT ${reference}${memoSuffix}`,
+      sourceType: "pos_sale",
+      sourceId: sale.id,
+      periodKey
+    }));
+  }
   return ids.filter(Boolean);
 }
 

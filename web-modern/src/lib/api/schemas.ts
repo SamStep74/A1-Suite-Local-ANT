@@ -926,6 +926,25 @@ export type PosPaymentMethod = z.infer<typeof PosPaymentMethodSchema>;
 export const PosRefundMethodSchema = PosPaymentMethodSchema;
 export type PosRefundMethod = z.infer<typeof PosRefundMethodSchema>;
 
+export const PosSalePaymentRequestSchema = z
+  .object({
+    paymentMethod: PosPaymentMethodSchema,
+    amount: z.number().int().positive(),
+  })
+  .strict();
+export type PosSalePaymentRequest = z.infer<typeof PosSalePaymentRequestSchema>;
+
+export const PosSalePaymentEvidenceSchema = z
+  .object({
+    id: z.string().optional(),
+    paymentMethod: PosPaymentMethodSchema.optional(),
+    method: PosPaymentMethodSchema.optional(),
+    amount: z.number(),
+    currency: PosCurrencySchema.optional(),
+  })
+  .passthrough();
+export type PosSalePaymentEvidence = z.infer<typeof PosSalePaymentEvidenceSchema>;
+
 export const PosSaleLineRequestSchema = z
   .object({
     catalogItemId: z.string().min(1),
@@ -939,6 +958,7 @@ export const PosCreateSaleRequestSchema = z
   .object({
     receiptNumber: z.string().min(1),
     paymentMethod: PosPaymentMethodSchema,
+    payments: z.array(PosSalePaymentRequestSchema).min(1).max(3).optional(),
     soldAt: z.string().min(1).optional(),
     idempotencyKey: z.string().min(1).max(200),
     lines: z.array(PosSaleLineRequestSchema).min(1),
@@ -990,7 +1010,17 @@ export const PosSaleSchema = z
     subtotal: z.number(),
     vat: z.number(),
     total: z.number(),
+    payments: z.array(PosSalePaymentEvidenceSchema).optional(),
+    paymentCount: z.number().int().min(0).optional(),
     paidCash: z.number().nullable().optional(),
+    paidCard: z.number().nullable().optional(),
+    paidBankTransfer: z.number().nullable().optional(),
+    cashTotal: z.number().nullable().optional(),
+    cardTotal: z.number().nullable().optional(),
+    bankTransferTotal: z.number().nullable().optional(),
+    paymentTotals: z.record(z.string(), z.number()).optional(),
+    paymentTotalsByMethod: z.record(z.string(), z.number()).optional(),
+    paidByMethod: z.record(z.string(), z.number()).optional(),
     lineCount: z.number().int().min(0),
     soldAt: z.string(),
     cashierUserId: z.string(),

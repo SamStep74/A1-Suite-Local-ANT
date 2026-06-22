@@ -247,6 +247,7 @@ function openDatabase(dbPath) {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA journal_mode = WAL");
   initSchema(db);
+  ensurePosSalePaymentLayer(db);
   ensurePosTerminalSettlementLayer(db);
   ensureCrmTubeSchema(db);
   ensureRbacSchema(db);
@@ -711,6 +712,24 @@ function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_pos_sales_status
       ON pos_sales(org_id, status, sold_at DESC);
+
+    CREATE TABLE IF NOT EXISTS pos_sale_payments (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      sale_id TEXT NOT NULL REFERENCES pos_sales(id) ON DELETE CASCADE,
+      cash_session_id TEXT NOT NULL REFERENCES pos_cash_sessions(id) ON DELETE CASCADE,
+      line_number INTEGER NOT NULL,
+      payment_method TEXT NOT NULL,
+      amount_amd INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, sale_id, line_number)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_payments_sale
+      ON pos_sale_payments(org_id, sale_id, line_number);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_payments_session_method
+      ON pos_sale_payments(org_id, cash_session_id, payment_method);
 
     CREATE TABLE IF NOT EXISTS pos_sale_lines (
       id TEXT PRIMARY KEY,
@@ -8915,6 +8934,40 @@ function ensureInventoryLayer(db) {
   for (const org of orgs) {
     seedInventoryCore(db, org.id);
   }
+}
+
+function ensurePosSalePaymentLayer(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pos_sale_payments (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      sale_id TEXT NOT NULL REFERENCES pos_sales(id) ON DELETE CASCADE,
+      cash_session_id TEXT NOT NULL REFERENCES pos_cash_sessions(id) ON DELETE CASCADE,
+      line_number INTEGER NOT NULL,
+      payment_method TEXT NOT NULL,
+      amount_amd INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, sale_id, line_number)
+    );
+  `);
+  const columns = new Set(db.prepare("PRAGMA table_info(pos_sale_payments)").all().map(column => column.name));
+  const additions = {
+    sale_id: "TEXT NOT NULL DEFAULT ''",
+    cash_session_id: "TEXT NOT NULL DEFAULT ''",
+    line_number: "INTEGER NOT NULL DEFAULT 1",
+    payment_method: "TEXT NOT NULL DEFAULT 'cash'",
+    amount_amd: "INTEGER NOT NULL DEFAULT 0",
+    created_at: "TEXT NOT NULL DEFAULT ''"
+  };
+  for (const [name, definition] of Object.entries(additions)) {
+    if (!columns.has(name)) db.exec(`ALTER TABLE pos_sale_payments ADD COLUMN ${name} ${definition}`);
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_payments_sale
+      ON pos_sale_payments(org_id, sale_id, line_number);
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_payments_session_method
+      ON pos_sale_payments(org_id, cash_session_id, payment_method);
+  `);
 }
 
 function ensurePosTerminalSettlementLayer(db) {

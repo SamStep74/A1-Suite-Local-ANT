@@ -5,6 +5,7 @@
  *   - loading and error states for /api/pos/workspace
  *   - opening a cash session via POST /api/pos/cash-sessions
  *   - posting a one-line sale via POST /api/pos/cash-sessions/:id/sales
+ *   - posting split-payment sale evidence through the sale capture surface
  *   - recording full-sale refund evidence via POST /api/pos/sales/:id/refund
  *   - closing the current cash session via POST /api/pos/cash-sessions/:id/close
  *   - posting closed-session terminal settlement evidence
@@ -240,6 +241,29 @@ const VALID_SALE_RESPONSE = {
   session: {
     ...OPEN_SESSION,
     expectedCash: 100000,
+  },
+};
+
+const SPLIT_PAYMENT_SALE_RESPONSE = {
+  ...VALID_SALE_RESPONSE,
+  sale: {
+    ...VALID_SALE_RESPONSE.sale,
+    id: "pos-sale-split-1",
+    receiptNumber: "R-2026-0003",
+    paymentMethod: "cash",
+    payments: [
+      { paymentMethod: "cash", amount: 20000 },
+      { paymentMethod: "card", amount: 25000 },
+      { paymentMethod: "bank-transfer", amount: 5000 },
+    ],
+    paymentCount: 3,
+    paidCash: 20000,
+    paidCard: 25000,
+    paidBankTransfer: 5000,
+  },
+  session: {
+    ...OPEN_SESSION,
+    expectedCash: 70000,
   },
 };
 
@@ -584,6 +608,70 @@ describe("POS route", () => {
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["pos", "workspace"],
     });
+  });
+
+  it("posts a split-payment sale and renders posted payment evidence", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+    mocks.postJson.mockResolvedValueOnce(SPLIT_PAYMENT_SALE_RESPONSE);
+
+    renderRoute();
+
+    fireEvent.change(screen.getByTestId("pos-sale-quantity"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-receipt-number"), {
+      target: { value: "R-2026-0003" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-split-cash"), {
+      target: { value: "20000" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-split-card"), {
+      target: { value: "25000" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-split-bank-transfer"), {
+      target: { value: "5000" },
+    });
+
+    expect(screen.queryByTestId("pos-sale-split-error")).toBeNull();
+    expect(screen.getByTestId("pos-sale-split-total")).toHaveTextContent(/50/);
+    fireEvent.click(screen.getByTestId("pos-sale-submit"));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(1);
+    });
+    const [path, body] = mocks.postJson.mock.calls[0]!;
+    expect(path).toBe("/api/pos/cash-sessions/pos-session-1/sales");
+    expect(body).toEqual({
+      receiptNumber: "R-2026-0003",
+      paymentMethod: "cash",
+      idempotencyKey: expect.stringMatching(/^pos-sale-ui-\d+$/),
+      payments: [
+        { paymentMethod: "cash", amount: 20000 },
+        { paymentMethod: "card", amount: 25000 },
+        { paymentMethod: "bank-transfer", amount: 5000 },
+      ],
+      lines: [
+        {
+          catalogItemId: "catitem-pos-scanner",
+          quantity: 2,
+        },
+      ],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(/pos-sale-split-1/);
+    });
+    const evidence = screen.getByTestId("pos-sale-payment-evidence");
+    expect(evidence).toHaveTextContent(/Payment method\s*Cash/);
+    expect(evidence).toHaveTextContent(/Payment count\s*3/);
+    expect(evidence).toHaveTextContent(/Cash\s*20[,\s]000 ֏/);
+    expect(evidence).toHaveTextContent(/Card\s*25[,\s]000 ֏/);
+    expect(evidence).toHaveTextContent(/Bank transfer\s*5[,\s]000 ֏/);
+    expect(evidence).toHaveTextContent(/Paid cash\s*20[,\s]000 ֏/);
   });
 
   it("prepares fiscal receipt evidence for the last posted sale", async () => {

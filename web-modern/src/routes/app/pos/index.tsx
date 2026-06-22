@@ -40,6 +40,7 @@ import {
   type PosCashSession,
   type PosCreateSaleResponse,
   type PosPaymentMethod,
+  type PosSalePaymentRequest,
   type PosReceiptPacketResponse,
   type PosRefund,
   type PosRefundMethod,
@@ -164,11 +165,13 @@ function PosWorkspace() {
       quantity: string;
       receiptNumber: string;
       paymentMethod: PosPaymentMethod;
+      payments?: PosSalePaymentRequest[];
       soldAt: string;
     }) => {
       const payload = PosCreateSaleRequestSchema.parse({
         receiptNumber: input.receiptNumber.trim(),
         paymentMethod: input.paymentMethod,
+        ...(input.payments ? { payments: input.payments } : {}),
         soldAt: optionalText(input.soldAt),
         idempotencyKey: `pos-sale-ui-${Date.now()}`,
         lines: [
@@ -646,6 +649,7 @@ export function SaleCapturePanel({
     quantity: string;
     receiptNumber: string;
     paymentMethod: PosPaymentMethod;
+    payments?: PosSalePaymentRequest[];
     soldAt: string;
   }) => void;
   isPending?: boolean;
@@ -674,6 +678,9 @@ export function SaleCapturePanel({
   const [quantity, setQuantity] = useState("1");
   const [receiptNumber, setReceiptNumber] = useState("");
   const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("cash");
+  const [splitCashAmount, setSplitCashAmount] = useState("");
+  const [splitCardAmount, setSplitCardAmount] = useState("");
+  const [splitBankTransferAmount, setSplitBankTransferAmount] = useState("");
   const [soldAt, setSoldAt] = useState("");
 
   const selectedCatalogItemId = catalogItemId || catalogItems[0]?.id || "";
@@ -684,11 +691,68 @@ export function SaleCapturePanel({
     Number.isInteger(quantityNumber) && quantityNumber > 0 ? unitPrice * quantityNumber : Number.NaN;
   const lastSaleLedgerCount =
     lastSale?.postings.ledgerPostingCount ?? lastSale?.postings.ledgerPostingIds?.length;
+  const splitInputs: Array<{
+    paymentMethod: PosPaymentMethod;
+    label: string;
+    value: string;
+    onChange: (value: string) => void;
+    testId: string;
+  }> = [
+    {
+      paymentMethod: "cash",
+      label: "Cash",
+      value: splitCashAmount,
+      onChange: setSplitCashAmount,
+      testId: "pos-sale-split-cash",
+    },
+    {
+      paymentMethod: "card",
+      label: "Card",
+      value: splitCardAmount,
+      onChange: setSplitCardAmount,
+      testId: "pos-sale-split-card",
+    },
+    {
+      paymentMethod: "bank-transfer",
+      label: "Bank transfer",
+      value: splitBankTransferAmount,
+      onChange: setSplitBankTransferAmount,
+      testId: "pos-sale-split-bank-transfer",
+    },
+  ];
+  const hasSplitPayments = splitInputs.some((entry) => entry.value.trim().length > 0);
+  const splitAmountsAreValid = splitInputs.every((entry) => {
+    const text = entry.value.trim();
+    if (!text) return true;
+    const amount = toAmount(text);
+    return Number.isInteger(amount) && amount >= 0;
+  });
+  const splitPayments: PosSalePaymentRequest[] = splitAmountsAreValid
+    ? splitInputs
+        .map((entry) => ({
+          paymentMethod: entry.paymentMethod,
+          amount: toAmount(entry.value.trim()),
+        }))
+        .filter((entry) => Number.isFinite(entry.amount) && entry.amount > 0)
+    : [];
+  const splitPaymentTotal = splitPayments.reduce((sum, payment) => sum + payment.amount, 0);
+  const splitPaymentsMatchTotal =
+    !hasSplitPayments ||
+    (splitAmountsAreValid &&
+      splitPayments.length > 0 &&
+      amountsEqual(splitPaymentTotal, totalPreview));
+  const splitPaymentError =
+    hasSplitPayments && !splitAmountsAreValid
+      ? "Split amounts must be whole AMD amounts."
+      : hasSplitPayments && !splitPaymentsMatchTotal
+        ? `Split total must match ${moneyOrDash(totalPreview)}.`
+        : "";
   const canSubmit =
     Boolean(selectedItem) &&
     receiptNumber.trim().length > 0 &&
     Number.isInteger(quantityNumber) &&
     quantityNumber > 0 &&
+    splitPaymentsMatchTotal &&
     !isPending;
 
   return (
@@ -716,6 +780,7 @@ export function SaleCapturePanel({
             quantity,
             receiptNumber,
             paymentMethod,
+            ...(hasSplitPayments ? { payments: splitPayments } : {}),
             soldAt,
           });
         }}
@@ -802,6 +867,52 @@ export function SaleCapturePanel({
           </span>
         </div>
 
+        <fieldset
+          className="md:col-span-6 grid gap-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] px-2 pb-2 pt-1 sm:grid-cols-[repeat(3,minmax(0,1fr))_minmax(120px,auto)]"
+          data-testid="pos-sale-split-payments"
+        >
+          <legend className="px-1 text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+            Split payment
+          </legend>
+          {splitInputs.map((entry) => (
+            <label
+              key={entry.paymentMethod}
+              className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]"
+            >
+              {entry.label}
+              <input
+                type="number"
+                min="0"
+                step="1"
+                value={entry.value}
+                onChange={(event) => entry.onChange(event.target.value)}
+                className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+                data-testid={entry.testId}
+              />
+            </label>
+          ))}
+          <div className="flex flex-col justify-end gap-1">
+            <span className="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+              Split total
+            </span>
+            <span
+              className="h-9 whitespace-nowrap text-[var(--text-sm)] font-semibold leading-9 text-[var(--color-ink)]"
+              data-testid="pos-sale-split-total"
+            >
+              {money(splitPaymentTotal)}
+            </span>
+          </div>
+          {splitPaymentError ? (
+            <p
+              role="alert"
+              className="sm:col-span-4 text-[var(--text-xs)] text-[var(--color-ruby)]"
+              data-testid="pos-sale-split-error"
+            >
+              {splitPaymentError}
+            </p>
+          ) : null}
+        </fieldset>
+
         <div className="md:col-span-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
           <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
             Unit price: {money(unitPrice)}
@@ -841,6 +952,7 @@ export function SaleCapturePanel({
               ? ` (${journalCountLabel(lastSaleLedgerCount)})`
               : ""}
           </p>
+          <SalePaymentEvidence sale={lastSale} />
           {!isRefundedSale(lastSale) || receiptPacket ? (
             <ReceiptPacketHandoff
               key={`${lastSale.id}-${session.fiscalDeviceId ?? ""}`}
@@ -863,6 +975,36 @@ export function SaleCapturePanel({
         </div>
       ) : null}
     </div>
+  );
+}
+
+function SalePaymentEvidence({ sale }: { sale: PosCreateSaleResponse["sale"] }) {
+  const explicitTotals = POS_PAYMENT_METHODS.map((method) => ({
+    ...method,
+    amount: salePaymentMethodTotal(sale, method.value),
+  }));
+  const hasMethodEvidence = explicitTotals.some((entry) => entry.amount !== undefined);
+  const methodTotals = explicitTotals.map((entry) => ({
+    ...entry,
+    amount:
+      entry.amount ??
+      (hasMethodEvidence ? 0 : entry.value === sale.paymentMethod ? sale.total : 0),
+  }));
+  const paymentCount = sale.paymentCount ?? sale.payments?.length ?? 1;
+  const paidCash = finiteAmount(sale.paidCash);
+
+  return (
+    <dl
+      className="grid gap-2 text-[var(--text-xs)] sm:grid-cols-2 lg:grid-cols-5"
+      data-testid="pos-sale-payment-evidence"
+    >
+      <EvidenceRow label="Payment method" value={paymentMethodLabel(sale.paymentMethod)} />
+      <EvidenceRow label="Payment count" value={String(paymentCount)} />
+      {methodTotals.map((entry) => (
+        <EvidenceRow key={entry.value} label={entry.label} value={money(entry.amount)} />
+      ))}
+      {paidCash !== undefined ? <EvidenceRow label="Paid cash" value={money(paidCash)} /> : null}
+    </dl>
   );
 }
 
@@ -1942,6 +2084,83 @@ function isRefundedSale(sale: { status: string }): boolean {
 
 function refundMethodLabel(method: PosRefundMethod): string {
   return POS_REFUND_METHODS.find((entry) => entry.value === method)?.label ?? method;
+}
+
+function paymentMethodLabel(method: PosPaymentMethod): string {
+  return POS_PAYMENT_METHODS.find((entry) => entry.value === method)?.label ?? method;
+}
+
+function salePaymentMethodTotal(
+  sale: PosCreateSaleResponse["sale"],
+  method: PosPaymentMethod,
+): number | undefined {
+  const rowTotal = sale.payments?.reduce((sum, payment) => {
+    const rowMethod = payment.paymentMethod ?? payment.method;
+    return rowMethod === method ? sum + payment.amount : sum;
+  }, 0);
+
+  if (method === "cash") {
+    return firstFiniteAmount(
+      sale.paidCash,
+      sale.cashTotal,
+      paymentRecordAmount(sale.paymentTotals, method),
+      paymentRecordAmount(sale.paymentTotalsByMethod, method),
+      paymentRecordAmount(sale.paidByMethod, method),
+      rowTotal,
+    );
+  }
+
+  if (method === "card") {
+    return firstFiniteAmount(
+      sale.paidCard,
+      sale.cardTotal,
+      paymentRecordAmount(sale.paymentTotals, method),
+      paymentRecordAmount(sale.paymentTotalsByMethod, method),
+      paymentRecordAmount(sale.paidByMethod, method),
+      rowTotal,
+    );
+  }
+
+  return firstFiniteAmount(
+    sale.paidBankTransfer,
+    sale.bankTransferTotal,
+    paymentRecordAmount(sale.paymentTotals, method),
+    paymentRecordAmount(sale.paymentTotalsByMethod, method),
+    paymentRecordAmount(sale.paidByMethod, method),
+    rowTotal,
+  );
+}
+
+function paymentRecordAmount(
+  record: Record<string, number> | undefined,
+  method: PosPaymentMethod,
+): number | undefined {
+  if (!record) return undefined;
+  const keys =
+    method === "bank-transfer"
+      ? ["bank-transfer", "bankTransfer", "bank_transfer", "bank"]
+      : [method];
+  for (const key of keys) {
+    const amount = finiteAmount(record[key]);
+    if (amount !== undefined) return amount;
+  }
+  return undefined;
+}
+
+function firstFiniteAmount(...values: unknown[]): number | undefined {
+  for (const value of values) {
+    const amount = finiteAmount(value);
+    if (amount !== undefined) return amount;
+  }
+  return undefined;
+}
+
+function finiteAmount(value: unknown): number | undefined {
+  return typeof value === "number" && Number.isFinite(value) ? value : undefined;
+}
+
+function amountsEqual(left: number, right: number): boolean {
+  return Number.isFinite(left) && Number.isFinite(right) && Math.abs(left - right) < 0.01;
 }
 
 function journalCountLabel(count: number): string {
