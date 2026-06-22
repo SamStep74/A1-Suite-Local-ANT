@@ -364,17 +364,162 @@ function issueCreditNote(db, user, body) {
 }
 
 function computeReplenishment(db, orgId) {
-  const items = db.prepare("SELECT id, sku, name FROM catalog_items WHERE org_id = ? AND track_stock = 1").all(orgId);
+  const today = new Date().toISOString().slice(0, 10);
+  const items = db.prepare(`
+    SELECT id, sku, name, unit_of_measure
+    FROM catalog_items
+    WHERE org_id = ? AND track_stock = 1 AND status = 'active'
+    ORDER BY sku, name
+  `).all(orgId);
   const suggestions = [];
   for (const item of items) {
-    const stock = db.prepare("SELECT COALESCE(SUM(quantity), 0) AS on_hand FROM stock_quants WHERE org_id = ? AND catalog_item_id = ?").get(orgId, item.id);
-    const demand = db.prepare("SELECT COALESCE(SUM(quantity), 0) AS open_demand FROM purchase_order_lines pol JOIN purchase_orders po ON po.id = pol.purchase_order_id WHERE po.org_id = ? AND pol.catalog_item_id = ? AND po.status IN ('rfq', 'confirmed')")
-      .get(orgId, item.id);
-    if (Number(stock.on_hand) <= 0 && Number(demand.open_demand) === 0) {
-      suggestions.push({ catalogItemId: item.id, sku: item.sku, name: item.name, onHand: Number(stock.on_hand), openDemand: 0, suggestedQty: 50 });
-    }
+    const stock = db.prepare(`
+      SELECT COALESCE(SUM(quantity), 0) AS on_hand,
+        COALESCE(SUM(reserved_quantity), 0) AS reserved
+      FROM stock_quants
+      WHERE org_id = ? AND catalog_item_id = ?
+    `).get(orgId, item.id);
+    const purchase = db.prepare(`
+      SELECT COALESCE(SUM(
+        CASE
+          WHEN pol.quantity - pol.received_quantity > 0 THEN pol.quantity - pol.received_quantity
+          ELSE 0
+        END
+      ), 0) AS open_purchase_qty
+      FROM purchase_order_lines pol
+      JOIN purchase_orders po ON po.id = pol.purchase_order_id
+        AND po.org_id = pol.org_id
+      WHERE po.org_id = ? AND pol.catalog_item_id = ?
+        AND po.status IN ('rfq', 'confirmed', 'partial')
+    `).get(orgId, item.id);
+    const sales = db.prepare(`
+      SELECT COALESCE(SUM(quote_lines.quantity), 0) AS sales_demand_qty,
+        COUNT(DISTINCT quotes.id) AS quote_count
+      FROM quote_lines
+      JOIN quotes ON quotes.id = quote_lines.quote_id
+        AND quotes.org_id = quote_lines.org_id
+      WHERE quote_lines.org_id = ? AND quote_lines.catalog_item_id = ?
+        AND quotes.status IN ('sent', 'viewed', 'accepted')
+        AND (quotes.valid_until = '' OR quotes.valid_until >= ? OR quotes.accepted_at IS NOT NULL)
+    `).get(orgId, item.id, today);
+    const recentIssues = db.prepare(`
+      SELECT COALESCE(SUM(stock_moves.quantity), 0) AS quantity
+      FROM stock_moves
+      JOIN stock_locations ON stock_locations.id = stock_moves.destination_location_id
+        AND stock_locations.org_id = stock_moves.org_id
+      WHERE stock_moves.org_id = ?
+        AND stock_moves.catalog_item_id = ?
+        AND stock_moves.status = 'posted'
+        AND stock_locations.location_type = 'customer'
+        AND stock_moves.created_at >= datetime('now', '-30 days')
+    `).get(orgId, item.id);
+    const onHandGross = Number(stock.on_hand || 0);
+    const reserved = Number(stock.reserved || 0);
+    const availableStock = Math.max(0, onHandGross - reserved);
+    const openPurchaseQty = Number(purchase.open_purchase_qty || 0);
+    const salesDemandQty = Number(sales.sales_demand_qty || 0);
+    const quoteCount = Number(sales.quote_count || 0);
+    const recentCustomerIssueQty = Number(recentIssues.quantity || 0);
+    const bestLead = selectVendor(db, orgId, item.id, Math.max(1, salesDemandQty || 1))[0] || null;
+    const leadTimeDays = Number(bestLead?.leadTimeDays || 0);
+    const leadTimeDemandQty = Math.ceil((recentCustomerIssueQty / 30) * Math.max(leadTimeDays, 0));
+    const safetyStockQty = salesDemandQty > 0
+      ? Math.max(5, Math.ceil(salesDemandQty * 0.25))
+      : 50;
+    const targetQty = Math.max(salesDemandQty + safetyStockQty, leadTimeDemandQty + safetyStockQty);
+    const netAvailableQty = availableStock + openPurchaseQty - salesDemandQty;
+    const suggestedQty = Math.max(0, targetQty - availableStock - openPurchaseQty);
+    if (suggestedQty <= 0) continue;
+    const vendor = db.prepare(`
+      SELECT purchase_vendor_prices.vendor_id AS vendorId,
+        purchase_vendors.name AS vendorName,
+        purchase_vendor_prices.unit_cost AS unitCost,
+        purchase_vendor_prices.currency,
+        purchase_vendor_prices.lead_time_days AS leadTimeDays
+      FROM purchase_vendor_prices
+      JOIN purchase_vendors ON purchase_vendors.id = purchase_vendor_prices.vendor_id
+        AND purchase_vendors.org_id = purchase_vendor_prices.org_id
+      WHERE purchase_vendor_prices.org_id = ?
+        AND purchase_vendor_prices.catalog_item_id = ?
+        AND purchase_vendor_prices.status = 'active'
+        AND purchase_vendors.status = 'active'
+        AND purchase_vendor_prices.min_quantity <= ?
+        AND purchase_vendor_prices.valid_from <= ?
+        AND (purchase_vendor_prices.valid_to = '' OR purchase_vendor_prices.valid_to >= ?)
+      ORDER BY purchase_vendor_prices.unit_cost ASC,
+        purchase_vendor_prices.lead_time_days ASC,
+        purchase_vendors.name ASC
+      LIMIT 1
+    `).get(orgId, item.id, Math.max(1, suggestedQty), today, today);
+    const drivers = [];
+    if (availableStock <= 0) drivers.push("stockout");
+    if (salesDemandQty > 0) drivers.push("sales-demand");
+    if (recentCustomerIssueQty > 0) drivers.push("recent-customer-issues");
+    if (openPurchaseQty < salesDemandQty) drivers.push("open-purchase-gap");
+    if (!vendor) drivers.push("vendor-price-missing");
+    const reasoning = [
+      `available ${availableStock}`,
+      `open PO ${openPurchaseQty}`,
+      `sales demand ${salesDemandQty}`,
+      `target ${targetQty}`
+    ];
+    suggestions.push({
+      catalogItemId: item.id,
+      sku: item.sku,
+      name: item.name,
+      unitOfMeasure: item.unit_of_measure || "",
+      onHand: availableStock,
+      onHandGross,
+      reservedQuantity: reserved,
+      availableStock,
+      openDemand: openPurchaseQty,
+      openPoQty: openPurchaseQty,
+      openPurchaseQty,
+      salesQuoteDemand: salesDemandQty,
+      salesDemandQty,
+      quoteCount,
+      recentCustomerIssueQty,
+      leadTimeDemandQty,
+      netAvailableQty,
+      safetyStockQty,
+      suggestedQty,
+      recommendedVendorId: vendor?.vendorId || "",
+      recommendedVendorName: vendor?.vendorName || "",
+      recommendedUnitCost: vendor?.unitCost || 0,
+      recommendedCurrency: vendor?.currency || "",
+      leadTimeDays: vendor?.leadTimeDays || leadTimeDays,
+      source: salesDemandQty > 0 ? "sales-quotes" : "stockout",
+      recommendedAction: vendor ? "create-purchase-order" : "add-vendor-price",
+      demandSources: {
+        stockMoves: recentCustomerIssueQty,
+        salesQuotes: salesDemandQty,
+        openPurchaseOrders: openPurchaseQty
+      },
+      recommendedVendor: vendor ? {
+        vendorId: vendor.vendorId,
+        vendorName: vendor.vendorName,
+        unitCost: vendor.unitCost,
+        currency: vendor.currency,
+        leadTimeDays: vendor.leadTimeDays
+      } : null,
+      reasoning,
+      drivers
+    });
   }
-  return suggestions;
+  return suggestions
+    .sort((a, b) => b.suggestedQty - a.suggestedQty || a.sku.localeCompare(b.sku))
+    .slice(0, 12);
+}
+
+function summarizeReplenishment(suggestions) {
+  const rows = Array.isArray(suggestions) ? suggestions : [];
+  return {
+    suggestionCount: rows.length,
+    suggestedQty: rows.reduce((sum, item) => sum + Number(item.suggestedQty || 0), 0),
+    salesDemandQty: rows.reduce((sum, item) => sum + Number(item.salesDemandQty || item.salesQuoteDemand || 0), 0),
+    openPurchaseQty: rows.reduce((sum, item) => sum + Number(item.openPurchaseQty || item.openPoQty || item.openDemand || 0), 0),
+    stockoutCount: rows.filter(item => Number(item.availableStock ?? item.onHand ?? 0) <= 0).length
+  };
 }
 
 function detectPriceAnomaly(db, orgId, catalogItemId, proposedUnitPrice) {
@@ -416,6 +561,7 @@ module.exports = {
   allocateLandedCost,
   issueCreditNote,
   computeReplenishment,
+  summarizeReplenishment,
   detectPriceAnomaly,
   selectVendor
 };

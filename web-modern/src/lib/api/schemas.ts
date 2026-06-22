@@ -1308,14 +1308,82 @@ export const PurchaseAnalyticsSummarySchema = z.object({
   returnCreditNoteAmount: z.number().nullable().optional(),
   landedCostCount: z.number().nullable().optional(),
   landedCostAmount: z.number().nullable().optional(),
+  replenishmentSuggestionCount: z.number().nullable().optional(),
+  replenishmentSuggestedQty: z.number().nullable().optional(),
+  replenishmentSalesDemandQty: z.number().nullable().optional(),
 }).passthrough();
 export type PurchaseAnalyticsSummary = z.infer<typeof PurchaseAnalyticsSummarySchema>;
+
+export const PurchaseReplenishmentSuggestionSchema = z.object({
+  catalogItemId: z.string(),
+  sku: z.string().nullable().optional(),
+  name: z.string().nullable().optional(),
+  unitOfMeasure: z.string().nullable().optional(),
+  onHand: z.number().nullable().optional(),
+  reservedQuantity: z.number().nullable().optional(),
+  availableStock: z.number().nullable().optional(),
+  openDemand: z.number().nullable().optional(),
+  openPoQty: z.number().nullable().optional(),
+  openPurchaseQty: z.number().nullable().optional(),
+  salesQuoteDemand: z.number().nullable().optional(),
+  salesDemandQty: z.number().nullable().optional(),
+  quoteCount: z.number().nullable().optional(),
+  recentCustomerIssueQty: z.number().nullable().optional(),
+  leadTimeDemandQty: z.number().nullable().optional(),
+  netAvailableQty: z.number().nullable().optional(),
+  safetyStockQty: z.number().nullable().optional(),
+  suggestedQty: z.number(),
+  recommendedVendorId: z.string().nullable().optional(),
+  recommendedVendorName: z.string().nullable().optional(),
+  recommendedUnitCost: z.number().nullable().optional(),
+  recommendedCurrency: z.string().nullable().optional(),
+  leadTimeDays: z.number().nullable().optional(),
+  source: z.string().nullable().optional(),
+  recommendedAction: z.string().nullable().optional(),
+  demandSources: z.object({
+    stockMoves: z.number().nullable().optional(),
+    salesQuotes: z.number().nullable().optional(),
+    openPurchaseOrders: z.number().nullable().optional(),
+  }).optional(),
+  recommendedVendor: z.object({
+    vendorId: z.string().nullable().optional(),
+    vendorName: z.string().nullable().optional(),
+    unitCost: z.number().nullable().optional(),
+    currency: z.string().nullable().optional(),
+    leadTimeDays: z.number().nullable().optional(),
+  }).nullable().optional(),
+  reasoning: z.array(z.string()).optional(),
+  drivers: z.array(z.string()).optional(),
+}).passthrough();
+export type PurchaseReplenishmentSuggestion = z.infer<
+  typeof PurchaseReplenishmentSuggestionSchema
+>;
+
+export const PurchaseReplenishmentSummarySchema = z.object({
+  suggestionCount: z.number(),
+  suggestedQty: z.number(),
+  salesDemandQty: z.number(),
+  openPurchaseQty: z.number(),
+  stockoutCount: z.number(),
+}).passthrough();
+export type PurchaseReplenishmentSummary = z.infer<
+  typeof PurchaseReplenishmentSummarySchema
+>;
+
+export const PurchaseReplenishmentAnalyticsSchema = z.object({
+  summary: PurchaseReplenishmentSummarySchema,
+  suggestions: z.array(PurchaseReplenishmentSuggestionSchema),
+}).passthrough();
+export type PurchaseReplenishmentAnalytics = z.infer<
+  typeof PurchaseReplenishmentAnalyticsSchema
+>;
 
 export const PurchaseAnalyticsResponseSchema = z.object({
   summary: PurchaseAnalyticsSummarySchema,
   receiptBacklog: z.array(z.unknown()),
   vendorPerformance: z.array(z.unknown()),
   priceCoverage: z.unknown(),
+  replenishment: PurchaseReplenishmentAnalyticsSchema.optional(),
 }).passthrough();
 export type PurchaseAnalyticsResponse = z.infer<typeof PurchaseAnalyticsResponseSchema>;
 
@@ -3423,13 +3491,7 @@ export type ProcurementAiPriceAnomaly = z.infer<
   typeof ProcurementAiPriceAnomalySchema
 >;
 
-export const ProcurementReplenishmentSuggestionSchema = z.object({
-  catalogItemId: z.string(),
-  suggestedQty: z.number().nonnegative(),
-  onHand: z.number().nonnegative(),
-  inTransit: z.number().nonnegative(),
-  leadTimeDays: z.number().int().nonnegative(),
-});
+export const ProcurementReplenishmentSuggestionSchema = PurchaseReplenishmentSuggestionSchema;
 export type ProcurementReplenishmentSuggestion = z.infer<
   typeof ProcurementReplenishmentSuggestionSchema
 >;
@@ -3563,7 +3625,8 @@ export type ProcurementAiPriceAnomalyResponse = z.infer<
 export const ProcurementReplenishmentResponseSchema = z.object({
   ok: z.literal(true),
   suggestions: z.array(ProcurementReplenishmentSuggestionSchema),
-});
+  summary: PurchaseReplenishmentSummarySchema.optional(),
+}).passthrough();
 export type ProcurementReplenishmentResponse = z.infer<
   typeof ProcurementReplenishmentResponseSchema
 >;

@@ -249,10 +249,10 @@ test('contract: AAD mismatch throws AAD_MISMATCH', () => {
 test('contract: tampered ciphertext throws DECRYPT_FAILED', () => {
   const v = mkVault();
   const packed = v.encryptString('secret', { aad: 'tenant:1|provider:p1' });
-  // Flip a byte in the middle of the packed string (the ct
-  // section). base64url chars [A-Za-z0-9_-] are all single-byte
-  // safe to mutate.
-  const tampered = packed.slice(0, -3) + (packed.endsWith('A') ? 'B' : 'A') + packed.slice(-2);
+  const env = unpack(packed);
+  const tamperedCt = Buffer.from(env.ct);
+  tamperedCt[0] ^= 0xff;
+  const tampered = pack(env.version, env.iv, env.tag, tamperedCt, env.aad);
   assert.throws(
     () => v.decryptString(tampered, { aad: 'tenant:1|provider:p1' }),
     VaultError

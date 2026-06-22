@@ -1123,7 +1123,8 @@ function registerApi(app, db, options = {}) {
   app.get("/api/procurement/analytics/replenishment", async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
-    return { ok: true, suggestions: procurement.computeReplenishment(db, user.org_id) };
+    const suggestions = procurement.computeReplenishment(db, user.org_id);
+    return { ok: true, suggestions, summary: procurement.summarizeReplenishment(suggestions) };
   });
 
   app.get("/api/pilots/templates/clinic-wellness", async request => {
@@ -54623,6 +54624,8 @@ function getPurchaseAnalytics(db, orgId) {
   const creditNoteCount = orders.reduce((total, order) => total + Number(order.creditNoteCount || 0), 0);
   const landedCostAmount = orders.reduce((total, order) => total + Number(order.landedCostAmount || 0), 0);
   const landedCostCount = orders.reduce((total, order) => total + Number(order.landedCostCount || 0), 0);
+  const replenishmentSuggestions = procurement.computeReplenishment(db, orgId);
+  const replenishmentSummary = procurement.summarizeReplenishment(replenishmentSuggestions);
   const summary = {
     orderCount: orders.length,
     vendorCount: vendors.length,
@@ -54633,6 +54636,9 @@ function getPurchaseAnalytics(db, orgId) {
     returnCreditNoteCount: creditNoteCount,
     landedCostAmount,
     landedCostCount,
+    replenishmentSuggestionCount: replenishmentSummary.suggestionCount,
+    replenishmentSuggestedQty: replenishmentSummary.suggestedQty,
+    replenishmentSalesDemandQty: replenishmentSummary.salesDemandQty,
     receiptProgressPercent: percent(receivableStats.receivedQuantity, receivableStats.orderedQuantity),
     returnedQuantity: lineStats.returnedQuantity,
     remainingQuantity: receivableStats.remainingQuantity,
@@ -54653,6 +54659,10 @@ function getPurchaseAnalytics(db, orgId) {
       activeVendorCount: summary.activeVendorCount,
       coveredStockableItemCount: priceCoverage.coveredStockableItemCount,
       coveragePercent: summary.vendorPriceCoveragePercent
+    },
+    replenishment: {
+      summary: replenishmentSummary,
+      suggestions: replenishmentSuggestions
     }
   };
 }

@@ -74,7 +74,7 @@ Source: [the reference ERP Purchase](https://www.the reference ERP.com/documenta
 
 Comparison to A1:
 
-- This remains one of A1's largest ERP gaps, but the first catalog/inventory/purchase spine is now shipped: product master rows, stock locations, stock balances, governed stock moves, Suite sidebar Inventory and Purchase workspaces, RFQ/PO -> partial/full receipt -> supplier return -> AP bill flow, billed-return credit notes with AP reversal evidence, pre-receipt landed-cost allocation evidence for receipt valuation, first vendor master/pricelist defaults, receipt and return evidence, procurement analytics, and Vendor 360 coverage/backlog panels. A1 still lacks warehouse operations depth, replenishment, valuation accounting, lots/serials, advanced vendor lifecycle/pricelist rules, tenders/blanket orders, post-receipt landed-cost revaluation/accounting, and replenishment analytics.
+- This remains one of A1's largest ERP gaps, but the first catalog/inventory/purchase spine is now shipped: product master rows, stock locations, stock balances, governed stock moves, Suite sidebar Inventory and Purchase workspaces, RFQ/PO -> partial/full receipt -> supplier return -> AP bill flow, billed-return credit notes with AP reversal evidence, pre-receipt landed-cost allocation evidence for receipt valuation, first vendor master/pricelist defaults, receipt and return evidence, procurement analytics, Vendor 360 coverage/backlog panels, and first purchase-to-sales replenishment suggestions. A1 still lacks warehouse operations depth, valuation accounting, lots/serials, advanced vendor lifecycle/pricelist rules, tenders/blanket orders, post-receipt landed-cost revaluation/accounting, and MRP-grade replenishment planning beyond the first quote/open-PO demand queue.
 - This should be the first major post-core module because it connects CRM quotes, finance invoices, eCommerce, POS, and Armenian retail/wholesale needs.
 
 ### Manufacturing, Quality, Maintenance, PLM, And Repairs
@@ -222,8 +222,8 @@ Major A1 gaps relative to the reference ERP:
 | Area | the reference ERP capability | A1 status | Priority |
 |---|---|---|---|
 | Product catalog | Products, variants, UoM, pricelists, discounts, margins | Shipped core product master + quote-line integration + Catalog & Inventory UI + governed UoM catalog + seeded variant spine + margin evidence + first sales pricelist spine + first sales discount evidence + first margin-rule evidence + read-only price resolution + quote-line resolver consumption + variant-aware quote lines + quote-line pricing evidence + quote-line pricing evidence UI + first quantity-break discount evidence + first category-scoped margin-rule evidence + quote-line margin-rule provenance; advanced configurable discount and margin-rule management still missing | P0 |
-| Inventory/WMS | Warehouses, locations, stock moves, lots/serials, replenishment, valuation | Shipped core locations/quants/moves + sidebar workspace; advanced WMS and valuation still missing | P0 |
-| Purchase/procurement | RFQ, PO, vendor pricelists, tender/blanket orders, vendor bills | Shipped RFQ/PO -> partial/full receipt -> supplier return -> AP bill spine plus billed-return credit-note/AP reversal evidence, pre-receipt landed-cost allocation evidence for receipt valuation, first Purchase sidebar workspace, vendor/pricelist defaults, receipt/return evidence, procurement analytics, and Vendor 360; tenders, advanced vendor lifecycle, post-receipt landed-cost revaluation/accounting, and replenishment analytics still missing | P0 |
+| Inventory/WMS | Warehouses, locations, stock moves, lots/serials, replenishment, valuation | Shipped core locations/quants/moves + sidebar workspace + first purchase replenishment suggestions; advanced WMS, lots/serials, and valuation still missing | P0 |
+| Purchase/procurement | RFQ, PO, vendor pricelists, tender/blanket orders, vendor bills | Shipped RFQ/PO -> partial/full receipt -> supplier return -> AP bill spine plus billed-return credit-note/AP reversal evidence, pre-receipt landed-cost allocation evidence for receipt valuation, first Purchase sidebar workspace, vendor/pricelist defaults, receipt/return evidence, procurement analytics, Vendor 360, and purchase-to-sales replenishment suggestions; tenders, advanced vendor lifecycle, and post-receipt landed-cost revaluation/accounting still missing | P0 |
 | POS | Browser POS, offline mode, cash sessions, stock sync, receipts | Missing | P1 |
 | eCommerce/portal | Storefront, checkout, B2B/B2C, customer accounts | Public forms/quotes only | P1 |
 | Manufacturing/MRP | BoM, work orders, shop floor, MPS, quality, maintenance | Missing | P2 |
@@ -521,7 +521,7 @@ Acceptance:
 
 1. Product catalog and localization kernel.
 2. Inventory core.
-3. Purchase/procurement first spine, sidebar workspace, vendor/pricelist defaults, partial receipts, supplier returns, billed-return credit notes, pre-receipt landed-cost evidence, and Vendor 360 analytics (shipped incrementally from 2026-06-06); next: tenders/blanket-order depth, post-receipt landed-cost revaluation/accounting, and replenishment analytics.
+3. Purchase/procurement first spine, sidebar workspace, vendor/pricelist defaults, partial receipts, supplier returns, billed-return credit notes, pre-receipt landed-cost evidence, Vendor 360 analytics, and purchase-to-sales replenishment suggestions (shipped incrementally from 2026-06-06); next: tenders/blanket-order depth and post-receipt landed-cost revaluation/accounting.
 4. Sales orders and product-aware quotes.
 5. POS with Armenian fiscal evidence.
 6. Customer portal and eCommerce.
@@ -599,7 +599,7 @@ Implementation:
   - Auditor read-only coverage, backup inclusion, period-lock blocking, sanitized malformed metadata/path guards, duplicate PO-number `409`, app-assignment role guards, and idempotent retries are covered by tests.
 - Remaining:
   - Advanced vendor lifecycle/pricelist rules.
-  - Tenders/blanket-order depth, post-receipt landed-cost revaluation/accounting, replenishment analytics, and purchase-to-sales demand suggestions.
+  - Tenders/blanket-order depth and post-receipt landed-cost revaluation/accounting.
 
 ## Localization Checklist
 

@@ -1,14 +1,16 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
-import { useMutation } from "@tanstack/react-query";
-import { useState } from "react";
-import { ChevronLeft, Lock, ShoppingCart } from "lucide-react";
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useEffect, useState } from "react";
+import { ChevronLeft, Lock, PackageSearch, ShoppingCart } from "lucide-react";
 import { z } from "zod";
-import { postJson } from "../../../../lib/api/client";
+import { getJson, postJson } from "../../../../lib/api/client";
 import {
+  ProcurementReplenishmentResponseSchema,
   ProcurementRequisitionCreateRequestSchema,
   ProcurementRequisitionCreateResponseSchema,
   ProcurementRfqConvertRequestSchema,
   ProcurementRfqConvertResponseSchema,
+  type ProcurementReplenishmentSuggestion,
 } from "../../../../lib/api/schemas";
 import { cn } from "../../../../lib/utils/cn";
 
@@ -22,8 +24,8 @@ export const Route = createFileRoute("/app/purchase/procurement/")({
 
 // ---------------------------------------------------------------------------
 // Tabs (route-local). Worker-1's PROCUREMENT_TABS uses a different vocabulary
-// (blanket/landed/credit) so this route owns its own five-tab vocabulary that
-// matches the procurement spec: requisition → rfq → quote → po → receipt.
+// (blanket/landed/credit) so this route owns its own vocabulary that matches
+// the procurement spec: requisition → rfq → quote → po → receipt → demand.
 // ---------------------------------------------------------------------------
 
 export const PROCUREMENT_ROUTE_TABS = [
@@ -32,6 +34,7 @@ export const PROCUREMENT_ROUTE_TABS = [
   "quote",
   "po",
   "receipt",
+  "replenishment",
 ] as const;
 
 export type ProcurementRouteTab = (typeof PROCUREMENT_ROUTE_TABS)[number];
@@ -110,6 +113,7 @@ const PROCUREMENT_TAB_LABELS: Readonly<
   quote: { armenian: "Quotes", english: "Quote" },
   po: { armenian: "POs", english: "PO" },
   receipt: { armenian: "Receipts", english: "Receipt" },
+  replenishment: { armenian: "Replenishment", english: "Demand" },
 };
 
 // ---------------------------------------------------------------------------
@@ -762,13 +766,33 @@ export function ProcurementWorkspace({
   userAccess = DEFAULT_PROCUREMENT_ACCESS,
 }: ProcurementWorkspaceProps = {}) {
   const [activeTab, setActiveTab] = useState<ProcurementRouteTab>(
-    "requisition",
+    () => (typeof window === "undefined"
+      ? "requisition"
+      : procurementRouteTabFromHash(window.location.hash)),
   );
   const [requisitionId, setRequisitionId] = useState<string | null>(null);
   const [rfqId, setRfqId] = useState<string | null>(null);
   const [quoteId, setQuoteId] = useState<string | null>(null);
   const [poId, setPoId] = useState<string | null>(null);
   const [receiptId, setReceiptId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const handleHashChange = () => {
+      setActiveTab(procurementRouteTabFromHash(window.location.hash));
+    };
+    window.addEventListener("hashchange", handleHashChange);
+    return () => window.removeEventListener("hashchange", handleHashChange);
+  }, []);
+
+  const setActiveTabWithHash = (tab: ProcurementRouteTab) => {
+    setActiveTab(tab);
+    if (typeof window === "undefined") return;
+    const nextHash = procurementRouteTabToHash(tab);
+    if (window.location.hash !== nextHash) {
+      window.location.hash = nextHash;
+    }
+  };
 
   if (userAccess === "none") {
     return (
@@ -779,7 +803,7 @@ export function ProcurementWorkspace({
       >
         <ProcurementHeader
           titleArmenian="Գ Procurement"
-          titleEnglish="Procurement requisitions · RFQs · quotes · POs · receipts"
+          titleEnglish="Procurement requisitions · RFQs · quotes · POs · receipts · replenishment"
         />
         <ProcurementAccessDeniedCard resource="procurement" />
       </main>
@@ -794,9 +818,9 @@ export function ProcurementWorkspace({
     >
       <ProcurementHeader
         titleArmenian="Գ Procurement"
-        titleEnglish="Procurement requisitions · RFQs · quotes · POs · receipts"
+        titleEnglish="Procurement requisitions · RFQs · quotes · POs · receipts · replenishment"
       />
-      <ProcurementTabStrip active={activeTab} onChange={setActiveTab} />
+      <ProcurementTabStrip active={activeTab} onChange={setActiveTabWithHash} />
 
       {activeTab === "requisition" ? (
         <ProcurementRequisitionForm
@@ -839,8 +863,168 @@ export function ProcurementWorkspace({
           onCreated={setReceiptId}
         />
       ) : null}
+
+      {activeTab === "replenishment" ? (
+        <ProcurementReplenishmentPanel />
+      ) : null}
     </main>
   );
+}
+
+// ---------------------------------------------------------------------------
+// Replenishment panel
+// ---------------------------------------------------------------------------
+
+export function ProcurementReplenishmentPanel() {
+  const query = useQuery({
+    queryKey: ["procurement-replenishment"],
+    queryFn: async () => {
+      const raw = await getJson("/api/procurement/analytics/replenishment");
+      return ProcurementReplenishmentResponseSchema.parse(raw);
+    },
+  });
+
+  if (query.isLoading) {
+    return (
+      <section
+        data-testid="procurement-replenishment-loading"
+        data-entity="procurement-replenishment"
+        className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-sm text-[var(--color-text-muted)]"
+      >
+        Loading replenishment…
+      </section>
+    );
+  }
+
+  if (query.isError || !query.data) {
+    return (
+      <section
+        data-testid="procurement-replenishment-error"
+        data-entity="procurement-replenishment"
+        className="rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4 text-sm text-[var(--color-danger)]"
+      >
+        Failed to load replenishment suggestions.
+      </section>
+    );
+  }
+
+  const suggestions = query.data.suggestions;
+  const summary = query.data.summary;
+
+  return (
+    <section
+      data-testid="procurement-replenishment-panel"
+      data-entity="procurement-replenishment"
+      data-count={String(suggestions.length)}
+      className="space-y-3 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
+    >
+      <header className="flex items-start justify-between gap-3">
+        <div>
+          <h3 className="inline-flex items-center gap-2 text-base font-semibold text-[var(--color-text)]">
+            <PackageSearch className="h-4 w-4" aria-hidden="true" />
+            Replenishment
+          </h3>
+          <p className="text-xs text-[var(--color-text-muted)]">
+            Purchase-to-sales demand suggestions
+          </p>
+        </div>
+        {summary ? (
+          <span className="font-mono text-xs text-[var(--color-text-muted)]">
+            {formatProcurementQuantity(summary.suggestedQty)} suggested
+          </span>
+        ) : null}
+      </header>
+
+      {suggestions.length === 0 ? (
+        <p
+          data-testid="procurement-replenishment-empty"
+          className="rounded-[var(--radius-sm)] border border-dashed border-[var(--color-border)] bg-[var(--color-surface-muted)] p-3 text-sm text-[var(--color-text-muted)]"
+        >
+          No replenishment suggestions right now.
+        </p>
+      ) : (
+        <div className="overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-border)]">
+          <table
+            role="table"
+            data-testid="procurement-replenishment-table"
+            className="w-full text-sm"
+          >
+            <thead className="bg-[var(--color-surface-muted)] text-xs uppercase tracking-wide text-[var(--color-text-muted)]">
+              <tr>
+                <th scope="col" className="px-3 py-2 text-left font-semibold">Item</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold">On hand</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold">Open PO</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold">Sales demand</th>
+                <th scope="col" className="px-3 py-2 text-right font-semibold">Suggested</th>
+                <th scope="col" className="px-3 py-2 text-left font-semibold">Vendor</th>
+              </tr>
+            </thead>
+            <tbody>
+              {suggestions.map((suggestion) => (
+                <ProcurementReplenishmentRow
+                  key={suggestion.catalogItemId}
+                  suggestion={suggestion}
+                />
+              ))}
+            </tbody>
+          </table>
+        </div>
+      )}
+    </section>
+  );
+}
+
+function ProcurementReplenishmentRow({
+  suggestion,
+}: {
+  suggestion: ProcurementReplenishmentSuggestion;
+}) {
+  const salesDemand = suggestion.salesQuoteDemand ?? suggestion.salesDemandQty ?? 0;
+  const openPo = suggestion.openPoQty ?? suggestion.openPurchaseQty ?? suggestion.openDemand ?? 0;
+  const vendor = suggestion.recommendedVendorName
+    || suggestion.recommendedVendor?.vendorName
+    || "Vendor price missing";
+
+  return (
+    <tr
+      data-testid="procurement-replenishment-row"
+      className="border-t border-[var(--color-border)] hover:bg-[var(--color-surface-muted)]"
+    >
+      <td className="px-3 py-2">
+        <Link
+          to="/app/inventory/$itemId"
+          params={{ itemId: suggestion.catalogItemId }}
+          search={{ tab: "stock" }}
+          className="font-mono text-[var(--color-link)] hover:underline"
+        >
+          {suggestion.sku || suggestion.catalogItemId}
+        </Link>
+        <p className="text-xs text-[var(--color-text-muted)]">
+          {suggestion.name || suggestion.catalogItemId}
+        </p>
+      </td>
+      <td className="px-3 py-2 text-right font-mono text-[var(--color-text)]">
+        {formatProcurementQuantity(suggestion.onHand)}
+      </td>
+      <td className="px-3 py-2 text-right font-mono text-[var(--color-text-muted)]">
+        {formatProcurementQuantity(openPo)}
+      </td>
+      <td className="px-3 py-2 text-right font-mono text-[var(--color-text-muted)]">
+        {formatProcurementQuantity(salesDemand)}
+      </td>
+      <td className="px-3 py-2 text-right font-mono font-semibold text-[var(--color-text)]">
+        {formatProcurementQuantity(suggestion.suggestedQty)}
+      </td>
+      <td className="px-3 py-2 text-[var(--color-text-muted)]">
+        <span className="block text-[var(--color-text)]">{vendor}</span>
+        <span className="text-xs">{suggestion.leadTimeDays ?? 0}d lead</span>
+      </td>
+    </tr>
+  );
+}
+
+function formatProcurementQuantity(value: number | null | undefined): string {
+  return new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 }).format(Number(value || 0));
 }
 
 // ---------------------------------------------------------------------------

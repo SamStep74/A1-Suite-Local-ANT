@@ -3,12 +3,12 @@
  *
  * Mirrors the cabinet test pattern. Mocks the three layers
  * (Router, Query, API client), then exercises the public
- * surface: 5 tabs, 5 POST flows, the 403 access gate, the
+ * surface: 6 tabs, 5 POST flows, replenishment queue, the 403 access gate, the
  * back link, and the route-local hash helpers.
  *
  * Coverage (Phase 8.4 layer 2):
  *  1.  Page shell — H2 contains Armenian title
- *  2.  Five tab buttons render in the strip
+ *  2.  Six tab buttons render in the strip
  *  3.  Default tab is Requisition
  *  4.  Tab switching reveals the matching form
  *  5.  Requisition form posts to /api/procurement/requisitions
@@ -80,14 +80,16 @@ vi.mock("@tanstack/react-router", () => ({
   Link: ({
     children,
     to,
+    params,
     search: _search,
     ...rest
   }: {
     children?: React.ReactNode;
     to?: string;
+    params?: Record<string, string>;
     search?: unknown;
   } & Record<string, unknown>) => (
-    <a data-href={to} href={to} {...rest}>
+    <a data-href={to} data-params={JSON.stringify(params ?? {})} href={to} {...rest}>
       {children}
     </a>
   ),
@@ -237,7 +239,19 @@ function installPostJsonByPath() {
 }
 
 beforeEach(() => {
+  window.location.hash = "";
   installPostJsonByPath();
+  mocks.getJson.mockResolvedValue({
+    ok: true,
+    summary: {
+      suggestionCount: 0,
+      suggestedQty: 0,
+      salesDemandQty: 0,
+      openPurchaseQty: 0,
+      stockoutCount: 0,
+    },
+    suggestions: [],
+  });
   Object.values(mocks.mutateImpls).forEach((fn) => fn.mockReset());
   Object.values(mocks.mutateImpls).forEach((fn) =>
     fn.mockImplementation(() => {
@@ -276,7 +290,7 @@ describe("procurement page shell", () => {
     renderRoute();
     const subtitle = screen.getByTestId("procurement-subtitle");
     expect(subtitle.textContent ?? "").toMatch(
-      /Procurement requisitions.*RFQs.*quotes.*POs.*receipts/,
+      /Procurement requisitions.*RFQs.*quotes.*POs.*receipts.*replenishment/,
     );
     expect(screen.getByTestId("procurement-header")).toBeInTheDocument();
   });
@@ -289,7 +303,7 @@ describe("procurement page shell", () => {
 });
 
 describe("procurement tab strip", () => {
-  it("renders all 5 tab buttons in the strip", () => {
+  it("renders all 6 tab buttons in the strip", () => {
     renderRoute();
     const strip = screen.getByTestId("procurement-tab-strip");
     expect(strip).toBeInTheDocument();
@@ -299,6 +313,7 @@ describe("procurement tab strip", () => {
       "quote",
       "po",
       "receipt",
+      "replenishment",
     ];
     for (const t of tabs) {
       expect(screen.getByTestId(`procurement-tab-${t}`)).toBeInTheDocument();
@@ -310,6 +325,16 @@ describe("procurement tab strip", () => {
     const reqTab = screen.getByTestId("procurement-tab-requisition");
     expect(reqTab.getAttribute("data-active")).toBe("true");
     expect(screen.getByTestId("procurement-requisition-form")).toBeInTheDocument();
+  });
+
+  it("initializes from the replenishment hash", async () => {
+    window.location.hash = "#replenishment";
+    renderRoute();
+    const replenishmentTab = screen.getByTestId("procurement-tab-replenishment");
+    expect(replenishmentTab.getAttribute("data-active")).toBe("true");
+    await waitFor(() => {
+      expect(screen.getByTestId("procurement-replenishment-empty")).toBeInTheDocument();
+    });
   });
 
   it("switches tabs when a tab button is clicked", () => {
@@ -324,6 +349,84 @@ describe("procurement tab strip", () => {
       ),
     ).toBe("false");
     expect(screen.getByTestId("procurement-rfq-form")).toBeInTheDocument();
+    expect(window.location.hash).toBe("#rfq");
+  });
+});
+
+describe("procurement replenishment queue", () => {
+  it("fetches and renders replenishment suggestions from the analytics endpoint", async () => {
+    mocks.getJson.mockResolvedValueOnce({
+      ok: true,
+      summary: {
+        suggestionCount: 1,
+        suggestedQty: 40,
+        salesDemandQty: 40,
+        openPurchaseQty: 10,
+        stockoutCount: 1,
+      },
+      suggestions: [
+        {
+          catalogItemId: "catitem-pos-barcode-scanner",
+          sku: "POS-SCAN-001",
+          name: "POS barcode scanner",
+          onHand: 0,
+          openPoQty: 10,
+          salesQuoteDemand: 40,
+          suggestedQty: 40,
+          leadTimeDays: 2,
+          recommendedVendorName: "Yerevan Hardware Supply",
+          reasoning: ["sales demand 40"],
+        },
+      ],
+    });
+
+    renderRoute();
+    fireEvent.click(screen.getByTestId("procurement-tab-replenishment"));
+
+    await waitFor(() => {
+      expect(mocks.getJson).toHaveBeenCalledWith("/api/procurement/analytics/replenishment");
+      expect(screen.getByTestId("procurement-replenishment-table")).toBeInTheDocument();
+    });
+
+    expect(screen.getByText("POS-SCAN-001")).toBeInTheDocument();
+    expect(screen.getByText("POS barcode scanner")).toBeInTheDocument();
+    expect(screen.getByText("Yerevan Hardware Supply")).toBeInTheDocument();
+    expect(screen.getAllByText("40").length).toBeGreaterThan(0);
+    const link = screen.getByText("POS-SCAN-001").closest("a");
+    expect(link?.getAttribute("data-href")).toBe("/app/inventory/$itemId");
+    expect(link?.getAttribute("data-params")).toContain("catitem-pos-barcode-scanner");
+  });
+
+  it("renders an empty replenishment state", async () => {
+    renderRoute();
+    fireEvent.click(screen.getByTestId("procurement-tab-replenishment"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("procurement-replenishment-empty")).toBeInTheDocument();
+    });
+  });
+
+  it("renders loading while replenishment suggestions are pending", () => {
+    mocks.getJson.mockReturnValueOnce(new Promise(() => undefined));
+    renderRoute();
+    fireEvent.click(screen.getByTestId("procurement-tab-replenishment"));
+    expect(screen.getByTestId("procurement-replenishment-loading")).toBeInTheDocument();
+  });
+
+  it("renders an error when replenishment suggestions fail", async () => {
+    mocks.getJson.mockRejectedValueOnce(new Error("network down"));
+    renderRoute();
+    fireEvent.click(screen.getByTestId("procurement-tab-replenishment"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("procurement-replenishment-error")).toBeInTheDocument();
+    });
+  });
+
+  it("does not fetch replenishment for the 403 branch", () => {
+    renderWorkspaceWithAccess("none");
+    expect(screen.getByTestId("procurement-403")).toBeInTheDocument();
+    expect(mocks.getJson).not.toHaveBeenCalled();
   });
 });
 

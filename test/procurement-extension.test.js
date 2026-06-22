@@ -307,10 +307,82 @@ test("procurement/analytics/replenishment returns suggestions", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
     await app.ready();
-    const { cookie } = await seedPurchaseFixtures(app);
+    const { cookie, orderId, itemId } = await seedPurchaseFixtures(app);
+    const orgId = "org-armosphera-demo";
+    app.db.prepare(`
+      UPDATE stock_quants
+      SET quantity = 0, reserved_quantity = 0
+      WHERE org_id = ? AND catalog_item_id = ?
+    `).run(orgId, itemId);
+    const customerId = app.db.prepare("SELECT id FROM customers WHERE org_id = ? LIMIT 1").get(orgId).id;
+    const now = new Date().toISOString();
+    app.db.prepare(`
+      INSERT INTO quotes (
+        id, org_id, customer_id, deal_id, number, title, status, subtotal, vat,
+        total, currency, valid_until, public_token, sent_at, accepted_at,
+        created_by_user_id, created_at, updated_at
+      )
+      VALUES (?, ?, ?, NULL, ?, ?, 'sent', ?, ?, ?, 'AMD', ?, ?, ?, NULL, ?, ?, ?)
+    `).run(
+      "quote-replenishment-demand",
+      orgId,
+      customerId,
+      "Q-REPLENISH-001",
+      "Scanner rollout quote",
+      4000000,
+      800000,
+      4800000,
+      "2027-01-01",
+      "public-quote-replenishment-demand",
+      now,
+      "user-owner",
+      now,
+      now
+    );
+    app.db.prepare(`
+      INSERT INTO quote_lines (
+        id, org_id, quote_id, catalog_item_id, description, quantity, unit_price,
+        total, position
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "quote-line-replenishment-demand",
+      orgId,
+      "quote-replenishment-demand",
+      itemId,
+      "POS scanner sales demand",
+      40,
+      100000,
+      4000000,
+      1
+    );
     const res = await app.inject({ method: "GET", url: "/api/procurement/analytics/replenishment", headers: { cookie } });
     assert.strictEqual(res.statusCode, 200, res.body);
     const body = res.json();
     assert.ok(Array.isArray(body.suggestions));
+    const suggestion = body.suggestions.find(item => item.catalogItemId === itemId);
+    assert.ok(suggestion, "expected scanner replenishment suggestion from sales quote demand");
+    assert.strictEqual(suggestion.salesQuoteDemand, 40);
+    assert.strictEqual(suggestion.salesDemandQty, 40);
+    assert.strictEqual(suggestion.openPoQty, 10);
+    assert.strictEqual(suggestion.openPurchaseQty, 10);
+    assert.strictEqual(suggestion.onHand, 0);
+    assert.strictEqual(suggestion.availableStock, 0);
+    assert.strictEqual(suggestion.safetyStockQty, 10);
+    assert.strictEqual(suggestion.suggestedQty, 40);
+    assert.strictEqual(suggestion.recommendedVendorId, "vendor-yerevan-hardware-supply");
+    assert.strictEqual(suggestion.recommendedVendor.vendorName, "Yerevan Hardware Supply");
+    assert.strictEqual(suggestion.leadTimeDays, 2);
+    assert.deepStrictEqual(suggestion.demandSources, { stockMoves: 0, salesQuotes: 40, openPurchaseOrders: 10 });
+    assert.ok(suggestion.reasoning.includes("sales demand 40"));
+    assert.ok(suggestion.drivers.includes("sales-demand"));
+    assert.strictEqual(body.summary.suggestionCount, body.suggestions.length);
+    assert.ok(body.summary.salesDemandQty >= 40);
+
+    app.db.prepare("UPDATE purchase_order_lines SET quantity = ? WHERE org_id = ? AND purchase_order_id = ?")
+      .run(60, orgId, orderId);
+    const covered = await app.inject({ method: "GET", url: "/api/procurement/analytics/replenishment", headers: { cookie } });
+    assert.strictEqual(covered.statusCode, 200, covered.body);
+    assert.equal(covered.json().suggestions.some(item => item.catalogItemId === itemId), false);
   } finally { await app.close(); }
 });

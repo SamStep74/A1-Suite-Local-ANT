@@ -55,13 +55,21 @@ vi.mock("@tanstack/react-router", () => ({
     children,
     to,
     params,
+    hash,
     ...rest
   }: {
     children?: React.ReactNode;
     to?: string;
     params?: Record<string, string>;
+    hash?: string;
   } & Record<string, unknown>) => (
-    <a data-href={to} href={to} data-params={JSON.stringify(params ?? {})} {...rest}>
+    <a
+      data-href={to}
+      href={to}
+      data-params={JSON.stringify(params ?? {})}
+      data-hash={hash ?? ""}
+      {...rest}
+    >
       {children}
     </a>
   ),
@@ -218,10 +226,36 @@ const VALID_ANALYTICS = {
     vendorPriceCoveragePercent: 80,
     returnCreditNoteCount: 2,
     returnCreditNoteAmount: 15_000,
+    replenishmentSuggestionCount: 1,
+    replenishmentSuggestedQty: 40,
+    replenishmentSalesDemandQty: 40,
   },
   receiptBacklog: [],
   vendorPerformance: [],
   priceCoverage: null,
+  replenishment: {
+    summary: {
+      suggestionCount: 1,
+      suggestedQty: 40,
+      salesDemandQty: 40,
+      openPurchaseQty: 10,
+      stockoutCount: 1,
+    },
+    suggestions: [
+      {
+        catalogItemId: "catitem-pos-barcode-scanner",
+        sku: "POS-SCAN-001",
+        name: "POS barcode scanner",
+        unitOfMeasure: "հատ",
+        onHand: 0,
+        openPoQty: 10,
+        salesQuoteDemand: 40,
+        suggestedQty: 40,
+        recommendedVendorName: "Yerevan Hardware Supply",
+        leadTimeDays: 2,
+      },
+    ],
+  },
 };
 
 /* ────────── per-test reset ────────── */
@@ -380,6 +414,7 @@ describe("PurchaseWorkspace — analytics view", () => {
     expect(screen.getByText(/Billed value/i)).toBeInTheDocument();
     expect(screen.getByText(/Returned quantity/i)).toBeInTheDocument();
     expect(screen.getByText(/Return credit notes/i)).toBeInTheDocument();
+    expect(screen.getByText(/Replenishment/i)).toBeInTheDocument();
   });
   it("renders the active-vendor count (1) and total vendor count (3)", () => {
     renderRoute();
@@ -402,6 +437,21 @@ describe("PurchaseWorkspace — analytics view", () => {
   it("renders the procurement health footer", () => {
     renderRoute();
     expect(screen.getByText(/Procurement health/i)).toBeInTheDocument();
+  });
+  it("renders replenishment demand preview rows", () => {
+    renderRoute();
+    const preview = screen.getByTestId("purchase-replenishment-preview");
+    expect(preview.getAttribute("data-count")).toBe("1");
+    expect(within(preview).getByText(/Demand queue/i)).toBeInTheDocument();
+    expect(within(preview).getByText("POS-SCAN-001")).toBeInTheDocument();
+    expect(within(preview).getByText(/Yerevan Hardware Supply/)).toBeInTheDocument();
+    expect(within(preview).getByText(/40 suggested · 40 demand/)).toBeInTheDocument();
+    const link = within(preview).getByText("POS-SCAN-001").closest("a");
+    expect(link?.getAttribute("data-href")).toBe("/app/inventory/$itemId");
+    expect(link?.getAttribute("data-params")).toContain("catitem-pos-barcode-scanner");
+    const procurementLink = within(preview).getByText(/Open procurement/i).closest("a");
+    expect(procurementLink?.getAttribute("data-href")).toBe("/app/purchase/procurement");
+    expect(procurementLink?.getAttribute("data-hash")).toBe("replenishment");
   });
   it("shows loading when analytics is loading", () => {
     mocks.analyticsLoading = true;

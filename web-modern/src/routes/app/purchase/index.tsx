@@ -32,6 +32,7 @@ import {
   CircleX,
   FileText,
   Package,
+  PackageSearch,
   ShoppingCart,
   Truck,
   Wallet,
@@ -621,6 +622,14 @@ function AnalyticsView({
   const returnCreditNoteAmount =
     summary.returnCreditNoteAmount ??
     orderCreditNotes.reduce((sum, note) => sum + Number(note.amount || 0), 0);
+  const replenishmentSummary = data.replenishment?.summary;
+  const replenishmentSuggestions = data.replenishment?.suggestions ?? [];
+  const replenishmentSuggestionCount =
+    summary.replenishmentSuggestionCount ?? replenishmentSummary?.suggestionCount ?? 0;
+  const replenishmentSuggestedQty =
+    summary.replenishmentSuggestedQty ?? replenishmentSummary?.suggestedQty ?? 0;
+  const replenishmentSalesDemandQty =
+    summary.replenishmentSalesDemandQty ?? replenishmentSummary?.salesDemandQty ?? 0;
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -670,6 +679,12 @@ function AnalyticsView({
         subtitle={`${returnCreditNoteCount} credit note${returnCreditNoteCount === 1 ? "" : "s"}`}
         tone="red"
       />
+      <KpiCard
+        label="Replenishment"
+        value={String(replenishmentSuggestionCount)}
+        subtitle={`${replenishmentSuggestedQty} units suggested`}
+        tone="orange"
+      />
       <section className="lg:col-span-2 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] p-4 text-[var(--text-sm)] text-[var(--color-muted)]">
         <h2 className="inline-flex items-center gap-1 text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
           <Package className="size-3.5" /> Procurement health
@@ -683,6 +698,67 @@ function AnalyticsView({
           Snapshot taken from {vendors.length} vendor{vendors.length === 1 ? "" : "s"} ·{" "}
           {orders.length} order{orders.length === 1 ? "" : "s"}.
         </p>
+      </section>
+      <section
+        className="lg:col-span-2 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] p-4 text-[var(--text-sm)]"
+        data-testid="purchase-replenishment-preview"
+        data-entity="purchase-replenishment-suggestion"
+        data-count={String(replenishmentSuggestions.length)}
+      >
+        <div className="flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
+          <div>
+            <h2 className="inline-flex items-center gap-1 text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+              <PackageSearch className="size-3.5" /> Demand queue
+            </h2>
+            <p className="mt-1 text-[11px] text-[var(--color-muted)]">
+              {replenishmentSalesDemandQty} units of sales demand mapped to purchase cover.
+            </p>
+          </div>
+          <Link
+            to="/app/purchase/procurement"
+            hash="replenishment"
+            className="inline-flex items-center gap-1 text-[var(--text-sm)] text-[var(--color-link)] hover:underline"
+          >
+            Open procurement
+          </Link>
+        </div>
+        {replenishmentSuggestions.length === 0 ? (
+          <p className="mt-3 rounded-[var(--radius-sm)] border border-dashed border-[var(--color-line)] bg-[var(--color-surface-soft)] p-3 text-[var(--color-muted)]">
+            No purchase replenishment suggestions right now.
+          </p>
+        ) : (
+          <ul className="mt-3 divide-y divide-[var(--color-line)] rounded-[var(--radius-sm)] border border-[var(--color-line)]">
+            {replenishmentSuggestions.slice(0, 3).map((suggestion) => {
+              const vendor = suggestion.recommendedVendorName
+                || suggestion.recommendedVendor?.vendorName
+                || "Vendor price missing";
+              const demand = suggestion.salesQuoteDemand ?? suggestion.salesDemandQty ?? 0;
+              return (
+                <li
+                  key={suggestion.catalogItemId}
+                  className="flex flex-col gap-1 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+                >
+                  <div>
+                    <Link
+                      to="/app/inventory/$itemId"
+                      params={{ itemId: suggestion.catalogItemId }}
+                      search={{ tab: "stock" }}
+                      className="font-mono text-[var(--color-link)] hover:underline"
+                    >
+                      {suggestion.sku || suggestion.catalogItemId}
+                    </Link>
+                    <p className="text-[11px] text-[var(--color-muted)]">
+                      {suggestion.name || suggestion.catalogItemId} · {vendor}
+                    </p>
+                  </div>
+                  <p className="font-mono text-[var(--color-ink)]">
+                    {suggestion.suggestedQty} suggested · {demand} demand
+                  </p>
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </section>
     </div>
   );

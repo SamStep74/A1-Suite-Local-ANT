@@ -48,6 +48,8 @@ import {
   ProjectRecurringTasksResponseSchema,
   ProjectTemplateResponseSchema,
   ProjectTemplatesResponseSchema,
+  ProcurementReplenishmentResponseSchema,
+  PurchaseAnalyticsResponseSchema,
   PurchaseAnalyticsSummarySchema,
   PurchaseCreditNoteSchema,
   PurchaseLandedCostSchema,
@@ -323,6 +325,107 @@ describe("Purchase credit-note schemas", () => {
       expect(r.data.returnCreditNoteAmount).toBe(18_500);
       expect(r.data.landedCostCount).toBe(1);
       expect(r.data.landedCostAmount).toBe(50_000);
+    }
+  });
+});
+
+describe("Purchase replenishment schemas", () => {
+  const suggestion = {
+    catalogItemId: "catitem-pos-barcode-scanner",
+    sku: "POS-SCAN-001",
+    name: "POS barcode scanner",
+    unitOfMeasure: "հատ",
+    onHand: 0,
+    onHandGross: 0,
+    reservedQuantity: 0,
+    availableStock: 0,
+    openDemand: 10,
+    openPoQty: 10,
+    openPurchaseQty: 10,
+    salesQuoteDemand: 40,
+    salesDemandQty: 40,
+    quoteCount: 1,
+    recentCustomerIssueQty: 0,
+    leadTimeDemandQty: 0,
+    netAvailableQty: -30,
+    safetyStockQty: 10,
+    suggestedQty: 40,
+    recommendedVendorId: "vendor-yerevan-hardware-supply",
+    recommendedVendorName: "Yerevan Hardware Supply",
+    recommendedUnitCost: 60_000,
+    recommendedCurrency: "AMD",
+    leadTimeDays: 2,
+    source: "sales-quotes",
+    recommendedAction: "create-purchase-order",
+    demandSources: {
+      stockMoves: 0,
+      salesQuotes: 40,
+      openPurchaseOrders: 10,
+    },
+    recommendedVendor: {
+      vendorId: "vendor-yerevan-hardware-supply",
+      vendorName: "Yerevan Hardware Supply",
+      unitCost: 60_000,
+      currency: "AMD",
+      leadTimeDays: 2,
+    },
+    reasoning: ["available 0", "open PO 10", "sales demand 40", "target 50"],
+    drivers: ["stockout", "sales-demand", "open-purchase-gap"],
+  };
+
+  it("accepts procurement replenishment response rows with sales-demand evidence", () => {
+    const r = ProcurementReplenishmentResponseSchema.safeParse({
+      ok: true,
+      summary: {
+        suggestionCount: 1,
+        suggestedQty: 40,
+        salesDemandQty: 40,
+        openPurchaseQty: 10,
+        stockoutCount: 1,
+      },
+      suggestions: [suggestion],
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.suggestions[0]?.salesQuoteDemand).toBe(40);
+      expect(r.data.suggestions[0]?.recommendedVendor?.vendorName).toBe(
+        "Yerevan Hardware Supply",
+      );
+    }
+  });
+
+  it("accepts purchase analytics with replenishment summary and queue", () => {
+    const r = PurchaseAnalyticsResponseSchema.safeParse({
+      summary: {
+        orderCount: 3,
+        vendorCount: 2,
+        activeVendorCount: 2,
+        openValue: 120_000,
+        billedValue: 36_000,
+        replenishmentSuggestionCount: 1,
+        replenishmentSuggestedQty: 40,
+        replenishmentSalesDemandQty: 40,
+      },
+      receiptBacklog: [],
+      vendorPerformance: [],
+      priceCoverage: null,
+      replenishment: {
+        summary: {
+          suggestionCount: 1,
+          suggestedQty: 40,
+          salesDemandQty: 40,
+          openPurchaseQty: 10,
+          stockoutCount: 1,
+        },
+        suggestions: [suggestion],
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.replenishment?.summary.suggestedQty).toBe(40);
+      expect(r.data.summary.replenishmentSuggestionCount).toBe(1);
     }
   });
 });
