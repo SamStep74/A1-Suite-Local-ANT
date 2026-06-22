@@ -5,14 +5,14 @@
  * capture, receipt packet handoff, refund evidence, pre-receipt void evidence,
  * and tracked-line stock return evidence with POS ledger journal visibility,
  * plus closed-session card terminal settlement evidence, local receipt print
- * previews, offline replay readiness evidence, and a browser-local manual sale
- * draft queue. Terminal refunds, live fiscal submission, live receipt printing,
- * automatic replay, and true browser-offline execution stay outside this
- * surface.
+ * previews, offline replay readiness evidence, and a browser-local sale draft
+ * queue with safe automatic replay for network-failed sale posts. Terminal
+ * refunds, live fiscal submission, live receipt printing, and true
+ * browser-offline execution stay outside this surface.
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   BadgeDollarSign,
   ChevronLeft,
@@ -76,6 +76,9 @@ import { money } from "../../../lib/utils/money";
 import { cn } from "../../../lib/utils/cn";
 import {
   createQueuedPosSaleDraft,
+  canAutoReplayQueuedPosSaleDraft,
+  markQueuedPosSaleDraftAutoReplayAttempt,
+  markQueuedPosSaleDraftAutoReplayFailure,
   persistQueuedPosSaleDrafts,
   readQueuedPosSaleDrafts,
   sendQueuedPosSaleDraft,
@@ -114,7 +117,8 @@ type PosSaleCaptureInput = {
 
 type PosSaleMutationInput =
   | { mode: "capture"; input: PosSaleCaptureInput }
-  | { mode: "retry-draft"; draft: PosLocalSaleDraft };
+  | { mode: "retry-draft"; draft: PosLocalSaleDraft }
+  | { mode: "auto-replay-draft"; draft: PosLocalSaleDraft };
 
 function PosWorkspace() {
   const hasAccess = useUserAccess("pos");
@@ -142,7 +146,17 @@ function PosWorkspace() {
     useState<PosLocalSaleDraft | null>(null);
   const [lastRetriedLocalSaleDraftId, setLastRetriedLocalSaleDraftId] =
     useState<string | null>(null);
+  const [lastAutoReplayedLocalSaleDraftId, setLastAutoReplayedLocalSaleDraftId] =
+    useState<string | null>(null);
   const [localSaleDraftError, setLocalSaleDraftError] = useState("");
+  const localSaleDraftsRef = useRef(localSaleDrafts);
+  const hasAccessRef = useRef(hasAccess);
+  const saleMutationMutateRef = useRef<((input: PosSaleMutationInput) => void) | null>(
+    null,
+  );
+  const saleMutationPendingRef = useRef(false);
+  hasAccessRef.current = hasAccess;
+  localSaleDraftsRef.current = localSaleDrafts;
 
   const workspaceQ = useQuery({
     queryKey: POS_WORKSPACE_QUERY_KEY,
@@ -189,9 +203,11 @@ function PosWorkspace() {
   const persistLocalSaleDrafts = (
     updater: (current: PosLocalSaleDraft[]) => PosLocalSaleDraft[],
   ) => {
-    const next = persistQueuedPosSaleDrafts(updater(localSaleDrafts));
+    const next = persistQueuedPosSaleDrafts(updater(localSaleDraftsRef.current));
+    localSaleDraftsRef.current = next;
     setLocalSaleDraftError("");
     setLocalSaleDrafts(next);
+    return next;
   };
 
   const queueLocalSaleDraftFromCapture = (
@@ -210,6 +226,7 @@ function PosWorkspace() {
       persistLocalSaleDrafts((current) => upsertLocalSaleDraft(current, draft));
       setLastQueuedLocalSaleDraft(draft);
       setLastRetriedLocalSaleDraftId(null);
+      setLastAutoReplayedLocalSaleDraftId(null);
     } catch (draftError) {
       setLocalSaleDraftError(`Could not queue sale draft: ${errorMessage(draftError)}`);
     }
@@ -266,7 +283,7 @@ function PosWorkspace() {
 
   const saleMutation = useMutation({
     mutationFn: async (input: PosSaleMutationInput) => {
-      if (input.mode === "retry-draft") {
+      if (input.mode === "retry-draft" || input.mode === "auto-replay-draft") {
         return sendQueuedPosSaleDraft(input.draft);
       }
       const payload = createSalePayload(input.input);
@@ -277,41 +294,97 @@ function PosWorkspace() {
       );
     },
     onSuccess: (response, input) => {
+      saleMutationPendingRef.current = false;
       setLastSale(response.sale);
       setLastReceiptPacket(null);
       setLastReceiptPrint(null);
       setLastRefund(null);
       setLastVoid(null);
-      if (input.mode === "retry-draft") {
+      if (input.mode === "retry-draft" || input.mode === "auto-replay-draft") {
         persistLocalSaleDrafts((current) =>
           current.filter((draft) => draft.id !== input.draft.id),
         );
-        setLastRetriedLocalSaleDraftId(input.draft.id);
+        if (input.mode === "auto-replay-draft") {
+          setLastAutoReplayedLocalSaleDraftId(input.draft.id);
+          setLastRetriedLocalSaleDraftId(null);
+        } else {
+          setLastRetriedLocalSaleDraftId(input.draft.id);
+          setLastAutoReplayedLocalSaleDraftId(null);
+        }
         setLastQueuedLocalSaleDraft(null);
       }
       refreshWorkspace();
     },
     onError: (error, input) => {
+      saleMutationPendingRef.current = false;
       if (input.mode === "capture" && shouldQueuePosSaleDraftError(error)) {
         queueLocalSaleDraftFromCapture(input.input, "post-failed", error);
         return;
       }
       if (input.mode === "capture") return;
-      const retryError = errorMessage(error);
+      const failedDraft = markQueuedPosSaleDraftAutoReplayFailure(input.draft, error);
       persistLocalSaleDrafts((current) =>
         current.map((draft) =>
-          draft.id === input.draft.id
-            ? {
-                ...draft,
-                lastError: retryError,
-                lastRetryAt: new Date().toISOString(),
-              }
-            : draft,
+          draft.id === input.draft.id ? failedDraft : draft,
         ),
       );
-      setLastRetriedLocalSaleDraftId(null);
+      if (input.mode === "auto-replay-draft") {
+        setLastAutoReplayedLocalSaleDraftId(null);
+      } else {
+        setLastRetriedLocalSaleDraftId(null);
+      }
     },
   });
+  saleMutationMutateRef.current = saleMutation.mutate;
+  saleMutationPendingRef.current = saleMutation.isPending;
+
+  const runLocalSaleDraftAutoReplay = (includeRetryableFailed = false) => {
+    if (!hasAccessRef.current || saleMutationPendingRef.current) return;
+    if (typeof navigator !== "undefined" && navigator.onLine === false) return;
+
+    const draft = localSaleDraftsRef.current.find(
+      (candidate) =>
+        candidate.queueReason === "post-failed" &&
+        canAutoReplayQueuedPosSaleDraft(candidate) &&
+        (includeRetryableFailed || candidate.autoReplayStatus === "queued"),
+    );
+    if (!draft || !saleMutationMutateRef.current) return;
+
+    const attempt = markQueuedPosSaleDraftAutoReplayAttempt(draft);
+    persistLocalSaleDrafts((current) =>
+      current.map((candidate) => (candidate.id === draft.id ? attempt : candidate)),
+    );
+    setLastQueuedLocalSaleDraft(null);
+    setLastRetriedLocalSaleDraftId(null);
+    setLastAutoReplayedLocalSaleDraftId(null);
+    saleMutationPendingRef.current = true;
+    saleMutationMutateRef.current({ mode: "auto-replay-draft", draft: attempt });
+  };
+
+  useEffect(() => {
+    const runQueuedReplay = () => runLocalSaleDraftAutoReplay(false);
+    const runTriggeredReplay = () => runLocalSaleDraftAutoReplay(true);
+    const runVisibleReplay = () => {
+      if (typeof document === "undefined" || document.visibilityState === "visible") {
+        runTriggeredReplay();
+      }
+    };
+
+    runQueuedReplay();
+    if (typeof window === "undefined") return undefined;
+    window.addEventListener("online", runTriggeredReplay);
+    window.addEventListener("focus", runTriggeredReplay);
+    if (typeof document !== "undefined") {
+      document.addEventListener("visibilitychange", runVisibleReplay);
+    }
+    return () => {
+      window.removeEventListener("online", runTriggeredReplay);
+      window.removeEventListener("focus", runTriggeredReplay);
+      if (typeof document !== "undefined") {
+        document.removeEventListener("visibilitychange", runVisibleReplay);
+      }
+    };
+  }, []);
 
   const receiptPacketMutation = useMutation({
     mutationFn: async (input: {
@@ -696,6 +769,7 @@ function PosWorkspace() {
                 localSaleDrafts={localSaleDrafts}
                 lastQueuedSaleDraft={lastQueuedLocalSaleDraft}
                 lastRetriedSaleDraftId={lastRetriedLocalSaleDraftId}
+                lastAutoReplayedSaleDraftId={lastAutoReplayedLocalSaleDraftId}
                 onRetrySaleDraft={(draft) =>
                   saleMutation.mutate({ mode: "retry-draft", draft })
                 }
@@ -2283,6 +2357,7 @@ export function OfflineReplayReadinessPanel({
   localSaleDrafts,
   lastQueuedSaleDraft,
   lastRetriedSaleDraftId,
+  lastAutoReplayedSaleDraftId,
   onRetrySaleDraft,
   isRetryingSaleDraft,
   localSaleDraftError,
@@ -2303,6 +2378,7 @@ export function OfflineReplayReadinessPanel({
   localSaleDrafts: readonly PosLocalSaleDraft[];
   lastQueuedSaleDraft?: PosLocalSaleDraft | null;
   lastRetriedSaleDraftId?: string | null;
+  lastAutoReplayedSaleDraftId?: string | null;
   onRetrySaleDraft: (draft: PosLocalSaleDraft) => void;
   isRetryingSaleDraft?: boolean;
   localSaleDraftError?: string;
@@ -2324,6 +2400,16 @@ export function OfflineReplayReadinessPanel({
   const visibleItems = items.slice(0, 5);
   const visibleSaleDrafts = localSaleDrafts.slice(0, 5);
   const queuedItems = items.filter((item) => item.replayStatus === "queued");
+  const autoReadySaleDrafts = localSaleDrafts.filter(
+    (draft) =>
+      draft.queueReason === "post-failed" &&
+      canAutoReplayQueuedPosSaleDraft(draft),
+  );
+  const needsReviewSaleDrafts = localSaleDrafts.filter(
+    (draft) =>
+      draft.autoReplayStatus === "conflict-ready" ||
+      draft.autoReplayStatus === "failed",
+  );
   const canQueueSample = Boolean(openSession) && !isQueuePending;
 
   return (
@@ -2372,12 +2458,15 @@ export function OfflineReplayReadinessPanel({
             Browser sale draft queue
           </h3>
           <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
-            Manual retry only; automatic replay and fiscal submission remain deferred.
+            Network-failed drafts retry automatically on load, online, or focus;
+            fiscal submission, terminal submission, and printer commands remain deferred.
           </p>
         </div>
 
         <dl className="grid gap-1 text-[var(--text-xs)] sm:grid-cols-2">
           <EvidenceRow label="Local drafts" value={String(localSaleDrafts.length)} />
+          <EvidenceRow label="Auto-ready" value={String(autoReadySaleDrafts.length)} />
+          <EvidenceRow label="Needs review" value={String(needsReviewSaleDrafts.length)} />
           <EvidenceRow
             label="Last queued"
             value={lastQueuedSaleDraft?.evidence.receiptNumber ?? "—"}
@@ -2400,6 +2489,15 @@ export function OfflineReplayReadinessPanel({
             data-testid="pos-local-sale-draft-retry-success"
           >
             Retried sale draft {lastRetriedSaleDraftId}; local draft removed.
+          </p>
+        ) : null}
+
+        {lastAutoReplayedSaleDraftId ? (
+          <p
+            className="text-[var(--text-sm)] font-medium text-[var(--color-tag-green)]"
+            data-testid="pos-local-sale-draft-auto-success"
+          >
+            Auto-replayed sale draft {lastAutoReplayedSaleDraftId}; local draft removed.
           </p>
         ) : null}
 
@@ -2450,6 +2548,30 @@ export function OfflineReplayReadinessPanel({
                       label="Reason"
                       value={localSaleDraftReasonLabel(draft.queueReason)}
                     />
+                    <EvidenceRow
+                      label="Auto replay"
+                      value={localSaleDraftAutoReplayStatusLabel(draft)}
+                    />
+                    {draft.autoReplayBlockReason ? (
+                      <EvidenceRow
+                        label="Review reason"
+                        value={localSaleDraftAutoReplayBlockLabel(
+                          draft.autoReplayBlockReason,
+                        )}
+                      />
+                    ) : null}
+                    {draft.autoReplayAttemptCount > 0 ? (
+                      <EvidenceRow
+                        label="Auto attempts"
+                        value={String(draft.autoReplayAttemptCount)}
+                      />
+                    ) : null}
+                    {draft.autoReplayLastFailureAt ? (
+                      <EvidenceRow
+                        label="Last auto failure"
+                        value={formatDateTime(draft.autoReplayLastFailureAt)}
+                      />
+                    ) : null}
                     {draft.lastRetryAt ? (
                       <EvidenceRow
                         label="Last retry"
@@ -3265,6 +3387,27 @@ function localSaleDraftPaymentLabel(payload: PosCreateSaleRequest): string {
 
 function localSaleDraftReasonLabel(reason: PosLocalSaleDraftReason): string {
   return reason === "post-failed" ? "Queued after post failed" : "Queued by operator";
+}
+
+function localSaleDraftAutoReplayStatusLabel(draft: PosLocalSaleDraft): string {
+  if (draft.queueReason === "manual" && draft.autoReplayStatus === "queued") {
+    return "Manual retry";
+  }
+  if (draft.autoReplayStatus === "queued") return "Auto-ready";
+  if (draft.autoReplayStatus === "retrying") return "Auto replaying";
+  if (draft.autoReplayStatus === "retryable-failed") return "Will retry";
+  if (draft.autoReplayStatus === "conflict-ready") return "Needs review";
+  return "Stopped";
+}
+
+function localSaleDraftAutoReplayBlockLabel(
+  reason: NonNullable<PosLocalSaleDraft["autoReplayBlockReason"]>,
+): string {
+  if (reason === "auth") return "Authorization";
+  if (reason === "business-validation") return "Business validation";
+  if (reason === "closed-session") return "Closed cash session";
+  if (reason === "conflict") return "Receipt or source conflict";
+  return "Client response mismatch";
 }
 
 function errorMessage(error: unknown): string {

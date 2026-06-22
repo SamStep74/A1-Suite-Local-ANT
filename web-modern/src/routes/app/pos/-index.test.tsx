@@ -11,7 +11,7 @@
  *   - closing the current cash session via POST /api/pos/cash-sessions/:id/close
  *   - posting closed-session terminal settlement evidence
  *   - queueing and marking local offline replay readiness evidence
- *   - persisting and retrying browser-local sale drafts
+ *   - persisting, retrying, and auto-replaying browser-local sale drafts
  *   - app-tier 403 via UserAccessProvider
  */
 import {
@@ -156,6 +156,7 @@ vi.mock("../../../lib/api/client", () => ({
 }));
 
 import { Route, PosAccessDeniedCard } from "./index";
+import { ApiError } from "../../../lib/api/client";
 import { UserAccessProvider } from "../../../lib/rbac/access.tsx";
 
 const POS_LOCAL_SALE_DRAFTS_STORAGE_KEY = "a1:pos:local-sale-drafts:v1";
@@ -692,6 +693,41 @@ function readStoredSaleDrafts(): Array<Record<string, unknown>> {
   ) as Array<Record<string, unknown>>;
 }
 
+function writeStoredSaleDrafts(drafts: Array<Record<string, unknown>>): void {
+  localStorage.setItem(POS_LOCAL_SALE_DRAFTS_STORAGE_KEY, JSON.stringify(drafts));
+}
+
+function storedSaleDraft(overrides: Record<string, unknown> = {}): Record<string, unknown> {
+  const receiptNumber = String(overrides.receiptNumber ?? "R-AUTO-REPLAY-1");
+  const idempotencyKey = String(
+    overrides.idempotencyKey ?? "pos-sale-auto-replay-1",
+  );
+  return {
+    id: `pos-sale-draft-${idempotencyKey}`,
+    cashSessionId: "pos-session-1",
+    queuedAt: "2026-06-22T11:00:00.000Z",
+    queueReason: "post-failed",
+    autoReplayStatus: "queued",
+    autoReplayAttemptCount: 0,
+    lastError: "Failed to fetch",
+    payload: {
+      receiptNumber,
+      paymentMethod: "card",
+      idempotencyKey,
+      lines: [{ catalogItemId: "catitem-pos-scanner", quantity: 2 }],
+    },
+    evidence: {
+      receiptNumber,
+      customerLabel: "Ararat Market",
+      paymentLabel: "Card",
+      lineLabel: "2 x POS-SCANNER",
+      quantity: 2,
+      total: 50000,
+    },
+    ...overrides,
+  };
+}
+
 beforeEach(() => {
   mocks.workspace = WORKSPACE_NO_OPEN;
   mocks.offlineReplayItems = { items: [] };
@@ -1100,6 +1136,95 @@ describe("POS route", () => {
     expect(screen.queryByTestId("pos-local-sale-draft")).toBeNull();
     expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(
       /pos-sale-local-retry-1/,
+    );
+  });
+
+  it("auto-replays a stored post-failed sale draft with the same payload", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+    const draft = storedSaleDraft();
+    writeStoredSaleDrafts([draft]);
+    mocks.postJson.mockResolvedValueOnce({
+      ...VALID_SALE_RESPONSE,
+      sale: {
+        ...VALID_SALE_RESPONSE.sale,
+        id: "pos-sale-auto-replayed-1",
+        receiptNumber: "R-AUTO-REPLAY-1",
+      },
+    });
+
+    renderRoute();
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(1);
+    });
+    const [path, retryBody] = mocks.postJson.mock.calls[0]!;
+    expect(path).toBe("/api/pos/cash-sessions/pos-session-1/sales");
+    expect(retryBody).toEqual((draft.payload as Record<string, unknown>));
+
+    await waitFor(() => {
+      expect(readStoredSaleDrafts()).toHaveLength(0);
+    });
+    expect(screen.getByTestId("pos-local-sale-draft-auto-success")).toHaveTextContent(
+      /Auto-replayed sale draft pos-sale-draft-pos-sale-auto-replay-1/,
+    );
+    expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(
+      /pos-sale-auto-replayed-1/,
+    );
+  });
+
+  it("keeps operator-queued local sale drafts manual on load", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+    writeStoredSaleDrafts([{ ...storedSaleDraft(), queueReason: "manual" }]);
+
+    renderRoute();
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
+        /Manual retry/,
+      );
+    });
+    expect(mocks.postJson).not.toHaveBeenCalled();
+    expect(readStoredSaleDrafts()).toHaveLength(1);
+  });
+
+  it("marks automatic replay conflicts as needs-review instead of retrying forever", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+    writeStoredSaleDrafts([storedSaleDraft()]);
+    mocks.postJson.mockRejectedValueOnce(
+      new ApiError(409, "POS_SESSION_CLOSED", "POS cash session is closed"),
+    );
+
+    renderRoute();
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(1);
+    });
+    await waitFor(() => {
+      const [storedDraft] = readStoredSaleDrafts();
+      expect(storedDraft?.autoReplayStatus).toBe("conflict-ready");
+      expect(storedDraft?.autoReplayBlockReason).toBe("closed-session");
+      expect(storedDraft?.autoReplayAttemptCount).toBe(1);
+    });
+    expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
+      /Needs review/,
+    );
+    expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
+      /Closed cash session/,
+    );
+    expect(screen.getByTestId("pos-local-sale-draft-last-error")).toHaveTextContent(
+      /POS cash session is closed/,
     );
   });
 
