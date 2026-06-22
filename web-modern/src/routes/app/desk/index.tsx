@@ -74,6 +74,7 @@ const STATUS_TABS: { value: "all" | Status; label: string }[] = [
 ];
 
 const CHANNELS = ["WhatsApp", "Telegram", "Email", "Phone", "Manual"];
+const SLA_POLICY_CHANNELS = ["", ...CHANNELS];
 
 const PRIORITY_TONE: Record<string, { bg: string; fg: string; ring: string }> = {
   high: {
@@ -187,6 +188,10 @@ function DeskList() {
       <SlaPoliciesPanel
         policies={slaPolicies}
         loading={consoleQuery.isLoading || slaPoliciesQuery.isLoading}
+        onSaved={() => {
+          void qc.invalidateQueries({ queryKey: ["service", "console"] });
+          void qc.invalidateQueries({ queryKey: ["service", "sla-policies"] });
+        }}
       />
 
       {/* Filter row — search + tabs + (Phase 2: mass-update) */}
@@ -299,11 +304,44 @@ function DeskList() {
 function SlaPoliciesPanel({
   policies,
   loading,
+  onSaved,
 }: {
   policies: ServiceSlaPolicy[];
   loading?: boolean;
+  onSaved: () => void;
 }) {
   const activeCount = policies.filter(isSlaPolicyActive).length;
+  const [form, setForm] = useState({
+    name: "",
+    priority: "high",
+    channel: "",
+    responseMinutes: "60",
+    resolutionMinutes: "240",
+    active: true,
+  });
+  const saveMut = useMutation({
+    mutationFn: async () => {
+      return postJson("/api/service/sla-policies", {
+        name: form.name.trim(),
+        priority: form.priority,
+        channel: form.channel,
+        responseMinutes: Number(form.responseMinutes),
+        resolutionMinutes: Number(form.resolutionMinutes),
+        active: form.active,
+      });
+    },
+    onSuccess: () => {
+      setForm({
+        name: "",
+        priority: "high",
+        channel: "",
+        responseMinutes: "60",
+        resolutionMinutes: "240",
+        active: true,
+      });
+      onSaved();
+    },
+  });
 
   return (
     <section
@@ -388,6 +426,100 @@ function SlaPoliciesPanel({
           })}
         </ul>
       )}
+
+      <form
+        onSubmit={(event) => {
+          event.preventDefault();
+          saveMut.mutate();
+        }}
+        className="mt-3 grid grid-cols-1 gap-2 border-t border-[var(--color-line)] pt-3 md:grid-cols-[minmax(10rem,1.4fr)_minmax(7rem,0.7fr)_minmax(7rem,0.7fr)_minmax(6rem,0.5fr)_minmax(6rem,0.5fr)_auto_auto]"
+      >
+        <label>
+          <span className="sr-only">Policy name</span>
+          <input
+            required
+            minLength={3}
+            maxLength={120}
+            value={form.name}
+            onChange={(event) => setForm((current) => ({ ...current, name: event.target.value }))}
+            placeholder="Policy name"
+            className="h-8 w-full rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)]"
+          />
+        </label>
+        <label>
+          <span className="sr-only">Priority</span>
+          <select
+            value={form.priority}
+            onChange={(event) => setForm((current) => ({ ...current, priority: event.target.value }))}
+            className="h-8 w-full rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)]"
+          >
+            <option value="high">high</option>
+            <option value="medium">medium</option>
+            <option value="low">low</option>
+          </select>
+        </label>
+        <label>
+          <span className="sr-only">Channel</span>
+          <select
+            value={form.channel}
+            onChange={(event) => setForm((current) => ({ ...current, channel: event.target.value }))}
+            className="h-8 w-full rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)]"
+          >
+            {SLA_POLICY_CHANNELS.map((channel) => (
+              <option key={channel || "any"} value={channel}>
+                {channel || "Any channel"}
+              </option>
+            ))}
+          </select>
+        </label>
+        <label>
+          <span className="sr-only">Response minutes</span>
+          <input
+            required
+            min={1}
+            max={43200}
+            type="number"
+            value={form.responseMinutes}
+            onChange={(event) => setForm((current) => ({ ...current, responseMinutes: event.target.value }))}
+            aria-label="Response minutes"
+            className="h-8 w-full rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)]"
+          />
+        </label>
+        <label>
+          <span className="sr-only">Resolution minutes</span>
+          <input
+            required
+            min={1}
+            max={43200}
+            type="number"
+            value={form.resolutionMinutes}
+            onChange={(event) => setForm((current) => ({ ...current, resolutionMinutes: event.target.value }))}
+            aria-label="Resolution minutes"
+            className="h-8 w-full rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)]"
+          />
+        </label>
+        <label className="inline-flex h-8 items-center gap-1.5 text-[11px] text-[var(--color-muted)]">
+          <input
+            type="checkbox"
+            checked={form.active}
+            onChange={(event) => setForm((current) => ({ ...current, active: event.target.checked }))}
+            className="size-3.5 accent-[var(--color-brand)]"
+          />
+          Active
+        </label>
+        <button
+          type="submit"
+          disabled={saveMut.isPending || loading}
+          className="inline-flex h-8 items-center justify-center rounded-[var(--radius-md)] bg-[var(--color-brand)] px-3 text-[var(--text-sm)] font-medium text-white hover:opacity-90 disabled:opacity-50"
+        >
+          {saveMut.isPending ? "Saving…" : "Save"}
+        </button>
+        {saveMut.isError && (
+          <p className="text-[11px] text-[var(--color-ruby)] md:col-span-7">
+            {saveMut.error instanceof Error ? saveMut.error.message : "Save failed"}
+          </p>
+        )}
+      </form>
     </section>
   );
 }
