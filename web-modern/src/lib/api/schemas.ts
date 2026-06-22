@@ -144,6 +144,28 @@ export type ServiceFieldVisitTechnicianLocation = z.infer<
   typeof ServiceFieldVisitTechnicianLocationSchema
 >;
 
+export const ServiceFieldVisitCostAllocationSchema = z
+  .object({
+    strategy: z.string().nullable().optional(),
+    status: z.string().nullable().optional(),
+    currency: z.string().nullable().optional(),
+    scheduledMinutes: z.number().int().min(0).max(10_080).nullable().optional(),
+    laborMinutes: z.number().int().min(0).max(10_080).nullable().optional(),
+    laborCost: z.number().min(0).max(100_000_000_000).nullable().optional(),
+    travelCost: z.number().min(0).max(100_000_000_000).nullable().optional(),
+    materialCost: z.number().min(0).max(100_000_000_000).nullable().optional(),
+    totalCost: z.number().min(0).max(100_000_000_000).nullable().optional(),
+    source: z.string().nullable().optional(),
+    computedAt: z.string().nullable().optional(),
+    ledgerMappings: z.array(z.record(z.string(), z.unknown())).max(12).optional(),
+    limitations: z.array(z.string()).max(12).optional(),
+    evidence: z.unknown().optional(),
+  })
+  .passthrough();
+export type ServiceFieldVisitCostAllocation = z.infer<
+  typeof ServiceFieldVisitCostAllocationSchema
+>;
+
 export const ServiceFieldVisitSchema = z
   .object({
     id: z.string(),
@@ -163,6 +185,7 @@ export const ServiceFieldVisitSchema = z
     assignedUserName: z.string().nullable().optional(),
     dispatchNavigation: ServiceFieldVisitDispatchNavigationSchema.nullable().optional(),
     technicianLocation: ServiceFieldVisitTechnicianLocationSchema.nullable().optional(),
+    costAllocation: ServiceFieldVisitCostAllocationSchema.nullable().optional(),
   })
   .passthrough();
 export type ServiceFieldVisit = z.infer<typeof ServiceFieldVisitSchema>;

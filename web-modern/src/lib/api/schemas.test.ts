@@ -362,6 +362,62 @@ describe("ServiceFieldVisitSchema", () => {
     expect(r.success).toBe(false);
   });
 
+  it("accepts field-service cost allocation evidence with passthrough ledger mappings", () => {
+    const r = ServiceFieldVisitSchema.safeParse({
+      ...VALID_FIELD_VISIT,
+      costAllocation: {
+        strategy: "scheduled-window-cost-basis-v1",
+        status: "estimate",
+        currency: "AMD",
+        scheduledMinutes: 60,
+        laborMinutes: 60,
+        laborCost: 0,
+        travelCost: 0,
+        materialCost: 0,
+        totalCost: 0,
+        source: "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at",
+        computedAt: "2026-06-22T08:00:00.000Z",
+        ledgerMappings: [
+          {
+            bucket: "labor",
+            managementAccount: "8112",
+            recognitionAccount: "7113",
+            status: "not-posted",
+          },
+        ],
+        limitations: ["labor-rate-not-configured"],
+        evidence: { traceId: "cost-basis-1" },
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.costAllocation?.scheduledMinutes).toBe(60);
+      expect(r.data.costAllocation?.laborMinutes).toBe(60);
+      expect(r.data.costAllocation?.totalCost).toBe(0);
+      expect(r.data.costAllocation?.ledgerMappings).toEqual([
+        {
+          bucket: "labor",
+          managementAccount: "8112",
+          recognitionAccount: "7113",
+          status: "not-posted",
+        },
+      ]);
+    }
+  });
+
+  it("rejects impossible field-service cost allocation minutes", () => {
+    const r = ServiceFieldVisitSchema.safeParse({
+      ...VALID_FIELD_VISIT,
+      costAllocation: {
+        scheduledMinutes: 20_000,
+        laborMinutes: 60,
+      },
+    });
+
+    expect(r.success).toBe(false);
+  });
+
   it("accepts optional technician GPS location evidence", () => {
     const r = ServiceFieldVisitSchema.safeParse({
       ...VALID_FIELD_VISIT,

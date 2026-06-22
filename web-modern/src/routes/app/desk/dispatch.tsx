@@ -26,6 +26,7 @@ import {
   UpdateServiceFieldVisitTechnicianLocationResponseSchema,
   type ServiceDispatchAlert,
   type ServiceFieldVisit,
+  type ServiceFieldVisitCostAllocation,
   type ServiceFieldVisitRouteOptimization,
   type ServiceFieldVisitTechnicianLocation,
   type ServiceFieldVisitTechnicianStatus,
@@ -571,6 +572,7 @@ function DispatchVisitCard({
   const isSubmitting = pendingStatus != null;
   const routeLine = getDispatchRouteLine(visit);
   const routeOptimization = visit.dispatchNavigation?.routeOptimization ?? null;
+  const costAllocation = visit.costAllocation ?? null;
   const navigationLinks = getDispatchNavigationLinks(visit);
   const latestLocation = capturedLocation ?? visit.technicianLocation ?? null;
   const isCapturingGps = gpsState === "pending";
@@ -718,6 +720,7 @@ function DispatchVisitCard({
             <span className="line-clamp-1">{routeLine}</span>
           </p>
           <RouteOptimizationChip routeOptimization={routeOptimization} />
+          <CostAllocationChip costAllocation={costAllocation} />
           <p className="flex items-center gap-1.5">
             <MapPin className="size-3.5 shrink-0" aria-hidden />
             <span className="line-clamp-1">{visit.location}</span>
@@ -835,6 +838,30 @@ function RouteOptimizationChip({
   routeOptimization?: ServiceFieldVisitRouteOptimization | null;
 }) {
   const parts = formatRouteOptimizationParts(routeOptimization);
+  if (parts.length === 0) return null;
+
+  return (
+    <p className="ml-5 flex min-w-0">
+      <span className="inline-flex max-w-full flex-wrap items-center gap-x-1.5 gap-y-0.5 rounded-[var(--radius-sm)] bg-[var(--color-surface-soft)] px-1.5 py-0.5 text-[10px] font-medium text-[var(--color-muted)]">
+        {parts.map((part, index) => (
+          <span
+            key={`${index}:${part}`}
+            className={cn(index === 0 ? "font-semibold text-[var(--color-ink)]" : undefined)}
+          >
+            {part}
+          </span>
+        ))}
+      </span>
+    </p>
+  );
+}
+
+function CostAllocationChip({
+  costAllocation,
+}: {
+  costAllocation?: ServiceFieldVisitCostAllocation | null;
+}) {
+  const parts = formatCostAllocationParts(costAllocation);
   if (parts.length === 0) return null;
 
   return (
@@ -1055,6 +1082,36 @@ function formatRouteOptimizationParts(
 
   if (compactEvidence.length === 0 && summary) return ["Route plan", summary];
   return ["Route plan", ...compactEvidence];
+}
+
+function formatCostAllocationParts(
+  costAllocation?: ServiceFieldVisitCostAllocation | null,
+): string[] {
+  if (!costAllocation) return [];
+
+  const minutes = formatCostAllocationMinutes(
+    costAllocation.laborMinutes ?? costAllocation.scheduledMinutes,
+  );
+  const totalCost = formatDispatchCost(costAllocation.totalCost, costAllocation.currency);
+  const status = firstNonEmpty(costAllocation.status);
+  const limitations = Array.isArray(costAllocation.limitations)
+    ? costAllocation.limitations.filter((item): item is string => typeof item === "string")
+    : [];
+  const notPosted = limitations.includes("not-posted-to-ledger") ? "not posted" : undefined;
+  const parts = [minutes, totalCost, notPosted ?? status].filter((part): part is string => Boolean(part));
+
+  return parts.length > 0 ? ["Cost basis", ...parts] : [];
+}
+
+function formatCostAllocationMinutes(value: number | null | undefined): string | undefined {
+  if (!isNonnegativeFiniteNumber(value)) return undefined;
+  return `${formatCompactNumber(value)} min`;
+}
+
+function formatDispatchCost(value: number | null | undefined, currency: string | null | undefined): string | undefined {
+  if (!isNonnegativeFiniteNumber(value)) return undefined;
+  const code = firstNonEmpty(currency) ?? "AMD";
+  return `${code} ${formatCompactNumber(value)}`;
 }
 
 function formatRouteStopLabel(

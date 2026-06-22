@@ -100,6 +100,36 @@ function assertRouteOptimizationEvidence(visit, { stopNumber, totalStops }) {
   assert.ok(routeOptimization.summary.includes(`stop ${stopNumber} of ${totalStops}`), routeOptimization.summary);
 }
 
+function assertCostAllocationEvidence(visit, expectedMinutes = null) {
+  const costAllocation = visit.costAllocation;
+  assert.ok(costAllocation && typeof costAllocation === "object");
+  assert.strictEqual(costAllocation.strategy, "scheduled-window-cost-basis-v1");
+  assert.strictEqual(costAllocation.status, "estimate");
+  assert.strictEqual(costAllocation.currency, "AMD");
+  if (expectedMinutes !== null) {
+    assert.strictEqual(costAllocation.scheduledMinutes, expectedMinutes);
+    assert.strictEqual(costAllocation.laborMinutes, expectedMinutes);
+  } else {
+    assert.ok(Number.isSafeInteger(costAllocation.scheduledMinutes));
+    assert.ok(costAllocation.scheduledMinutes >= 0);
+  }
+  assert.strictEqual(costAllocation.laborCost, 0);
+  assert.strictEqual(costAllocation.travelCost, 0);
+  assert.strictEqual(costAllocation.materialCost, 0);
+  assert.strictEqual(costAllocation.totalCost, 0);
+  assert.strictEqual(costAllocation.source, "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at");
+  assert.ok(Array.isArray(costAllocation.ledgerMappings));
+  assert.ok(costAllocation.ledgerMappings.some(mapping => mapping.bucket === "labor" && mapping.managementAccount === "8112" && mapping.recognitionAccount === "7113" && mapping.status === "not-posted"));
+  assert.ok(costAllocation.ledgerMappings.some(mapping => mapping.bucket === "travel" && mapping.expenseAccount === "713" && mapping.status === "not-posted"));
+  assert.ok(costAllocation.ledgerMappings.some(mapping => mapping.bucket === "materials" && mapping.inventoryAccountClass === "2" && mapping.status === "not-posted"));
+  assert.deepStrictEqual(costAllocation.limitations, [
+    "labor-rate-not-configured",
+    "travel-rate-not-configured",
+    "inventory-consumption-not-linked",
+    "not-posted-to-ledger"
+  ]);
+}
+
 test("service console exposes customers + agents pickers; create + PATCH a case", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -159,12 +189,14 @@ test("service field visits are seeded, listed, and exposed in the service consol
     assert.ok(visits[0].customerName);
     assert.ok(visits[0].assignedUserName);
     const listedNavigation = assertDispatchNavigationEvidence(visits[0]);
+    assertCostAllocationEvidence(visits[0]);
 
     const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie } })).json();
     assert.ok(Array.isArray(console1.fieldVisits));
     const consoleVisit = console1.fieldVisits.find(visit => visit.id === visits[0].id);
     assert.ok(consoleVisit);
     assert.deepStrictEqual(consoleVisit.dispatchNavigation, listedNavigation);
+    assert.deepStrictEqual(consoleVisit.costAllocation, visits[0].costAllocation);
   } finally { await app.close(); }
 });
 
@@ -220,6 +252,9 @@ test("route optimization evidence orders active field visit stops by scheduled w
     assertDispatchNavigationEvidence(laterListed, laterSupportVisit.location);
     assertRouteOptimizationEvidence(earlierListed, { stopNumber: 1, totalStops: 2 });
     assertRouteOptimizationEvidence(laterListed, { stopNumber: 2, totalStops: 2 });
+    assertCostAllocationEvidence(earlierListed, 60);
+    assertCostAllocationEvidence(laterListed, 60);
+    assertCostAllocationEvidence(terminalListed, 60);
     assert.strictEqual(terminalListed.dispatchNavigation.routeOptimization, undefined);
 
     const listedMine = await app.inject({ method: "GET", url: "/api/service/my-field-visits", headers: { cookie: supportCookie } });
@@ -231,6 +266,7 @@ test("route optimization evidence orders active field visit stops by scheduled w
     assert.ok(myVisits.every(visit => visit.assignedUserId === support.id));
     assertRouteOptimizationEvidence(myVisits.find(visit => visit.id === earlierSupportVisit.id), { stopNumber: 1, totalStops: 2 });
     assertRouteOptimizationEvidence(myVisits.find(visit => visit.id === laterSupportVisit.id), { stopNumber: 2, totalStops: 2 });
+    assertCostAllocationEvidence(myVisits.find(visit => visit.id === earlierSupportVisit.id), 60);
   } finally { await app.close(); }
 });
 

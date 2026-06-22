@@ -388,6 +388,18 @@ describe("/app/desk/dispatch", () => {
             source: "field-service-route-optimizer",
           },
         },
+        costAllocation: {
+          strategy: "scheduled-window-cost-basis-v1",
+          status: "estimate",
+          currency: "AMD",
+          scheduledMinutes: 60,
+          laborMinutes: 60,
+          laborCost: 0,
+          travelCost: 0,
+          materialCost: 0,
+          totalCost: 0,
+          limitations: ["not-posted-to-ledger"],
+        },
       },
     ]);
 
@@ -403,6 +415,10 @@ describe("/app/desk/dispatch", () => {
     expect(screen.getByText("ETA 12 min")).toBeTruthy();
     expect(screen.getByText("4.8 km")).toBeTruthy();
     expect(screen.getByText("saved 8 min")).toBeTruthy();
+    expect(screen.getByText("Cost basis")).toBeTruthy();
+    expect(screen.getByText("60 min")).toBeTruthy();
+    expect(screen.getByText("AMD 0")).toBeTruthy();
+    expect(screen.getByText("not posted")).toBeTruthy();
     expect(screen.getAllByText("Inspect fiscal printer.").length).toBeGreaterThan(0);
 
     const mapLink = screen.getByRole("link", { name: /map/i });
@@ -426,6 +442,7 @@ describe("/app/desk/dispatch", () => {
 
     await screen.findByText("Warehouse -> Ani Beauty");
     expect(screen.queryByText("Route plan")).toBeNull();
+    expect(screen.queryByText("Cost basis")).toBeNull();
   });
 
   it("sends an idempotencyKey with technician status updates", async () => {

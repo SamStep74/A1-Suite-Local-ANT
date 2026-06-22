@@ -57167,7 +57167,8 @@ function formatServiceFieldVisit(row, technicianLocation = null) {
     worksheetSummary: row.worksheet_summary,
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    dispatchNavigation: buildServiceFieldVisitDispatchNavigation(row)
+    dispatchNavigation: buildServiceFieldVisitDispatchNavigation(row),
+    costAllocation: buildServiceFieldVisitCostAllocationEvidence(row)
   };
   if (technicianLocation) {
     visit.technicianLocation = technicianLocation;
@@ -57428,6 +57429,61 @@ function buildServiceFieldVisitRouteOptimizationEvidence(visit, stopNumber, tota
     referenceAt,
     limitations: ["distance-matrix-not-run"]
   };
+}
+
+function buildServiceFieldVisitCostAllocationEvidence(row) {
+  const scheduledMinutes = serviceFieldVisitScheduledMinutes(row.scheduled_start_at, row.scheduled_end_at);
+  return {
+    strategy: "scheduled-window-cost-basis-v1",
+    status: "estimate",
+    currency: activeCurrencyCode(),
+    scheduledMinutes,
+    laborMinutes: scheduledMinutes,
+    laborCost: 0,
+    travelCost: 0,
+    materialCost: 0,
+    totalCost: 0,
+    source: "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at",
+    computedAt: row.updated_at || row.created_at || row.scheduled_start_at || null,
+    ledgerMappings: [
+      {
+        bucket: "labor",
+        basis: "scheduled-window",
+        managementAccount: "8112",
+        recognitionAccount: "7113",
+        amount: 0,
+        status: "not-posted"
+      },
+      {
+        bucket: "travel",
+        basis: "rate-not-configured",
+        expenseAccount: "713",
+        amount: 0,
+        status: "not-posted"
+      },
+      {
+        bucket: "materials",
+        basis: "inventory-consumption-not-linked",
+        inventoryAccountClass: "2",
+        recognitionAccount: "7113",
+        amount: 0,
+        status: "not-posted"
+      }
+    ],
+    limitations: [
+      "labor-rate-not-configured",
+      "travel-rate-not-configured",
+      "inventory-consumption-not-linked",
+      "not-posted-to-ledger"
+    ]
+  };
+}
+
+function serviceFieldVisitScheduledMinutes(startAt, endAt) {
+  const startMs = Date.parse(startAt || "");
+  const endMs = Date.parse(endAt || "");
+  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
+  return Math.min(10_080, Math.max(0, Math.round((endMs - startMs) / 60_000)));
 }
 
 function getLatestServiceFieldVisitTechnicianLocations(db, orgId, visitIds) {
