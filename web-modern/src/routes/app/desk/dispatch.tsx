@@ -2,6 +2,7 @@ import { createFileRoute, Link } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  Bell,
   CalendarClock,
   CheckCircle2,
   ChevronLeft,
@@ -13,12 +14,16 @@ import {
   PlayCircle,
   Route as RouteIcon,
   Send,
+  X,
 } from "lucide-react";
 import { getJson, postJson } from "../../../lib/api/client";
 import {
+  ServiceDispatchAlertAckResponseSchema,
+  ServiceDispatchAlertsResponseSchema,
   ServiceFieldVisitsResponseSchema,
   UpdateServiceFieldVisitTechnicianLocationInputSchema,
   UpdateServiceFieldVisitTechnicianLocationResponseSchema,
+  type ServiceDispatchAlert,
   type ServiceFieldVisit,
   type ServiceFieldVisitTechnicianLocation,
   type ServiceFieldVisitTechnicianStatus,
@@ -85,6 +90,9 @@ type DispatchNavigationLink = {
 };
 
 type GpsCaptureState = "idle" | "pending" | "locked" | "unsupported" | "error";
+type NotificationStatus = "idle" | "sent" | "denied" | "unsupported" | "empty" | "error";
+
+const DISPATCH_ALERT_ACK_STORAGE_KEY = "a1:desk:dispatch-alerts:acknowledged";
 
 function DeskDispatch() {
   const qc = useQueryClient();
@@ -95,7 +103,15 @@ function DeskDispatch() {
     retry: false,
     staleTime: 30_000,
   });
+  const alertsQuery = useQuery({
+    queryKey: ["service", "my-dispatch-alerts"],
+    queryFn: () => getJson("/api/service/my-dispatch-alerts", ServiceDispatchAlertsResponseSchema),
+    refetchOnWindowFocus: true,
+    retry: false,
+    staleTime: 30_000,
+  });
   const visits = visitsQuery.data?.visits ?? [];
+  const alerts = alertsQuery.data?.alerts ?? [];
   const sortedVisits = useMemo(() => sortVisitsByWindow(visits), [visits]);
   const focusedVisit = useMemo(() => findFocusedVisit(sortedVisits), [sortedVisits]);
   const routeVisits = focusedVisit
@@ -107,6 +123,11 @@ function DeskDispatch() {
   const [queuedUpdates, setQueuedUpdates] = useState<QueuedTechnicianVisitStatusUpdate[]>(() =>
     readQueuedTechnicianVisitStatusUpdates(),
   );
+  const [locallyAcknowledgedAlertKeys, setLocallyAcknowledgedAlertKeys] = useState<Set<string>>(
+    () => readAcknowledgedDispatchAlertKeys(),
+  );
+  const [notificationStatus, setNotificationStatus] = useState<NotificationStatus>("idle");
+  const [ackErrorKey, setAckErrorKey] = useState<string | null>(null);
   const pendingCount = queuedUpdates.length;
   const queuedCountByVisitId = useMemo(() => {
     const map = new Map<string, number>();
@@ -115,11 +136,20 @@ function DeskDispatch() {
     }
     return map;
   }, [queuedUpdates]);
+  const visibleAlerts = useMemo(
+    () => sortDispatchAlerts(alerts).filter((alert) => !isDispatchAlertAcknowledged(alert, locallyAcknowledgedAlertKeys)),
+    [alerts, locallyAcknowledgedAlertKeys],
+  );
+  const notifyableAlerts = useMemo(
+    () => visibleAlerts.filter((alert) => alert.notify !== false),
+    [visibleAlerts],
+  );
 
   const invalidateVisitQueries = () => {
     void qc.invalidateQueries({ queryKey: ["service", "console"] });
     void qc.invalidateQueries({ queryKey: ["service", "field-visits"] });
     void qc.invalidateQueries({ queryKey: ["service", "my-field-visits"] });
+    void qc.invalidateQueries({ queryKey: ["service", "my-dispatch-alerts"] });
   };
 
   const setPersistedQueuedUpdates = (
@@ -130,6 +160,15 @@ function DeskDispatch() {
     setQueuedUpdates((current) => {
       const next = typeof updater === "function" ? updater(current) : updater;
       return persistQueuedTechnicianVisitStatusUpdates(next);
+    });
+  };
+
+  const setPersistedAcknowledgedAlertKeys = (
+    updater: Set<string> | ((current: Set<string>) => Set<string>),
+  ) => {
+    setLocallyAcknowledgedAlertKeys((current) => {
+      const next = typeof updater === "function" ? updater(current) : updater;
+      return persistAcknowledgedDispatchAlertKeys(next);
     });
   };
 
@@ -147,6 +186,27 @@ function DeskDispatch() {
       return { queued: true };
     }
   };
+
+  const acknowledgeAlertMut = useMutation({
+    mutationFn: async (alert: ServiceDispatchAlert) => {
+      await postJson(
+        `/api/service/dispatch-alerts/${encodeURIComponent(alert.id)}/ack`,
+        {},
+        ServiceDispatchAlertAckResponseSchema,
+      );
+      return { key: getDispatchAlertAcknowledgementKey(alert) };
+    },
+    onMutate: () => {
+      setAckErrorKey(null);
+    },
+    onSuccess: ({ key }) => {
+      setPersistedAcknowledgedAlertKeys((current) => new Set(current).add(key));
+      void qc.invalidateQueries({ queryKey: ["service", "my-dispatch-alerts"] });
+    },
+    onError: (_error, alert) => {
+      setAckErrorKey(getDispatchAlertAcknowledgementKey(alert));
+    },
+  });
 
   const syncQueueMut = useMutation({
     mutationFn: async () => {
@@ -174,6 +234,34 @@ function DeskDispatch() {
       if (syncedCount > 0) invalidateVisitQueries();
     },
   });
+
+  const triggerBrowserNotifications = async () => {
+    try {
+      const permission = await requestDispatchNotificationPermission();
+      if (permission === "unsupported") {
+        setNotificationStatus("unsupported");
+        return;
+      }
+      if (permission !== "granted") {
+        setNotificationStatus("denied");
+        return;
+      }
+      if (notifyableAlerts.length === 0) {
+        setNotificationStatus("empty");
+        return;
+      }
+
+      for (const alert of notifyableAlerts) {
+        new Notification(formatDispatchAlertNotificationTitle(alert), {
+          body: formatDispatchAlertBody(alert),
+          tag: getDispatchAlertNotificationTag(alert),
+        });
+      }
+      setNotificationStatus("sent");
+    } catch {
+      setNotificationStatus("error");
+    }
+  };
 
   return (
     <div className="mx-auto max-w-3xl space-y-3 p-3 [data-density=compact]:p-2 [data-density=spacious]:p-5 sm:p-4">
@@ -231,6 +319,22 @@ function DeskDispatch() {
         </div>
       </header>
 
+      <DispatchAlertsSection
+        alerts={visibleAlerts}
+        loading={alertsQuery.isLoading}
+        error={alertsQuery.isError}
+        notificationStatus={notificationStatus}
+        notificationPendingCount={notifyableAlerts.length}
+        ackPendingKey={
+          acknowledgeAlertMut.isPending && acknowledgeAlertMut.variables
+            ? getDispatchAlertAcknowledgementKey(acknowledgeAlertMut.variables)
+            : undefined
+        }
+        ackErrorKey={ackErrorKey}
+        onNotify={() => void triggerBrowserNotifications()}
+        onAcknowledge={(alert) => acknowledgeAlertMut.mutate(alert)}
+      />
+
       {visitsQuery.isLoading ? (
         <p className="py-8 text-center text-[var(--text-sm)] text-[var(--color-muted)]">
           Loading assigned visits...
@@ -287,6 +391,143 @@ function DeskDispatch() {
         </>
       )}
     </div>
+  );
+}
+
+function DispatchAlertsSection({
+  alerts,
+  loading,
+  error,
+  notificationStatus,
+  notificationPendingCount,
+  ackPendingKey,
+  ackErrorKey,
+  onNotify,
+  onAcknowledge,
+}: {
+  alerts: ServiceDispatchAlert[];
+  loading: boolean;
+  error: boolean;
+  notificationStatus: NotificationStatus;
+  notificationPendingCount: number;
+  ackPendingKey?: string;
+  ackErrorKey?: string | null;
+  onNotify: () => void;
+  onAcknowledge: (alert: ServiceDispatchAlert) => void;
+}) {
+  return (
+    <section
+      aria-label="Dispatch alerts"
+      className="rounded-[var(--radius-lg)] border border-[var(--color-line)] bg-[var(--color-surface)] p-2.5"
+    >
+      <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex items-center gap-1.5">
+          <Bell className="size-3.5 text-[var(--color-brand)]" aria-hidden />
+          <h2 className="text-[11px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">
+            Dispatch Alerts
+          </h2>
+          <span className="font-mono text-[11px] text-[var(--color-muted)]">
+            {loading ? "..." : alerts.length}
+          </span>
+        </div>
+        <div className="flex items-center gap-2">
+          {notificationStatus !== "idle" && (
+            <span className="text-[11px] text-[var(--color-muted)]">
+              {formatNotificationStatus(notificationStatus)}
+            </span>
+          )}
+          <button
+            type="button"
+            onClick={onNotify}
+            disabled={loading || notificationPendingCount === 0}
+            className={cn(
+              "inline-flex h-7 items-center gap-1 rounded-[var(--radius-md)] px-2 text-[11px] font-medium",
+              loading || notificationPendingCount === 0
+                ? "bg-[var(--color-surface-soft)] text-[var(--color-muted)] opacity-60"
+                : "bg-[var(--color-brand)] text-white hover:opacity-90",
+            )}
+          >
+            <Bell className="size-3" aria-hidden />
+            Notify
+          </button>
+        </div>
+      </div>
+
+      {loading ? (
+        <p className="py-2 text-[11px] text-[var(--color-muted)]">Loading alerts...</p>
+      ) : error ? (
+        <p className="py-2 text-[11px] text-[var(--color-muted)]">Dispatch alerts unavailable.</p>
+      ) : alerts.length === 0 ? (
+        <p className="py-2 text-[11px] text-[var(--color-muted)]">No dispatch alerts.</p>
+      ) : (
+        <ul className="divide-y divide-[var(--color-line)]">
+          {alerts.map((alert) => {
+            const acknowledgementKey = getDispatchAlertAcknowledgementKey(alert);
+            const ackPending = ackPendingKey === acknowledgementKey;
+            const ackFailed = ackErrorKey === acknowledgementKey;
+
+            return (
+              <li key={`${alert.id}:${acknowledgementKey}`} className="py-2 first:pt-0 last:pb-0">
+                <div className="flex items-start justify-between gap-2">
+                  <div className="min-w-0 space-y-1">
+                    <div className="flex flex-wrap items-center gap-1.5">
+                      <span className="line-clamp-1 text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+                        {formatDispatchAlertTitle(alert)}
+                      </span>
+                      {alert.severity && (
+                        <span
+                          className={cn(
+                            "rounded-[var(--radius-sm)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider",
+                            getDispatchAlertSeverityTone(alert.severity),
+                          )}
+                        >
+                          {alert.severity}
+                        </span>
+                      )}
+                      {alert.kind && (
+                        <span className="rounded-[var(--radius-sm)] bg-[var(--color-surface-soft)] px-1.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-[var(--color-muted)]">
+                          {alert.kind}
+                        </span>
+                      )}
+                    </div>
+                    <p className="line-clamp-2 text-[11px] text-[var(--color-muted)]">
+                      {formatDispatchAlertBody(alert)}
+                    </p>
+                    <p className="flex flex-wrap gap-x-2 gap-y-1 text-[11px] text-[var(--color-muted)]">
+                      {alert.caseNumber && <span>{alert.caseNumber}</span>}
+                      {alert.customerName && <span>{alert.customerName}</span>}
+                      {alert.location && <span>{alert.location}</span>}
+                      {formatDispatchAlertReferenceTime(alert) && (
+                        <span className="font-mono">{formatDispatchAlertReferenceTime(alert)}</span>
+                      )}
+                    </p>
+                    {ackFailed && (
+                      <p className="text-[11px] text-[var(--color-ruby)]">
+                        Acknowledge failed
+                      </p>
+                    )}
+                  </div>
+                  <button
+                    type="button"
+                    disabled={ackPending}
+                    onClick={() => onAcknowledge(alert)}
+                    aria-label={`Acknowledge ${formatDispatchAlertTitle(alert)}`}
+                    className={cn(
+                      "inline-flex h-7 w-7 shrink-0 items-center justify-center rounded-[var(--radius-md)]",
+                      ackPending
+                        ? "bg-[var(--color-surface-soft)] text-[var(--color-muted)] opacity-60"
+                        : "text-[var(--color-muted)] hover:bg-[var(--color-surface-soft)] hover:text-[var(--color-ink)]",
+                    )}
+                  >
+                    <X className="size-3.5" aria-hidden />
+                  </button>
+                </div>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
   );
 }
 
@@ -393,6 +634,7 @@ function DispatchVisitCard({
             void qc.invalidateQueries({ queryKey: ["service", "console"] });
             void qc.invalidateQueries({ queryKey: ["service", "field-visits"] });
             void qc.invalidateQueries({ queryKey: ["service", "my-field-visits"] });
+            void qc.invalidateQueries({ queryKey: ["service", "my-dispatch-alerts"] });
           })
           .catch((error) => {
             setGpsState("error");
@@ -616,6 +858,117 @@ function TechnicianActionIcon({ status }: { status: ServiceFieldVisitTechnicianS
   if (status === "en-route") return <Navigation className="size-3" aria-hidden />;
   if (status === "in-progress") return <PlayCircle className="size-3" aria-hidden />;
   return <CheckCircle2 className="size-3" aria-hidden />;
+}
+
+function sortDispatchAlerts(alerts: ServiceDispatchAlert[]): ServiceDispatchAlert[] {
+  return [...alerts].sort((a, b) => {
+    const aTime = getDispatchAlertSortTime(a);
+    const bTime = getDispatchAlertSortTime(b);
+    return bTime - aTime;
+  });
+}
+
+function getDispatchAlertSortTime(alert: ServiceDispatchAlert): number {
+  const value = alert.referenceAt ?? alert.createdAt ?? alert.scheduledStartAt ?? "";
+  const timestamp = Date.parse(value);
+  return Number.isNaN(timestamp) ? 0 : timestamp;
+}
+
+function isDispatchAlertAcknowledged(alert: ServiceDispatchAlert, locallyAcknowledged: Set<string>): boolean {
+  return Boolean(alert.acknowledged || alert.acknowledgedAt) ||
+    locallyAcknowledged.has(getDispatchAlertAcknowledgementKey(alert));
+}
+
+function getDispatchAlertAcknowledgementKey(alert: ServiceDispatchAlert): string {
+  return firstNonEmpty(alert.dedupeKey, alert.id) ?? alert.id;
+}
+
+function formatDispatchAlertTitle(alert: ServiceDispatchAlert): string {
+  return firstNonEmpty(alert.title, alert.caseNumber, alert.customerName, alert.kind) ?? "Dispatch alert";
+}
+
+function formatDispatchAlertNotificationTitle(alert: ServiceDispatchAlert): string {
+  const caseLabel = firstNonEmpty(alert.caseNumber, alert.customerName);
+  const title = formatDispatchAlertTitle(alert);
+  return caseLabel && caseLabel !== title ? `${caseLabel} - ${title}` : title;
+}
+
+function formatDispatchAlertBody(alert: ServiceDispatchAlert): string {
+  return (
+    firstNonEmpty(
+      alert.body,
+      [alert.customerName, alert.location, formatDispatchAlertReferenceTime(alert)].filter(Boolean).join(" - "),
+      alert.status,
+    ) ?? "Dispatch alert"
+  );
+}
+
+function formatDispatchAlertReferenceTime(alert: ServiceDispatchAlert): string | undefined {
+  const value = firstNonEmpty(alert.referenceAt, alert.scheduledStartAt, alert.createdAt);
+  return value ? formatVisitDateTime(value) : undefined;
+}
+
+function getDispatchAlertNotificationTag(alert: ServiceDispatchAlert): string {
+  return firstNonEmpty(alert.dedupeKey, alert.id) ?? "dispatch-alert";
+}
+
+function getDispatchAlertSeverityTone(severity: string): string {
+  const normalized = severity.trim().toLowerCase();
+  if (normalized === "critical" || normalized === "high" || normalized === "urgent") {
+    return "bg-[color-mix(in_srgb,var(--color-tag-red)_15%,transparent)] text-[var(--color-tag-red)]";
+  }
+  if (normalized === "medium" || normalized === "warning") {
+    return "bg-[color-mix(in_srgb,var(--color-tag-orange)_15%,transparent)] text-[var(--color-tag-orange)]";
+  }
+  return "bg-[var(--color-surface-soft)] text-[var(--color-muted)]";
+}
+
+function formatNotificationStatus(status: NotificationStatus): string {
+  if (status === "sent") return "Sent";
+  if (status === "denied") return "Notifications blocked";
+  if (status === "unsupported") return "Notifications unavailable";
+  if (status === "empty") return "No notify alerts";
+  if (status === "error") return "Notification failed";
+  return "";
+}
+
+async function requestDispatchNotificationPermission(): Promise<NotificationPermission | "unsupported"> {
+  if (typeof window === "undefined" || !("Notification" in window)) return "unsupported";
+  if (Notification.permission === "granted" || Notification.permission === "denied") {
+    return Notification.permission;
+  }
+  const requestResult = Notification.requestPermission();
+  if (typeof requestResult === "string") return requestResult;
+  return requestResult;
+}
+
+function readAcknowledgedDispatchAlertKeys(): Set<string> {
+  const storage = getDispatchAlertStorage();
+  if (!storage) return new Set();
+  try {
+    const parsed = JSON.parse(storage.getItem(DISPATCH_ALERT_ACK_STORAGE_KEY) ?? "[]");
+    if (!Array.isArray(parsed)) throw new Error("Expected acknowledged alert key array");
+    return new Set(parsed.filter((id): id is string => typeof id === "string" && id.length > 0));
+  } catch {
+    storage.setItem(DISPATCH_ALERT_ACK_STORAGE_KEY, "[]");
+    return new Set();
+  }
+}
+
+function persistAcknowledgedDispatchAlertKeys(keys: Set<string>): Set<string> {
+  const next = new Set(keys);
+  const storage = getDispatchAlertStorage();
+  if (storage) storage.setItem(DISPATCH_ALERT_ACK_STORAGE_KEY, JSON.stringify([...next]));
+  return next;
+}
+
+function getDispatchAlertStorage(): Storage | undefined {
+  if (typeof window === "undefined") return undefined;
+  try {
+    return window.localStorage;
+  } catch {
+    return undefined;
+  }
 }
 
 function sortVisitsByWindow(visits: ServiceFieldVisit[]): ServiceFieldVisit[] {

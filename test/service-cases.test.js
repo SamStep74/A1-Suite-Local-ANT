@@ -1,6 +1,7 @@
 "use strict";
 const test = require("node:test");
 const assert = require("node:assert");
+const crypto = require("node:crypto");
 const { buildApp } = require("../server/app");
 const { DEFAULT_EMAIL, DEFAULT_PASSWORD } = require("../server/db");
 
@@ -36,6 +37,11 @@ async function createFieldVisit(app, cookie, {
   });
   assert.strictEqual(response.statusCode, 200, response.body);
   return response.json().visit;
+}
+
+function dispatchAlertId(kind, visitId, dedupeKey) {
+  const version = crypto.createHash("sha256").update(dedupeKey, "utf8").digest("hex").slice(0, 12);
+  return `svc-dispatch-alert-${kind}-v${version}-${visitId}`;
 }
 
 function assertDispatchNavigationEvidence(visit, expectedAddress = visit.location) {
@@ -404,6 +410,384 @@ test("technician status supports offline-safe idempotent dispatch replay", async
     assert.strictEqual(unchanged.status, "en-route");
     assert.strictEqual(unchanged.worksheet_summary, payload.worksheetSummary);
     assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.field_visit.technician_status").count, 1);
+  } finally { await app.close(); }
+});
+
+test("assigned technician dispatch alert feed is deterministic and assigned-only", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const support = console1.agents.find(agent => agent.role === "Support");
+    const manager = console1.agents.find(agent => agent.role === "Service Manager");
+    assert.ok(support);
+    assert.ok(manager);
+
+    const dueSoonVisit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 1,
+      location: "Nare Clinic soon dispatch desk"
+    });
+    const activeVisit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: -0.5,
+      location: "Nare Clinic active route",
+      status: "en-route"
+    });
+    const managerVisit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: manager.id,
+      startOffsetHours: 1,
+      location: "Nare Clinic manager-only alert"
+    });
+
+    const listed = await app.inject({ method: "GET", url: "/api/service/my-dispatch-alerts", headers: { cookie: supportCookie } });
+    assert.strictEqual(listed.statusCode, 200, listed.body);
+    const alerts = listed.json().alerts;
+    assert.ok(alerts.length > 0);
+    assert.ok(alerts.every(alert => alert.visitId !== managerVisit.id));
+    assert.ok(alerts.every(alert => ["active-route", "due-soon", "gps-missing", "overdue-window"].includes(alert.kind)));
+
+    const dueSoon = alerts.find(alert => alert.kind === "due-soon" && alert.visitId === dueSoonVisit.id);
+    assert.ok(dueSoon);
+    assert.strictEqual(dueSoon.dedupeKey, `service-field-visit:${dueSoonVisit.id}:due-soon:${dueSoonVisit.scheduledStartAt}`);
+    assert.strictEqual(dueSoon.id, dispatchAlertId("due-soon", dueSoonVisit.id, dueSoon.dedupeKey));
+    assert.strictEqual(dueSoon.severity, "medium");
+    assert.strictEqual(dueSoon.notify, true);
+    assert.strictEqual(dueSoon.caseNumber, serviceCase.caseNumber);
+    assert.strictEqual(dueSoon.customerName, serviceCase.customerName);
+    assert.strictEqual(dueSoon.location, dueSoonVisit.location);
+    assert.strictEqual(dueSoon.status, "scheduled");
+    assert.strictEqual(dueSoon.scheduledStartAt, dueSoonVisit.scheduledStartAt);
+    assert.strictEqual(dueSoon.scheduledEndAt, dueSoonVisit.scheduledEndAt);
+    assert.strictEqual(dueSoon.createdAt, dueSoon.referenceAt);
+    assert.match(dueSoon.title, /Visit due soon/);
+    assert.match(dueSoon.body, /within 2 hours/);
+
+    const activeRoute = alerts.find(alert => alert.kind === "active-route" && alert.visitId === activeVisit.id);
+    assert.ok(activeRoute);
+    assert.strictEqual(activeRoute.id, dispatchAlertId("active-route", activeVisit.id, activeRoute.dedupeKey));
+    assert.strictEqual(activeRoute.severity, "high");
+    assert.strictEqual(activeRoute.notify, true);
+    assert.strictEqual(activeRoute.status, "en-route");
+
+    const gpsMissing = alerts.find(alert => alert.kind === "gps-missing" && alert.visitId === dueSoonVisit.id);
+    assert.ok(gpsMissing);
+    assert.strictEqual(gpsMissing.id, dispatchAlertId("gps-missing", dueSoonVisit.id, gpsMissing.dedupeKey));
+    assert.strictEqual(gpsMissing.notify, false);
+    assert.strictEqual(gpsMissing.severity, "info");
+
+    const ownAlertOrder = alerts
+      .filter(alert => [dueSoonVisit.id, activeVisit.id].includes(alert.visitId))
+      .map(alert => `${alert.kind}:${alert.visitId}`);
+    assert.deepStrictEqual(ownAlertOrder, [
+      `active-route:${activeVisit.id}`,
+      `gps-missing:${activeVisit.id}`,
+      `due-soon:${dueSoonVisit.id}`,
+      `gps-missing:${dueSoonVisit.id}`
+    ]);
+  } finally { await app.close(); }
+});
+
+test("dispatch gps-missing alert disappears after technician GPS capture", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const support = console1.agents.find(agent => agent.role === "Support");
+    assert.ok(support);
+    const visit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 1,
+      location: "Nare Clinic GPS missing alert"
+    });
+
+    const before = await app.inject({ method: "GET", url: "/api/service/my-dispatch-alerts", headers: { cookie: supportCookie } });
+    assert.strictEqual(before.statusCode, 200, before.body);
+    assert.ok(before.json().alerts.some(alert => alert.kind === "gps-missing" && alert.visitId === visit.id));
+
+    const captured = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-location`,
+      headers: { cookie: supportCookie },
+      payload: { latitude: 40.187, longitude: 44.515, capturedAt: "2026-06-22T10:00:00.000Z", source: "gps" }
+    });
+    assert.strictEqual(captured.statusCode, 200, captured.body);
+
+    const after = await app.inject({ method: "GET", url: "/api/service/my-dispatch-alerts", headers: { cookie: supportCookie } });
+    assert.strictEqual(after.statusCode, 200, after.body);
+    assert.ok(!after.json().alerts.some(alert => alert.kind === "gps-missing" && alert.visitId === visit.id));
+    assert.ok(after.json().alerts.some(alert => alert.kind === "due-soon" && alert.visitId === visit.id));
+  } finally { await app.close(); }
+});
+
+test("dispatch alert acknowledgement rejects stale ids after reschedule", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const support = console1.agents.find(agent => agent.role === "Support");
+    assert.ok(support);
+    const visit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 1,
+      location: "Nare Clinic reschedule alert"
+    });
+
+    const feed = await app.inject({ method: "GET", url: "/api/service/my-dispatch-alerts", headers: { cookie: supportCookie } });
+    assert.strictEqual(feed.statusCode, 200, feed.body);
+    const originalAlert = feed.json().alerts.find(candidate => candidate.kind === "due-soon" && candidate.visitId === visit.id);
+    assert.ok(originalAlert);
+    assert.strictEqual(originalAlert.id, dispatchAlertId("due-soon", visit.id, originalAlert.dedupeKey));
+
+    const rescheduledStartAt = new Date(Date.now() + 90 * 60 * 1000).toISOString();
+    const rescheduledEndAt = new Date(Date.now() + 150 * 60 * 1000).toISOString();
+    const rescheduled = await app.inject({
+      method: "PATCH",
+      url: `/api/service/field-visits/${visit.id}`,
+      headers: { cookie: ownerCookie },
+      payload: { scheduledStartAt: rescheduledStartAt, scheduledEndAt: rescheduledEndAt }
+    });
+    assert.strictEqual(rescheduled.statusCode, 200, rescheduled.body);
+
+    const nextFeed = await app.inject({ method: "GET", url: "/api/service/my-dispatch-alerts", headers: { cookie: supportCookie } });
+    assert.strictEqual(nextFeed.statusCode, 200, nextFeed.body);
+    const nextAlert = nextFeed.json().alerts.find(candidate => candidate.kind === "due-soon" && candidate.visitId === visit.id);
+    assert.ok(nextAlert);
+    assert.notStrictEqual(nextAlert.dedupeKey, originalAlert.dedupeKey);
+    assert.notStrictEqual(nextAlert.id, originalAlert.id);
+    assert.strictEqual(nextAlert.id, dispatchAlertId("due-soon", visit.id, nextAlert.dedupeKey));
+
+    const staleAck = await app.inject({
+      method: "POST",
+      url: `/api/service/dispatch-alerts/${originalAlert.id}/ack`,
+      headers: { cookie: supportCookie }
+    });
+    assert.strictEqual(staleAck.statusCode, 404, staleAck.body);
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.dispatch_alert.acknowledged").count, 0);
+
+    const freshAck = await app.inject({
+      method: "POST",
+      url: `/api/service/dispatch-alerts/${nextAlert.id}/ack`,
+      headers: { cookie: supportCookie }
+    });
+    assert.strictEqual(freshAck.statusCode, 200, freshAck.body);
+    assert.strictEqual(freshAck.json().alert.id, nextAlert.id);
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.dispatch_alert.acknowledged").count, 1);
+  } finally { await app.close(); }
+});
+
+test("dispatch alert acknowledgements hide normal feed and include acknowledged alerts on request", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const support = console1.agents.find(agent => agent.role === "Support");
+    assert.ok(support);
+    const visit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 1,
+      location: "Nare Clinic acknowledgement desk"
+    });
+
+    const feed = await app.inject({ method: "GET", url: "/api/service/my-dispatch-alerts", headers: { cookie: supportCookie } });
+    assert.strictEqual(feed.statusCode, 200, feed.body);
+    const alert = feed.json().alerts.find(candidate => candidate.kind === "due-soon" && candidate.visitId === visit.id);
+    assert.ok(alert);
+
+    const acked = await app.inject({
+      method: "POST",
+      url: `/api/service/dispatch-alerts/${alert.id}/ack`,
+      headers: { cookie: supportCookie },
+      payload: { ignored: "client body is not persisted" }
+    });
+    assert.strictEqual(acked.statusCode, 200, acked.body);
+    assert.strictEqual(acked.json().alert.id, alert.id);
+    assert.strictEqual(acked.json().alert.acknowledged, true);
+
+    const ackedAgain = await app.inject({
+      method: "POST",
+      url: `/api/service/dispatch-alerts/${alert.id}/ack`,
+      headers: { cookie: supportCookie }
+    });
+    assert.strictEqual(ackedAgain.statusCode, 200, ackedAgain.body);
+    assert.strictEqual(ackedAgain.json().alert.id, alert.id);
+    assert.strictEqual(ackedAgain.json().alert.acknowledged, true);
+
+    const hidden = await app.inject({ method: "GET", url: "/api/service/my-dispatch-alerts", headers: { cookie: supportCookie } });
+    assert.strictEqual(hidden.statusCode, 200, hidden.body);
+    assert.ok(!hidden.json().alerts.some(candidate => candidate.id === alert.id));
+
+    const included = await app.inject({ method: "GET", url: "/api/service/my-dispatch-alerts?includeAcknowledged=true", headers: { cookie: supportCookie } });
+    assert.strictEqual(included.statusCode, 200, included.body);
+    const includedAlert = included.json().alerts.find(candidate => candidate.id === alert.id);
+    assert.ok(includedAlert);
+    assert.strictEqual(includedAlert.acknowledged, true);
+
+    const ackRows = app.db.prepare(`
+      SELECT user_id, details
+      FROM audit_events
+      WHERE type = ?
+      ORDER BY id ASC
+    `).all("service.dispatch_alert.acknowledged");
+    assert.strictEqual(ackRows.length, 1);
+    assert.strictEqual(ackRows[0].user_id, support.id);
+    const details = JSON.parse(ackRows[0].details);
+    assert.strictEqual(details.alertId, alert.id);
+    assert.strictEqual(details.dedupeKey, alert.dedupeKey);
+    assert.strictEqual(details.kind, alert.kind);
+    assert.strictEqual(details.visitId, visit.id);
+    assert.strictEqual(details.caseNumber, serviceCase.caseNumber);
+    assert.strictEqual(details.referenceAt, alert.referenceAt);
+    assert.ok(!JSON.stringify(details).includes("client body"));
+  } finally { await app.close(); }
+});
+
+test("malformed dispatch alert acknowledgement has no side effects and no secret echo", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const supportCookie = await login(app, "support@armosphera.local");
+    const secret = "sk-live-dispatch-alert-secret";
+    const before = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.dispatch_alert.acknowledged").count;
+    const bad = await app.inject({
+      method: "POST",
+      url: `/api/service/dispatch-alerts/NOT-SAFE-${secret}/ack`,
+      headers: { cookie: supportCookie },
+      payload: { secret }
+    });
+    assert.strictEqual(bad.statusCode, 400);
+    assert.ok(!bad.body.includes(secret), bad.body);
+    const after = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.dispatch_alert.acknowledged").count;
+    assert.strictEqual(after, before);
+  } finally { await app.close(); }
+});
+
+test("dispatch alert acknowledgement rejects encoded surrounding whitespace without audit", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const support = console1.agents.find(agent => agent.role === "Support");
+    assert.ok(support);
+    const visit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 1,
+      location: "Nare Clinic encoded alert id"
+    });
+    const feed = await app.inject({ method: "GET", url: "/api/service/my-dispatch-alerts", headers: { cookie: supportCookie } });
+    assert.strictEqual(feed.statusCode, 200, feed.body);
+    const alert = feed.json().alerts.find(candidate => candidate.kind === "due-soon" && candidate.visitId === visit.id);
+    assert.ok(alert);
+
+    const before = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.dispatch_alert.acknowledged").count;
+    const wrappedId = encodeURIComponent(` ${alert.id} `);
+    const bad = await app.inject({
+      method: "POST",
+      url: `/api/service/dispatch-alerts/${wrappedId}/ack`,
+      headers: { cookie: supportCookie }
+    });
+    assert.strictEqual(bad.statusCode, 400, bad.body);
+    const after = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.dispatch_alert.acknowledged").count;
+    assert.strictEqual(after, before);
+  } finally { await app.close(); }
+});
+
+test("dispatch alert feed and acknowledgement preserve tenant isolation", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const supportCookie = await login(app, "support@armosphera.local");
+    const supportId = app.db.prepare("SELECT id FROM users WHERE email = ?").get("support@armosphera.local").id;
+    const now = new Date().toISOString();
+    const foreignStartAt = new Date(Date.now() + 60 * 60 * 1000).toISOString();
+    const foreignEndAt = new Date(Date.now() + 2 * 60 * 60 * 1000).toISOString();
+    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, currency, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run("org-alert-foreign", "Alert Foreign Org", "Alert Foreign Org LLC", "97979797", "AMD", now);
+    app.db.prepare(`
+      INSERT INTO customers (id, org_id, name, tax_id, email, phone, segment, health_score, lifetime_value, open_receivables, last_touch)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("cust-alert-foreign", "org-alert-foreign", "Alert Foreign Customer", "97979798", "alert.foreign@example.com", "", "Other", 50, 0, 0, "2026-05-01");
+    app.db.prepare(`
+      INSERT INTO service_cases (
+        id, org_id, customer_id, ticket_id, case_number, subject, status, priority,
+        channel, owner_user_id, sla_due_at, sla_status, ai_suggestion,
+        knowledge_article, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "case-alert-foreign",
+      "org-alert-foreign",
+      "cust-alert-foreign",
+      null,
+      "ALERT-FOREIGN-1",
+      "Foreign dispatch alert case",
+      "open",
+      "medium",
+      "Email",
+      null,
+      new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      "on-track",
+      "Foreign alert suggestion",
+      "KB-GENERAL-SERVICE",
+      now,
+      now
+    );
+    app.db.prepare(`
+      INSERT INTO service_field_visits (
+        id, org_id, case_id, customer_id, assigned_user_id,
+        scheduled_start_at, scheduled_end_at, status, location,
+        worksheet_summary, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "visit-alert-foreign",
+      "org-alert-foreign",
+      "case-alert-foreign",
+      "cust-alert-foreign",
+      supportId,
+      foreignStartAt,
+      foreignEndAt,
+      "scheduled",
+      "Foreign dispatch alert site",
+      "Foreign alert should remain isolated.",
+      now,
+      now
+    );
+
+    const feed = await app.inject({ method: "GET", url: "/api/service/my-dispatch-alerts", headers: { cookie: supportCookie } });
+    assert.strictEqual(feed.statusCode, 200, feed.body);
+    assert.ok(!feed.json().alerts.some(alert => alert.visitId === "visit-alert-foreign"));
+
+    const guessedAck = await app.inject({
+      method: "POST",
+      url: `/api/service/dispatch-alerts/${dispatchAlertId("due-soon", "visit-alert-foreign", `service-field-visit:visit-alert-foreign:due-soon:${foreignStartAt}`)}/ack`,
+      headers: { cookie: supportCookie }
+    });
+    assert.strictEqual(guessedAck.statusCode, 404);
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?").get("org-alert-foreign", "service.dispatch_alert.acknowledged").count, 0);
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.dispatch_alert.acknowledged").count, 0);
   } finally { await app.close(); }
 });
 

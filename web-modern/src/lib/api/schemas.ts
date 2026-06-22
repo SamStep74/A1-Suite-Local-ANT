@@ -206,6 +206,45 @@ export type UpdateServiceFieldVisitTechnicianLocationResponse = z.infer<
   typeof UpdateServiceFieldVisitTechnicianLocationResponseSchema
 >;
 
+export const ServiceDispatchAlertSchema = z
+  .object({
+    id: z.string(),
+    dedupeKey: z.string().nullable().optional(),
+    kind: z.string().nullable().optional(),
+    severity: z.string().nullable().optional(),
+    visitId: z.string().nullable().optional(),
+    caseNumber: z.string().nullable().optional(),
+    customerName: z.string().nullable().optional(),
+    location: z.string().nullable().optional(),
+    status: z.string().nullable().optional(),
+    scheduledStartAt: z.string().nullable().optional(),
+    scheduledEndAt: z.string().nullable().optional(),
+    title: z.string().nullable().optional(),
+    body: z.string().nullable().optional(),
+    notify: z.boolean().optional(),
+    createdAt: z.string().nullable().optional(),
+    referenceAt: z.string().nullable().optional(),
+    acknowledged: z.boolean().optional(),
+    acknowledgedAt: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type ServiceDispatchAlert = z.infer<typeof ServiceDispatchAlertSchema>;
+
+export const ServiceDispatchAlertsResponseSchema = z
+  .object({
+    alerts: z.array(ServiceDispatchAlertSchema),
+  })
+  .passthrough();
+export type ServiceDispatchAlertsResponse = z.infer<typeof ServiceDispatchAlertsResponseSchema>;
+
+export const ServiceDispatchAlertAckResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    alert: ServiceDispatchAlertSchema.nullable().optional(),
+  })
+  .passthrough();
+export type ServiceDispatchAlertAckResponse = z.infer<typeof ServiceDispatchAlertAckResponseSchema>;
+
 export const ServiceCaseSchema = z.object({
   id: z.string(),
   customerId: z.string(),

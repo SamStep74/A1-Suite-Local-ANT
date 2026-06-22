@@ -48,6 +48,9 @@ import {
   ProjectRecurringTasksResponseSchema,
   ProjectTemplateResponseSchema,
   ProjectTemplatesResponseSchema,
+  ServiceDispatchAlertAckResponseSchema,
+  ServiceDispatchAlertsResponseSchema,
+  ServiceDispatchAlertSchema,
   UpdateServiceFieldVisitTechnicianLocationInputSchema,
   UpdateServiceFieldVisitTechnicianLocationResponseSchema,
   UpdateServiceFieldVisitTechnicianStatusInputSchema,
@@ -103,6 +106,26 @@ const VALID_FIELD_VISIT = {
   subject: "Fiscal printer field check",
   customerName: "Ani Beauty",
   assignedUserName: "Samvel",
+};
+
+const VALID_DISPATCH_ALERT = {
+  id: "svc-dispatch-alert-due-soon-v99a0d78feb35-visit-1",
+  dedupeKey: "service-field-visit:visit-1:due-soon:2026-06-22T08:05:00.000Z",
+  kind: "due-soon",
+  severity: "high",
+  visitId: "visit-1",
+  caseNumber: "AO-CASE-1001",
+  customerName: "Ani Beauty",
+  location: "Ani Beauty, Yerevan",
+  status: "scheduled",
+  scheduledStartAt: "2026-06-22T10:00:00.000Z",
+  scheduledEndAt: "2026-06-22T11:00:00.000Z",
+  title: "Visit moved",
+  body: "Customer requested a later arrival window.",
+  notify: true,
+  createdAt: "2026-06-22T08:00:00.000Z",
+  referenceAt: "2026-06-22T08:05:00.000Z",
+  acknowledgedAt: null,
 };
 
 describe("ServiceCaseSchema", () => {
@@ -417,6 +440,67 @@ describe("UpdateServiceFieldVisitTechnicianStatusInputSchema", () => {
     });
 
     expect(r.success).toBe(true);
+  });
+});
+
+describe("ServiceDispatchAlertSchema", () => {
+  it("accepts the technician dispatch alert wire shape", () => {
+    const r = ServiceDispatchAlertSchema.safeParse(VALID_DISPATCH_ALERT);
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.dedupeKey).toBe("service-field-visit:visit-1:due-soon:2026-06-22T08:05:00.000Z");
+      expect(r.data.notify).toBe(true);
+      expect(r.data.acknowledged).toBeUndefined();
+      expect(r.data.acknowledgedAt).toBeNull();
+    }
+  });
+
+  it("accepts dispatch alert feed envelopes with passthrough metadata", () => {
+    const response = ServiceDispatchAlertsResponseSchema.parse({
+      alerts: [
+        VALID_DISPATCH_ALERT,
+        {
+          ...VALID_DISPATCH_ALERT,
+          id: "svc-dispatch-alert-gps-missing-vdaec69700c50-visit-1",
+          notify: false,
+          severity: "low",
+          acknowledged: true,
+          acknowledgedAt: "2026-06-22T08:10:00.000Z",
+          extraBackendField: { source: "worker" },
+        },
+      ],
+      generatedAt: "2026-06-22T08:11:00.000Z",
+    });
+
+    expect(response.alerts).toHaveLength(2);
+    expect(response.alerts[1]?.notify).toBe(false);
+    expect(response.alerts[1]?.acknowledged).toBe(true);
+    expect((response.alerts[1] as { extraBackendField?: unknown }).extraBackendField).toEqual({
+      source: "worker",
+    });
+  });
+
+  it("rejects dispatch alert feed envelopes without alerts", () => {
+    const r = ServiceDispatchAlertsResponseSchema.safeParse({});
+    expect(r.success).toBe(false);
+  });
+
+  it("requires ack responses to report ok true", () => {
+    const withAlert = ServiceDispatchAlertAckResponseSchema.parse({
+      ok: true,
+      alert: {
+        ...VALID_DISPATCH_ALERT,
+        acknowledgedAt: "2026-06-22T08:12:00.000Z",
+      },
+      idempotent: true,
+    });
+    const minimal = ServiceDispatchAlertAckResponseSchema.parse({ ok: true });
+
+    expect(withAlert.alert?.acknowledgedAt).toBe("2026-06-22T08:12:00.000Z");
+    expect(minimal.ok).toBe(true);
+    expect(ServiceDispatchAlertAckResponseSchema.safeParse({ ok: false }).success).toBe(false);
+    expect(ServiceDispatchAlertAckResponseSchema.safeParse({}).success).toBe(false);
   });
 });
 

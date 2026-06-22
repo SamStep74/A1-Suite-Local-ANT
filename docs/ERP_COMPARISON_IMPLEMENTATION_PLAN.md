@@ -138,8 +138,8 @@ Source: [the reference ERP Helpdesk](https://www.the reference ERP.com/documenta
 
 Comparison to A1:
 
-- A1 has projects, project template evidence, recurring task evidence, tasks, subtask hierarchy evidence, task dependency evidence, milestones, time entries, project billing, project-level profitability evidence, task/product cost-basis profitability evidence, service cases, SLA policy evidence and editing UX, field service visit planning evidence, worksheet summaries, assigned-technician visit workflow, offline-safe technician dispatch queue and idempotent replay evidence, mobile/PWA technician dispatch shell evidence with map/navigation links, technician GPS/geolocation capture evidence, support replies, escalations, and Customer 360.
-- Missing the reference ERP-style depth: native offline map tiles, push-style dispatch alerts, route optimization, and deeper accounting-grade cost allocation across inventory, procurement, and field-service operations.
+- A1 has projects, project template evidence, recurring task evidence, tasks, subtask hierarchy evidence, task dependency evidence, milestones, time entries, project billing, project-level profitability evidence, task/product cost-basis profitability evidence, service cases, SLA policy evidence and editing UX, field service visit planning evidence, worksheet summaries, assigned-technician visit workflow, offline-safe technician dispatch queue and idempotent replay evidence, mobile/PWA technician dispatch shell evidence with map/navigation links, technician GPS/geolocation capture evidence, browser dispatch alert feed and acknowledgement evidence, support replies, escalations, and Customer 360.
+- Missing the reference ERP-style depth: native offline map tiles, native/service-worker push dispatch alerts, route optimization, and deeper accounting-grade cost allocation across inventory, procurement, and field-service operations.
 
 ### Documents, Sign, Knowledge, Spreadsheet, Dashboards
 

@@ -23,6 +23,7 @@ const SYSTEM_APP_ASSIGNMENT_ROLES = new Set(["Admin"]);
 const SERVICE_FIELD_VISIT_STATUSES = ["scheduled", "en-route", "in-progress", "completed", "cancelled"];
 const SERVICE_FIELD_VISIT_TECHNICIAN_STATUSES = ["en-route", "in-progress", "completed"];
 const SERVICE_FIELD_VISIT_LOCATION_SOURCES = ["browser-geolocation", "gps", "browser", "mobile", "manual", "device"];
+const SERVICE_DISPATCH_ALERT_KINDS = ["overdue-window", "active-route", "due-soon", "gps-missing"];
 const APP_ASSIGNMENT_ROLE_GUARDS = {
   inventory: new Set(["Owner", "Admin", "Operator", "Accountant"]),
   purchase: new Set(["Owner", "Admin", "Operator", "Accountant"])
@@ -6608,6 +6609,21 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     requireAppAccess(db, user, "desk");
     return { visits: getServiceFieldVisits(db, user.org_id, "", user.id) };
+  });
+
+  app.get("/api/service/my-dispatch-alerts", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "desk");
+    const includeAcknowledged = normalizeServiceDispatchAlertIncludeAcknowledged(request.query || {});
+    return { alerts: getServiceDispatchAlerts(db, user, { includeAcknowledged }) };
+  });
+
+  app.post("/api/service/dispatch-alerts/:id/ack", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "desk");
+    const alertId = normalizeServiceDispatchAlertPathId(request.params.id);
+    const alert = acknowledgeServiceDispatchAlert(db, user, alertId);
+    return { ok: true, alert };
   });
 
   app.post("/api/service/field-visits", async request => {
@@ -57155,6 +57171,199 @@ function formatServiceFieldVisit(row, technicianLocation = null) {
     visit.technicianLocation = technicianLocation;
   }
   return visit;
+}
+
+function getServiceDispatchAlerts(db, user, options = {}) {
+  const visits = getServiceFieldVisits(db, user.org_id, "", user.id);
+  const acknowledgedKeys = getAcknowledgedServiceDispatchAlertDedupeKeys(db, user);
+  const includeAcknowledged = Boolean(options.includeAcknowledged);
+  const alerts = buildServiceDispatchAlerts(visits)
+    .map(alert => acknowledgedKeys.has(alert.dedupeKey) ? { ...alert, acknowledged: true } : alert)
+    .filter(alert => includeAcknowledged || !alert.acknowledged)
+    .slice(0, 100);
+  return alerts;
+}
+
+function buildServiceDispatchAlerts(visits, now = new Date()) {
+  const nowMs = now.getTime();
+  const soonMs = nowMs + 2 * 60 * 60 * 1000;
+  const alerts = [];
+  for (const visit of visits) {
+    if (isTerminalServiceFieldVisitStatus(visit.status)) continue;
+    const startMs = Date.parse(visit.scheduledStartAt);
+    const endMs = Date.parse(visit.scheduledEndAt);
+    if (visit.status === "en-route" || visit.status === "in-progress") {
+      alerts.push(formatServiceDispatchAlert("active-route", "high", visit, {
+        title: `Active route for ${visit.caseNumber}`,
+        body: `${visit.customerName} visit is ${visit.status} at ${visit.location}.`,
+        notify: true,
+        referenceAt: visit.updatedAt || visit.scheduledStartAt
+      }));
+    }
+    if (visit.status === "scheduled" && Number.isFinite(startMs) && startMs >= nowMs && startMs <= soonMs) {
+      alerts.push(formatServiceDispatchAlert("due-soon", "medium", visit, {
+        title: `Visit due soon for ${visit.caseNumber}`,
+        body: `${visit.customerName} visit starts within 2 hours at ${visit.location}.`,
+        notify: true,
+        referenceAt: visit.scheduledStartAt
+      }));
+    }
+    if (Number.isFinite(endMs) && endMs < nowMs) {
+      alerts.push(formatServiceDispatchAlert("overdue-window", "high", visit, {
+        title: `Visit window overdue for ${visit.caseNumber}`,
+        body: `${visit.customerName} visit window ended before completion.`,
+        notify: true,
+        referenceAt: visit.scheduledEndAt
+      }));
+    }
+    if (["scheduled", "en-route", "in-progress"].includes(visit.status) && !visit.technicianLocation) {
+      alerts.push(formatServiceDispatchAlert("gps-missing", visit.status === "scheduled" ? "info" : "medium", visit, {
+        title: `GPS evidence missing for ${visit.caseNumber}`,
+        body: `${visit.customerName} visit has no technician location evidence yet.`,
+        notify: false,
+        referenceAt: visit.updatedAt || visit.scheduledStartAt
+      }));
+    }
+  }
+  const severityOrder = { high: 0, medium: 1, info: 2 };
+  const kindOrder = { "overdue-window": 0, "active-route": 1, "due-soon": 2, "gps-missing": 3 };
+  return alerts.sort((a, b) => {
+    const severity = severityOrder[a.severity] - severityOrder[b.severity];
+    if (severity !== 0) return severity;
+    const reference = String(a.referenceAt).localeCompare(String(b.referenceAt));
+    if (reference !== 0) return reference;
+    const kind = kindOrder[a.kind] - kindOrder[b.kind];
+    if (kind !== 0) return kind;
+    return a.visitId.localeCompare(b.visitId);
+  });
+}
+
+function formatServiceDispatchAlert(kind, severity, visit, options) {
+  const referenceAt = options.referenceAt || visit.updatedAt || visit.scheduledStartAt;
+  const dedupeKey = `service-field-visit:${visit.id}:${kind}:${referenceAt}`;
+  return {
+    id: buildServiceDispatchAlertId(kind, visit.id, dedupeKey),
+    dedupeKey,
+    kind,
+    severity,
+    visitId: visit.id,
+    caseNumber: visit.caseNumber,
+    customerName: visit.customerName,
+    location: visit.location,
+    status: visit.status,
+    scheduledStartAt: visit.scheduledStartAt,
+    scheduledEndAt: visit.scheduledEndAt,
+    title: options.title,
+    body: options.body,
+    notify: Boolean(options.notify),
+    createdAt: referenceAt,
+    referenceAt
+  };
+}
+
+function buildServiceDispatchAlertId(kind, visitId, dedupeKey) {
+  return `svc-dispatch-alert-${kind}-v${buildServiceDispatchAlertVersion(dedupeKey)}-${visitId}`;
+}
+
+function buildServiceDispatchAlertVersion(dedupeKey) {
+  return crypto.createHash("sha256").update(String(dedupeKey || ""), "utf8").digest("hex").slice(0, 12);
+}
+
+function parseServiceDispatchAlertId(alertId) {
+  const prefix = "svc-dispatch-alert-";
+  if (!alertId.startsWith(prefix)) throwInvalidServiceDispatchAlertPathId();
+  const rest = alertId.slice(prefix.length);
+  for (const kind of SERVICE_DISPATCH_ALERT_KINDS) {
+    const marker = `${kind}-v`;
+    if (!rest.startsWith(marker)) continue;
+    const versionAndVisitId = rest.slice(marker.length);
+    const separatorIndex = versionAndVisitId.indexOf("-");
+    if (separatorIndex !== 12) throwInvalidServiceDispatchAlertPathId();
+    const version = versionAndVisitId.slice(0, separatorIndex);
+    const visitId = versionAndVisitId.slice(separatorIndex + 1);
+    if (!/^[a-f0-9]{12}$/.test(version)) throwInvalidServiceDispatchAlertPathId();
+    if (!visitId || !/^[a-z0-9-]+$/.test(visitId)) throwInvalidServiceDispatchAlertPathId();
+    return { kind, visitId, version };
+  }
+  throwInvalidServiceDispatchAlertPathId();
+}
+
+function acknowledgeServiceDispatchAlert(db, user, alertId) {
+  const parsed = parseServiceDispatchAlertId(alertId);
+  const alert = buildServiceDispatchAlerts(getServiceFieldVisits(db, user.org_id, "", user.id))
+    .find(candidate => candidate.id === alertId && candidate.kind === parsed.kind && candidate.visitId === parsed.visitId);
+  if (!alert) {
+    const err = new Error("Dispatch alert not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const acknowledgedKeys = getAcknowledgedServiceDispatchAlertDedupeKeys(db, user);
+  if (!acknowledgedKeys.has(alert.dedupeKey)) {
+    audit(db, user.org_id, user.id, "service.dispatch_alert.acknowledged", {
+      alertId: alert.id,
+      dedupeKey: alert.dedupeKey,
+      kind: alert.kind,
+      visitId: alert.visitId,
+      caseNumber: alert.caseNumber,
+      referenceAt: alert.referenceAt
+    });
+  }
+  return { ...alert, acknowledged: true };
+}
+
+function getAcknowledgedServiceDispatchAlertDedupeKeys(db, user) {
+  const rows = db.prepare(`
+    SELECT details
+    FROM audit_events
+    WHERE org_id = ? AND user_id = ? AND type = ?
+    ORDER BY id DESC
+  `).all(user.org_id, user.id, "service.dispatch_alert.acknowledged");
+  const keys = new Set();
+  for (const row of rows) {
+    let details;
+    try {
+      details = JSON.parse(row.details || "{}");
+    } catch {
+      continue;
+    }
+    if (typeof details.dedupeKey === "string" && details.dedupeKey.startsWith("service-field-visit:")) {
+      keys.add(details.dedupeKey);
+    }
+  }
+  return keys;
+}
+
+function normalizeServiceDispatchAlertIncludeAcknowledged(query) {
+  const value = query.includeAcknowledged;
+  if (value === undefined || value === null || value === "") return false;
+  if (Array.isArray(value)) return value.some(item => normalizeServiceDispatchAlertIncludeAcknowledged({ includeAcknowledged: item }));
+  const text = String(value).trim().toLowerCase();
+  return ["1", "true", "yes", "y", "on"].includes(text);
+}
+
+function normalizeServiceDispatchAlertPathId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidServiceDispatchAlertPathId();
+  }
+  const text = value;
+  if (text !== text.trim()) {
+    throwInvalidServiceDispatchAlertPathId();
+  }
+  if (!text || text.length > 220 || !/^svc-dispatch-alert-[a-z0-9-]+$/.test(text)) {
+    throwInvalidServiceDispatchAlertPathId();
+  }
+  parseServiceDispatchAlertId(text);
+  return text;
+}
+
+function throwInvalidServiceDispatchAlertPathId() {
+  const err = new Error("Invalid dispatch alert id");
+  err.statusCode = 400;
+  throw err;
+}
+
+function isTerminalServiceFieldVisitStatus(status) {
+  return status === "completed" || status === "cancelled";
 }
 
 function getLatestServiceFieldVisitTechnicianLocations(db, orgId, visitIds) {
