@@ -9,7 +9,7 @@ import {
 export const POS_SALE_DRAFT_QUEUE_STORAGE_KEY = "a1:pos:local-sale-drafts:v1";
 const POS_SALE_DRAFT_QUEUE_LIMIT = 25;
 
-export type PosLocalSaleDraftReason = "manual" | "post-failed";
+export type PosLocalSaleDraftReason = "manual" | "post-failed" | "browser-offline";
 export type PosLocalSaleDraftAutoReplayStatus =
   | "queued"
   | "retrying"
@@ -93,7 +93,9 @@ function nonNegativeIntegerValue(value: unknown): number | undefined {
 }
 
 function normalizeSaleDraftReason(value: unknown): PosLocalSaleDraftReason {
-  return value === "post-failed" || value === "manual" ? value : "manual";
+  return value === "post-failed" || value === "browser-offline" || value === "manual"
+    ? value
+    : "manual";
 }
 
 function normalizeAutoReplayStatus(value: unknown): PosLocalSaleDraftAutoReplayStatus {
@@ -331,10 +333,17 @@ export function classifyPosSaleDraftAutoReplayFailure(
   return { status: "failed", canAutoRetry: false, message, blockReason: "client-error" };
 }
 
+export function localSaleDraftReasonCanAutoReplay(
+  reason: PosLocalSaleDraftReason,
+): boolean {
+  return reason === "post-failed" || reason === "browser-offline";
+}
+
 export function canAutoReplayQueuedPosSaleDraft(draft: PosLocalSaleDraft): boolean {
   return (
-    draft.autoReplayStatus === "queued" ||
-    draft.autoReplayStatus === "retryable-failed"
+    localSaleDraftReasonCanAutoReplay(draft.queueReason) &&
+    (draft.autoReplayStatus === "queued" ||
+      draft.autoReplayStatus === "retryable-failed")
   );
 }
 

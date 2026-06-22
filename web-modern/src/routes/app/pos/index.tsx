@@ -6,9 +6,9 @@
  * and tracked-line stock return evidence with POS ledger journal visibility,
  * plus closed-session card terminal settlement evidence, local receipt print
  * previews, offline replay readiness evidence, and a browser-local sale draft
- * queue with safe automatic replay for network-failed sale posts. Terminal
- * refunds, live fiscal submission, live receipt printing, and true
- * browser-offline execution stay outside this surface.
+ * queue with safe automatic replay for network-failed and browser-offline sale
+ * captures. Terminal refunds, live fiscal submission, live receipt printing,
+ * and full fiscal-device offline execution stay outside this surface.
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -77,6 +77,7 @@ import { cn } from "../../../lib/utils/cn";
 import {
   createQueuedPosSaleDraft,
   canAutoReplayQueuedPosSaleDraft,
+  localSaleDraftReasonCanAutoReplay,
   markQueuedPosSaleDraftAutoReplayAttempt,
   markQueuedPosSaleDraftAutoReplayFailure,
   persistQueuedPosSaleDrafts,
@@ -103,6 +104,12 @@ const POS_REFUND_METHODS: Array<{ value: PosRefundMethod; label: string }> = [
   { value: "card", label: "Card" },
   { value: "bank-transfer", label: "Bank transfer" },
 ];
+
+function readBrowserOnline(): boolean {
+  if (typeof navigator === "undefined") return true;
+  return navigator.onLine !== false;
+}
+
 type PosSaleCaptureInput = {
   sessionId: string;
   catalogItemId: string;
@@ -149,13 +156,16 @@ function PosWorkspace() {
   const [lastAutoReplayedLocalSaleDraftId, setLastAutoReplayedLocalSaleDraftId] =
     useState<string | null>(null);
   const [localSaleDraftError, setLocalSaleDraftError] = useState("");
+  const [isBrowserOnline, setIsBrowserOnline] = useState(readBrowserOnline);
   const localSaleDraftsRef = useRef(localSaleDrafts);
   const hasAccessRef = useRef(hasAccess);
+  const isBrowserOnlineRef = useRef(isBrowserOnline);
   const saleMutationMutateRef = useRef<((input: PosSaleMutationInput) => void) | null>(
     null,
   );
   const saleMutationPendingRef = useRef(false);
   hasAccessRef.current = hasAccess;
+  isBrowserOnlineRef.current = isBrowserOnline;
   localSaleDraftsRef.current = localSaleDrafts;
 
   const workspaceQ = useQuery({
@@ -231,6 +241,18 @@ function PosWorkspace() {
       setLocalSaleDraftError(`Could not queue sale draft: ${errorMessage(draftError)}`);
     }
   };
+
+  useEffect(() => {
+    if (typeof window === "undefined") return undefined;
+    const updateBrowserOnline = () => setIsBrowserOnline(readBrowserOnline());
+    updateBrowserOnline();
+    window.addEventListener("online", updateBrowserOnline);
+    window.addEventListener("offline", updateBrowserOnline);
+    return () => {
+      window.removeEventListener("online", updateBrowserOnline);
+      window.removeEventListener("offline", updateBrowserOnline);
+    };
+  }, []);
 
   const openMutation = useMutation({
     mutationFn: async (input: {
@@ -344,7 +366,7 @@ function PosWorkspace() {
 
     const draft = localSaleDraftsRef.current.find(
       (candidate) =>
-        candidate.queueReason === "post-failed" &&
+        localSaleDraftReasonCanAutoReplay(candidate.queueReason) &&
         canAutoReplayQueuedPosSaleDraft(candidate) &&
         (includeRetryableFailed || candidate.autoReplayStatus === "queued"),
     );
@@ -359,6 +381,18 @@ function PosWorkspace() {
     setLastAutoReplayedLocalSaleDraftId(null);
     saleMutationPendingRef.current = true;
     saleMutationMutateRef.current({ mode: "auto-replay-draft", draft: attempt });
+  };
+
+  const submitSaleCapture = (input: PosSaleCaptureInput) => {
+    if (!isBrowserOnlineRef.current) {
+      queueLocalSaleDraftFromCapture(
+        input,
+        "browser-offline",
+        new Error("Browser offline; queued local sale draft for replay."),
+      );
+      return;
+    }
+    saleMutation.mutate({ mode: "capture", input });
   };
 
   useEffect(() => {
@@ -679,7 +713,8 @@ function PosWorkspace() {
                   session={openSession}
                   catalogItems={catalogItems}
                   customers={customers}
-                  onSubmit={(input) => saleMutation.mutate({ mode: "capture", input })}
+                  isBrowserOnline={isBrowserOnline}
+                  onSubmit={submitSaleCapture}
                   onQueueDraft={(input) =>
                     queueLocalSaleDraftFromCapture(input, "manual")
                   }
@@ -766,6 +801,7 @@ function PosWorkspace() {
                 lastSale={lastSale}
                 queuedItem={lastQueuedOfflineReplayItem}
                 markedItem={lastMarkedOfflineReplayItem}
+                isBrowserOnline={isBrowserOnline}
                 localSaleDrafts={localSaleDrafts}
                 lastQueuedSaleDraft={lastQueuedLocalSaleDraft}
                 lastRetriedSaleDraftId={lastRetriedLocalSaleDraftId}
@@ -998,6 +1034,7 @@ export function SaleCapturePanel({
   session,
   catalogItems,
   customers,
+  isBrowserOnline,
   onSubmit,
   onQueueDraft,
   isPending,
@@ -1023,6 +1060,7 @@ export function SaleCapturePanel({
   session: PosCashSession;
   catalogItems: readonly CatalogItem[];
   customers: readonly CustomerOption[];
+  isBrowserOnline: boolean;
   onSubmit: (input: PosSaleCaptureInput) => void;
   onQueueDraft: (input: PosSaleCaptureInput) => void;
   isPending?: boolean;
@@ -1156,6 +1194,11 @@ export function SaleCapturePanel({
     customerId,
     idempotencyKey: `pos-sale-ui-${Date.now()}`,
   });
+  const submitButtonLabel = isBrowserOnline
+    ? isPending
+      ? "Posting..."
+      : "Post sale"
+    : "Queue offline sale";
 
   return (
     <div
@@ -1169,6 +1212,12 @@ export function SaleCapturePanel({
           Sale capture
         </h3>
       </div>
+      <p
+        className="text-[var(--text-xs)] text-[var(--color-muted)]"
+        data-testid="pos-sale-browser-status"
+      >
+        Browser connection: {isBrowserOnline ? "online" : "offline - sale will queue locally"}
+      </p>
 
       <form
         className="grid gap-3 md:grid-cols-[minmax(0,1.1fr)_90px_140px_minmax(150px,1fr)_140px_minmax(170px,1fr)_auto]"
@@ -1349,7 +1398,7 @@ export function SaleCapturePanel({
               data-testid="pos-sale-submit"
             >
               <ReceiptText className="size-4" aria-hidden />
-              {isPending ? "Posting…" : "Post sale"}
+              {submitButtonLabel}
             </button>
           </div>
         </div>
@@ -2354,6 +2403,7 @@ export function OfflineReplayReadinessPanel({
   lastSale,
   queuedItem,
   markedItem,
+  isBrowserOnline,
   localSaleDrafts,
   lastQueuedSaleDraft,
   lastRetriedSaleDraftId,
@@ -2375,6 +2425,7 @@ export function OfflineReplayReadinessPanel({
   lastSale?: PosCreateSaleResponse["sale"] | null;
   queuedItem?: PosOfflineReplayItem | null;
   markedItem?: PosOfflineReplayItem | null;
+  isBrowserOnline: boolean;
   localSaleDrafts: readonly PosLocalSaleDraft[];
   lastQueuedSaleDraft?: PosLocalSaleDraft | null;
   lastRetriedSaleDraftId?: string | null;
@@ -2401,9 +2452,7 @@ export function OfflineReplayReadinessPanel({
   const visibleSaleDrafts = localSaleDrafts.slice(0, 5);
   const queuedItems = items.filter((item) => item.replayStatus === "queued");
   const autoReadySaleDrafts = localSaleDrafts.filter(
-    (draft) =>
-      draft.queueReason === "post-failed" &&
-      canAutoReplayQueuedPosSaleDraft(draft),
+    (draft) => canAutoReplayQueuedPosSaleDraft(draft),
   );
   const needsReviewSaleDrafts = localSaleDrafts.filter(
     (draft) =>
@@ -2426,11 +2475,12 @@ export function OfflineReplayReadinessPanel({
       </div>
 
       <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
-        Local readiness/evidence only; this does not run browser offline mode,
-        fiscal submission, terminal submission, or printer commands.
+        Browser-offline sale captures stay local and replay safely when online;
+        fiscal submission, terminal submission, and printer commands remain deferred.
       </p>
 
       <dl className="grid gap-2 text-[var(--text-sm)]">
+        <EvidenceRow label="Browser" value={isBrowserOnline ? "online" : "offline"} />
         <EvidenceRow
           label="Capability"
           value={offlineReplayCapabilityLabel(capabilityStatus)}
@@ -2458,8 +2508,9 @@ export function OfflineReplayReadinessPanel({
             Browser sale draft queue
           </h3>
           <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
-            Network-failed drafts retry automatically on load, online, or focus;
-            fiscal submission, terminal submission, and printer commands remain deferred.
+            Network-failed and browser-offline drafts retry automatically on load,
+            online, or focus; fiscal submission, terminal submission, and printer
+            commands remain deferred.
           </p>
         </div>
 
@@ -3386,7 +3437,9 @@ function localSaleDraftPaymentLabel(payload: PosCreateSaleRequest): string {
 }
 
 function localSaleDraftReasonLabel(reason: PosLocalSaleDraftReason): string {
-  return reason === "post-failed" ? "Queued after post failed" : "Queued by operator";
+  if (reason === "post-failed") return "Queued after post failed";
+  if (reason === "browser-offline") return "Queued while browser offline";
+  return "Queued by operator";
 }
 
 function localSaleDraftAutoReplayStatusLabel(draft: PosLocalSaleDraft): string {

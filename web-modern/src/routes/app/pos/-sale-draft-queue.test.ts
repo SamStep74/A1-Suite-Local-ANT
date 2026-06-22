@@ -4,6 +4,7 @@ import {
   canAutoReplayQueuedPosSaleDraft,
   classifyPosSaleDraftAutoReplayFailure,
   createQueuedPosSaleDraft,
+  localSaleDraftReasonCanAutoReplay,
   markQueuedPosSaleDraftAutoReplayAttempt,
   markQueuedPosSaleDraftAutoReplayFailure,
   persistQueuedPosSaleDrafts,
@@ -29,7 +30,10 @@ const SAMPLE_EVIDENCE = {
   total: 50000,
 };
 
-function sampleDraft(index = 1): PosLocalSaleDraft {
+function sampleDraft(
+  index = 1,
+  queueReason: PosLocalSaleDraft["queueReason"] = "manual",
+): PosLocalSaleDraft {
   return createQueuedPosSaleDraft({
     cashSessionId: "pos-session-1",
     payload: {
@@ -41,7 +45,7 @@ function sampleDraft(index = 1): PosLocalSaleDraft {
       ...SAMPLE_EVIDENCE,
       receiptNumber: `R-LOCAL-${index}`,
     },
-    queueReason: "manual",
+    queueReason,
   });
 }
 
@@ -87,6 +91,58 @@ describe("POS sale draft queue", () => {
     expect(draft.autoReplayStatus).toBe("queued");
     expect(draft.autoReplayAttemptCount).toBe(0);
     expect(canAutoReplayQueuedPosSaleDraft(draft)).toBe(true);
+  });
+
+  it("round-trips browser-offline drafts from storage as auto-replay eligible", () => {
+    const draft = createQueuedPosSaleDraft({
+      cashSessionId: "pos-session-1",
+      payload: SAMPLE_PAYLOAD,
+      evidence: SAMPLE_EVIDENCE,
+      queueReason: "browser-offline",
+      lastError: "Browser is offline",
+    });
+
+    window.localStorage.setItem(
+      POS_SALE_DRAFT_QUEUE_STORAGE_KEY,
+      JSON.stringify([draft]),
+    );
+
+    const [stored] = readQueuedPosSaleDrafts();
+
+    expect(stored?.queueReason).toBe("browser-offline");
+    expect(stored?.payload.idempotencyKey).toBe(SAMPLE_PAYLOAD.idempotencyKey);
+    expect(stored?.autoReplayStatus).toBe("queued");
+    expect(stored ? canAutoReplayQueuedPosSaleDraft(stored) : false).toBe(true);
+    expect(JSON.parse(window.localStorage.getItem(POS_SALE_DRAFT_QUEUE_STORAGE_KEY) || "[]"))
+      .toMatchObject([{ queueReason: "browser-offline" }]);
+  });
+
+  it("normalizes unknown legacy draft reasons to manual", () => {
+    const draft = {
+      ...sampleDraft(1, "post-failed"),
+      queueReason: "legacy-browser-offline",
+    };
+
+    window.localStorage.setItem(
+      POS_SALE_DRAFT_QUEUE_STORAGE_KEY,
+      JSON.stringify([draft]),
+    );
+
+    const [stored] = readQueuedPosSaleDrafts();
+
+    expect(stored?.queueReason).toBe("manual");
+    expect(stored ? canAutoReplayQueuedPosSaleDraft(stored) : true).toBe(false);
+  });
+
+  it("keeps post-failed drafts auto-replay eligible and manual drafts manual", () => {
+    const postFailed = sampleDraft(1, "post-failed");
+    const manual = sampleDraft(2, "manual");
+
+    expect(localSaleDraftReasonCanAutoReplay("post-failed")).toBe(true);
+    expect(localSaleDraftReasonCanAutoReplay("browser-offline")).toBe(true);
+    expect(localSaleDraftReasonCanAutoReplay("manual")).toBe(false);
+    expect(canAutoReplayQueuedPosSaleDraft(postFailed)).toBe(true);
+    expect(canAutoReplayQueuedPosSaleDraft(manual)).toBe(false);
   });
 
   it("queues network/server failures but not business validation failures", () => {
@@ -146,7 +202,9 @@ describe("POS sale draft queue", () => {
   });
 
   it("keeps retryable automatic replay failures eligible for another auto pass", () => {
-    const retrying = markQueuedPosSaleDraftAutoReplayAttempt(sampleDraft());
+    const retrying = markQueuedPosSaleDraftAutoReplayAttempt(
+      sampleDraft(1, "post-failed"),
+    );
     const failed = markQueuedPosSaleDraftAutoReplayFailure(
       retrying,
       new ApiError(503, "BACKEND_DOWN", "Backend unavailable"),

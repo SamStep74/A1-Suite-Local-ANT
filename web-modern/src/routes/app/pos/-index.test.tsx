@@ -12,6 +12,7 @@
  *   - posting closed-session terminal settlement evidence
  *   - queueing and marking local offline replay readiness evidence
  *   - persisting, retrying, and auto-replaying browser-local sale drafts
+ *   - browser-offline sale capture to local draft evidence
  *   - app-tier 403 via UserAccessProvider
  */
 import {
@@ -729,6 +730,10 @@ function storedSaleDraft(overrides: Record<string, unknown> = {}): Record<string
 }
 
 beforeEach(() => {
+  Object.defineProperty(window.navigator, "onLine", {
+    configurable: true,
+    value: true,
+  });
   mocks.workspace = WORKSPACE_NO_OPEN;
   mocks.offlineReplayItems = { items: [] };
   mocks.loading = false;
@@ -1036,6 +1041,76 @@ describe("POS route", () => {
     expect(screen.queryByTestId("pos-local-sale-draft")).toBeNull();
     expect(screen.getByTestId("pos-local-sale-draft-panel")).toHaveTextContent(
       /No browser-local sale drafts queued/,
+    );
+  });
+
+  it("queues sale capture locally when the browser is offline", async () => {
+    Object.defineProperty(window.navigator, "onLine", {
+      configurable: true,
+      value: false,
+    });
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+
+    renderRoute();
+
+    expect(screen.getByTestId("pos-sale-browser-status")).toHaveTextContent(
+      /offline - sale will queue locally/,
+    );
+    expect(screen.getByTestId("pos-sale-submit")).toHaveTextContent(
+      /Queue offline sale/,
+    );
+
+    fireEvent.change(screen.getByTestId("pos-sale-quantity"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-receipt-number"), {
+      target: { value: "R-BROWSER-OFFLINE-1" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-customer"), {
+      target: { value: "cust-retail-1" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-payment-method"), {
+      target: { value: "card" },
+    });
+    fireEvent.click(screen.getByTestId("pos-sale-submit"));
+
+    await waitFor(() => {
+      expect(readStoredSaleDrafts()).toHaveLength(1);
+    });
+    expect(mocks.postJson).not.toHaveBeenCalled();
+
+    const [draft] = readStoredSaleDrafts() as Array<{
+      queueReason: string;
+      autoReplayStatus: string;
+      lastError: string;
+      payload: Record<string, unknown>;
+      evidence: Record<string, unknown>;
+    }>;
+
+    expect(draft.queueReason).toBe("browser-offline");
+    expect(draft.autoReplayStatus).toBe("queued");
+    expect(draft.lastError).toBe("Browser offline; queued local sale draft for replay.");
+    expect(draft.payload).toMatchObject({
+      customerId: "cust-retail-1",
+      receiptNumber: "R-BROWSER-OFFLINE-1",
+      paymentMethod: "card",
+      lines: [{ catalogItemId: "catitem-pos-scanner", quantity: 2 }],
+    });
+    expect(draft.evidence).toMatchObject({
+      receiptNumber: "R-BROWSER-OFFLINE-1",
+      customerLabel: "Ararat Market",
+      paymentLabel: "Card",
+      total: 50000,
+    });
+    expect(screen.getByTestId("pos-local-sale-draft-queue-success")).toHaveTextContent(
+      /Queued while browser offline/,
+    );
+    expect(screen.getByTestId("pos-local-sale-draft-panel")).toHaveTextContent(
+      /Auto-ready\s*1/,
     );
   });
 
@@ -1790,7 +1865,7 @@ describe("POS route", () => {
       /local-queue/,
     );
     expect(screen.getByTestId("pos-offline-replay-panel")).toHaveTextContent(
-      /Local readiness\/evidence only/,
+      /Browser-offline sale captures stay local/,
     );
 
     fireEvent.click(screen.getByTestId("pos-offline-replay-submit"));
