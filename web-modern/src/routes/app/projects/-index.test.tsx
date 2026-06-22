@@ -6,7 +6,7 @@
  *
  *  - page shell (title, Armenian subtitle, monogram)
  *  - validateSearch (default view, fallback for unknown values)
- *  - ViewSwitcher (5 tabs, role=tablist, current selection)
+ *  - ViewSwitcher (6 tabs, role=tablist, current selection)
  *  - each view:
  *      - loading state
  *      - error state
@@ -26,8 +26,9 @@ const mocks = vi.hoisted(() => ({
   detail: null as unknown,
   billing: null as unknown,
   profitability: null as unknown,
-  loading: { list: false, detail: false, billing: false, profitability: false },
-  error: { list: false, detail: false, billing: false, profitability: false },
+  templates: null as unknown,
+  loading: { list: false, detail: false, billing: false, profitability: false, templates: false },
+  error: { list: false, detail: false, billing: false, profitability: false, templates: false },
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -96,6 +97,13 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
           data: mocks.profitability,
           isLoading: mocks.loading.profitability,
           isError: mocks.error.profitability,
+        };
+      }
+      if (key === "project-templates-list") {
+        return {
+          data: mocks.templates,
+          isLoading: mocks.loading.templates,
+          isError: mocks.error.templates,
         };
       }
       return { data: null, isLoading: false, isError: false };
@@ -239,6 +247,50 @@ const PROFITABILITY = {
   },
 };
 
+const TEMPLATES = {
+  templates: [
+    {
+      id: "tpl-1",
+      name: "ERP rollout",
+      description: "Default project launch plan",
+      status: "active",
+      taskCount: 4,
+      milestoneCount: 2,
+      updatedAt: "2026-06-10T10:00:00Z",
+      tasks: [
+        {
+          id: "tt-1",
+          title: "Discovery",
+          status: "done",
+          dueOffsetDays: 0,
+          sortOrder: 1,
+          subtasks: [{ id: "tt-2", title: "Stakeholder map", status: "todo" }],
+        },
+        {
+          id: "tt-2",
+          title: "Stakeholder map",
+          status: "todo",
+          parentTaskId: "tt-1",
+          parentTask: { id: "tt-1", title: "Discovery", status: "done" },
+          dueOffsetDays: 3,
+          sortOrder: 2,
+        },
+        {
+          id: "tt-3",
+          title: "Implementation",
+          status: "in-progress",
+          dueOffsetDays: 10,
+          sortOrder: 3,
+        },
+      ],
+      milestones: [
+        { id: "tm-1", title: "Kickoff", dueOffsetDays: 0, sortOrder: 1 },
+        { id: "tm-2", title: "Go live", dueOffsetDays: 30, sortOrder: 2 },
+      ],
+    },
+  ],
+};
+
 /* ────────── per-test reset ────────── */
 
 beforeEach(() => {
@@ -247,8 +299,9 @@ beforeEach(() => {
   mocks.detail = null;
   mocks.billing = null;
   mocks.profitability = null;
-  mocks.loading = { list: false, detail: false, billing: false, profitability: false };
-  mocks.error = { list: false, detail: false, billing: false, profitability: false };
+  mocks.templates = null;
+  mocks.loading = { list: false, detail: false, billing: false, profitability: false, templates: false };
+  mocks.error = { list: false, detail: false, billing: false, profitability: false, templates: false };
 });
 
 afterEach(() => {
@@ -287,6 +340,7 @@ describe("Projects — validateSearch", () => {
     expect(fn({ view: "milestones" })).toEqual({ view: "milestones" });
     expect(fn({ view: "time" })).toEqual({ view: "time" });
     expect(fn({ view: "billing" })).toEqual({ view: "billing" });
+    expect(fn({ view: "templates" })).toEqual({ view: "templates" });
   });
   it("falls back to projects for unknown values", () => {
     expect(fn({ view: "kanban" })).toEqual({ view: "projects" });
@@ -297,19 +351,20 @@ describe("Projects — validateSearch", () => {
 /* ────────── ViewSwitcher ────────── */
 
 describe("Projects — ViewSwitcher", () => {
-  it("renders 5 tabs with role=tablist", () => {
+  it("renders 6 tabs with role=tablist", () => {
     renderRoute();
     const tablist = screen.getByRole("tablist", { name: "View" });
     const tabs = within(tablist).getAllByRole("tab");
-    expect(tabs).toHaveLength(5);
+    expect(tabs).toHaveLength(6);
   });
-  it("renders the 5 expected tab labels", () => {
+  it("renders the 6 expected tab labels", () => {
     renderRoute();
     expect(screen.getByRole("tab", { name: "Projects" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Tasks" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Milestones" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Time" })).toBeInTheDocument();
     expect(screen.getByRole("tab", { name: "Billing" })).toBeInTheDocument();
+    expect(screen.getByRole("tab", { name: "Templates" })).toBeInTheDocument();
   });
   it("marks the URL view as the selected tab", () => {
     mocks.search = { view: "billing" };
@@ -428,6 +483,50 @@ describe("Projects — Time view", () => {
     const marker = document.querySelector('[data-entity="projects-time-entry"]');
     expect(marker).not.toBeNull();
     expect(marker?.getAttribute("data-count")).toBe("2");
+  });
+});
+
+/* ────────── Templates view ────────── */
+
+describe("Projects — Templates view", () => {
+  beforeEach(() => {
+    mocks.search = { view: "templates" };
+  });
+  it("marks templates as the selected tab from the search param", () => {
+    renderRoute();
+    expect(screen.getByRole("tab", { name: "Templates" })).toHaveAttribute(
+      "aria-selected",
+      "true",
+    );
+  });
+  it("shows the loading state", () => {
+    mocks.loading.templates = true;
+    renderRoute();
+    expect(screen.getByText(/Loading templates/i)).toBeInTheDocument();
+  });
+  it("shows the error state", () => {
+    mocks.error.templates = true;
+    renderRoute();
+    expect(screen.getByText(/Failed to load project templates/i)).toBeInTheDocument();
+  });
+  it("renders template count, task and milestone evidence", () => {
+    mocks.templates = TEMPLATES;
+    renderRoute();
+    const marker = document.querySelector('[data-entity="projects-template"]');
+    expect(marker).not.toBeNull();
+    expect(marker?.getAttribute("data-count")).toBe("1");
+    expect(marker).toHaveTextContent(/ERP rollout/);
+    expect(marker).toHaveTextContent(/4 tasks/);
+    expect(marker).toHaveTextContent(/2 milestones/);
+    expect(marker).toHaveTextContent(/Discovery/);
+    expect(marker).toHaveTextContent(/Kickoff/);
+  });
+  it("renders parent and subtask hierarchy evidence", () => {
+    mocks.templates = TEMPLATES;
+    renderRoute();
+    const marker = document.querySelector('[data-entity="projects-template"]');
+    expect(marker).toHaveTextContent(/Subtask: Stakeholder map/);
+    expect(marker).toHaveTextContent(/Parent: Discovery/);
   });
 });
 

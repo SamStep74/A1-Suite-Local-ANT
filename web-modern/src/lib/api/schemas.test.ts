@@ -38,6 +38,8 @@ import {
   CreateStockMoveInputSchema,
   ProjectTaskSchema,
   ProjectDetailResponseSchema,
+  ProjectTemplateResponseSchema,
+  ProjectTemplatesResponseSchema,
 } from "./schemas";
 
 const VALID_CASE = {
@@ -739,5 +741,70 @@ describe("Project task dependency schemas", () => {
       expect(r.data.project.tasks?.[0]?.subtasks?.[0]?.status).toBe("todo");
       expect(r.data.project.tasks?.[0]?.blockedBy?.[0]?.id).toBe("t-1");
     }
+  });
+});
+
+describe("Project template schemas", () => {
+  const template = {
+    id: "tpl-1",
+    name: "ERP rollout",
+    description: "Default implementation plan",
+    status: "active",
+    taskCount: 3,
+    milestoneCount: 2,
+    updatedAt: "2026-06-22T08:00:00.000Z",
+    tasks: [
+      {
+        id: "tt-1",
+        title: "Discovery",
+        status: "done",
+        dueOffsetDays: 0,
+        sortOrder: 1,
+        subtasks: [{ id: "tt-2", title: "Stakeholder map", status: "todo" }],
+      },
+      {
+        id: "tt-2",
+        title: "Stakeholder map",
+        status: "todo",
+        parentTaskId: "tt-1",
+        parentTask: { id: "tt-1", title: "Discovery", status: "done" },
+        dueOffsetDays: null,
+        sortOrder: 2,
+      },
+    ],
+    milestones: [
+      { id: "tm-1", title: "Kickoff", dueOffsetDays: 0, sortOrder: 1 },
+      { id: "tm-2", title: "Go live", dueOffsetDays: 30, sortOrder: 2 },
+    ],
+  };
+
+  it("accepts the project templates list envelope", () => {
+    const r = ProjectTemplatesResponseSchema.safeParse({ templates: [template] });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.templates[0]?.taskCount).toBe(3);
+      expect(r.data.templates[0]?.tasks[1]?.parentTask?.title).toBe("Discovery");
+      expect(r.data.templates[0]?.tasks[0]?.subtasks?.[0]?.title).toBe("Stakeholder map");
+      expect(r.data.templates[0]?.milestones[1]?.dueOffsetDays).toBe(30);
+    }
+  });
+
+  it("accepts the project template detail envelope", () => {
+    const r = ProjectTemplateResponseSchema.safeParse({ template });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.template.id).toBe("tpl-1");
+      expect(r.data.template.milestoneCount).toBe(2);
+    }
+  });
+
+  it("rejects a template missing tasks", () => {
+    const r = ProjectTemplatesResponseSchema.safeParse({
+      templates: [{ ...template, tasks: undefined }],
+    });
+
+    expect(r.success).toBe(false);
   });
 });

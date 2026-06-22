@@ -806,3 +806,184 @@ test("projects: a child cannot be addressed under the wrong parent project (404)
     assert.strictEqual(ok.statusCode, 200);
   } finally { await app.close(); }
 });
+
+test("project templates: list/detail and create project with copied tasks, milestones, and parent links", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+
+    const unauth = await app.inject({ method: "GET", url: "/api/project-templates" });
+    assert.strictEqual(unauth.statusCode, 401);
+
+    const owner = await login(app);
+    const list = await app.inject({ method: "GET", url: "/api/project-templates", headers: { cookie: owner } });
+    assert.strictEqual(list.statusCode, 200, list.body);
+    const templates = list.json().templates;
+    assert.ok(templates.length >= 2, "seeded project templates present");
+    const onboarding = templates.find(template => template.id === "ptpl-client-onboarding");
+    assert.ok(onboarding, "client onboarding template listed");
+    assert.strictEqual(onboarding.taskCount, 4);
+    assert.strictEqual(onboarding.milestoneCount, 2);
+    assert.strictEqual(onboarding.tasks.length, 4);
+    assert.strictEqual(onboarding.milestones.length, 2);
+    assert.ok(onboarding.tasks.some(task => task.parentTask?.title === "Configure customer channels"));
+
+    const detail = await app.inject({ method: "GET", url: "/api/project-templates/ptpl-client-onboarding", headers: { cookie: owner } });
+    assert.strictEqual(detail.statusCode, 200, detail.body);
+    const template = detail.json().template;
+    assert.strictEqual(template.id, "ptpl-client-onboarding");
+    const parentTemplateTask = template.tasks.find(task => task.id === "ptplt-client-channel-parent");
+    const childTemplateTask = template.tasks.find(task => task.id === "ptplt-client-channel-whatsapp");
+    assert.deepStrictEqual(parentTemplateTask.subtasks, [{ id: childTemplateTask.id, title: childTemplateTask.title, status: "todo" }]);
+    assert.deepStrictEqual(childTemplateTask.parentTask, { id: parentTemplateTask.id, title: parentTemplateTask.title, status: "todo" });
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/project-templates/ptpl-client-onboarding/create-project",
+      headers: { cookie: owner },
+      payload: {
+        name: "Template-created onboarding",
+        customerId: "cust-ani",
+        dealId: "deal-ani-inbox",
+        startDate: "2026-06-01",
+        dueDate: "2026-06-30"
+      }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    const body = created.json();
+    assert.strictEqual(body.ok, true);
+    assert.strictEqual(body.template.id, "ptpl-client-onboarding");
+    assert.strictEqual(body.project.name, "Template-created onboarding");
+    assert.strictEqual(body.project.customerId, "cust-ani");
+    assert.strictEqual(body.project.dealId, "deal-ani-inbox");
+    assert.strictEqual(body.project.startDate, "2026-06-01");
+    assert.strictEqual(body.project.dueDate, "2026-06-30");
+    assert.strictEqual(body.project.tasks.length, template.tasks.length);
+    assert.strictEqual(body.project.milestones.length, template.milestones.length);
+
+    const copiedParent = body.project.tasks.find(task => task.title === "Configure customer channels");
+    const copiedChild = body.project.tasks.find(task => task.title === "Connect WhatsApp inbox");
+    assert.ok(copiedParent && copiedChild, "copied parent and child tasks present");
+    assert.strictEqual(copiedParent.dueDate, "2026-06-06");
+    assert.strictEqual(copiedChild.dueDate, "2026-06-08");
+    assert.strictEqual(copiedChild.parentTaskId, copiedParent.id);
+    assert.deepStrictEqual(copiedChild.parentTask, { id: copiedParent.id, title: copiedParent.title, status: "todo" });
+    assert.deepStrictEqual(copiedParent.subtasks, [{ id: copiedChild.id, title: copiedChild.title, status: "todo" }]);
+
+    const kickoff = body.project.milestones.find(milestone => milestone.title === "Kickoff accepted");
+    assert.ok(kickoff, "copied kickoff milestone present");
+    assert.strictEqual(kickoff.dueDate, "2026-06-04");
+
+    const persisted = await app.inject({ method: "GET", url: `/api/projects/${body.project.id}`, headers: { cookie: owner } });
+    assert.strictEqual(persisted.statusCode, 200, persisted.body);
+    assert.strictEqual(persisted.json().project.tasks.find(task => task.id === copiedChild.id).parentTaskId, copiedParent.id);
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?").get("org-armosphera-demo", "projects.template.project_created").count, 1);
+  } finally { await app.close(); }
+});
+
+test("project templates: app access, writer gate, cross-org isolation, and malformed input guardrails", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const sales = await login(app, "sales@armosphera.local", DEFAULT_PASSWORD);
+    const auditor = await login(app, "auditor@armosphera.local", DEFAULT_PASSWORD);
+    const orgId = "org-armosphera-demo";
+    const counts = () => ({
+      projects: app.db.prepare("SELECT COUNT(*) AS count FROM projects WHERE org_id = ?").get(orgId).count,
+      tasks: app.db.prepare("SELECT COUNT(*) AS count FROM project_tasks WHERE org_id = ?").get(orgId).count,
+      milestones: app.db.prepare("SELECT COUNT(*) AS count FROM project_milestones WHERE org_id = ?").get(orgId).count,
+      audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type LIKE ?").get(orgId, "projects.template.%").count
+    });
+    const expectNoSideEffect = async ({ method, url, cookie = owner, payload, statusCode = 400, statusCodes, message, leakPattern = /secret-project-templates-/ }) => {
+      const before = counts();
+      const request = { method, url, headers: { cookie } };
+      if (payload !== undefined) request.payload = payload;
+      const response = await app.inject(request);
+      const allowedStatuses = statusCodes || [statusCode];
+      assert.ok(allowedStatuses.includes(response.statusCode), `${url}: ${response.body}`);
+      if (message) assert.match(response.body, message);
+      assert.doesNotMatch(response.body, leakPattern);
+      assert.deepStrictEqual(counts(), before);
+      return response;
+    };
+
+    const blockedByAppAccess = await expectNoSideEffect({
+      method: "POST",
+      url: "/api/project-templates/ptpl-client-onboarding/create-project",
+      cookie: sales,
+      payload: { name: "Sales lacks app access" },
+      statusCode: 403
+    });
+    assert.match(blockedByAppAccess.body, /App access required/);
+
+    app.db.prepare("INSERT OR REPLACE INTO app_assignments (org_id, role, app_id, enabled) VALUES (?, ?, ?, 1)")
+      .run(orgId, "Auditor", "projects");
+    const blockedByWriter = await expectNoSideEffect({
+      method: "POST",
+      url: "/api/project-templates/ptpl-client-onboarding/create-project",
+      cookie: auditor,
+      payload: { name: "Auditor has app but cannot write" },
+      statusCode: 403
+    });
+    assert.match(blockedByWriter.body, /Projects writer role required/);
+
+    const now = new Date().toISOString();
+    const otherOrgId = "org-other-template";
+    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, currency, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(otherOrgId, "Other Template LLC", "Other Template LLC", "55555555", "AMD", now);
+    app.db.prepare("INSERT INTO project_templates (id, org_id, name, description, status, created_at, updated_at) VALUES (?, ?, ?, '', 'active', ?, ?)")
+      .run("ptpl-foreign-secret-project-templates-cross-org-token", otherOrgId, "Foreign template", now, now);
+    app.db.prepare(`INSERT INTO project_template_tasks (id, org_id, template_id, title, status, due_offset_days, sort_order, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'todo', 1, 1, ?, ?)`)
+      .run("ptplt-foreign-secret-project-templates-cross-org-token", otherOrgId, "ptpl-foreign-secret-project-templates-cross-org-token", "Foreign task", now, now);
+
+    const list = (await app.inject({ method: "GET", url: "/api/project-templates", headers: { cookie: owner } })).json();
+    assert.ok(!list.templates.some(template => template.id === "ptpl-foreign-secret-project-templates-cross-org-token"));
+    await expectNoSideEffect({
+      method: "GET",
+      url: "/api/project-templates/ptpl-foreign-secret-project-templates-cross-org-token",
+      statusCode: 404
+    });
+    await expectNoSideEffect({
+      method: "POST",
+      url: "/api/project-templates/ptpl-foreign-secret-project-templates-cross-org-token/create-project",
+      payload: { name: "Cross org secret-project-templates-create-token" },
+      statusCode: 404
+    });
+
+    for (const request of [
+      { method: "GET", url: "/api/project-templates/badAsecret-project-templates-path-token" },
+      { method: "POST", url: "/api/project-templates/bad_secret-project-templates-path-token/create-project", payload: { name: "secret-project-templates-path-body-token" } },
+      { method: "POST", url: "/api/project-templates/bad%0Asecret-project-templates-path-control-token/create-project", payload: { name: "secret-project-templates-path-encoded-body-token" } },
+      { method: "GET", url: `/api/project-templates/${"a".repeat(161)}`, statusCodes: [400, 404] }
+    ]) {
+      await expectNoSideEffect({ ...request, statusCode: 400, message: request.statusCodes ? undefined : /Invalid project template id/ });
+    }
+
+    for (const payload of [
+      ["secret-project-templates-array-body-token"],
+      { name: { value: "Template project", token: "secret-project-templates-object-name-token" } },
+      { name: `${"P".repeat(201)}secret-project-templates-long-name-token` },
+      { customerId: ["cust-ani", "secret-project-templates-customer-array-token"] },
+      { dealId: { value: "deal-ani-inbox", token: "secret-project-templates-object-deal-token" } },
+      { startDate: "2026-02-30" },
+      { dueDate: "2026-06-01\nsecret-project-templates-control-due-token" }
+    ]) {
+      await expectNoSideEffect({
+        method: "POST",
+        url: "/api/project-templates/ptpl-client-onboarding/create-project",
+        payload,
+        statusCode: 400
+      });
+    }
+
+    const missingDeal = await expectNoSideEffect({
+      method: "POST",
+      url: "/api/project-templates/ptpl-client-onboarding/create-project",
+      payload: { name: "Missing deal", dealId: "deal-missing-secret-project-templates-token" },
+      statusCode: 400
+    });
+    assert.match(missingDeal.body, /Linked deal not found/);
+  } finally { await app.close(); }
+});

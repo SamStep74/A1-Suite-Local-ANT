@@ -1,9 +1,9 @@
 /**
  * /app/projects — Projects workspace: projects | tasks | milestones |
- * time-entries | billing.
+ * time-entries | billing | templates.
  *
  * Mirrors cfo/ pattern (Pattern A from the plan §3.5). The home
- * route is a ViewSwitcher over five surfaces:
+ * route is a ViewSwitcher over six surfaces:
  *
  *   - **Projects** — list of all client projects with task/milestone
  *     progress and total minutes
@@ -14,14 +14,17 @@
  *   - **Billing** — billing preview for the most recently updated
  *     project (the route is read-only; finance-gated POST /bill-time
  *     stays in the server API)
+ *   - **Templates** — reusable project templates with task/milestone
+ *     hierarchy evidence
  *
  * URL state:
- *   ?view=projects | tasks | milestones | time | billing
+ *   ?view=projects | tasks | milestones | time | billing | templates
  *
  * Data (all require app=projects access):
  *   - GET /api/projects
  *   - GET /api/projects/:id
  *   - GET /api/projects/:id/billing-preview
+ *   - GET /api/project-templates
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
@@ -38,12 +41,16 @@ import {
   ProjectDetailResponseSchema,
   ProjectBillingPreviewResponseSchema,
   ProjectProfitabilityResponseSchema,
+  ProjectTemplatesResponseSchema,
   type ProjectListItem,
   type ProjectTask,
   type ProjectMilestone,
   type ProjectDetail,
   type ProjectBillingPreview,
   type ProjectProfitability,
+  type ProjectTemplate,
+  type ProjectTemplateMilestone,
+  type ProjectTemplateTask,
 } from "../../../lib/api/schemas";
 import { ViewSwitcher } from "../../../components/view-switcher/ViewSwitcher";
 import { cn } from "../../../lib/utils/cn";
@@ -67,7 +74,7 @@ import {
 
 /* ────────── typed URL search ────────── */
 
-type View = "projects" | "tasks" | "milestones" | "time" | "billing";
+type View = "projects" | "tasks" | "milestones" | "time" | "billing" | "templates";
 
 const VIEW_OPTIONS: { value: View; label: string }[] = [
   { value: "projects", label: "Projects" },
@@ -75,6 +82,7 @@ const VIEW_OPTIONS: { value: View; label: string }[] = [
   { value: "milestones", label: "Milestones" },
   { value: "time", label: "Time" },
   { value: "billing", label: "Billing" },
+  { value: "templates", label: "Templates" },
 ];
 
 export const Route = createFileRoute("/app/projects/")({
@@ -83,7 +91,8 @@ export const Route = createFileRoute("/app/projects/")({
       raw.view === "tasks" ||
       raw.view === "milestones" ||
       raw.view === "time" ||
-      raw.view === "billing"
+      raw.view === "billing" ||
+      raw.view === "templates"
         ? raw.view
         : "projects";
     return { view: v };
@@ -157,7 +166,7 @@ function blockedByTitle(task: ProjectTask) {
   return blockers.map((b) => `${b.title} (${b.status})`).join(", ");
 }
 
-function taskHierarchyLabel(task: ProjectTask) {
+function taskHierarchyLabel(task: ProjectTask | ProjectTemplateTask) {
   const parts: string[] = [];
   const parentLabel = task.parentTask?.title ?? task.parentTaskId ?? null;
   const subtasks = task.subtasks ?? [];
@@ -169,7 +178,7 @@ function taskHierarchyLabel(task: ProjectTask) {
   return parts.length > 0 ? parts.join(" | ") : null;
 }
 
-function taskHierarchyTitle(task: ProjectTask) {
+function taskHierarchyTitle(task: ProjectTask | ProjectTemplateTask) {
   const parts: string[] = [];
   const parent = task.parentTask;
   const subtasks = task.subtasks ?? [];
@@ -186,6 +195,29 @@ function taskHierarchyTitle(task: ProjectTask) {
   }
 
   return parts.join(" | ");
+}
+
+function compareTemplatesByUpdatedAtDesc(
+  a: Pick<ProjectTemplate, "updatedAt">,
+  b: Pick<ProjectTemplate, "updatedAt">,
+) {
+  const aT = a.updatedAt ?? "";
+  const bT = b.updatedAt ?? "";
+  if (aT === bT) return 0;
+  return aT < bT ? 1 : -1;
+}
+
+function compareBySortOrder<T extends { sortOrder?: number; title: string }>(a: T, b: T) {
+  const aOrder = a.sortOrder ?? Number.MAX_SAFE_INTEGER;
+  const bOrder = b.sortOrder ?? Number.MAX_SAFE_INTEGER;
+  if (aOrder !== bOrder) return aOrder - bOrder;
+  return a.title.localeCompare(b.title);
+}
+
+function dueOffsetLabel(days: number | null | undefined) {
+  if (days == null) return "—";
+  if (days === 0) return "Day 0";
+  return `Day ${days}`;
 }
 
 /* ────────── root component ────────── */
@@ -236,6 +268,15 @@ function ProjectsWorkspace() {
       return ProjectProfitabilityResponseSchema.parse(raw);
     },
     enabled: Boolean(topProject?.id),
+  });
+
+  const templatesQ = useQuery({
+    queryKey: ["project-templates-list"],
+    queryFn: async () => {
+      const raw = await getJson("/api/project-templates");
+      return ProjectTemplatesResponseSchema.parse(raw);
+    },
+    enabled: view === "templates",
   });
 
   return (
@@ -289,6 +330,13 @@ function ProjectsWorkspace() {
           profitability={profitabilityQ.data?.profitability}
           loading={billingQ.isLoading || profitabilityQ.isLoading}
           error={billingQ.isError || profitabilityQ.isError}
+        />
+      )}
+      {view === "templates" && (
+        <TemplatesView
+          templates={templatesQ.data?.templates ?? []}
+          loading={templatesQ.isLoading}
+          error={templatesQ.isError}
         />
       )}
     </div>
@@ -765,6 +813,211 @@ function TimeView({
           </tbody>
         </table>
       </section>
+    </div>
+  );
+}
+
+/* ────────── Templates view ────────── */
+
+function TemplatesView({
+  templates,
+  loading,
+  error,
+}: {
+  templates: ProjectTemplate[];
+  loading: boolean;
+  error: boolean;
+}) {
+  if (loading) {
+    return <p className="text-[var(--text-sm)] text-[var(--color-muted)]">Loading templates…</p>;
+  }
+  if (error) {
+    return (
+      <p className="text-[var(--text-sm)] text-[var(--color-tag-red)]">
+        Failed to load project templates.
+      </p>
+    );
+  }
+
+  const sorted = templates.slice().sort(compareTemplatesByUpdatedAtDesc);
+  const taskTotal = sorted.reduce((sum, template) => sum + template.taskCount, 0);
+  const milestoneTotal = sorted.reduce((sum, template) => sum + template.milestoneCount, 0);
+  const hierarchyTotal = sorted.reduce(
+    (sum, template) =>
+      sum +
+      template.tasks.filter(
+        (task) =>
+          Boolean(task.parentTaskId || task.parentTask) || (task.subtasks ?? []).length > 0,
+      ).length,
+    0,
+  );
+
+  if (sorted.length === 0) {
+    return <EmptyState message="No project templates available." />;
+  }
+
+  return (
+    <div className="space-y-4">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
+        <KpiCard label="Templates" value={String(sorted.length)} hint="Կաղապարներ" />
+        <KpiCard label="Template tasks" value={String(taskTotal)} hint="Առաջադրանքներ" />
+        <KpiCard label="Milestones" value={String(milestoneTotal)} hint="Հիմնարար կետեր" />
+        <KpiCard
+          label="Hierarchy links"
+          value={String(hierarchyTotal)}
+          hint="Parent/subtask evidence"
+          tone={hierarchyTotal > 0 ? "positive" : "default"}
+        />
+      </div>
+
+      <section
+        className="overflow-hidden rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)]"
+        data-entity="projects-template"
+        data-count={String(sorted.length)}
+      >
+        <table className="w-full table-fixed text-[var(--text-sm)]" role="table">
+          <thead className="bg-[var(--color-surface-soft)] text-[var(--text-xs)] uppercase tracking-wide text-[var(--color-muted)]">
+            <tr>
+              <th scope="col" className="w-[26%] px-3 py-2 text-left font-semibold">
+                Template
+              </th>
+              <th scope="col" className="w-[12%] px-3 py-2 text-left font-semibold">
+                Status
+              </th>
+              <th scope="col" className="w-[28%] px-3 py-2 text-left font-semibold">
+                Tasks
+              </th>
+              <th scope="col" className="w-[22%] px-3 py-2 text-left font-semibold">
+                Milestones
+              </th>
+              <th scope="col" className="w-[12%] px-3 py-2 text-left font-semibold">
+                Updated
+              </th>
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-[var(--color-line)]">
+            {sorted.map((template) => {
+              const tone = PROJECT_TONE[classifyProjectStatus(template)];
+              const tasks = template.tasks.slice().sort(compareBySortOrder).slice(0, 3);
+              const milestones = template.milestones.slice().sort(compareBySortOrder).slice(0, 3);
+              return (
+                <tr key={template.id} className="align-top hover:bg-[var(--color-surface-soft)]">
+                  <td className="px-3 py-2">
+                    <div className="min-w-0">
+                      <span className="block truncate font-mono text-[var(--color-ink)]">
+                        {template.name}
+                      </span>
+                      <span
+                        className="mt-0.5 block truncate text-[11px] text-[var(--color-muted)]"
+                        title={template.description}
+                      >
+                        {template.description}
+                      </span>
+                    </div>
+                  </td>
+                  <td className="px-3 py-2">
+                    <span
+                      className={cn(
+                        "inline-flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
+                        tone.bg,
+                        tone.fg,
+                      )}
+                    >
+                      {tone.label}
+                    </span>
+                  </td>
+                  <td className="px-3 py-2">
+                    <TemplateTaskEvidence tasks={tasks} total={template.taskCount} />
+                  </td>
+                  <td className="px-3 py-2">
+                    <TemplateMilestoneEvidence
+                      milestones={milestones}
+                      total={template.milestoneCount}
+                    />
+                  </td>
+                  <td className="px-3 py-2 font-mono text-[var(--color-muted)]">
+                    {template.updatedAt ?? "—"}
+                  </td>
+                </tr>
+              );
+            })}
+          </tbody>
+        </table>
+      </section>
+    </div>
+  );
+}
+
+function TemplateTaskEvidence({
+  tasks,
+  total,
+}: {
+  tasks: ProjectTemplateTask[];
+  total: number;
+}) {
+  if (total === 0) return <span className="text-[var(--color-muted)]">0 tasks</span>;
+
+  return (
+    <div className="space-y-1">
+      <p className="font-mono text-[11px] text-[var(--color-muted)]">{total} tasks</p>
+      {tasks.map((task) => {
+        const hierarchyLabel = taskHierarchyLabel(task);
+        const hierarchyTitle = taskHierarchyTitle(task);
+        return (
+          <div key={task.id} className="min-w-0">
+            <span className="block truncate text-[var(--color-ink)]" title={task.title}>
+              {task.title}
+              <span className="ml-1 font-mono text-[10px] text-[var(--color-muted)]">
+                {dueOffsetLabel(task.dueOffsetDays)}
+              </span>
+            </span>
+            {hierarchyLabel && (
+              <span
+                className="block truncate text-[11px] text-[var(--color-muted)]"
+                title={hierarchyTitle || undefined}
+              >
+                {hierarchyLabel}
+              </span>
+            )}
+          </div>
+        );
+      })}
+      {total > tasks.length && (
+        <p className="font-mono text-[10px] text-[var(--color-muted)]">
+          +{total - tasks.length} more
+        </p>
+      )}
+    </div>
+  );
+}
+
+function TemplateMilestoneEvidence({
+  milestones,
+  total,
+}: {
+  milestones: ProjectTemplateMilestone[];
+  total: number;
+}) {
+  if (total === 0) return <span className="text-[var(--color-muted)]">0 milestones</span>;
+
+  return (
+    <div className="space-y-1">
+      <p className="font-mono text-[11px] text-[var(--color-muted)]">{total} milestones</p>
+      {milestones.map((milestone) => (
+        <div key={milestone.id} className="min-w-0">
+          <span className="block truncate text-[var(--color-ink)]" title={milestone.title}>
+            {milestone.title}
+            <span className="ml-1 font-mono text-[10px] text-[var(--color-muted)]">
+              {dueOffsetLabel(milestone.dueOffsetDays)}
+            </span>
+          </span>
+        </div>
+      ))}
+      {total > milestones.length && (
+        <p className="font-mono text-[10px] text-[var(--color-muted)]">
+          +{total - milestones.length} more
+        </p>
+      )}
     </div>
   );
 }

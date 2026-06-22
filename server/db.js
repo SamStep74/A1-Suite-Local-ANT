@@ -1723,6 +1723,47 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_project_time_entries_project ON project_time_entries(org_id, project_id, entry_date);
     CREATE INDEX IF NOT EXISTS idx_project_time_entries_unbilled ON project_time_entries(org_id, project_id, billed_invoice_id);
 
+    CREATE TABLE IF NOT EXISTS project_templates (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_templates_org ON project_templates(org_id, status, name);
+
+    CREATE TABLE IF NOT EXISTS project_template_tasks (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      template_id TEXT NOT NULL REFERENCES project_templates(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'todo',
+      parent_template_task_id TEXT REFERENCES project_template_tasks(id) ON DELETE SET NULL,
+      due_offset_days INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_template_tasks_template ON project_template_tasks(org_id, template_id, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_project_template_tasks_parent ON project_template_tasks(org_id, template_id, parent_template_task_id);
+
+    CREATE TABLE IF NOT EXISTS project_template_milestones (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      template_id TEXT NOT NULL REFERENCES project_templates(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      due_offset_days INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_template_milestones_template ON project_template_milestones(org_id, template_id, sort_order);
+
     CREATE TABLE IF NOT EXISTS forms (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -7614,6 +7655,7 @@ function seedIfEmpty(db) {
     INSERT INTO project_time_entries (id, org_id, project_id, task_id, minutes, entry_date, note, logged_by_user_id, created_at)
     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run("pte-nare-1", orgId, "proj-nare-retention", "ptask-nare-1", 180, "2026-05-12", "Ձևանմուշների սկզբնական կարգավորում", "user-owner", now);
+  seedProjectTemplates(db, orgId, now);
 
   db.prepare(`
     INSERT INTO forms (id, org_id, title, description, fields, status, submission_count, created_by_user_id, created_at, updated_at)
@@ -8080,11 +8122,109 @@ function ensurePilotPacketLayer(db) {
 }
 
 function ensureProjectsLayer(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS project_templates (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      status TEXT NOT NULL DEFAULT 'active',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_templates_org ON project_templates(org_id, status, name);
+
+    CREATE TABLE IF NOT EXISTS project_template_tasks (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      template_id TEXT NOT NULL REFERENCES project_templates(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'todo',
+      parent_template_task_id TEXT REFERENCES project_template_tasks(id) ON DELETE SET NULL,
+      due_offset_days INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_template_tasks_template ON project_template_tasks(org_id, template_id, sort_order);
+    CREATE INDEX IF NOT EXISTS idx_project_template_tasks_parent ON project_template_tasks(org_id, template_id, parent_template_task_id);
+
+    CREATE TABLE IF NOT EXISTS project_template_milestones (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      template_id TEXT NOT NULL REFERENCES project_templates(id) ON DELETE CASCADE,
+      title TEXT NOT NULL,
+      due_offset_days INTEGER NOT NULL DEFAULT 0,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_project_template_milestones_template ON project_template_milestones(org_id, template_id, sort_order);
+  `);
   const taskColumns = new Set(db.prepare("PRAGMA table_info(project_tasks)").all().map(column => column.name));
   if (!taskColumns.has("parent_task_id")) {
     db.exec("ALTER TABLE project_tasks ADD COLUMN parent_task_id TEXT REFERENCES project_tasks(id) ON DELETE SET NULL");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_project_tasks_parent ON project_tasks(org_id, project_id, parent_task_id)");
+  const demoOrg = db.prepare("SELECT id FROM organizations WHERE id = ?").get("org-armosphera-demo");
+  if (demoOrg) seedProjectTemplates(db, demoOrg.id);
+}
+
+function seedProjectTemplates(db, orgId, timestamp = "") {
+  if (orgId !== "org-armosphera-demo") return;
+  const now = timestamp || new Date().toISOString();
+  const insertTemplate = db.prepare(`
+    INSERT OR IGNORE INTO project_templates (id, org_id, name, description, status, created_at, updated_at)
+    VALUES (?, ?, ?, ?, ?, ?, ?)
+  `);
+  insertTemplate.run(
+    "ptpl-client-onboarding",
+    orgId,
+    "Client onboarding launch",
+    "Kick off a new SMB customer with discovery, channel setup, and acceptance evidence.",
+    "active",
+    now,
+    now
+  );
+  insertTemplate.run(
+    "ptpl-support-retainer",
+    orgId,
+    "Support retainer rollout",
+    "Prepare monthly support operations with SLA, knowledge, and reporting checkpoints.",
+    "active",
+    now,
+    now
+  );
+
+  const insertTask = db.prepare(`
+    INSERT OR IGNORE INTO project_template_tasks (
+      id, org_id, template_id, title, status, parent_template_task_id,
+      due_offset_days, sort_order, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  insertTask.run("ptplt-client-discovery", orgId, "ptpl-client-onboarding", "Run discovery workshop", "todo", null, 2, 10, now, now);
+  insertTask.run("ptplt-client-channel-parent", orgId, "ptpl-client-onboarding", "Configure customer channels", "todo", null, 5, 20, now, now);
+  insertTask.run("ptplt-client-channel-whatsapp", orgId, "ptpl-client-onboarding", "Connect WhatsApp inbox", "todo", "ptplt-client-channel-parent", 7, 30, now, now);
+  insertTask.run("ptplt-client-training", orgId, "ptpl-client-onboarding", "Train owner and operator", "todo", null, 12, 40, now, now);
+  insertTask.run("ptplt-retainer-sla", orgId, "ptpl-support-retainer", "Confirm SLA and escalation paths", "todo", null, 1, 10, now, now);
+  insertTask.run("ptplt-retainer-knowledge-parent", orgId, "ptpl-support-retainer", "Prepare support knowledge", "todo", null, 4, 20, now, now);
+  insertTask.run("ptplt-retainer-knowledge-articles", orgId, "ptpl-support-retainer", "Load reusable help articles", "todo", "ptplt-retainer-knowledge-parent", 6, 30, now, now);
+  insertTask.run("ptplt-retainer-reporting", orgId, "ptpl-support-retainer", "Schedule monthly evidence report", "todo", null, 10, 40, now, now);
+
+  const insertMilestone = db.prepare(`
+    INSERT OR IGNORE INTO project_template_milestones (
+      id, org_id, template_id, title, due_offset_days, sort_order, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+  `);
+  insertMilestone.run("ptplm-client-kickoff", orgId, "ptpl-client-onboarding", "Kickoff accepted", 3, 10, now, now);
+  insertMilestone.run("ptplm-client-go-live", orgId, "ptpl-client-onboarding", "First workflow live", 14, 20, now, now);
+  insertMilestone.run("ptplm-retainer-sla", orgId, "ptpl-support-retainer", "SLA baseline approved", 3, 10, now, now);
+  insertMilestone.run("ptplm-retainer-monthly-ready", orgId, "ptpl-support-retainer", "Monthly support rhythm ready", 12, 20, now, now);
 }
 
 function ensureProfileLayer(db) {

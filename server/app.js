@@ -5322,6 +5322,81 @@ function registerApi(app, db, options = {}) {
   const PROJECT_STATUSES = ["planning", "active", "on-hold", "completed", "cancelled"];
   const TASK_STATUSES = ["todo", "in-progress", "done"];
 
+  app.get("/api/project-templates", async request => {
+    const user = await app.auth(request);
+    const templates = db.prepare("SELECT id FROM project_templates WHERE org_id = ? ORDER BY status, name")
+      .all(user.org_id)
+      .map(row => getProjectTemplate(db, user.org_id, row.id))
+      .filter(Boolean);
+    return { ok: true, templates };
+  });
+
+  app.post("/api/project-templates/:id/create-project", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "projects");
+    requireProjectsWriter(user);
+    const templateId = normalizeProjectTemplatePathId(request.params.id, request.raw?.url);
+    const template = getProjectTemplate(db, user.org_id, templateId);
+    if (!template) { const e = new Error("Project template not found"); e.statusCode = 404; throw e; }
+    const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
+    const name = normalizeProjectText(body, "name", { fallback: template.name, minLength: 3, maxLength: 200, error: "Project name is required" });
+    const customerId = normalizeProjectText(body, "customerId", { fallback: "", maxLength: 160 });
+    if (customerId) assertCustomer(db, user.org_id, customerId);
+    const dealId = normalizeProjectText(body, "dealId", { fallback: "", maxLength: 160 });
+    if (dealId && !getDeal(db, user.org_id, dealId)) { const e = new Error("Linked deal not found"); e.statusCode = 400; throw e; }
+    const startDate = normalizeProjectDate(body, "startDate", "");
+    const dueDate = normalizeProjectDate(body, "dueDate", "");
+
+    const projectId = randomId("proj");
+    const now = new Date().toISOString();
+    const taskIdByTemplateTaskId = new Map();
+    db.exec("BEGIN IMMEDIATE");
+    try {
+      db.prepare(`INSERT INTO projects (id, org_id, name, description, status, customer_id, deal_id, start_date, due_date, created_by_user_id, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        .run(projectId, user.org_id, name, template.description || "", "planning", customerId || null, dealId || null, startDate, dueDate, user.id, now, now);
+      const insertTask = db.prepare(`INSERT INTO project_tasks (id, org_id, project_id, title, status, parent_task_id, assignee_employee_id, due_date, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`);
+      for (const task of template.tasks) {
+        const taskId = randomId("ptask");
+        taskIdByTemplateTaskId.set(task.id, taskId);
+        const status = TASK_STATUSES.includes(task.status) ? task.status : "todo";
+        insertTask.run(taskId, user.org_id, projectId, task.title, status, projectTemplateDueDate(startDate, task.dueOffsetDays), now, now);
+      }
+      const updateTaskParent = db.prepare("UPDATE project_tasks SET parent_task_id = ? WHERE org_id = ? AND project_id = ? AND id = ?");
+      for (const task of template.tasks) {
+        if (!task.parentTaskId) continue;
+        const taskId = taskIdByTemplateTaskId.get(task.id);
+        const parentTaskId = taskIdByTemplateTaskId.get(task.parentTaskId);
+        if (taskId && parentTaskId) updateTaskParent.run(parentTaskId, user.org_id, projectId, taskId);
+      }
+      const insertMilestone = db.prepare(`INSERT INTO project_milestones (id, org_id, project_id, title, due_date, reached, created_at, updated_at)
+        VALUES (?, ?, ?, ?, ?, 0, ?, ?)`);
+      for (const milestone of template.milestones) {
+        insertMilestone.run(randomId("pms"), user.org_id, projectId, milestone.title, projectTemplateDueDate(startDate, milestone.dueOffsetDays), now, now);
+      }
+      audit(db, user.org_id, user.id, "projects.template.project_created", {
+        templateId: template.id,
+        projectId,
+        taskCount: template.tasks.length,
+        milestoneCount: template.milestones.length
+      });
+      db.exec("COMMIT");
+    } catch (error) {
+      try { db.exec("ROLLBACK"); } catch {}
+      throw error;
+    }
+    return { ok: true, project: getProject(db, user.org_id, projectId), template };
+  });
+
+  app.get("/api/project-templates/:id", async request => {
+    const user = await app.auth(request);
+    const templateId = normalizeProjectTemplatePathId(request.params.id, request.raw?.url);
+    const template = getProjectTemplate(db, user.org_id, templateId);
+    if (!template) { const e = new Error("Project template not found"); e.statusCode = 404; throw e; }
+    return { ok: true, template };
+  });
+
   app.get("/api/projects", async request => {
     const user = await app.auth(request);
     const projects = db.prepare("SELECT id, name, status, customer_id AS customerId, deal_id AS dealId, start_date AS startDate, due_date AS dueDate, updated_at AS updatedAt FROM projects WHERE org_id = ? ORDER BY updated_at DESC, created_at DESC").all(user.org_id);
@@ -5755,6 +5830,16 @@ function registerApi(app, db, options = {}) {
     return normalizeProjectRouteId(value, "Invalid project id");
   }
 
+  function normalizeProjectTemplatePathId(value, rawUrl = "") {
+    const rawSegment = typeof rawUrl === "string"
+      ? rawUrl.match(/^\/api\/project-templates\/([^/?#]+)(?:\/create-project)?(?:[?#]|$)/)?.[1]
+      : "";
+    if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
+      throwInvalidProjectPathId("Invalid project template id");
+    }
+    return normalizeProjectRouteId(value, "Invalid project template id");
+  }
+
   function normalizeProjectTaskPathId(value, rawUrl = "") {
     const rawSegment = typeof rawUrl === "string"
       ? rawUrl.match(/^\/api\/projects\/[^/?#]+\/tasks\/([^/?#]+)(?:\/dependencies(?:\/[^/?#]+)?|[?#]|$)/)?.[1]
@@ -5800,6 +5885,15 @@ function registerApi(app, db, options = {}) {
     const value = Object.prototype.hasOwnProperty.call(body, "parentTaskId") ? body.parentTaskId : undefined;
     if (value === undefined || value === "") return null;
     return normalizeProjectRouteId(value, "Invalid parent task id");
+  }
+
+  function projectTemplateDueDate(startDate, dueOffsetDays) {
+    if (!startDate) return "";
+    const days = Number(dueOffsetDays || 0);
+    if (!Number.isInteger(days)) return "";
+    const date = new Date(`${startDate}T00:00:00.000Z`);
+    date.setUTCDate(date.getUTCDate() + days);
+    return date.toISOString().slice(0, 10);
   }
 
   function throwInvalidProjectPathId(message) {
@@ -10321,6 +10415,55 @@ function getProject(db, orgId, id) {
   project.totalMinutes = totals.totalMinutes;
   project.timeEntryCount = totals.entryCount;
   return project;
+}
+
+function getProjectTemplate(db, orgId, id) {
+  const template = db.prepare(`
+    SELECT id, name, description, status, created_at AS createdAt, updated_at AS updatedAt
+    FROM project_templates
+    WHERE org_id = ? AND id = ?
+  `).get(orgId, String(id || ""));
+  if (!template) return null;
+  template.tasks = db.prepare(`
+    SELECT
+      id,
+      title,
+      status,
+      parent_template_task_id AS parentTaskId,
+      due_offset_days AS dueOffsetDays,
+      sort_order AS sortOrder,
+      updated_at AS updatedAt
+    FROM project_template_tasks
+    WHERE org_id = ? AND template_id = ?
+    ORDER BY sort_order, created_at
+  `).all(orgId, template.id);
+  const tasksById = new Map();
+  for (const task of template.tasks) {
+    task.parentTask = null;
+    task.subtasks = [];
+    tasksById.set(task.id, task);
+  }
+  for (const task of template.tasks) {
+    if (!task.parentTaskId) continue;
+    const parentTask = tasksById.get(task.parentTaskId);
+    if (!parentTask) continue;
+    task.parentTask = { id: parentTask.id, title: parentTask.title, status: parentTask.status };
+    parentTask.subtasks.push({ id: task.id, title: task.title, status: task.status });
+  }
+  template.milestones = db.prepare(`
+    SELECT
+      id,
+      title,
+      due_offset_days AS dueOffsetDays,
+      sort_order AS sortOrder,
+      updated_at AS updatedAt
+    FROM project_template_milestones
+    WHERE org_id = ? AND template_id = ?
+    ORDER BY sort_order, created_at
+  `).all(orgId, template.id);
+  template.taskCount = template.tasks.length;
+  template.milestoneCount = template.milestones.length;
+  return template;
 }
 
 function requireMfaPrivilegedUser(user) {

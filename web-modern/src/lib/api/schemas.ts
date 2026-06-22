@@ -1898,6 +1898,68 @@ export const ProjectDetailResponseSchema = z
   .passthrough();
 export type ProjectDetailResponse = z.infer<typeof ProjectDetailResponseSchema>;
 
+export const ProjectTemplateTaskRefSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    status: TaskStatusSchema,
+  })
+  .passthrough();
+export type ProjectTemplateTaskRef = z.infer<typeof ProjectTemplateTaskRefSchema>;
+
+export const ProjectTemplateTaskSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    status: TaskStatusSchema,
+    parentTaskId: z.string().nullable().optional(),
+    parentTask: ProjectTemplateTaskRefSchema.nullable().optional(),
+    subtasks: z.array(ProjectTemplateTaskRefSchema).optional(),
+    dueOffsetDays: z.number().int().nullable().optional(),
+    sortOrder: z.number().int().optional(),
+  })
+  .passthrough();
+export type ProjectTemplateTask = z.infer<typeof ProjectTemplateTaskSchema>;
+
+export const ProjectTemplateMilestoneSchema = z
+  .object({
+    id: z.string(),
+    title: z.string(),
+    dueOffsetDays: z.number().int().nullable().optional(),
+    sortOrder: z.number().int().optional(),
+  })
+  .passthrough();
+export type ProjectTemplateMilestone = z.infer<typeof ProjectTemplateMilestoneSchema>;
+
+export const ProjectTemplateSchema = z
+  .object({
+    id: z.string(),
+    name: z.string(),
+    description: z.string(),
+    status: ProjectStatusSchema,
+    taskCount: z.number().int(),
+    milestoneCount: z.number().int(),
+    tasks: z.array(ProjectTemplateTaskSchema),
+    milestones: z.array(ProjectTemplateMilestoneSchema),
+    updatedAt: z.string().optional(),
+  })
+  .passthrough();
+export type ProjectTemplate = z.infer<typeof ProjectTemplateSchema>;
+
+export const ProjectTemplatesResponseSchema = z
+  .object({
+    templates: z.array(ProjectTemplateSchema),
+  })
+  .passthrough();
+export type ProjectTemplatesResponse = z.infer<typeof ProjectTemplatesResponseSchema>;
+
+export const ProjectTemplateResponseSchema = z
+  .object({
+    template: ProjectTemplateSchema,
+  })
+  .passthrough();
+export type ProjectTemplateResponse = z.infer<typeof ProjectTemplateResponseSchema>;
+
 export const ProjectBillingPreviewSchema = z
   .object({
     projectId: z.string(),
