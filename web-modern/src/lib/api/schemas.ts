@@ -996,7 +996,7 @@ export const PosSaleLineSchema = z
   .passthrough();
 export type PosSaleLine = z.infer<typeof PosSaleLineSchema>;
 
-export const PosSaleStatusSchema = z.enum(["posted", "refunded", "refunded_full"]);
+export const PosSaleStatusSchema = z.enum(["posted", "refunded", "refunded_full", "voided"]);
 export type PosSaleStatus = z.infer<typeof PosSaleStatusSchema>;
 
 export const PosSaleSchema = z
@@ -1162,6 +1162,73 @@ export const PosRefundResponseSchema = z
   })
   .passthrough();
 export type PosRefundResponse = z.infer<typeof PosRefundResponseSchema>;
+
+export const PosVoidRequestSchema = z
+  .object({
+    idempotencyKey: z
+      .string()
+      .min(1)
+      .max(160)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/),
+    voidReference: z
+      .string()
+      .min(1)
+      .max(120)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$/),
+    reason: z.string().min(1).max(500).refine((value) => !/[\x00-\x1f\x7f]/.test(value)),
+    voidedAt: z.string().min(1).optional(),
+  })
+  .strict();
+export type PosVoidRequest = z.infer<typeof PosVoidRequestSchema>;
+
+export const PosVoidLineSchema = PosRefundLineSchema;
+export type PosVoidLine = z.infer<typeof PosVoidLineSchema>;
+
+export const PosVoidPostingsSchema = z
+  .object({
+    voidPosting: z.string(),
+    inventoryPosting: z.string(),
+    ledgerPosting: z.string(),
+    ledgerPostingIds: z.array(z.string()).optional(),
+    ledgerPostingCount: z.number().int().min(0).optional(),
+  })
+  .passthrough();
+export type PosVoidPostings = z.infer<typeof PosVoidPostingsSchema>;
+
+export const PosVoidSchema = z
+  .object({
+    id: z.string(),
+    saleId: z.string(),
+    cashSessionId: z.string(),
+    voidReference: z.string(),
+    sourceKey: z.string().optional(),
+    reason: z.string(),
+    voidedTotal: z.number(),
+    cashAdjustment: z.number(),
+    status: z.string(),
+    inventoryPostingStatus: z.string(),
+    ledgerPostingStatus: z.string(),
+    postings: PosVoidPostingsSchema,
+    voidedAt: z.string(),
+    lineCount: z.number().int().min(0),
+    lines: z.array(PosVoidLineSchema),
+    createdByUserId: z.string().optional(),
+    createdByName: z.string().optional(),
+    createdAt: z.string(),
+  })
+  .passthrough();
+export type PosVoid = z.infer<typeof PosVoidSchema>;
+
+export const PosVoidResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    idempotent: z.boolean(),
+    void: PosVoidSchema,
+    sale: PosSaleSchema,
+    session: PosCashSessionSchema.optional(),
+  })
+  .passthrough();
+export type PosVoidResponse = z.infer<typeof PosVoidResponseSchema>;
 
 export const PosTerminalSettlementRequestSchema = z
   .object({

@@ -248,6 +248,7 @@ function openDatabase(dbPath) {
   db.exec("PRAGMA journal_mode = WAL");
   initSchema(db);
   ensurePosSalePaymentLayer(db);
+  ensurePosVoidLayer(db);
   ensurePosTerminalSettlementLayer(db);
   ensureCrmTubeSchema(db);
   ensureRbacSchema(db);
@@ -813,6 +814,33 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_pos_sale_refunds_status
       ON pos_sale_refunds(org_id, status, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS pos_sale_voids (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      sale_id TEXT NOT NULL REFERENCES pos_sales(id) ON DELETE CASCADE,
+      cash_session_id TEXT NOT NULL REFERENCES pos_cash_sessions(id) ON DELETE CASCADE,
+      void_reference TEXT NOT NULL,
+      source_key TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      voided_total_amd INTEGER NOT NULL DEFAULT 0,
+      cash_adjustment_amd INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'posted',
+      inventory_posting_status TEXT NOT NULL DEFAULT 'not-posted',
+      ledger_posting_status TEXT NOT NULL DEFAULT 'not-posted',
+      voided_at TEXT NOT NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, source_key),
+      UNIQUE(org_id, void_reference),
+      UNIQUE(org_id, sale_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_voids_session
+      ON pos_sale_voids(org_id, cash_session_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_voids_status
+      ON pos_sale_voids(org_id, status, created_at DESC);
+
     CREATE TABLE IF NOT EXISTS pos_terminal_settlements (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -866,6 +894,35 @@ function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_pos_sale_refund_lines_refund
       ON pos_sale_refund_lines(org_id, refund_id, line_number);
+
+    CREATE TABLE IF NOT EXISTS pos_sale_void_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      void_id TEXT NOT NULL REFERENCES pos_sale_voids(id) ON DELETE CASCADE,
+      sale_id TEXT NOT NULL REFERENCES pos_sales(id) ON DELETE CASCADE,
+      sale_line_id TEXT NOT NULL REFERENCES pos_sale_lines(id) ON DELETE CASCADE,
+      line_number INTEGER NOT NULL,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      catalog_item_variant_id TEXT REFERENCES catalog_item_variants(id) ON DELETE SET NULL,
+      sku TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      quantity INTEGER NOT NULL,
+      unit_price_amd INTEGER NOT NULL,
+      subtotal_amd INTEGER NOT NULL DEFAULT 0,
+      vat_amd INTEGER NOT NULL DEFAULT 0,
+      total_amd INTEGER NOT NULL DEFAULT 0,
+      vat_mode TEXT NOT NULL DEFAULT 'standard',
+      fiscal_receipt_required INTEGER NOT NULL DEFAULT 0,
+      source_stock_move_id TEXT REFERENCES stock_moves(id) ON DELETE SET NULL,
+      return_stock_move_id TEXT REFERENCES stock_moves(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, void_id, line_number),
+      UNIQUE(org_id, void_id, sale_line_id)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_void_lines_void
+      ON pos_sale_void_lines(org_id, void_id, line_number);
 
     CREATE TABLE IF NOT EXISTS stock_quants (
       id TEXT PRIMARY KEY,
@@ -8967,6 +9024,109 @@ function ensurePosSalePaymentLayer(db) {
       ON pos_sale_payments(org_id, sale_id, line_number);
     CREATE INDEX IF NOT EXISTS idx_pos_sale_payments_session_method
       ON pos_sale_payments(org_id, cash_session_id, payment_method);
+  `);
+}
+
+function ensurePosVoidLayer(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS pos_sale_voids (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      sale_id TEXT NOT NULL REFERENCES pos_sales(id) ON DELETE CASCADE,
+      cash_session_id TEXT NOT NULL REFERENCES pos_cash_sessions(id) ON DELETE CASCADE,
+      void_reference TEXT NOT NULL,
+      source_key TEXT NOT NULL,
+      reason TEXT NOT NULL,
+      voided_total_amd INTEGER NOT NULL DEFAULT 0,
+      cash_adjustment_amd INTEGER NOT NULL DEFAULT 0,
+      status TEXT NOT NULL DEFAULT 'posted',
+      inventory_posting_status TEXT NOT NULL DEFAULT 'not-posted',
+      ledger_posting_status TEXT NOT NULL DEFAULT 'not-posted',
+      voided_at TEXT NOT NULL,
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, source_key),
+      UNIQUE(org_id, void_reference),
+      UNIQUE(org_id, sale_id)
+    );
+
+    CREATE TABLE IF NOT EXISTS pos_sale_void_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      void_id TEXT NOT NULL REFERENCES pos_sale_voids(id) ON DELETE CASCADE,
+      sale_id TEXT NOT NULL REFERENCES pos_sales(id) ON DELETE CASCADE,
+      sale_line_id TEXT NOT NULL REFERENCES pos_sale_lines(id) ON DELETE CASCADE,
+      line_number INTEGER NOT NULL,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      catalog_item_variant_id TEXT REFERENCES catalog_item_variants(id) ON DELETE SET NULL,
+      sku TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      quantity INTEGER NOT NULL,
+      unit_price_amd INTEGER NOT NULL,
+      subtotal_amd INTEGER NOT NULL DEFAULT 0,
+      vat_amd INTEGER NOT NULL DEFAULT 0,
+      total_amd INTEGER NOT NULL DEFAULT 0,
+      vat_mode TEXT NOT NULL DEFAULT 'standard',
+      fiscal_receipt_required INTEGER NOT NULL DEFAULT 0,
+      source_stock_move_id TEXT REFERENCES stock_moves(id) ON DELETE SET NULL,
+      return_stock_move_id TEXT REFERENCES stock_moves(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, void_id, line_number),
+      UNIQUE(org_id, void_id, sale_line_id)
+    );
+  `);
+  const voidColumns = new Set(db.prepare("PRAGMA table_info(pos_sale_voids)").all().map(column => column.name));
+  const voidAdditions = {
+    sale_id: "TEXT NOT NULL DEFAULT ''",
+    cash_session_id: "TEXT NOT NULL DEFAULT ''",
+    void_reference: "TEXT NOT NULL DEFAULT ''",
+    source_key: "TEXT NOT NULL DEFAULT ''",
+    reason: "TEXT NOT NULL DEFAULT ''",
+    voided_total_amd: "INTEGER NOT NULL DEFAULT 0",
+    cash_adjustment_amd: "INTEGER NOT NULL DEFAULT 0",
+    status: "TEXT NOT NULL DEFAULT 'posted'",
+    inventory_posting_status: "TEXT NOT NULL DEFAULT 'not-posted'",
+    ledger_posting_status: "TEXT NOT NULL DEFAULT 'not-posted'",
+    voided_at: "TEXT NOT NULL DEFAULT ''",
+    created_by_user_id: "TEXT",
+    created_at: "TEXT NOT NULL DEFAULT ''"
+  };
+  for (const [name, definition] of Object.entries(voidAdditions)) {
+    if (!voidColumns.has(name)) db.exec(`ALTER TABLE pos_sale_voids ADD COLUMN ${name} ${definition}`);
+  }
+  const lineColumns = new Set(db.prepare("PRAGMA table_info(pos_sale_void_lines)").all().map(column => column.name));
+  const lineAdditions = {
+    void_id: "TEXT NOT NULL DEFAULT ''",
+    sale_id: "TEXT NOT NULL DEFAULT ''",
+    sale_line_id: "TEXT NOT NULL DEFAULT ''",
+    line_number: "INTEGER NOT NULL DEFAULT 1",
+    catalog_item_id: "TEXT NOT NULL DEFAULT ''",
+    catalog_item_variant_id: "TEXT",
+    sku: "TEXT NOT NULL DEFAULT ''",
+    name: "TEXT NOT NULL DEFAULT ''",
+    description: "TEXT NOT NULL DEFAULT ''",
+    quantity: "INTEGER NOT NULL DEFAULT 0",
+    unit_price_amd: "INTEGER NOT NULL DEFAULT 0",
+    subtotal_amd: "INTEGER NOT NULL DEFAULT 0",
+    vat_amd: "INTEGER NOT NULL DEFAULT 0",
+    total_amd: "INTEGER NOT NULL DEFAULT 0",
+    vat_mode: "TEXT NOT NULL DEFAULT 'standard'",
+    fiscal_receipt_required: "INTEGER NOT NULL DEFAULT 0",
+    source_stock_move_id: "TEXT",
+    return_stock_move_id: "TEXT",
+    created_at: "TEXT NOT NULL DEFAULT ''"
+  };
+  for (const [name, definition] of Object.entries(lineAdditions)) {
+    if (!lineColumns.has(name)) db.exec(`ALTER TABLE pos_sale_void_lines ADD COLUMN ${name} ${definition}`);
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_voids_session
+      ON pos_sale_voids(org_id, cash_session_id, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_voids_status
+      ON pos_sale_voids(org_id, status, created_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_void_lines_void
+      ON pos_sale_void_lines(org_id, void_id, line_number);
   `);
 }
 

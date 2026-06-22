@@ -764,6 +764,14 @@ function registerApi(app, db, options = {}) {
     return createPosSaleRefund(db, user, saleId, request.body === undefined ? {} : request.body);
   });
 
+  app.post("/api/pos/sales/:id/void", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosWriter(user);
+    const saleId = normalizePosSalePathId(request.params.id);
+    return createPosSaleVoid(db, user, saleId, request.body === undefined ? {} : request.body);
+  });
+
   app.get("/api/pos/cash-sessions/:id/terminal-settlement-preview", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "pos");
@@ -47117,8 +47125,10 @@ const ORG_BACKUP_TABLES = [
   "pos_sale_lines",
   "pos_receipt_packets",
   "pos_sale_refunds",
+  "pos_sale_voids",
   "pos_terminal_settlements",
   "pos_sale_refund_lines",
+  "pos_sale_void_lines",
   "stock_locations",
   "stock_quants",
   "stock_moves",
@@ -55008,6 +55018,16 @@ function buildPosSaleRefundResponse(db, orgId, refundId, saleId, sessionId, idem
   };
 }
 
+function buildPosSaleVoidResponse(db, orgId, voidId, saleId, sessionId, idempotent) {
+  return {
+    ok: true,
+    idempotent,
+    void: getPosSaleVoidById(db, orgId, voidId, true),
+    sale: getPosSale(db, orgId, saleId),
+    session: getPosCashSession(db, orgId, sessionId)
+  };
+}
+
 function buildPosTerminalSettlementResponse(db, orgId, settlementId, sessionId, idempotent = false) {
   return {
     ok: true,
@@ -55022,6 +55042,14 @@ function getPosSaleRefundSourceRow(db, orgId, sourceKey) {
   return db.prepare(`
     SELECT id, sale_id, cash_session_id
     FROM pos_sale_refunds
+    WHERE org_id = ? AND source_key = ?
+  `).get(orgId, sourceKey) || null;
+}
+
+function getPosSaleVoidSourceRow(db, orgId, sourceKey) {
+  return db.prepare(`
+    SELECT id, sale_id, cash_session_id
+    FROM pos_sale_voids
     WHERE org_id = ? AND source_key = ?
   `).get(orgId, sourceKey) || null;
 }
@@ -55741,6 +55769,201 @@ function createPosSaleRefund(db, user, saleId, body) {
   return buildPosSaleRefundResponse(db, user.org_id, refundId, saleId, sourceForReplay.sale.cash_session_id, false);
 }
 
+function createPosSaleVoid(db, user, saleId, body) {
+  const input = normalizePosSaleVoidBody(body);
+  const voidId = randomId("pos-sale-void");
+  let sourceForReplay = null;
+  db.exec("BEGIN");
+  try {
+    const source = getPosReceiptPacketSource(db, user.org_id, saleId);
+    if (!source) throwPosSaleNotFound();
+    sourceForReplay = source;
+
+    const existingSource = getPosSaleVoidSourceRow(db, user.org_id, input.idempotencyKey);
+    if (existingSource) {
+      if (existingSource.sale_id !== source.sale.id) {
+        const err = new Error("POS void source key already exists");
+        err.statusCode = 409;
+        throw err;
+      }
+      db.exec("COMMIT");
+      return buildPosSaleVoidResponse(db, user.org_id, existingSource.id, source.sale.id, source.sale.cash_session_id, true);
+    }
+
+    if (source.sale.status !== "posted") {
+      const err = new Error("POS sale must be posted before void evidence can be recorded");
+      err.statusCode = 409;
+      throw err;
+    }
+    if (source.sale.session_status !== "open") {
+      const err = new Error("POS void requires an open cash session");
+      err.statusCode = 409;
+      throw err;
+    }
+    const receiptPacket = db.prepare(`
+      SELECT id
+      FROM pos_receipt_packets
+      WHERE org_id = ? AND sale_id = ?
+      LIMIT 1
+    `).get(user.org_id, source.sale.id);
+    if (receiptPacket) {
+      const err = new Error("POS sale with receipt packet cannot be voided");
+      err.statusCode = 409;
+      throw err;
+    }
+
+    const saleTotal = Number(source.sale.total_amd || 0);
+    if (saleTotal <= 0) throwInvalidPosMetadata();
+    const now = new Date().toISOString();
+    const voidedAt = input.voidedAt || now;
+    const paidCash = Number(source.sale.paid_cash_amd || 0);
+    const returnStockMoves = createPosVoidReturnStockMoves(db, user, source, input);
+    const inventoryPostingStatus = returnStockMoves.size > 0 ? "posted" : "not-posted";
+    const ledgerPostingStatus = source.sale.ledger_posting_status === "posted" ? "posted" : "not-posted";
+
+    db.prepare(`
+      INSERT INTO pos_sale_voids (
+        id, org_id, sale_id, cash_session_id, void_reference, source_key,
+        reason, voided_total_amd, cash_adjustment_amd, status,
+        inventory_posting_status, ledger_posting_status, voided_at,
+        created_by_user_id, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?, ?, ?, ?, ?)
+    `).run(
+      voidId,
+      user.org_id,
+      source.sale.id,
+      source.sale.cash_session_id,
+      input.voidReference,
+      input.idempotencyKey,
+      input.reason,
+      saleTotal,
+      paidCash,
+      inventoryPostingStatus,
+      ledgerPostingStatus,
+      voidedAt,
+      user.id,
+      now
+    );
+
+    const insertLine = db.prepare(`
+      INSERT INTO pos_sale_void_lines (
+        id, org_id, void_id, sale_id, sale_line_id, line_number,
+        catalog_item_id, catalog_item_variant_id, sku, name, description,
+        quantity, unit_price_amd, subtotal_amd, vat_amd, total_amd, vat_mode,
+        fiscal_receipt_required, source_stock_move_id, return_stock_move_id, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const line of source.lines) {
+      insertLine.run(
+        randomId("pos-sale-void-line"),
+        user.org_id,
+        voidId,
+        source.sale.id,
+        line.id,
+        line.line_number,
+        line.catalog_item_id,
+        line.catalog_item_variant_id || null,
+        line.sku,
+        line.name,
+        line.description || "",
+        line.quantity,
+        line.unit_price_amd,
+        line.subtotal_amd,
+        line.vat_amd,
+        line.total_amd,
+        line.vat_mode,
+        line.fiscal_receipt_required ? 1 : 0,
+        line.stock_move_id || null,
+        returnStockMoves.get(line.id) || null,
+        now
+      );
+    }
+
+    if (paidCash > 0) {
+      const cashInfo = db.prepare(`
+        UPDATE pos_cash_sessions
+        SET expected_cash_amd = expected_cash_amd - ?, updated_by_user_id = ?, updated_at = ?
+        WHERE org_id = ? AND id = ? AND status = 'open'
+      `).run(paidCash, user.id, now, user.org_id, source.sale.cash_session_id);
+      if (cashInfo.changes === 0) {
+        const err = new Error("POS void requires an open cash session");
+        err.statusCode = 409;
+        throw err;
+      }
+    }
+
+    if (ledgerPostingStatus === "posted") {
+      ledger.postPosVoid(db, user.org_id, {
+        id: voidId,
+        voidReference: input.voidReference,
+        paymentMethod: source.sale.payment_method,
+        payments: source.payments,
+        subtotal: source.sale.subtotal_amd,
+        vat: source.sale.vat_amd,
+        total: saleTotal,
+        date: voidedAt,
+        period_key: voidedAt.slice(0, 7)
+      });
+    }
+
+    const saleInfo = db.prepare(`
+      UPDATE pos_sales
+      SET status = 'voided', updated_at = ?
+      WHERE org_id = ? AND id = ? AND status = 'posted'
+    `).run(now, user.org_id, source.sale.id);
+    if (saleInfo.changes === 0) {
+      const err = new Error("POS sale must be posted before void evidence can be recorded");
+      err.statusCode = 409;
+      throw err;
+    }
+
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "pos.sale.voided",
+      subjectType: "pos_sale_void",
+      subjectId: voidId,
+      status: "posted",
+      payload: {
+        saleId: source.sale.id,
+        cashSessionId: source.sale.cash_session_id,
+        voidReference: input.voidReference,
+        voidedTotal: saleTotal,
+        cashAdjustment: paidCash,
+        inventoryPostingStatus,
+        ledgerPostingStatus
+      }
+    });
+    audit(db, user.org_id, user.id, "pos.sale.voided", {
+      voidId,
+      saleId: source.sale.id,
+      cashSessionId: source.sale.cash_session_id,
+      voidReference: input.voidReference,
+      voidedTotal: saleTotal,
+      cashAdjustment: paidCash,
+      idempotencyKey: input.idempotencyKey,
+      inventoryPostingStatus,
+      ledgerPostingStatus
+    });
+    db.exec("COMMIT");
+  } catch (err) {
+    try { db.exec("ROLLBACK"); } catch {}
+    if (isPosSaleVoidUniqueConstraint(err)) {
+      const existingSource = getPosSaleVoidSourceRow(db, user.org_id, input.idempotencyKey);
+      if (existingSource && (!sourceForReplay || existingSource.sale_id === sourceForReplay.sale.id)) {
+        return buildPosSaleVoidResponse(db, user.org_id, existingSource.id, existingSource.sale_id, existingSource.cash_session_id, true);
+      }
+      const conflict = new Error("POS sale void already exists");
+      conflict.statusCode = 409;
+      throw conflict;
+    }
+    throw err;
+  }
+  return buildPosSaleVoidResponse(db, user.org_id, voidId, saleId, sourceForReplay.sale.cash_session_id, false);
+}
+
 function createPosTerminalSettlement(db, user, sessionId, body) {
   const input = normalizePosTerminalSettlementBody(body);
   const settlementId = randomId("pos-terminal-settlement");
@@ -55946,6 +56169,36 @@ function createPosRefundReturnStockMoves(db, user, source, input) {
       unitCost: sourceMove.unit_cost || 0,
       reason: `POS refund stock return for ${source.sale.receipt_number}`,
       reference: `POS refund ${input.refundReference} line ${line.line_number}`
+    });
+    returnStockMoves.set(line.id, move.id);
+  }
+  return returnStockMoves;
+}
+
+function createPosVoidReturnStockMoves(db, user, source, input) {
+  const returnStockMoves = new Map();
+  for (const line of source.lines) {
+    if (!line.stock_move_id) continue;
+    const sourceMove = db.prepare(`
+      SELECT *
+      FROM stock_moves
+      WHERE org_id = ? AND id = ? AND catalog_item_id = ? AND status = 'posted'
+    `).get(user.org_id, line.stock_move_id, line.catalog_item_id);
+    if (!sourceMove || sourceMove.move_type !== "delivery") {
+      const err = new Error("POS void source stock move is not restockable");
+      err.statusCode = 409;
+      throw err;
+    }
+    const move = createStockMoveFromInput(db, user, {
+      catalogItemId: line.catalog_item_id,
+      sourceLocationId: sourceMove.destination_location_id || "",
+      destinationLocationId: sourceMove.source_location_id || source.sale.stock_location_id,
+      serviceFieldVisitId: "",
+      moveType: "return",
+      quantity: line.quantity,
+      unitCost: sourceMove.unit_cost || 0,
+      reason: `POS void stock return for ${source.sale.receipt_number}`,
+      reference: `POS void ${input.voidReference} line ${line.line_number}`
     });
     returnStockMoves.set(line.id, move.id);
   }
@@ -56263,6 +56516,31 @@ function getPosSaleRefundById(db, orgId, refundId, includeLines = false) {
   return formatPosSaleRefund(row, lines);
 }
 
+function getPosSaleVoidById(db, orgId, voidId, includeLines = false) {
+  const row = db.prepare(`
+    SELECT pos_sale_voids.*, users.name AS created_by_name,
+      (
+        SELECT GROUP_CONCAT(ledger_journal.id)
+        FROM ledger_journal
+        WHERE ledger_journal.org_id = pos_sale_voids.org_id
+          AND ledger_journal.source_type = 'pos_sale_void'
+          AND ledger_journal.source_id = pos_sale_voids.id
+      ) AS ledger_posting_ids
+    FROM pos_sale_voids
+    LEFT JOIN users ON users.id = pos_sale_voids.created_by_user_id
+      AND users.org_id = pos_sale_voids.org_id
+    WHERE pos_sale_voids.org_id = ? AND pos_sale_voids.id = ?
+  `).get(orgId, voidId);
+  if (!row) return null;
+  const lines = includeLines ? db.prepare(`
+    SELECT *
+    FROM pos_sale_void_lines
+    WHERE org_id = ? AND void_id = ?
+    ORDER BY line_number, id
+  `).all(orgId, voidId) : [];
+  return formatPosSaleVoid(row, lines);
+}
+
 function getPosTerminalSettlementById(db, orgId, settlementId) {
   const row = db.prepare(`
     SELECT pos_terminal_settlements.*, users.name AS created_by_name,
@@ -56392,6 +56670,62 @@ function formatPosSaleRefund(row, lines) {
 }
 
 function formatPosSaleRefundLine(row) {
+  return {
+    id: row.id,
+    saleLineId: row.sale_line_id,
+    catalogItemId: row.catalog_item_id,
+    catalogItemVariantId: row.catalog_item_variant_id || null,
+    sku: row.sku,
+    name: row.name,
+    description: row.description || "",
+    quantity: row.quantity,
+    unitPrice: row.unit_price_amd,
+    subtotal: row.subtotal_amd,
+    vat: row.vat_amd,
+    total: row.total_amd,
+    vatMode: row.vat_mode,
+    fiscalReceiptRequired: Boolean(row.fiscal_receipt_required),
+    sourceStockMoveId: row.source_stock_move_id || null,
+    returnStockMoveId: row.return_stock_move_id || null,
+    createdAt: row.created_at
+  };
+}
+
+function formatPosSaleVoid(row, lines) {
+  const inventoryPostingStatus = row.inventory_posting_status || "not-posted";
+  const ledgerPostingStatus = row.ledger_posting_status || "not-posted";
+  const ledgerPostingIds = row.ledger_posting_ids
+    ? String(row.ledger_posting_ids).split(",").filter(Boolean)
+    : [];
+  return {
+    id: row.id,
+    saleId: row.sale_id,
+    cashSessionId: row.cash_session_id,
+    voidReference: row.void_reference,
+    sourceKey: row.source_key,
+    reason: row.reason,
+    voidedTotal: row.voided_total_amd,
+    cashAdjustment: row.cash_adjustment_amd,
+    status: row.status,
+    inventoryPostingStatus,
+    ledgerPostingStatus,
+    postings: {
+      voidPosting: row.status,
+      inventoryPosting: inventoryPostingStatus,
+      ledgerPosting: ledgerPostingStatus,
+      ledgerPostingIds,
+      ledgerPostingCount: ledgerPostingIds.length
+    },
+    voidedAt: row.voided_at,
+    lineCount: lines.length,
+    lines: lines.map(formatPosSaleVoidLine),
+    createdByUserId: row.created_by_user_id || "",
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at
+  };
+}
+
+function formatPosSaleVoidLine(row) {
   return {
     id: row.id,
     saleLineId: row.sale_line_id,
@@ -56562,7 +56896,7 @@ function formatPosSale(row, lines, payments = []) {
     stockLocationName: row.stock_location_name || "",
     registerCode: row.register_code,
     postings: {
-      salePosting: ["posted", "refunded", "refunded_full"].includes(row.status) ? "posted" : "not-posted",
+      salePosting: ["posted", "refunded", "refunded_full", "voided"].includes(row.status) ? "posted" : "not-posted",
       inventoryPosting: row.inventory_posting_status || "not-posted",
       ledgerPosting: row.ledger_posting_status || "not-posted",
       ledgerPostingIds,
@@ -56729,6 +57063,16 @@ function normalizePosSaleRefundBody(body) {
     refundedTotal: hasRefundedTotal
       ? normalizePosMoney(body, "refundedTotal", { required: true, min: 1, max: 100000000000 })
       : null
+  };
+}
+
+function normalizePosSaleVoidBody(body) {
+  if (!isPlainObject(body)) throwInvalidPosMetadata();
+  return {
+    idempotencyKey: normalizePosSourceKey(body, "idempotencyKey"),
+    voidReference: normalizePosReceiptNumber(body, "voidReference"),
+    reason: normalizePosText(body, "reason", { required: true, minLength: 1, maxLength: 500 }),
+    voidedAt: normalizePosTimestamp(body, "voidedAt", "")
   };
 }
 
@@ -56965,6 +57309,10 @@ function isPosReceiptPacketUniqueConstraint(err) {
 
 function isPosSaleRefundUniqueConstraint(err) {
   return Boolean(err && /UNIQUE constraint failed: pos_sale_refunds\./.test(String(err.message || "")));
+}
+
+function isPosSaleVoidUniqueConstraint(err) {
+  return Boolean(err && /UNIQUE constraint failed: pos_sale_voids\./.test(String(err.message || "")));
 }
 
 function isPosTerminalSettlementUniqueConstraint(err) {

@@ -434,6 +434,45 @@ function postPosRefund(db, orgId, refund) {
   return ids.filter(Boolean);
 }
 
+function postPosVoid(db, orgId, saleVoid) {
+  const total = assertMinorUnitInteger(saleVoid.total ?? saleVoid.voidedTotal);
+  const vat = assertMinorUnitInteger(saleVoid.vat || 0);
+  const hasSubtotal = saleVoid.subtotal !== undefined && saleVoid.subtotal !== null && saleVoid.subtotal !== "";
+  const net = hasSubtotal ? assertMinorUnitInteger(saleVoid.subtotal) : total - vat;
+  const date = saleVoid.date || saleVoid.voided_at || new Date().toISOString().slice(0, 10);
+  const periodKey = saleVoid.period_key || String(date).slice(0, 7);
+  const C = postingCodesFor(locale.activeLocale());
+  const payments = splitPosSalePaymentComponents(normalizePosSalePaymentEvidence(saleVoid, total), net, vat, total);
+  const reference = saleVoid.voidReference || saleVoid.void_reference || saleVoid.id;
+  const splitMemo = payments.length > 1;
+  const ids = [];
+  for (const payment of payments) {
+    const settlementCode = posSettlementAccountCode(payment.paymentMethod);
+    const memoSuffix = splitMemo ? ` ${payment.paymentMethod}` : "";
+    if (payment.netAmount > 0) ids.push(postEntry(db, orgId, {
+      date,
+      debitCode: C.revenue,
+      creditCode: settlementCode,
+      amount: payment.netAmount,
+      memo: `POS void ${reference}${memoSuffix}`,
+      sourceType: "pos_sale_void",
+      sourceId: saleVoid.id,
+      periodKey
+    }));
+    if (payment.vatAmount > 0) ids.push(postEntry(db, orgId, {
+      date,
+      debitCode: C.outputVat,
+      creditCode: settlementCode,
+      amount: payment.vatAmount,
+      memo: `POS void VAT ${reference}${memoSuffix}`,
+      sourceType: "pos_sale_void",
+      sourceId: saleVoid.id,
+      periodKey
+    }));
+  }
+  return ids.filter(Boolean);
+}
+
 function postPosTerminalSettlement(db, orgId, settlement) {
   const amount = assertMinorUnitInteger(settlement.amount ?? settlement.settledTotal ?? settlement.settled_total_amd);
   const processorFee = assertMinorUnitInteger(settlement.processorFee ?? settlement.processor_fee_amd ?? 0);
@@ -612,4 +651,4 @@ function payablesReport(db, orgId, asOf) {
   return accounting.calculatePayables(buildPayablesModel(db, orgId), { asOf: asOf || new Date().toISOString().slice(0, 10) });
 }
 
-module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, OPENING_BALANCE_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postPosSale, postPosRefund, postPosTerminalSettlement, posTerminalSettlementAccounts, postExpensePosted, postPayrollRun, postBillPosted, postBillCreditNote, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, openingBalanceAccountByCode, openingBalanceSideForCode, postOpeningBalance, postOpeningBalances, openingBalances };
+module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, OPENING_BALANCE_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postPosSale, postPosRefund, postPosVoid, postPosTerminalSettlement, posTerminalSettlementAccounts, postExpensePosted, postPayrollRun, postBillPosted, postBillCreditNote, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, openingBalanceAccountByCode, openingBalanceSideForCode, postOpeningBalance, postOpeningBalances, openingBalances };

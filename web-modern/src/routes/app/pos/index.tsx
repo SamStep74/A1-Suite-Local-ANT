@@ -35,6 +35,8 @@ import {
   PosRefundResponseSchema,
   PosTerminalSettlementRequestSchema,
   PosTerminalSettlementResponseSchema,
+  PosVoidRequestSchema,
+  PosVoidResponseSchema,
   PosWorkspaceResponseSchema,
   type CatalogItem,
   type PosCashSession,
@@ -46,6 +48,7 @@ import {
   type PosRefundMethod,
   type PosTerminalSettlement,
   type PosTerminalSettlementPreview,
+  type PosVoid,
   type PosWorkspaceResponse,
   type PosFiscalCloseoutLabels,
   type StockLocation,
@@ -77,6 +80,7 @@ function PosWorkspace() {
   const [lastReceiptPacket, setLastReceiptPacket] =
     useState<PosReceiptPacketResponse["receiptPacket"] | null>(null);
   const [lastRefund, setLastRefund] = useState<PosRefund | null>(null);
+  const [lastVoid, setLastVoid] = useState<PosVoid | null>(null);
   const [lastTerminalSettlement, setLastTerminalSettlement] =
     useState<PosTerminalSettlement | null>(null);
 
@@ -191,6 +195,7 @@ function PosWorkspace() {
       setLastSale(response.sale);
       setLastReceiptPacket(null);
       setLastRefund(null);
+      setLastVoid(null);
       refreshWorkspace();
     },
   });
@@ -241,6 +246,36 @@ function PosWorkspace() {
     },
     onSuccess: (response) => {
       setLastRefund(response.refund);
+      setLastVoid(null);
+      setLastSale(response.sale);
+      updateWorkspaceSession(response.session);
+      refreshWorkspace();
+    },
+  });
+
+  const voidMutation = useMutation({
+    mutationFn: async (input: {
+      saleId: string;
+      idempotencyKey: string;
+      voidReference: string;
+      reason: string;
+      voidedAt: string;
+    }) => {
+      const payload = PosVoidRequestSchema.parse({
+        idempotencyKey: input.idempotencyKey,
+        voidReference: input.voidReference.trim(),
+        reason: input.reason.trim(),
+        voidedAt: optionalText(input.voidedAt),
+      });
+      return postJson(
+        `/api/pos/sales/${input.saleId}/void`,
+        payload,
+        PosVoidResponseSchema,
+      );
+    },
+    onSuccess: (response) => {
+      setLastVoid(response.void);
+      setLastRefund(null);
       setLastSale(response.sale);
       updateWorkspaceSession(response.session);
       refreshWorkspace();
@@ -379,6 +414,10 @@ function PosWorkspace() {
                   refundError={
                     refundMutation.error ? (refundMutation.error as Error).message : ""
                   }
+                  lastVoid={lastVoid}
+                  onVoid={(input) => voidMutation.mutate(input)}
+                  isVoiding={voidMutation.isPending}
+                  voidError={voidMutation.error ? (voidMutation.error as Error).message : ""}
                 />
                 <div className="space-y-3 border-t border-[var(--color-line)] pt-4 opacity-90">
                   <div>
@@ -640,6 +679,10 @@ export function SaleCapturePanel({
   onRefund,
   isRefunding,
   refundError,
+  lastVoid,
+  onVoid,
+  isVoiding,
+  voidError,
 }: {
   session: PosCashSession;
   catalogItems: readonly CatalogItem[];
@@ -673,6 +716,16 @@ export function SaleCapturePanel({
   }) => void;
   isRefunding?: boolean;
   refundError?: string;
+  lastVoid?: PosVoid | null;
+  onVoid: (input: {
+    saleId: string;
+    idempotencyKey: string;
+    voidReference: string;
+    reason: string;
+    voidedAt: string;
+  }) => void;
+  isVoiding?: boolean;
+  voidError?: string;
 }) {
   const [catalogItemId, setCatalogItemId] = useState("");
   const [quantity, setQuantity] = useState("1");
@@ -945,7 +998,7 @@ export function SaleCapturePanel({
             className="text-[var(--text-sm)] font-medium text-[var(--color-tag-green)]"
             data-testid="pos-sale-success"
           >
-            {isRefundedSale(lastSale) ? "Refunded sale" : "Posted sale"} {lastSale.id} · receipt{" "}
+            {saleOutcomeLabel(lastSale)} {lastSale.id} · receipt{" "}
             {lastSale.receiptNumber} · {money(lastSale.total)} · status {lastSale.status} · ledger{" "}
             {lastSale.postings.ledgerPosting}
             {typeof lastSaleLedgerCount === "number"
@@ -953,7 +1006,7 @@ export function SaleCapturePanel({
               : ""}
           </p>
           <SalePaymentEvidence sale={lastSale} />
-          {!isRefundedSale(lastSale) || receiptPacket ? (
+          {!isTerminalSale(lastSale) || receiptPacket ? (
             <ReceiptPacketHandoff
               key={`${lastSale.id}-${session.fiscalDeviceId ?? ""}`}
               sale={lastSale}
@@ -971,6 +1024,14 @@ export function SaleCapturePanel({
             onSubmit={onRefund}
             isPending={isRefunding}
             error={refundError}
+          />
+          <VoidEvidencePanel
+            key={`${lastSale.id}-void`}
+            sale={lastSale}
+            voidEvidence={lastVoid ?? null}
+            onSubmit={onVoid}
+            isPending={isVoiding}
+            error={voidError}
           />
         </div>
       ) : null}
