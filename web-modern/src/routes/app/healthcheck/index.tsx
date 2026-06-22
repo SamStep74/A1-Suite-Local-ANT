@@ -93,7 +93,7 @@ function HealthcheckRoute() {
         </div>
 
         {result && (
-          <div className="mt-4 space-y-1">
+          <div data-testid="healthcheck-result" className="mt-4 space-y-1">
             <p>
               echo: <strong>{result.message}</strong>
             </p>

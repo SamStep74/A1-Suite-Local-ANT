@@ -183,11 +183,11 @@ describe("appHref", () => {
 });
 
 describe("appLinkTo", () => {
-  it("keeps the copilot catalog link on Mission Control", () => {
+  it("keeps the Copilot app link on Mission Control", () => {
     expect(appLinkTo("copilot").to).toBe("/app/copilot");
   });
 
-  it("links ordinary known apps to their literal index routes", () => {
+  it("uses literal index routes for regular known apps", () => {
     expect(appLinkTo("crm").to).toBe("/app/crm/");
   });
 });

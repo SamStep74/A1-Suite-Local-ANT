@@ -26,10 +26,6 @@ import { authedPage, waitForHydration } from "./_helpers";
  *  fallback route directly. */
 const APPS_USING_FALLBACK: ReadonlySet<AppId> = new Set<AppId>(["desk"]);
 
-const APP_H1_OVERRIDES: Readonly<Record<string, string>> = {
-  assets: "Հիմնական միջոցներ",
-};
-
 /** Apps whose `/app/<id>/` route currently passes the smoke check at
  *  base ref 879165b (44/110 passing baseline; see
  *  .orchestration/phase10-10-ci-smoke-full-split/audit-runtime.md).
@@ -46,10 +42,9 @@ test.describe("apps smoke — every registered app loads and shows its H1", () =
   for (const appId of APP_IDS) {
     const meta = APPS[appId];
     const path = APPS_USING_FALLBACK.has(appId) ? `/app/${appId}` : `/app/${appId}/`;
-    const expectedH1 = APP_H1_OVERRIDES[appId] ?? meta.label;
     const tag = APPS_SMOKE.has(appId) ? " @smoke" : "";
 
-    test(`${appId} → ${path} renders "${expectedH1}"${tag}`, async ({ browser, request }) => {
+    test(`${appId} → ${path} renders "${meta.label}"${tag}`, async ({ browser, request }) => {
       const { page } = await authedPage(browser, request);
       try {
         const response = await page.goto(path);
@@ -65,7 +60,8 @@ test.describe("apps smoke — every registered app loads and shows its H1", () =
         expect([200, 304]).toContain(status);
 
         await waitForHydration(page);
-        await expect(page.getByRole("heading", { level: 1, name: expectedH1 })).toBeVisible();
+        const headingName = appId === "assets" ? meta.labelAm : meta.label;
+        await expect(page.getByRole("heading", { level: 1, name: headingName })).toBeVisible();
       } finally {
         await page.context().close();
       }

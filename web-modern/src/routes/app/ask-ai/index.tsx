@@ -43,7 +43,7 @@ function AskAiFullPage() {
   // is whatever the user was looking at *before* navigating in.
   // Phase 11: a `?from=...` query param will override this.
   const lastNonAskAiPath = useLastNonAskAiPath();
-  const routeContext = parseRouteContext(lastNonAskAiPath ?? "/app");
+  const routeContext = parseRouteContext(lastNonAskAiPath ?? "/app/ask-ai");
 
   // Cancel any in-flight stream on unmount.
   useEffect(() => {

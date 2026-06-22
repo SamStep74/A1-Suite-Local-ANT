@@ -15,7 +15,27 @@ export const DEFAULT_PASSWORD = "change-me-now";
  *  but `/api/*` is forwarded to this port. We hit the Fastify
  *  port directly for `/api/login` because the Vite dev server's
  *  `apiProxy` is configured for browser traffic only. */
-const FASTIFY = process.env.FASTIFY_URL ?? "http://localhost:4100";
+export const FASTIFY_URL = process.env.FASTIFY_URL ?? "http://localhost:4100";
+export const BASE_URL = process.env.BASE_URL ?? "http://localhost:4173";
+
+/** Extract the `sid` cookie value from a `set-cookie` response header.
+ *  The current /api/login response sets the session in an HttpOnly
+ *  `sid` cookie (the JSON body returns `{ok,user}` but not the
+ *  token). The Bearer-token strategy used by the new SPA reads the
+ *  same value from `sessionStorage["ant.bearerSid"]`, so we treat
+ *  the cookie value as the Bearer token. */
+function sidFromSetCookie(setCookieHeader: string | null): string | null {
+  if (!setCookieHeader) return null;
+  // A response may include several Set-Cookie headers combined
+  // (comma-separated) when fetched through the request fixture;
+  // we walk each segment looking for `sid=<value>`.
+  const segments = setCookieHeader.split(/,(?=\s*[A-Za-z0-9_-]+=)/);
+  for (const raw of segments) {
+    const m = raw.match(/(?:^|,\s*)sid=([^;]+)/);
+    if (m) return decodeURIComponent(m[1]!);
+  }
+  return null;
+}
 
 /** Extract the `sid` cookie value from a `set-cookie` response header.
  *  The current /api/login response sets the session in an HttpOnly
@@ -42,7 +62,7 @@ export async function login(
   email = DEFAULT_EMAIL,
   password = DEFAULT_PASSWORD,
 ): Promise<string> {
-  const res = await request.post(`${FASTIFY}/api/login`, {
+  const res = await request.post(`${FASTIFY_URL}/api/login`, {
     data: { email, password },
     headers: { "Content-Type": "application/json" },
   });
@@ -109,6 +129,26 @@ export async function authedPage(
   const context = await newAuthedContext(browser, sid);
   const page = await context.newPage();
   return { page, context, sid };
+}
+
+/** Authenticate an existing Playwright page fixture before its
+ *  first navigation. This keeps tests on runner-owned context
+ *  teardown while preserving the same Bearer/sessionStorage setup
+ *  as authedPage(). */
+export async function authenticatePage(
+  page: Page,
+  request: APIRequestContext,
+): Promise<string> {
+  const sid = await login(request);
+  await page.context().setExtraHTTPHeaders({ Authorization: `Bearer ${sid}` });
+  await page.addInitScript((token: string) => {
+    try {
+      window.sessionStorage.setItem("ant.bearerSid", token);
+    } catch {
+      // See newAuthedContext(): the Authorization header still covers /api/*.
+    }
+  }, sid);
+  return sid;
 }
 
 /** Wait until the page has painted SOMETHING (heading or primary

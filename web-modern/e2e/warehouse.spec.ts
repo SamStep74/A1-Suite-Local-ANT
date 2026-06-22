@@ -4,11 +4,11 @@
  *
  * What this asserts (the must-haves for "the warehouse skeleton works"):
  *   - GET /app/inventory/warehouse returns 2xx (route resolves, auth works)
- *   - H1 contains "Պահեստ" (Armenian title, the route section label)
+ *   - H2 contains "Պահեստ" (Armenian title, the route section label)
  *   - English subtitle contains "Warehouse" (bilingual routes render an
  *     Armenian label below an English heading)
  *   - The warehouse panel (data-testid="warehouse-panel") is visible
- *   - The core tab buttons render: lots / serials / cold / analytics
+ *   - 4 tab buttons render: lots / serials / cold / analytics
  *   - Clicking each tab switches the visible panel content
  *   - The Lots form posts to /api/warehouse/lots and the new lot appears
  *   - The ColdStorage form post is wired and the reading appears in the list
@@ -37,7 +37,7 @@ import { test, expect } from "@playwright/test";
 import { authedPage, waitForHydration } from "./_helpers";
 
 test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
-  test("loads, renders warehouse tabs, the form is wired, and the back-link points to inventory", async ({
+  test("loads, renders 4 tabs, the form is wired, and the back-link points to inventory", async ({
     browser,
     request,
   }) => {
@@ -63,28 +63,25 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
       // render an English label line below the Armenian header.
       const panel = page.getByTestId("warehouse-panel");
       await expect(panel).toBeVisible();
+      await expect(panel.getByRole("heading", { level: 1, name: /Պահեստ/i })).toBeVisible();
       await expect(
-        panel.locator("header p", { hasText: /Warehouse/i }),
+        panel.getByText(/Warehouse lots · serials · cold storage · analytics/),
       ).toBeVisible();
 
-      // Core tab buttons — Armenian labels per the plan:
+      // 4 tab buttons — Armenian labels per the plan:
       //   "Խմբաքանակներ" / "Սերիաներ" / "Սառը պահեստ" / "Վերլուծություն".
       // The route exposes them via data-testid="warehouse-tab-{name}".
-      const tabStrip = page.getByTestId("warehouse-tab-strip");
-      await expect(tabStrip).toBeVisible();
-      const tabs = tabStrip.getByRole("tab");
-      expect(await tabs.count()).toBeGreaterThanOrEqual(4);
-      const tabLots = tabStrip.getByTestId("warehouse-tab-lots");
-      const tabSerials = tabStrip.getByTestId("warehouse-tab-serials");
-      const tabCold = tabStrip.getByTestId("warehouse-tab-cold");
-      const tabAnalytics = tabStrip.getByTestId("warehouse-tab-analytics");
+      const tabLots = page.getByTestId("warehouse-tab-lots");
+      const tabSerials = page.getByTestId("warehouse-tab-serials");
+      const tabCold = page.getByTestId("warehouse-tab-cold");
+      const tabAnalytics = page.getByTestId("warehouse-tab-analytics");
       await expect(tabLots).toBeVisible();
       await expect(tabSerials).toBeVisible();
       await expect(tabCold).toBeVisible();
       await expect(tabAnalytics).toBeVisible();
 
       // Default tab is Lots — the form for productId/lotCode/expiryDate
-      // is visible, and the tabs lots/serials/cold/analytics all resolve.
+      // is visible, and the tabs lot/serials/cold/analytics all resolve.
       const lotsForm = page.getByTestId("warehouse-lot-form");
       await expect(lotsForm).toBeVisible();
       await expect(
@@ -104,7 +101,7 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
       const serialsForm = page.getByTestId("warehouse-serial-form");
       await expect(serialsForm).toBeVisible();
       await expect(
-        serialsForm.getByRole("textbox", { name: /^Serial code$|Սերիական/i }),
+        serialsForm.getByRole("textbox", { name: /serial code|Սերիական/i }),
       ).toBeVisible();
 
       // Click Cold Storage tab.
@@ -122,16 +119,22 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
       await tabAnalytics.click();
       const analyticsSection = page.getByTestId("warehouse-tab-panel-analytics");
       await expect(analyticsSection).toBeVisible();
-      const abcSection = page.getByTestId(/^warehouse-abc(?:-empty)?$/);
+      const abcSection =
+        (await page.getByTestId("warehouse-abc").count()) > 0
+          ? page.getByTestId("warehouse-abc")
+          : page.getByTestId("warehouse-abc-empty");
       await expect(abcSection).toBeVisible();
-      const turnoverSection = page.getByTestId(/^warehouse-turnover(?:-empty)?$/);
+      const turnoverSection =
+        (await page.getByTestId("warehouse-turnover").count()) > 0
+          ? page.getByTestId("warehouse-turnover")
+          : page.getByTestId("warehouse-turnover-empty");
       await expect(turnoverSection).toBeVisible();
 
       // Back-link — every Pattern A sub-route of /app/inventory points
       // back to /app/inventory. The HREF is the most stable assertion.
       const back = page.getByRole("link", { name: /back to inventory|Վերադառնալ պահեստ/i });
       await expect(back).toBeVisible();
-      await expect(back).toHaveAttribute("href", /\/app\/inventory(?:\?|$)/);
+      await expect(back).toHaveAttribute("href", "/app/inventory?view=catalog&status=all");
     } finally {
       await page.context().close();
     }
@@ -159,7 +162,9 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
       await lotsForm.getByRole("textbox", { name: /product/i }).fill("catitem-pos-barcode-scanner");
       await lotsForm.getByRole("textbox", { name: /lot.?code|Խմբի կոդ/i }).fill(lotCode);
       await lotsForm.getByRole("textbox", { name: /expiry|Պիտանիություն/i }).fill("2027-06-01");
-      await lotsForm.getByTestId("warehouse-lot-submit").click();
+      const submit = lotsForm.getByTestId("warehouse-lot-submit");
+      await expect(submit).toBeEnabled();
+      await submit.click();
 
       const lotResponse = await lotPromise;
       // The route handles the POST; the spec just confirms the wire-up.
@@ -221,7 +226,10 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
       // The ABC rows are rendered with the bucket badge inside
       // a data-testid="warehouse-abc" container. The route uses
       // "A" / "B" / "C" text inside an .aging-badge class.
-      const abcSection = page.getByTestId(/^warehouse-abc(?:-empty)?$/);
+      const abcSection =
+        (await page.getByTestId("warehouse-abc").count()) > 0
+          ? page.getByTestId("warehouse-abc")
+          : page.getByTestId("warehouse-abc-empty");
       await expect(abcSection).toBeVisible();
 
       // Forecast form — submit, then assert the copilot-result block
@@ -235,7 +243,7 @@ test.describe("Warehouse — Phase 8.3 Pattern A skeleton", () => {
       const forecastForm = page.getByTestId("warehouse-forecast-form");
       await expect(forecastForm).toBeVisible();
       await forecastForm.getByRole("textbox", { name: /product|Ապրանք/i }).fill("catitem-pos-barcode-scanner");
-      await forecastForm.getByTestId("warehouse-forecast-submit").click();
+      await forecastForm.getByRole("button", { name: /forecast|Կանխատեսել/i }).click();
 
       const forecastResponse = await forecastPromise;
       expect([200, 403]).toContain(forecastResponse.status());

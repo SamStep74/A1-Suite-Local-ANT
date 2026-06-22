@@ -1,6 +1,6 @@
 {
   "id": "egress-policy-contract",
-  "productName": "Armosphera A1 Suite Local ANT egress policy",
+  "productName": "SamStep74 A1 Suite Local ANT egress policy",
   "runTag": "2026-06-20-egress-policy-contract",
   "branchPrefix": "karpathy/",
   "editableFiles": [

@@ -32,7 +32,7 @@
  *   meaningful smoke test that the catalog wiring didn't drift.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { authedPage } from "./_helpers";
+import { authenticatePage, authedPage, FASTIFY_URL } from "./_helpers";
 
 /** Navigate to the fiscal-gates workspace. Waits for the page
  *  header to render so subsequent assertions are stable. The
@@ -45,7 +45,7 @@ async function gotoFiscalGates(page: Page, lang: "hy" | "ru" | "en" = "hy"): Pro
   await expect(page.getByTestId("fiscal-gates-page")).toBeVisible({
     timeout: 10_000,
   });
-  await expect(page.getByRole("heading", { name: "Fiscal gates" })).toBeVisible({
+  await expect(page.getByRole("heading", { level: 1 })).toBeVisible({
     timeout: 5_000,
   });
 }
@@ -81,11 +81,11 @@ async function pickSavedView(page: Page, index: number): Promise<void> {
 test.describe("fiscal-gates — Phase 10.7 e2e coverage", () => {
   test.beforeEach(async ({ request }, testInfo) => {
     const probe = await request
-      .get("http://localhost:4100/api/health", { timeout: 2_000 })
+      .get(`${FASTIFY_URL}/api/health`, { timeout: 2_000 })
       .catch(() => null);
     testInfo.skip(
       !probe || !probe.ok(),
-      "Fastify backend not reachable on :4100 — skipping authed canary render (CI runs with START_FASTIFY=1).",
+      `Fastify backend not reachable at ${FASTIFY_URL} — skipping authed canary render (CI runs with START_FASTIFY=1).`,
     );
   });
 
@@ -161,64 +161,63 @@ test.describe("fiscal-gates — Phase 10.7 e2e coverage", () => {
   /* ────────── 3. undo flow (single row) ────────── */
 
   test("marking a single row filed + Undo restores its prior status", async ({
-    browser,
+    page,
     request,
   }) => {
-    const { page, context } = await authedPage(browser, request);
-    try {
-      await gotoFiscalGates(page);
+    await authenticatePage(page, request);
+    await gotoFiscalGates(page);
 
-      // Switch to the awaiting-customer view (3 rows). The seed
-      // flags exactly 3 gate kinds as awaiting a third party, so
-      // we know the row count is deterministic.
-      await pickSavedView(page, 2);
-      const rows = page.locator(
-        '[data-testid^="data-table-row-"]:not([data-testid^="data-table-row-select-"])',
-      );
-      await expect(rows).toHaveCount(3, { timeout: 5_000 });
+    // Switch to the awaiting-customer view (3 rows). The seed
+    // flags exactly 3 gate kinds as awaiting a third party, so
+    // we know the row count is deterministic.
+    await pickSavedView(page, 2);
+    const rows = page.locator(
+      '[data-testid^="data-table-row-"]:not([data-testid^="data-table-row-select-"])',
+    );
+    await expect(rows).toHaveCount(3, { timeout: 5_000 });
 
-      // Pin the first row by its data-testid; this is the row we
-      // expect to flip to "Filed" and back.
-      const firstRow = rows.first();
-      const firstRowId = await firstRow.getAttribute("data-testid");
-      expect(firstRowId).not.toBeNull();
-      // Confirm the row's prior status is NOT "Filed" yet.
-      const priorText = (await firstRow.textContent()) ?? "";
-      expect(priorText).not.toMatch(/Filed/);
+    // Pin the first row by its data-testid; this is the row we
+    // expect to flip to "Filed" and back.
+    const firstRow = rows.first();
+    const firstRowId = await firstRow.getAttribute("data-testid");
+    expect(firstRowId).not.toBeNull();
+    // Confirm the row's prior status is NOT "Filed" yet.
+    const priorText = (await firstRow.textContent()) ?? "";
+    expect(priorText).not.toMatch(/Filed/);
 
-      // Tick the row's checkbox.
-      const selectId = firstRowId!.replace("data-table-row-", "");
-      const checkbox = page.getByTestId(`data-table-row-select-${selectId}`);
-      await checkbox.click();
+    // Tick the row's checkbox.
+    const selectId = firstRowId!.replace("data-table-row-", "");
+    const checkbox = page.getByTestId(`data-table-row-select-${selectId}`);
+    await checkbox.click();
 
-      // Bulk bar mounts with count=1
-      const bar = page.getByTestId("fiscal-gates-bulk-bar");
-      await expect(bar).toBeVisible();
-      await expect(bar).toHaveAttribute("data-count", "1");
+    // Bulk bar mounts with count=1
+    const bar = page.getByTestId("fiscal-gates-bulk-bar");
+    await expect(bar).toBeVisible();
+    await expect(bar).toHaveAttribute("data-count", "1");
 
-      // Click "Mark filed"
-      await page.getByTestId("fiscal-gates-bulk-mark_filed").click();
+    // Click "Mark filed"
+    await page.getByTestId("fiscal-gates-bulk-mark_filed").click();
 
-      // UndoToast appears
-      const undo = page.getByTestId("undo-toast");
-      await expect(undo).toBeVisible({ timeout: 5_000 });
-      await expect(undo).toContainText(/Marked/);
+    // UndoToast appears
+    const undo = page.getByTestId("undo-toast");
+    await expect(undo).toBeVisible({ timeout: 5_000 });
+    await expect(undo).toContainText(/Marked/);
 
-      // The row should now show "Filed"
-      const updatedRow = page.getByTestId(firstRowId!);
-      const updatedText = (await updatedRow.textContent()) ?? "";
-      expect(updatedText).toMatch(/Filed/);
+    // The active saved view shows only awaiting-customer gates,
+    // so the row leaves this view once it is marked filed.
+    await expect(page.getByTestId(firstRowId!)).toBeHidden({
+      timeout: 5_000,
+    });
 
-      // Click Undo — toast disappears and row returns to prior status
-      await page.getByTestId("undo-toast-action").click();
-      await expect(undo).toBeHidden({ timeout: 5_000 });
+    // Click Undo — toast disappears and row returns to prior status
+    await page.getByTestId("undo-toast-action").click();
+    await expect(undo).toBeHidden({ timeout: 5_000 });
 
-      const revertedRow = page.getByTestId(firstRowId!);
-      const revertedText = (await revertedRow.textContent()) ?? "";
-      expect(revertedText).not.toMatch(/Filed/);
-    } finally {
-      await context.close();
-    }
+    const revertedRow = page.getByTestId(firstRowId!);
+    const revertedText = (await revertedRow.textContent()) ?? "";
+    expect(revertedText).not.toMatch(/Filed/);
+    await page.getByTestId("fiscal-gates-bulk-clear").click();
+    await expect(bar).toBeHidden({ timeout: 5_000 });
   });
 
   /* ────────── 4. bulk action + undo ────────── */

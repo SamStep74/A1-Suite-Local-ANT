@@ -20,15 +20,9 @@ const DEFAULT_REPORT_DATE = "2026-05-26";
 const SEMANTIC_LAYER_VERSION = "2026-05-27";
 const ARMENIA_TIME_ZONE = "Asia/Yerevan";
 const SYSTEM_APP_ASSIGNMENT_ROLES = new Set(["Admin"]);
-const SERVICE_FIELD_VISIT_STATUSES = ["scheduled", "en-route", "in-progress", "completed", "cancelled"];
-const SERVICE_FIELD_VISIT_TECHNICIAN_STATUSES = ["en-route", "in-progress", "completed"];
-const SERVICE_FIELD_VISIT_LOCATION_SOURCES = ["browser-geolocation", "gps", "browser", "mobile", "manual", "device"];
-const SERVICE_DISPATCH_ALERT_KINDS = ["overdue-window", "active-route", "due-soon", "gps-missing"];
-const PURCHASE_PRICE_EXPIRING_SOON_DAYS = 14;
 const APP_ASSIGNMENT_ROLE_GUARDS = {
   inventory: new Set(["Owner", "Admin", "Operator", "Accountant"]),
-  purchase: new Set(["Owner", "Admin", "Operator", "Accountant"]),
-  pos: new Set(["Owner", "Admin", "Operator", "Accountant", "Salesperson"])
+  purchase: new Set(["Owner", "Admin", "Operator", "Accountant"])
 };
 const ANALYTICS_REPORT_METRICS = {
   owner: [
@@ -161,6 +155,7 @@ const greenhouse = require("./greenhouse");
 const postingCodes = require("./postingCodes");
 const settingsStore = require("./settingsStore");
 const aiProvider = require("./aiProvider");
+const smbCrmAiProvider = require("./smbCrmAiProvider");
 const openNotebook = require("./openNotebook");
 const {
   assertPlatformTenantUser,
@@ -212,8 +207,12 @@ function buildApp(options = {}) {
   registerApi(app, db, { ...options, env });
   registerStatic(app);
   require("./localizationRoutes").registerLocalizationRoutes(app);
-  app.setNotFoundHandler((request, reply) => {
-    reply.code(404).send({ statusCode: 404, error: "Not Found", message: "Route not found" });
+  app.setNotFoundHandler((_request, reply) => {
+    reply.code(404).send({
+      message: "Route not found",
+      error: "Not Found",
+      statusCode: 404
+    });
   });
 
   app.addHook("onClose", () => {
@@ -266,7 +265,7 @@ function registerApi(app, db, options = {}) {
     version: "0.1.0",
     locale: "hy-AM",
     dataRegion: "Armenia hosted / private tenant ready",
-    modules: ["suite", "crm", "finance", "desk", "campaigns", "projects", "inventory", "pos", "people", "docs", "analytics", "flow"],
+    modules: ["suite", "crm", "finance", "desk", "campaigns", "projects", "inventory", "people", "docs", "analytics", "flow"],
     platformTenant: publicPlatformTenantSummary(request.a1Tenant, env)
   }));
 
@@ -527,6 +526,38 @@ function registerApi(app, db, options = {}) {
     };
   });
 
+  // POST /api/ai/ask — Ask AI sidebar contract used by
+  // web-modern/src/lib/ai/client.ts. Body:
+  //   { question, context, idempotencyKey? }
+  // Returns { answer, citations, tokensUsed, idempotencyKey? } so
+  // the SPA does not have to fall back to the canned client stub
+  // when a real provider is configured.
+  app.post("/api/ai/ask", async request => {
+    const user = await app.auth(request);
+    const body = request.body && typeof request.body === "object" ? request.body : {};
+    const question = typeof body.question === "string" ? body.question.trim() : "";
+    if (!question) {
+      const err = new Error("Ask AI question is required");
+      err.statusCode = 400;
+      throw err;
+    }
+
+    const context = body.context && typeof body.context === "object" ? body.context : {};
+    requireAskAiAccess(db, user, context);
+    const idempotencyKey = typeof body.idempotencyKey === "string" && body.idempotencyKey.trim()
+      ? body.idempotencyKey.trim()
+      : undefined;
+    const fallback = buildAskAiFallback(question, context, idempotencyKey);
+    const result = await runAskAiProvider({ question, context, fallback });
+    audit(db, user.org_id, user.id, "ai.ask", {
+      provider: result.provider,
+      model: result.model || null,
+      ok: result.ok === true,
+      error: result.ok === true ? null : (result.error || "unknown")
+    });
+    return coerceAskAiResponse(result, fallback, idempotencyKey);
+  });
+
   // POST /api/ai/chat — text-in / text-out chat. Body:
   //   { system, user, temperature?, maxTokens? }
   // Returns the discriminated {ok, data, error, provider,
@@ -557,6 +588,23 @@ function registerApi(app, db, options = {}) {
       data: result.ok === true ? result.data : null,
       error: result.ok === true ? null : (result.error || "unknown")
     };
+  });
+
+  // POST /api/ai/chat/stream — NDJSON streaming variant of
+  // /api/ai/chat. The SPA consumes the body with a streaming
+  // reader and renders each token as it arrives. On ANT only
+  // ollama is wired for streaming; anthropic/openai/disabled
+  // return a single error NDJSON line. The audit hook fires
+  // once per request (regardless of stream errors).
+  app.post("/api/ai/chat/stream", async (request, reply) => {
+    const { buildStreamChatHandler } = require("./lib/ai/stream-handler");
+    const handler = buildStreamChatHandler({
+      requireIntegrationWriter,
+      audit: (a, orgId, userId, type, payload) => audit(db, orgId, userId, type, payload)
+    });
+    // Bind the handler's `this` to the Fastify app instance so
+    // `this.auth(request)` works.
+    return handler.call(app, request, reply);
   });
 
   app.get("/api/catalog/categories", async request => {
@@ -651,54 +699,6 @@ function registerApi(app, db, options = {}) {
     requireInventoryWriter(user);
     const move = createStockMove(db, user, request.body === undefined ? {} : request.body);
     return { ok: true, move, stock: getStockQuants(db, user.org_id, { catalogItemId: move.catalogItemId }) };
-  });
-
-  app.get("/api/pos/workspace", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "pos");
-    requirePosReader(user);
-    return getPosWorkspace(db, user);
-  });
-
-  app.get("/api/pos/cash-sessions", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "pos");
-    requirePosReader(user);
-    const filters = normalizePosCashSessionQuery(request.query || {});
-    return { sessions: getPosCashSessions(db, user.org_id, filters) };
-  });
-
-  app.post("/api/pos/cash-sessions", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "pos");
-    requirePosWriter(user);
-    const session = createPosCashSession(db, user, request.body === undefined ? {} : request.body);
-    return { ok: true, session };
-  });
-
-  app.post("/api/pos/cash-sessions/:id/sales", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "pos");
-    requirePosWriter(user);
-    const sessionId = normalizePosCashSessionPathId(request.params.id);
-    return createPosCashSale(db, user, sessionId, request.body === undefined ? {} : request.body);
-  });
-
-  app.post("/api/pos/sales/:id/receipt-packet", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "pos");
-    requirePosWriter(user);
-    const saleId = normalizePosSalePathId(request.params.id);
-    return createPosReceiptPacket(db, user, saleId, request.body === undefined ? {} : request.body);
-  });
-
-  app.post("/api/pos/cash-sessions/:id/close", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "pos");
-    requirePosWriter(user);
-    const sessionId = normalizePosCashSessionPathId(request.params.id);
-    const session = closePosCashSession(db, user, sessionId, request.body === undefined ? {} : request.body);
-    return { ok: true, session };
   });
 
   app.post("/api/warehouse/lots", async request => {
@@ -959,15 +959,6 @@ function registerApi(app, db, options = {}) {
     return { orders: getPurchaseOrders(db, user.org_id) };
   });
 
-  app.get("/api/purchase/orders/:id", async request => {
-    const user = await app.auth(request);
-    requirePurchaseReader(user);
-    const orderId = normalizePurchasePathId(request.params.id);
-    const order = getPurchaseOrder(db, user.org_id, orderId);
-    if (!order) throwPurchaseOrderNotFound();
-    return order;
-  });
-
   app.get("/api/purchase/vendors", async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
@@ -984,13 +975,6 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
     return createPurchaseVendor(db, user, request.body === undefined ? {} : request.body);
-  });
-
-  app.patch("/api/purchase/vendors/:id/status", async request => {
-    const user = await app.auth(request);
-    requirePurchaseWriter(user);
-    const vendorId = normalizePurchasePathId(request.params.id);
-    return updatePurchaseVendorStatus(db, user, vendorId, request.body === undefined ? {} : request.body);
   });
 
   app.post("/api/purchase/orders", async request => {
@@ -1018,23 +1002,6 @@ function registerApi(app, db, options = {}) {
     requirePurchaseWriter(user);
     const orderId = normalizePurchasePathId(request.params.id);
     return returnPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
-  });
-
-  app.post("/api/purchase/orders/:id/landed-costs", async request => {
-    const user = await app.auth(request);
-    requirePurchaseWriter(user);
-    const orderId = normalizePurchasePathId(request.params.id);
-    const body = request.body || {};
-    const idem = String(body.idempotencyKey || "").trim();
-    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
-    const idemStorageKey = `purchase-order-landed:${orderId}:${idem}`;
-    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idemStorageKey);
-    if (existing) return JSON.parse(existing.response_json);
-    const allocation = procurement.allocateLandedCost(db, user, { ...body, poId: orderId });
-    const envelope = { ok: true, landed: allocation, allocation, order: getPurchaseOrder(db, user.org_id, orderId) };
-    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idemStorageKey, JSON.stringify(envelope), new Date().toISOString());
-    audit(db, user.org_id, user.id, "purchase.order.landed_cost_allocated", { orderId, kind: body.kind, amount: body.amount, totalAllocated: allocation.totalAllocated, idempotencyKey: idem });
-    return envelope;
   });
 
   app.post("/api/purchase/orders/:id/bill", async request => {
@@ -1115,7 +1082,7 @@ function registerApi(app, db, options = {}) {
     const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
     if (existing) return JSON.parse(existing.response_json);
     const blanketOrder = procurement.createBlanketOrder(db, user, body);
-    const envelope = { ok: true, blanket: blanketOrder, blanketOrder };
+    const envelope = { ok: true, blanketOrder };
     db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
     audit(db, user.org_id, user.id, "procurement.blanket_order.created", { blanketOrderId: blanketOrder.id, vendorId: body.vendorId, catalogItemId: body.catalogItemId, idempotencyKey: idem });
     return envelope;
@@ -1138,7 +1105,7 @@ function registerApi(app, db, options = {}) {
     const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
     if (existing) return JSON.parse(existing.response_json);
     const allocation = procurement.allocateLandedCost(db, user, body);
-    const envelope = { ok: true, allocation, landed: allocation };
+    const envelope = { ok: true, allocation };
     db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
     audit(db, user.org_id, user.id, "procurement.landed_cost.allocated", { poId: body.poId, kind: body.kind, amount: body.amount, totalAllocated: allocation.totalAllocated, idempotencyKey: idem });
     return envelope;
@@ -1180,8 +1147,7 @@ function registerApi(app, db, options = {}) {
   app.get("/api/procurement/analytics/replenishment", async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
-    const suggestions = procurement.computeReplenishment(db, user.org_id);
-    return { ok: true, suggestions, summary: procurement.summarizeReplenishment(suggestions) };
+    return { ok: true, suggestions: procurement.computeReplenishment(db, user.org_id) };
   });
 
   app.get("/api/pilots/templates/clinic-wellness", async request => {
@@ -3678,6 +3644,222 @@ function registerApi(app, db, options = {}) {
   app.patch("/api/smb-crm/quotes/:id", request => recordsUpdateRoute(request, quoteEntity, request.params.id, "smb_crm.quote.updated"));
   app.delete("/api/smb-crm/quotes/:id", request => recordsDeleteRoute(request, quoteEntity, request.params.id, "smb_crm.quote.deleted"));
 
+  // GET /api/smb-crm/quotes/:id.pdf — printable PDF view of a
+  // quote. Hand-rolled (no pdfkit), 0-dep sovereign. Armenian
+  // is preserved verbatim in the /Info /Subject; the printable
+  // body uses the built-in Helvetica + WinAnsiEncoding with
+  // Armenian transliterated to Latin. Content-Disposition is
+  // "inline" so the browser opens the PDF in a new tab.
+  app.get("/api/smb-crm/quotes/:id.pdf", async (request, reply) => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    const quote = records.getQuote(db, user.org_id, request.params.id);
+    if (!quote) {
+      const err = new Error(`Quote not found: ${request.params.id}`);
+      err.statusCode = 404;
+      throw err;
+    }
+    // Pull customer + org metadata for the header. Both
+    // lookups are best-effort: if the customer is missing
+    // (e.g. deleted), the PDF still renders. Note: the
+    // smb_crm_customers table has full_name + company_name
+    // + address (NO tax_id column); the bill-to header uses
+    // company_name when present, else full_name.
+    const customer = quote.customer_id
+      ? records.getCustomer(db, user.org_id, quote.customer_id)
+      : null;
+    const org = db.prepare("SELECT name, tax_id FROM organizations WHERE id = ?").get(user.org_id);
+    const lineItems = quote.line_items_json
+      ? (() => {
+          try { return JSON.parse(quote.line_items_json); }
+          catch (err) { return []; }
+        })()
+      : [];
+
+    const pdf = require("./lib/pdf/quote-pdf");
+    const bytes = pdf.buildQuotePdf({
+      quoteNumber: quote.number,
+      customerName: customer ? (customer.company_name || customer.full_name || "") : "",
+      customerAddress: customer ? (customer.address || "") : "",
+      customerTaxId: org ? (org.tax_id || "") : "",
+      orgName: org ? org.name : "",
+      orgAddress: org ? (org.address || "") : "",  // organizations table may not have address; null-safe
+      orgTaxId: org ? (org.tax_id || "") : "",
+      orgLogoText: org ? org.name : "A1 Suite",
+      issueDate: quote.issue_date || "",
+      expiryDate: quote.expiry_date || "",
+      status: quote.status || "draft",
+      currency: quote.currency || "AMD",
+      totalAmount: quote.total_amount || 0,
+      lineItems,
+      notes: "",
+      rawQuote: {
+        id: quote.id,
+        number: quote.number,
+        customer_id: quote.customer_id,
+        org_id: quote.org_id,
+        line_items_json: quote.line_items_json,
+        customer_full_name: customer ? customer.full_name : null,
+        customer_company_name: customer ? customer.company_name : null,
+        customer_address: customer ? customer.address : null
+      }
+    });
+
+    audit(db, user.org_id, user.id, "smb_crm.quote.exported_pdf", {
+      quote_id: quote.id,
+      quote_number: quote.number,
+      bytes: bytes.length
+    });
+
+    reply.type("application/pdf");
+    reply.header("Content-Disposition", `inline; filename="quote-${quote.number}.pdf"`);
+    reply.header("Content-Length", String(bytes.length));
+    return reply.send(Buffer.from(bytes));
+  });
+
+  // ── Quote templates (Phase 10.13 / slice 12) ──────────────────
+  // GET /api/smb-crm/quote-templates — list the 4 built-in
+  // templates (Standard product, Service 3-line, Annual
+  // subscription, Consulting blank) + the org's custom
+  // templates. Pure read; no auth beyond smb-crm app access.
+  app.get("/api/smb-crm/quote-templates", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    const qt = require("./lib/quote-templates");
+    return { templates: qt.listTemplates(db, user.org_id) };
+  });
+
+  // POST /api/smb-crm/quotes/from-template — create a quote
+  // from a template, applying optional positional overrides
+  // for quantity + unit price. The server-side total is
+  // always recomputed from the line items (never trusted from
+  // the client). The route also supports an idempotencyKey
+  // header / body field so a retry doesn't create two
+  // duplicate quotes.
+  app.post("/api/smb-crm/quotes/from-template", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    const qt = require("./lib/quote-templates");
+    const body = request.body || {};
+    if (!body.templateId) {
+      const err = new Error("templateId is required");
+      err.statusCode = 400;
+      throw err;
+    }
+    if (!body.number) {
+      const err = new Error("number is required");
+      err.statusCode = 400;
+      throw err;
+    }
+    // Idempotency: if a key is provided and a quote with the
+    // same number already exists for this org, return it.
+    if (body.idempotencyKey) {
+      const existing = db.prepare(
+        "SELECT id FROM smb_crm_quotes WHERE org_id = ? AND number = ?"
+      ).get(user.org_id, String(body.number));
+      if (existing) {
+        return { ok: true, quote: records.getQuote(db, user.org_id, existing.id), idempotent: true };
+      }
+    }
+    const result = qt.createQuoteFromTemplate(db, user.org_id, {
+      templateId: String(body.templateId),
+      number: String(body.number),
+      customerId: body.customerId,
+      dealId: body.dealId,
+      issueDate: body.issueDate,
+      expiryDate: body.expiryDate,
+      currency: body.currency,
+      status: body.status,
+      overrides: body.overrides
+    });
+    if (!result.ok) {
+      const err = new Error(result.error || "could not create quote from template");
+      err.statusCode = result.error && result.error.startsWith("template not found") ? 404 : 400;
+      throw err;
+    }
+    audit(db, user.org_id, user.id, "smb_crm.quote.created_from_template", {
+      quote_id: result.quote.id,
+      template_id: body.templateId,
+      total_amount: result.totalAmount
+    });
+    return { ok: true, quote: result.quote, lineItems: result.lineItems, totalAmount: result.totalAmount };
+  });
+
+  // POST /api/smb-crm/quote-templates — save the current line
+  // item set as a NEW org-scoped custom template (slice 23).
+  // Mirrors the "trust the source" rule: name + line items are
+  // validated server-side; the template id is generated (not
+  // trusted from the client) and scoped to the calling org.
+  app.post("/api/smb-crm/quote-templates", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    const qt = require("./lib/quote-templates");
+    const body = request.body || {};
+    const result = qt.saveAsTemplate(db, user.org_id, {
+      name: body.name,
+      description: body.description,
+      lineItems: body.lineItems,
+      sourceTemplateId: body.sourceTemplateId
+    });
+    if (!result.ok) {
+      const err = new Error(result.error || "could not save template");
+      err.statusCode = 400;
+      throw err;
+    }
+    audit(db, user.org_id, user.id, "smb_crm.quote_template.created", {
+      template_id: result.template.id,
+      name: result.template.name,
+      line_item_count: result.template.lineItems.length,
+      source_template_id: body.sourceTemplateId || null
+    });
+    return { ok: true, template: result.template };
+  });
+
+  // PUT /api/smb-crm/quote-templates/:id — update a custom
+  // (non-builtin) template's name, description, and/or line
+  // items (slice 24). Built-ins are immutable; trying to
+  // edit one returns 400.
+  app.put("/api/smb-crm/quote-templates/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    const qt = require("./lib/quote-templates");
+    const body = request.body || {};
+    const result = qt.updateTemplate(db, user.org_id, request.params.id, {
+      name: body.name,
+      description: body.description,
+      lineItems: body.lineItems
+    });
+    if (!result.ok) {
+      const err = new Error(result.error || "could not update template");
+      err.statusCode = result.error && /not found/i.test(result.error) ? 404 : 400;
+      throw err;
+    }
+    audit(db, user.org_id, user.id, "smb_crm.quote_template.updated", {
+      template_id: result.template.id,
+      name: result.template.name
+    });
+    return { ok: true, template: result.template };
+  });
+
+  // DELETE /api/smb-crm/quote-templates/:id — delete a custom
+  // (non-builtin) template (slice 24). Cross-tenant impossible
+  // by design (the WHERE clause filters by org_id).
+  app.delete("/api/smb-crm/quote-templates/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "smb-crm");
+    const qt = require("./lib/quote-templates");
+    const result = qt.deleteTemplate(db, user.org_id, request.params.id);
+    if (!result.ok) {
+      const err = new Error(result.error || "could not delete template");
+      err.statusCode = result.error && /not found/i.test(result.error) ? 404 : 400;
+      throw err;
+    }
+    audit(db, user.org_id, user.id, "smb_crm.quote_template.deleted", {
+      template_id: request.params.id
+    });
+    return { ok: true };
+  });
+
   // ── Activities (5 routes) ──────────────────────────────────────
   app.get("/api/smb-crm/activities", request => recordsListRoute(request, activityEntity));
   app.post("/api/smb-crm/activities", request => recordsCreateRoute(request, activityEntity, "smb_crm.activity.created"));
@@ -5409,82 +5591,6 @@ function registerApi(app, db, options = {}) {
   // Projects — client projects → tasks → milestones → time entries (delivery tracking).
   const PROJECT_STATUSES = ["planning", "active", "on-hold", "completed", "cancelled"];
   const TASK_STATUSES = ["todo", "in-progress", "done"];
-  const RECURRING_TASK_INTERVAL_UNITS = ["weekly", "monthly"];
-
-  app.get("/api/project-templates", async request => {
-    const user = await app.auth(request);
-    const templates = db.prepare("SELECT id FROM project_templates WHERE org_id = ? ORDER BY status, name")
-      .all(user.org_id)
-      .map(row => getProjectTemplate(db, user.org_id, row.id))
-      .filter(Boolean);
-    return { ok: true, templates };
-  });
-
-  app.post("/api/project-templates/:id/create-project", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "projects");
-    requireProjectsWriter(user);
-    const templateId = normalizeProjectTemplatePathId(request.params.id, request.raw?.url);
-    const template = getProjectTemplate(db, user.org_id, templateId);
-    if (!template) { const e = new Error("Project template not found"); e.statusCode = 404; throw e; }
-    const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
-    const name = normalizeProjectText(body, "name", { fallback: template.name, minLength: 3, maxLength: 200, error: "Project name is required" });
-    const customerId = normalizeProjectText(body, "customerId", { fallback: "", maxLength: 160 });
-    if (customerId) assertCustomer(db, user.org_id, customerId);
-    const dealId = normalizeProjectText(body, "dealId", { fallback: "", maxLength: 160 });
-    if (dealId && !getDeal(db, user.org_id, dealId)) { const e = new Error("Linked deal not found"); e.statusCode = 400; throw e; }
-    const startDate = normalizeProjectDate(body, "startDate", "");
-    const dueDate = normalizeProjectDate(body, "dueDate", "");
-
-    const projectId = randomId("proj");
-    const now = new Date().toISOString();
-    const taskIdByTemplateTaskId = new Map();
-    db.exec("BEGIN IMMEDIATE");
-    try {
-      db.prepare(`INSERT INTO projects (id, org_id, name, description, status, customer_id, deal_id, start_date, due_date, created_by_user_id, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-        .run(projectId, user.org_id, name, template.description || "", "planning", customerId || null, dealId || null, startDate, dueDate, user.id, now, now);
-      const insertTask = db.prepare(`INSERT INTO project_tasks (id, org_id, project_id, title, status, parent_task_id, assignee_employee_id, due_date, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)`);
-      for (const task of template.tasks) {
-        const taskId = randomId("ptask");
-        taskIdByTemplateTaskId.set(task.id, taskId);
-        const status = TASK_STATUSES.includes(task.status) ? task.status : "todo";
-        insertTask.run(taskId, user.org_id, projectId, task.title, status, projectTemplateDueDate(startDate, task.dueOffsetDays), now, now);
-      }
-      const updateTaskParent = db.prepare("UPDATE project_tasks SET parent_task_id = ? WHERE org_id = ? AND project_id = ? AND id = ?");
-      for (const task of template.tasks) {
-        if (!task.parentTaskId) continue;
-        const taskId = taskIdByTemplateTaskId.get(task.id);
-        const parentTaskId = taskIdByTemplateTaskId.get(task.parentTaskId);
-        if (taskId && parentTaskId) updateTaskParent.run(parentTaskId, user.org_id, projectId, taskId);
-      }
-      const insertMilestone = db.prepare(`INSERT INTO project_milestones (id, org_id, project_id, title, due_date, reached, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, 0, ?, ?)`);
-      for (const milestone of template.milestones) {
-        insertMilestone.run(randomId("pms"), user.org_id, projectId, milestone.title, projectTemplateDueDate(startDate, milestone.dueOffsetDays), now, now);
-      }
-      audit(db, user.org_id, user.id, "projects.template.project_created", {
-        templateId: template.id,
-        projectId,
-        taskCount: template.tasks.length,
-        milestoneCount: template.milestones.length
-      });
-      db.exec("COMMIT");
-    } catch (error) {
-      try { db.exec("ROLLBACK"); } catch {}
-      throw error;
-    }
-    return { ok: true, project: getProject(db, user.org_id, projectId), template };
-  });
-
-  app.get("/api/project-templates/:id", async request => {
-    const user = await app.auth(request);
-    const templateId = normalizeProjectTemplatePathId(request.params.id, request.raw?.url);
-    const template = getProjectTemplate(db, user.org_id, templateId);
-    if (!template) { const e = new Error("Project template not found"); e.statusCode = 404; throw e; }
-    return { ok: true, template };
-  });
 
   app.get("/api/projects", async request => {
     const user = await app.auth(request);
@@ -5498,14 +5604,6 @@ function registerApi(app, db, options = {}) {
       p.totalMinutes = tm.minutes;
     }
     return { projects };
-  });
-
-  app.get("/api/projects/:id/recurring-tasks", async request => {
-    const user = await app.auth(request);
-    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
-    const project = getProject(db, user.org_id, projectId);
-    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
-    return { recurringTasks: getProjectRecurringTasks(db, user.org_id, project.id) };
   });
 
   app.get("/api/projects/:id", async request => {
@@ -5536,79 +5634,6 @@ function registerApi(app, db, options = {}) {
       .run(id, user.org_id, name, description, status, customerId || null, dealId || null, startDate, dueDate, user.id, now, now);
     audit(db, user.org_id, user.id, "projects.project.created", { projectId: id, name });
     return { ok: true, project: getProject(db, user.org_id, id) };
-  });
-
-  app.post("/api/projects/:id/recurring-tasks", async request => {
-    const user = await app.auth(request);
-    requireProjectsWriter(user);
-    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
-    const project = getProject(db, user.org_id, projectId);
-    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
-    const input = normalizeProjectRecurringTaskBody(request.body === undefined ? {} : request.body);
-    const id = randomId("prtask");
-    const now = new Date().toISOString();
-    db.prepare(`
-      INSERT INTO project_recurring_tasks (
-        id, org_id, project_id, title, status, interval_unit, interval_every,
-        next_due_date, active, last_created_task_id, created_at, updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?, ?)
-    `).run(
-      id,
-      user.org_id,
-      project.id,
-      input.title,
-      input.status,
-      input.intervalUnit,
-      input.intervalEvery,
-      input.nextDueDate,
-      input.active ? 1 : 0,
-      now,
-      now
-    );
-    audit(db, user.org_id, user.id, "projects.recurring_task.created", { projectId: project.id, recurringTaskId: id });
-    return { ok: true, recurringTask: getProjectRecurringTask(db, user.org_id, project.id, id), project: getProject(db, user.org_id, project.id) };
-  });
-
-  app.post("/api/projects/:id/recurring-tasks/:recurringTaskId/run", async request => {
-    const user = await app.auth(request);
-    requireProjectsWriter(user);
-    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
-    const project = getProject(db, user.org_id, projectId);
-    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
-    const recurringTaskId = normalizeProjectRecurringTaskPathId(request.params.recurringTaskId, request.raw?.url);
-    const recurringTask = getProjectRecurringTask(db, user.org_id, project.id, recurringTaskId);
-    if (!recurringTask) { const e = new Error("Recurring task not found"); e.statusCode = 404; throw e; }
-    if (!recurringTask.active) { const e = new Error("Recurring task is inactive"); e.statusCode = 409; throw e; }
-    if (!isExactIsoDate(recurringTask.nextDueDate)) { const e = new Error("Recurring task next due date is required"); e.statusCode = 400; throw e; }
-    const taskId = randomId("ptask");
-    const now = new Date().toISOString();
-    const dueDate = recurringTask.nextDueDate;
-    const nextDueDate = advanceProjectRecurringDueDate(dueDate, recurringTask.intervalUnit, recurringTask.intervalEvery);
-    db.exec("BEGIN IMMEDIATE");
-    try {
-      db.prepare(`
-        INSERT INTO project_tasks (id, org_id, project_id, title, status, parent_task_id, assignee_employee_id, due_date, created_at, updated_at)
-        VALUES (?, ?, ?, ?, ?, NULL, NULL, ?, ?, ?)
-      `).run(taskId, user.org_id, project.id, recurringTask.title, recurringTask.status, dueDate, now, now);
-      db.prepare(`
-        UPDATE project_recurring_tasks
-        SET last_created_task_id = ?, next_due_date = ?, updated_at = ?
-        WHERE org_id = ? AND project_id = ? AND id = ?
-      `).run(taskId, nextDueDate, now, user.org_id, project.id, recurringTask.id);
-      audit(db, user.org_id, user.id, "projects.recurring_task.run", { projectId: project.id, recurringTaskId: recurringTask.id, taskId });
-      db.exec("COMMIT");
-    } catch (error) {
-      try { db.exec("ROLLBACK"); } catch {}
-      throw error;
-    }
-    const updatedProject = getProject(db, user.org_id, project.id);
-    return {
-      ok: true,
-      recurringTask: getProjectRecurringTask(db, user.org_id, project.id, recurringTask.id),
-      task: updatedProject.tasks.find(task => task.id === taskId),
-      project: updatedProject
-    };
   });
 
   app.patch("/api/projects/:id", async request => {
@@ -5653,51 +5678,12 @@ function registerApi(app, db, options = {}) {
     }
     const status = normalizeProjectEnum(body, "status", TASK_STATUSES, "todo", "Invalid task status");
     const dueDate = normalizeProjectDate(body, "dueDate", "");
-    const parentTaskId = resolveProjectTaskParentId(db, user.org_id, project.id, normalizeProjectParentTaskBodyId(body));
     const id = randomId("ptask");
     const now = new Date().toISOString();
-    db.prepare(`INSERT INTO project_tasks (id, org_id, project_id, title, status, parent_task_id, assignee_employee_id, due_date, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, user.org_id, project.id, title, status, parentTaskId, assigneeEmployeeId, dueDate, now, now);
+    db.prepare(`INSERT INTO project_tasks (id, org_id, project_id, title, status, assignee_employee_id, due_date, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, user.org_id, project.id, title, status, assigneeEmployeeId, dueDate, now, now);
     audit(db, user.org_id, user.id, "projects.task.created", { projectId: project.id, taskId: id });
-    return { ok: true, project: getProject(db, user.org_id, project.id) };
-  });
-
-  app.post("/api/projects/:id/tasks/:taskId/dependencies", async request => {
-    const user = await app.auth(request);
-    requireProjectsWriter(user);
-    const { project, task, dependsOnTask } = resolveProjectTaskDependencyContext(db, user.org_id, request, "body");
-    const existing = db.prepare(`
-      SELECT 1 FROM project_task_dependencies
-      WHERE org_id = ? AND project_id = ? AND task_id = ? AND depends_on_task_id = ?
-    `).get(user.org_id, project.id, task.id, dependsOnTask.id);
-    if (existing) {
-      return { ok: true, idempotent: true, project: getProject(db, user.org_id, project.id) };
-    }
-    if (wouldCreateProjectTaskDependencyCycle(db, user.org_id, project.id, task.id, dependsOnTask.id)) {
-      const err = new Error("Task dependency cycle detected");
-      err.statusCode = 400;
-      throw err;
-    }
-    db.prepare(`
-      INSERT INTO project_task_dependencies (org_id, project_id, task_id, depends_on_task_id, created_at)
-      VALUES (?, ?, ?, ?, ?)
-    `).run(user.org_id, project.id, task.id, dependsOnTask.id, new Date().toISOString());
-    audit(db, user.org_id, user.id, "projects.task.dependency.created", { projectId: project.id, taskId: task.id, dependsOnTaskId: dependsOnTask.id });
-    return { ok: true, idempotent: false, project: getProject(db, user.org_id, project.id) };
-  });
-
-  app.delete("/api/projects/:id/tasks/:taskId/dependencies/:dependsOnTaskId", async request => {
-    const user = await app.auth(request);
-    requireProjectsWriter(user);
-    const { project, task, dependsOnTask } = resolveProjectTaskDependencyContext(db, user.org_id, request, "path");
-    const result = db.prepare(`
-      DELETE FROM project_task_dependencies
-      WHERE org_id = ? AND project_id = ? AND task_id = ? AND depends_on_task_id = ?
-    `).run(user.org_id, project.id, task.id, dependsOnTask.id);
-    if (result.changes > 0) {
-      audit(db, user.org_id, user.id, "projects.task.dependency.deleted", { projectId: project.id, taskId: task.id, dependsOnTaskId: dependsOnTask.id });
-    }
     return { ok: true, project: getProject(db, user.org_id, project.id) };
   });
 
@@ -5728,10 +5714,6 @@ function registerApi(app, db, options = {}) {
         assigneeEmployeeId = emp.id;
       }
       sets.push("assignee_employee_id = ?"); values.push(assigneeEmployeeId);
-    }
-    if (body.parentTaskId !== undefined) {
-      const parentTaskId = resolveProjectTaskParentId(db, user.org_id, project.id, normalizeProjectParentTaskBodyId(body), task.id);
-      sets.push("parent_task_id = ?"); values.push(parentTaskId);
     }
     if (body.dueDate !== undefined) { sets.push("due_date = ?"); values.push(normalizeProjectDate(body, "dueDate", "")); }
     if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
@@ -5871,48 +5853,6 @@ function registerApi(app, db, options = {}) {
     return date;
   }
 
-  function normalizeProjectRecurringTaskBody(body) {
-    body = normalizeProjectRequestBody(body);
-    const intervalUnit = normalizeProjectEnum(body, "intervalUnit", RECURRING_TASK_INTERVAL_UNITS, "", "Invalid recurring task interval unit");
-    if (!intervalUnit) throwInvalidProjectMetadata("Invalid recurring task interval unit");
-    const nextDueDate = normalizeProjectDate(body, "nextDueDate", "");
-    if (!nextDueDate) throwInvalidProjectMetadata("Recurring task next due date is required");
-    return {
-      title: normalizeProjectText(body, "title", { required: true, minLength: 2, maxLength: 200, error: "Recurring task title is required" }),
-      status: normalizeProjectEnum(body, "status", TASK_STATUSES, "todo", "Invalid task status"),
-      intervalUnit,
-      intervalEvery: normalizeProjectIntervalEvery(body, "intervalEvery"),
-      nextDueDate,
-      active: body.active === undefined ? true : normalizeProjectBoolean(body, "active")
-    };
-  }
-
-  function normalizeProjectIntervalEvery(body, field) {
-    const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
-    if (value === undefined || value === "" || value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
-      throwInvalidProjectMetadata("Recurring task interval must be 1..52");
-    }
-    let intervalEvery;
-    if (typeof value === "number") {
-      intervalEvery = value;
-    } else if (typeof value === "string") {
-      if (/[\x00-\x1f\x7f]/.test(value)) {
-        throwInvalidProjectMetadata("Recurring task interval must be 1..52");
-      }
-      const text = value.trim();
-      if (!/^\d+$/.test(text)) {
-        throwInvalidProjectMetadata("Recurring task interval must be 1..52");
-      }
-      intervalEvery = Number(text);
-    } else {
-      throwInvalidProjectMetadata("Recurring task interval must be 1..52");
-    }
-    if (!Number.isSafeInteger(intervalEvery) || intervalEvery < 1 || intervalEvery > 52) {
-      throwInvalidProjectMetadata("Recurring task interval must be 1..52");
-    }
-    return intervalEvery;
-  }
-
   function normalizeProjectBoolean(body, field) {
     const value = body[field];
     if (typeof value !== "boolean") {
@@ -5966,7 +5906,6 @@ function registerApi(app, db, options = {}) {
     const input = isPlainObject(query) ? query : {};
     return {
       hourlyRate: normalizeProjectBillingAmount(input, "hourlyRate", { fallback: 0 }),
-      costRate: normalizeProjectBillingAmount(input, "costRate", { fallback: 0, min: 0 }),
       asOf: normalizeProjectDate(input, "asOf", nowIso.slice(0, 10))
     };
   }
@@ -6035,7 +5974,7 @@ function registerApi(app, db, options = {}) {
 
   function normalizeProjectPathId(value, rawUrl = "") {
     const rawSegment = typeof rawUrl === "string"
-      ? rawUrl.match(/^\/api\/projects\/([^/?#]+)(?:\/(?:recurring-tasks(?:\/[^/?#]+(?:\/run)?)?|tasks(?:\/[^/?#]+(?:\/dependencies(?:\/[^/?#]+)?)?)?|milestones(?:\/[^/?#]+)?|time-entries|billing-preview|bill-time|profitability))?(?:[?#]|$)/)?.[1]
+      ? rawUrl.match(/^\/api\/projects\/([^/?#]+)(?:\/(?:tasks(?:\/[^/?#]+)?|milestones(?:\/[^/?#]+)?|time-entries|billing-preview|bill-time))?(?:[?#]|$)/)?.[1]
       : "";
     if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
       throwInvalidProjectPathId("Invalid project id");
@@ -6043,34 +5982,14 @@ function registerApi(app, db, options = {}) {
     return normalizeProjectRouteId(value, "Invalid project id");
   }
 
-  function normalizeProjectTemplatePathId(value, rawUrl = "") {
-    const rawSegment = typeof rawUrl === "string"
-      ? rawUrl.match(/^\/api\/project-templates\/([^/?#]+)(?:\/create-project)?(?:[?#]|$)/)?.[1]
-      : "";
-    if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
-      throwInvalidProjectPathId("Invalid project template id");
-    }
-    return normalizeProjectRouteId(value, "Invalid project template id");
-  }
-
   function normalizeProjectTaskPathId(value, rawUrl = "") {
     const rawSegment = typeof rawUrl === "string"
-      ? rawUrl.match(/^\/api\/projects\/[^/?#]+\/tasks\/([^/?#]+)(?:\/dependencies(?:\/[^/?#]+)?|[?#]|$)/)?.[1]
+      ? rawUrl.match(/^\/api\/projects\/[^/?#]+\/tasks\/([^/?#]+)(?:[?#]|$)/)?.[1]
       : "";
     if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
       throwInvalidProjectPathId("Invalid project task id");
     }
     return normalizeProjectRouteId(value, "Invalid project task id");
-  }
-
-  function normalizeProjectDependencyPathId(value, rawUrl = "") {
-    const rawSegment = typeof rawUrl === "string"
-      ? rawUrl.match(/^\/api\/projects\/[^/?#]+\/tasks\/[^/?#]+\/dependencies\/([^/?#]+)(?:[?#]|$)/)?.[1]
-      : "";
-    if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
-      throwInvalidProjectPathId("Invalid dependency task id");
-    }
-    return normalizeProjectRouteId(value, "Invalid dependency task id");
   }
 
   function normalizeProjectMilestonePathId(value, rawUrl = "") {
@@ -6081,16 +6000,6 @@ function registerApi(app, db, options = {}) {
       throwInvalidProjectPathId("Invalid project milestone id");
     }
     return normalizeProjectRouteId(value, "Invalid project milestone id");
-  }
-
-  function normalizeProjectRecurringTaskPathId(value, rawUrl = "") {
-    const rawSegment = typeof rawUrl === "string"
-      ? rawUrl.match(/^\/api\/projects\/[^/?#]+\/recurring-tasks\/([^/?#]+)(?:\/run)?(?:[?#]|$)/)?.[1]
-      : "";
-    if (rawSegment && (rawSegment.length > 160 || !/^[a-z0-9-]+$/.test(rawSegment))) {
-      throwInvalidProjectPathId("Invalid project recurring task id");
-    }
-    return normalizeProjectRouteId(value, "Invalid project recurring task id");
   }
 
   function normalizeProjectRouteId(value, message) {
@@ -6104,120 +6013,10 @@ function registerApi(app, db, options = {}) {
     return text;
   }
 
-  function normalizeProjectParentTaskBodyId(body) {
-    const value = Object.prototype.hasOwnProperty.call(body, "parentTaskId") ? body.parentTaskId : undefined;
-    if (value === undefined || value === "") return null;
-    return normalizeProjectRouteId(value, "Invalid parent task id");
-  }
-
-  function projectTemplateDueDate(startDate, dueOffsetDays) {
-    if (!startDate) return "";
-    const days = Number(dueOffsetDays || 0);
-    if (!Number.isInteger(days)) return "";
-    const date = new Date(`${startDate}T00:00:00.000Z`);
-    date.setUTCDate(date.getUTCDate() + days);
-    return date.toISOString().slice(0, 10);
-  }
-
-  function advanceProjectRecurringDueDate(dateText, intervalUnit, intervalEvery) {
-    if (intervalUnit === "weekly") return addDays(dateText, intervalEvery * 7);
-    const date = new Date(`${dateText}T00:00:00.000Z`);
-    const day = date.getUTCDate();
-    const targetMonth = date.getUTCMonth() + intervalEvery;
-    const targetYear = date.getUTCFullYear() + Math.floor(targetMonth / 12);
-    const normalizedMonth = ((targetMonth % 12) + 12) % 12;
-    const lastDay = new Date(Date.UTC(targetYear, normalizedMonth + 1, 0)).getUTCDate();
-    const next = new Date(Date.UTC(targetYear, normalizedMonth, Math.min(day, lastDay)));
-    return next.toISOString().slice(0, 10);
-  }
-
   function throwInvalidProjectPathId(message) {
     const err = new Error(message);
     err.statusCode = 400;
     throw err;
-  }
-
-  function resolveProjectTaskParentId(db, orgId, projectId, parentTaskId, taskId = "") {
-    if (!parentTaskId) return null;
-    if (taskId && taskId === parentTaskId) {
-      const e = new Error("Task cannot be its own parent");
-      e.statusCode = 400;
-      throw e;
-    }
-    const parentTask = db.prepare("SELECT id FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(orgId, projectId, parentTaskId);
-    if (!parentTask) { const e = new Error("Parent task not found"); e.statusCode = 404; throw e; }
-    if (taskId && wouldCreateProjectTaskParentCycle(db, orgId, projectId, taskId, parentTask.id)) {
-      const e = new Error("Task parent cycle detected");
-      e.statusCode = 400;
-      throw e;
-    }
-    return parentTask.id;
-  }
-
-  function resolveProjectTaskDependencyContext(db, orgId, request, dependencySource) {
-    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
-    const project = getProject(db, orgId, projectId);
-    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
-    const taskId = normalizeProjectTaskPathId(request.params.taskId, request.raw?.url);
-    const task = db.prepare("SELECT id, title, status FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(orgId, project.id, taskId);
-    if (!task) { const e = new Error("Task not found"); e.statusCode = 404; throw e; }
-    let dependsOnTaskId = "";
-    if (dependencySource === "path") {
-      dependsOnTaskId = normalizeProjectDependencyPathId(request.params.dependsOnTaskId, request.raw?.url);
-    } else {
-      const body = normalizeProjectRequestBody(request.body === undefined ? {} : request.body);
-      dependsOnTaskId = normalizeProjectRouteId(body.dependsOnTaskId, "Invalid dependency task id");
-    }
-    if (task.id === dependsOnTaskId) {
-      const e = new Error("Task cannot depend on itself");
-      e.statusCode = 400;
-      throw e;
-    }
-    const dependsOnTask = db.prepare("SELECT id, title, status FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(orgId, project.id, dependsOnTaskId);
-    if (!dependsOnTask) { const e = new Error("Dependency task not found"); e.statusCode = 404; throw e; }
-    return { project, task, dependsOnTask };
-  }
-
-  function wouldCreateProjectTaskParentCycle(db, orgId, projectId, taskId, parentTaskId) {
-    const rows = db.prepare(`
-      SELECT id, parent_task_id AS parentTaskId
-      FROM project_tasks
-      WHERE org_id = ? AND project_id = ?
-    `).all(orgId, projectId);
-    const parentByTaskId = new Map(rows.map(row => [row.id, row.parentTaskId]));
-    parentByTaskId.set(taskId, parentTaskId);
-    const seen = new Set();
-    let current = parentTaskId;
-    while (current) {
-      if (current === taskId) return true;
-      if (seen.has(current)) return false;
-      seen.add(current);
-      current = parentByTaskId.get(current);
-    }
-    return false;
-  }
-
-  function wouldCreateProjectTaskDependencyCycle(db, orgId, projectId, taskId, dependsOnTaskId) {
-    const rows = db.prepare(`
-      SELECT task_id AS taskId, depends_on_task_id AS dependsOnTaskId
-      FROM project_task_dependencies
-      WHERE org_id = ? AND project_id = ?
-    `).all(orgId, projectId);
-    const dependencyMap = new Map();
-    for (const row of rows) {
-      if (!dependencyMap.has(row.taskId)) dependencyMap.set(row.taskId, []);
-      dependencyMap.get(row.taskId).push(row.dependsOnTaskId);
-    }
-    const seen = new Set();
-    const stack = [dependsOnTaskId];
-    while (stack.length > 0) {
-      const current = stack.pop();
-      if (current === taskId) return true;
-      if (seen.has(current)) continue;
-      seen.add(current);
-      for (const next of dependencyMap.get(current) || []) stack.push(next);
-    }
-    return false;
   }
 
   // Billing seam: preview the unbilled time on a project (minutes → hours → amount at a rate).
@@ -6237,254 +6036,6 @@ function registerApi(app, db, options = {}) {
     const { subtotal, vat, total } = splitVatInclusive(grossMajor, vatRate);
     return { preview: { projectId: project.id, customerId: project.customerId, unbilledMinutes, unbilledEntries: agg.entries, hours, hourlyRate, subtotal, vat, total, vatRate, currency: activeCurrencyCode() } };
   });
-
-  app.get("/api/projects/:id/profitability", async request => {
-    const user = await app.auth(request);
-    const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
-    const project = getProject(db, user.org_id, projectId);
-    if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
-    const { hourlyRate, costRate, asOf } = normalizeProjectBillingPreviewQuery(request.query, new Date().toISOString());
-    const minutes = db.prepare(`
-      SELECT
-        COALESCE(SUM(CASE WHEN billed_invoice_id IS NOT NULL THEN minutes ELSE 0 END), 0) AS billedMinutes,
-        COALESCE(SUM(CASE WHEN billed_invoice_id IS NULL THEN minutes ELSE 0 END), 0) AS unbilledMinutes,
-        COALESCE(SUM(minutes), 0) AS totalMinutes,
-        COALESCE(SUM(CASE WHEN billed_invoice_id IS NOT NULL THEN 1 ELSE 0 END), 0) AS billedEntries,
-        COALESCE(SUM(CASE WHEN billed_invoice_id IS NULL THEN 1 ELSE 0 END), 0) AS unbilledEntries,
-        COUNT(*) AS totalEntries
-      FROM project_time_entries
-      WHERE org_id = ? AND project_id = ?
-    `).get(user.org_id, project.id);
-    const invoices = db.prepare(`
-      SELECT DISTINCT
-        invoices.id,
-        invoices.number,
-        invoices.status,
-        invoices.total,
-        COALESCE(finance_draft_invoices.subtotal, invoices.total - invoices.vat) AS subtotal,
-        invoices.vat,
-        COALESCE(finance_draft_invoices.issue_date, '') AS issueDate,
-        invoices.due_date AS dueDate
-      FROM project_time_entries
-      JOIN invoices
-        ON invoices.org_id = project_time_entries.org_id
-       AND invoices.id = project_time_entries.billed_invoice_id
-      LEFT JOIN finance_invoice_links
-        ON finance_invoice_links.org_id = invoices.org_id
-       AND finance_invoice_links.invoice_id = invoices.id
-      LEFT JOIN finance_draft_invoices
-        ON finance_draft_invoices.org_id = finance_invoice_links.org_id
-       AND finance_draft_invoices.id = finance_invoice_links.draft_invoice_id
-      WHERE project_time_entries.org_id = ?
-        AND project_time_entries.project_id = ?
-        AND project_time_entries.billed_invoice_id IS NOT NULL
-      ORDER BY COALESCE(finance_draft_invoices.issue_date, invoices.due_date), invoices.number, invoices.id
-    `).all(user.org_id, project.id);
-    const billedRevenue = invoices.reduce((sum, invoice) => sum + (Number(invoice.total) || 0), 0);
-    const unbilledGrossMajor = hourlyRate > 0 ? (Number(minutes.unbilledMinutes || 0) / 60) * hourlyRate : 0;
-    const vatRate = resolveVatRate(db, user.org_id, asOf);
-    const unbilledRevenue = splitVatInclusive(unbilledGrossMajor, vatRate).total;
-    const totalRevenue = billedRevenue + unbilledRevenue;
-    const laborCostTotal = projectTimeAmount(Number(minutes.totalMinutes || 0), costRate, vatRate);
-    const taskProfitability = db.prepare(`
-      SELECT
-        project_time_entries.task_id AS taskId,
-        project_tasks.title AS taskTitle,
-        project_tasks.status AS taskStatus,
-        COALESCE(SUM(CASE WHEN project_time_entries.billed_invoice_id IS NOT NULL THEN project_time_entries.minutes ELSE 0 END), 0) AS billedMinutes,
-        COALESCE(SUM(CASE WHEN project_time_entries.billed_invoice_id IS NULL THEN project_time_entries.minutes ELSE 0 END), 0) AS unbilledMinutes,
-        COALESCE(SUM(project_time_entries.minutes), 0) AS totalMinutes,
-        COUNT(*) AS entries,
-        MIN(project_time_entries.entry_date) AS firstEntryDate
-      FROM project_time_entries
-      LEFT JOIN project_tasks
-        ON project_tasks.org_id = project_time_entries.org_id
-       AND project_tasks.project_id = project_time_entries.project_id
-       AND project_tasks.id = project_time_entries.task_id
-      WHERE project_time_entries.org_id = ?
-        AND project_time_entries.project_id = ?
-      GROUP BY project_time_entries.task_id, project_tasks.title, project_tasks.status
-      ORDER BY project_time_entries.task_id IS NULL, firstEntryDate, project_tasks.title, project_time_entries.task_id
-    `).all(user.org_id, project.id).map(row => {
-      const totalMinutes = Number(row.totalMinutes || 0);
-      const revenue = projectTimeAmount(totalMinutes, hourlyRate, vatRate);
-      const laborCost = projectTimeAmount(totalMinutes, costRate, vatRate);
-      const grossProfit = revenue - laborCost;
-      return {
-        taskId: row.taskId || null,
-        taskTitle: row.taskId ? row.taskTitle : "Unassigned",
-        taskStatus: row.taskId ? row.taskStatus : null,
-        billedMinutes: Number(row.billedMinutes || 0),
-        unbilledMinutes: Number(row.unbilledMinutes || 0),
-        totalMinutes,
-        entries: Number(row.entries || 0),
-        revenue,
-        laborCost,
-        grossProfit,
-        grossMarginPct: projectGrossMarginPct(revenue, grossProfit)
-      };
-    });
-    const productCostEvidence = project.dealId ? db.prepare(`
-      SELECT
-        quotes.id AS quoteId,
-        quotes.number AS quoteNumber,
-        quotes.status AS quoteStatus,
-        quote_lines.catalog_item_id AS catalogItemId,
-        catalog_items.sku AS catalogSku,
-        catalog_items.name AS catalogName,
-        quote_lines.catalog_item_variant_id AS catalogItemVariantId,
-        catalog_item_variants.sku AS variantSku,
-        quote_lines.quantity AS quantity,
-        quote_lines.total AS revenue,
-        CASE
-          WHEN quote_lines.catalog_item_variant_id IS NOT NULL
-            AND catalog_item_variants.id IS NOT NULL
-          THEN catalog_item_variants.standard_cost
-          ELSE catalog_items.standard_cost
-        END AS unitCost,
-        quote_lines.position AS position,
-        quotes.created_at AS quoteCreatedAt
-      FROM quotes
-      JOIN quote_lines
-        ON quote_lines.org_id = quotes.org_id
-       AND quote_lines.quote_id = quotes.id
-      JOIN catalog_items
-        ON catalog_items.org_id = quote_lines.org_id
-       AND catalog_items.id = quote_lines.catalog_item_id
-      LEFT JOIN catalog_item_variants
-        ON catalog_item_variants.org_id = quote_lines.org_id
-       AND catalog_item_variants.id = quote_lines.catalog_item_variant_id
-      WHERE quotes.org_id = ?
-        AND quotes.deal_id = ?
-        AND quotes.status IN ('sent', 'viewed', 'accepted')
-        AND quote_lines.catalog_item_id IS NOT NULL
-      ORDER BY quotes.created_at, quotes.number, quotes.id, quote_lines.position, quote_lines.id
-    `).all(user.org_id, project.dealId).map(row => {
-      const quantity = Number(row.quantity || 0);
-      const revenue = Number(row.revenue || 0);
-      const unitCost = Number(row.unitCost || 0);
-      const cost = quantity * unitCost;
-      const grossProfit = revenue - cost;
-      return {
-        quoteId: row.quoteId,
-        quoteNumber: row.quoteNumber,
-        quoteStatus: row.quoteStatus,
-        catalogItemId: row.catalogItemId,
-        catalogSku: row.catalogSku,
-        catalogName: row.catalogName,
-        catalogItemVariantId: row.catalogItemVariantId || null,
-        variantSku: row.variantSku || null,
-        quantity,
-        revenue,
-        unitCost,
-        cost,
-        grossProfit,
-        grossMarginPct: projectGrossMarginPct(revenue, grossProfit)
-      };
-    }) : [];
-    const fieldVisitRows = db.prepare(`
-      SELECT
-        service_field_visits.*,
-        service_cases.case_number,
-        service_cases.subject,
-        users.name AS assigned_user_name
-      FROM service_field_visits
-      JOIN service_cases
-        ON service_cases.org_id = service_field_visits.org_id
-       AND service_cases.id = service_field_visits.case_id
-      LEFT JOIN users
-        ON users.org_id = service_field_visits.org_id
-       AND users.id = service_field_visits.assigned_user_id
-      WHERE service_field_visits.org_id = ?
-        AND service_field_visits.project_id = ?
-      ORDER BY service_field_visits.scheduled_start_at, service_field_visits.id
-    `).all(user.org_id, project.id);
-    const materialsByVisitId = getServiceFieldVisitMaterialEvidenceByVisit(db, user.org_id, fieldVisitRows.map(row => row.id));
-    const fieldVisitCostEvidence = fieldVisitRows.map(row => {
-      const allocation = buildServiceFieldVisitCostAllocationEvidence(row, {
-        materialEvidence: materialsByVisitId.get(row.id) || []
-      });
-      const laborCost = projectTimeAmount(allocation.laborMinutes, costRate, vatRate);
-      const totalCost = laborCost + allocation.travelCost + allocation.materialCost;
-      const laborRateConfigured = costRate > 0;
-      const ledgerMappings = allocation.ledgerMappings.map(mapping => mapping.bucket === "labor"
-        ? {
-            ...mapping,
-            basis: laborRateConfigured ? "project-profitability-cost-rate" : mapping.basis,
-            amount: laborCost
-          }
-        : mapping);
-      const limitations = laborRateConfigured
-        ? allocation.limitations.filter(item => item !== "labor-rate-not-configured")
-        : allocation.limitations;
-      return {
-        visitId: row.id,
-        caseId: row.case_id,
-        caseNumber: row.case_number,
-        subject: row.subject,
-        assignedUserId: row.assigned_user_id,
-        assignedUserName: row.assigned_user_name || null,
-        scheduledStartAt: row.scheduled_start_at,
-        scheduledEndAt: row.scheduled_end_at,
-        scheduledMinutes: allocation.scheduledMinutes,
-        laborMinutes: allocation.laborMinutes,
-        laborCost,
-        travelCost: allocation.travelCost,
-        materialCost: allocation.materialCost,
-        totalCost,
-        source: laborRateConfigured
-          ? `${allocation.source}/project_profitability.costRate`
-          : allocation.source,
-        limitations,
-        ledgerMappings,
-        materialEvidence: allocation.materialEvidence
-      };
-    });
-    const productCostTotal = productCostEvidence.reduce((sum, row) => sum + row.cost, 0);
-    const fieldVisitCostTotal = fieldVisitCostEvidence.reduce((sum, row) => sum + row.totalCost, 0);
-    const costTotal = laborCostTotal + productCostTotal + fieldVisitCostTotal;
-    const grossProfit = totalRevenue - costTotal;
-    const grossMarginPct = projectGrossMarginPct(totalRevenue, grossProfit);
-    return {
-      profitability: {
-        projectId: project.id,
-        customerId: project.customerId,
-        currency: activeCurrencyCode(),
-        hourlyRate,
-        costRate,
-        billedMinutes: Number(minutes.billedMinutes || 0),
-        billedEntries: Number(minutes.billedEntries || 0),
-        unbilledMinutes: Number(minutes.unbilledMinutes || 0),
-        unbilledEntries: Number(minutes.unbilledEntries || 0),
-        totalMinutes: Number(minutes.totalMinutes || 0),
-        totalEntries: Number(minutes.totalEntries || 0),
-        billedRevenue,
-        unbilledRevenue,
-        totalRevenue,
-        laborCostTotal,
-        productCostTotal,
-        fieldVisitCostTotal,
-        costTotal,
-        grossProfit,
-        grossMarginPct,
-        taskProfitability,
-        productCostEvidence,
-        fieldVisitCount: fieldVisitCostEvidence.length,
-        fieldVisitCostEvidence,
-        invoiceCount: invoices.length,
-        invoices
-      }
-    };
-  });
-
-  function projectTimeAmount(minutes, rate, vatRate) {
-    const grossMajor = rate > 0 ? (Number(minutes || 0) / 60) * rate : 0;
-    return splitVatInclusive(grossMajor, vatRate).total;
-  }
-
-  function projectGrossMarginPct(revenue, grossProfit) {
-    return revenue > 0 ? Math.round((grossProfit / revenue) * 10000) / 100 : null;
-  }
 
   // Billing seam: convert a project's UNBILLED logged time into a posted invoice (+ ledger),
   // then mark those entries billed so they can never be billed twice. Reuses postDraftInvoice
@@ -6728,10 +6279,8 @@ function registerApi(app, db, options = {}) {
     return {
       cases: getServiceCases(db, user.org_id),
       queue: getServiceQueue(db, user.org_id),
-      slaPolicies: getServiceSlaPolicies(db, user.org_id),
       escalations: getServiceEscalations(db, user.org_id),
       resolutions: getServiceResolutions(db, user.org_id),
-      fieldVisits: getServiceFieldVisits(db, user.org_id),
       approvals: getWorkflowApprovals(db, user.org_id).filter(approval => ["pending", "approved"].includes(approval.status)),
       runs: getWorkflowRuns(db, user.org_id),
       rules: getAutomationRules(db, user.org_id, { includeLastDryRun: true }),
@@ -6745,121 +6294,6 @@ function registerApi(app, db, options = {}) {
     };
   });
 
-  app.get("/api/service/field-visits", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "desk");
-    return { visits: getServiceFieldVisits(db, user.org_id) };
-  });
-
-  app.get("/api/service/my-field-visits", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "desk");
-    return { visits: getServiceFieldVisits(db, user.org_id, "", user.id) };
-  });
-
-  app.get("/api/service/my-dispatch-alerts", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "desk");
-    const includeAcknowledged = normalizeServiceDispatchAlertIncludeAcknowledged(request.query || {});
-    return { alerts: getServiceDispatchAlerts(db, user, { includeAcknowledged }) };
-  });
-
-  app.post("/api/service/dispatch-alerts/:id/ack", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "desk");
-    const alertId = normalizeServiceDispatchAlertPathId(request.params.id);
-    const alert = acknowledgeServiceDispatchAlert(db, user, alertId);
-    return { ok: true, alert };
-  });
-
-  app.post("/api/service/field-visits", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "desk");
-    requireServiceSupervisor(user);
-    const visit = createServiceFieldVisit(db, user, request.body === undefined ? {} : request.body);
-    return { ok: true, visit };
-  });
-
-  app.patch("/api/service/field-visits/:id", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "desk");
-    requireServiceSupervisor(user);
-    const visitId = normalizeServiceFieldVisitPathId(request.params.id);
-    const visit = updateServiceFieldVisit(db, user, visitId, request.body === undefined ? {} : request.body);
-    return { ok: true, visit };
-  });
-
-  app.post("/api/service/field-visits/:id/technician-status", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "desk");
-    const visitId = normalizeServiceFieldVisitPathId(request.params.id);
-    const result = updateServiceFieldVisitTechnicianStatus(db, user, visitId, request.body === undefined ? {} : request.body);
-    if (result && result.visit) {
-      const envelope = { ok: true, visit: result.visit };
-      if (Object.prototype.hasOwnProperty.call(result, "idempotent")) envelope.idempotent = result.idempotent;
-      if (result.dispatchSync) envelope.dispatchSync = result.dispatchSync;
-      return envelope;
-    }
-    return { ok: true, visit: result };
-  });
-
-  app.post("/api/service/field-visits/:id/technician-location", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "desk");
-    const visitId = normalizeServiceFieldVisitPathId(request.params.id);
-    const result = captureServiceFieldVisitTechnicianLocation(db, user, visitId, request.body === undefined ? {} : request.body);
-    const envelope = { ok: true, visit: result.visit };
-    if (Object.prototype.hasOwnProperty.call(result, "idempotent")) envelope.idempotent = result.idempotent;
-    if (result.locationSync) envelope.locationSync = result.locationSync;
-    return envelope;
-  });
-
-  app.get("/api/service/sla-policies", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "desk");
-    return { policies: getServiceSlaPolicies(db, user.org_id) };
-  });
-
-  app.post("/api/service/sla-policies", async request => {
-    const user = await app.auth(request);
-    requireAppAccess(db, user, "desk");
-    requireServiceSupervisor(user);
-    const input = normalizeServiceSlaPolicyInput(request.body === undefined ? {} : request.body);
-    const now = new Date().toISOString();
-    db.prepare(`
-      INSERT INTO service_sla_policies (
-        id, org_id, name, priority, channel, response_minutes, resolution_minutes,
-        active, created_at, updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-      ON CONFLICT(org_id, priority, channel) DO UPDATE SET
-        name = excluded.name,
-        response_minutes = excluded.response_minutes,
-        resolution_minutes = excluded.resolution_minutes,
-        active = excluded.active,
-        updated_at = excluded.updated_at
-    `).run(
-      randomId("sla-policy"),
-      user.org_id,
-      input.name,
-      input.priority,
-      input.channel,
-      input.responseMinutes,
-      input.resolutionMinutes,
-      input.active ? 1 : 0,
-      now,
-      now
-    );
-    const policy = getServiceSlaPolicyByScope(db, user.org_id, input.priority, input.channel);
-    audit(db, user.org_id, user.id, "service.sla_policy.upserted", {
-      policyId: policy.id,
-      priority: policy.priority,
-      channel: policy.channel,
-      active: policy.active
-    });
-    return { ok: true, policy };
-  });
-
   app.post("/api/service/cases", async request => {
     const user = await app.auth(request);
     const input = normalizeServiceCaseCreateInput(request.body === undefined ? {} : request.body);
@@ -6871,14 +6305,12 @@ function registerApi(app, db, options = {}) {
       err.statusCode = 400;
       throw err;
     }
-    const nowMs = Date.now();
-    const now = new Date(nowMs).toISOString();
+    const now = new Date().toISOString();
     const caseId = randomId("case");
-    const caseNumber = `AO-CASE-${nowMs.toString().slice(-6)}`;
+    const caseNumber = `AO-CASE-${Date.now().toString().slice(-6)}`;
     const priority = input.priority;
     const channel = input.channel;
-    const slaPolicy = getBestServiceSlaPolicy(db, user.org_id, priority, channel);
-    const slaDueAt = calculateServiceSlaDueAt(priority, slaPolicy, nowMs);
+    const slaDueAt = new Date(Date.now() + (priority === "high" ? 4 : 24) * 60 * 60 * 1000).toISOString();
     db.prepare(`
       INSERT INTO service_cases (
         id, org_id, customer_id, ticket_id, case_number, subject, status, priority,
@@ -6916,9 +6348,9 @@ function registerApi(app, db, options = {}) {
       subjectId: caseId,
       customerId,
       status: priority === "high" ? "needs-action" : "recorded",
-      payload: { caseNumber, priority, channel, slaPolicyId: slaPolicy?.id || null }
+      payload: { caseNumber, priority, channel }
     });
-    audit(db, user.org_id, user.id, "service.case.created", { caseId, customerId, priority, slaPolicyId: slaPolicy?.id || null });
+    audit(db, user.org_id, user.id, "service.case.created", { caseId, customerId, priority });
     return { ok: true, case: getServiceCase(db, user.org_id, caseId), events: getRecentSuiteEvents(db, user.org_id, 5, customerId) };
   });
 
@@ -10891,159 +10323,12 @@ function getForm(db, orgId, id) {
 function getProject(db, orgId, id) {
   const project = db.prepare("SELECT id, name, description, status, customer_id AS customerId, deal_id AS dealId, start_date AS startDate, due_date AS dueDate, created_at AS createdAt, updated_at AS updatedAt FROM projects WHERE org_id = ? AND id = ?").get(orgId, String(id || ""));
   if (!project) return null;
-  project.recurringTasks = getProjectRecurringTasks(db, orgId, project.id);
-  project.tasks = db.prepare("SELECT id, title, status, parent_task_id AS parentTaskId, assignee_employee_id AS assigneeEmployeeId, due_date AS dueDate, updated_at AS updatedAt FROM project_tasks WHERE org_id = ? AND project_id = ? ORDER BY created_at").all(orgId, project.id);
-  const tasksById = new Map();
-  for (const task of project.tasks) {
-    task.parentTask = null;
-    task.subtasks = [];
-    task.blockedBy = [];
-    task.blocking = [];
-    task.dependsOnTaskIds = [];
-    task.blockingTaskIds = [];
-    tasksById.set(task.id, task);
-  }
-  for (const task of project.tasks) {
-    if (!task.parentTaskId) continue;
-    const parentTask = tasksById.get(task.parentTaskId);
-    if (!parentTask) continue;
-    task.parentTask = { id: parentTask.id, title: parentTask.title, status: parentTask.status };
-    parentTask.subtasks.push({ id: task.id, title: task.title, status: task.status });
-  }
-  const dependencies = db.prepare(`
-    SELECT
-      d.task_id AS taskId,
-      d.depends_on_task_id AS dependsOnTaskId,
-      blocked_by.title AS dependsOnTitle,
-      blocked_by.status AS dependsOnStatus,
-      blocking_task.title AS taskTitle,
-      blocking_task.status AS taskStatus
-    FROM project_task_dependencies d
-    JOIN project_tasks blocked_by
-      ON blocked_by.org_id = d.org_id
-      AND blocked_by.project_id = d.project_id
-      AND blocked_by.id = d.depends_on_task_id
-    JOIN project_tasks blocking_task
-      ON blocking_task.org_id = d.org_id
-      AND blocking_task.project_id = d.project_id
-      AND blocking_task.id = d.task_id
-    WHERE d.org_id = ? AND d.project_id = ?
-    ORDER BY d.created_at, d.task_id, d.depends_on_task_id
-  `).all(orgId, project.id);
-  for (const dependency of dependencies) {
-    const task = tasksById.get(dependency.taskId);
-    const dependsOnTask = tasksById.get(dependency.dependsOnTaskId);
-    if (!task || !dependsOnTask) continue;
-    task.blockedBy.push({ id: dependency.dependsOnTaskId, title: dependency.dependsOnTitle, status: dependency.dependsOnStatus });
-    task.dependsOnTaskIds.push(dependency.dependsOnTaskId);
-    dependsOnTask.blocking.push({ id: dependency.taskId, title: dependency.taskTitle, status: dependency.taskStatus });
-    dependsOnTask.blockingTaskIds.push(dependency.taskId);
-  }
+  project.tasks = db.prepare("SELECT id, title, status, assignee_employee_id AS assigneeEmployeeId, due_date AS dueDate, updated_at AS updatedAt FROM project_tasks WHERE org_id = ? AND project_id = ? ORDER BY created_at").all(orgId, project.id);
   project.milestones = db.prepare("SELECT id, title, due_date AS dueDate, reached, updated_at AS updatedAt FROM project_milestones WHERE org_id = ? AND project_id = ? ORDER BY due_date, created_at").all(orgId, project.id);
   const totals = db.prepare("SELECT COALESCE(SUM(minutes), 0) AS totalMinutes, COUNT(*) AS entryCount FROM project_time_entries WHERE org_id = ? AND project_id = ?").get(orgId, project.id);
   project.totalMinutes = totals.totalMinutes;
   project.timeEntryCount = totals.entryCount;
   return project;
-}
-
-function getProjectRecurringTask(db, orgId, projectId, id) {
-  const row = db.prepare(`
-    SELECT
-      id,
-      org_id AS orgId,
-      project_id AS projectId,
-      title,
-      status,
-      interval_unit AS intervalUnit,
-      interval_every AS intervalEvery,
-      next_due_date AS nextDueDate,
-      active,
-      last_created_task_id AS lastCreatedTaskId,
-      created_at AS createdAt,
-      updated_at AS updatedAt
-    FROM project_recurring_tasks
-    WHERE org_id = ? AND project_id = ? AND id = ?
-  `).get(orgId, projectId, String(id || ""));
-  return mapProjectRecurringTask(row);
-}
-
-function getProjectRecurringTasks(db, orgId, projectId) {
-  return db.prepare(`
-    SELECT
-      id,
-      org_id AS orgId,
-      project_id AS projectId,
-      title,
-      status,
-      interval_unit AS intervalUnit,
-      interval_every AS intervalEvery,
-      next_due_date AS nextDueDate,
-      active,
-      last_created_task_id AS lastCreatedTaskId,
-      created_at AS createdAt,
-      updated_at AS updatedAt
-    FROM project_recurring_tasks
-    WHERE org_id = ? AND project_id = ?
-    ORDER BY active DESC, next_due_date, created_at
-  `).all(orgId, projectId).map(mapProjectRecurringTask);
-}
-
-function mapProjectRecurringTask(row) {
-  if (!row) return null;
-  return {
-    ...row,
-    active: Boolean(row.active),
-    lastCreatedTaskId: row.lastCreatedTaskId || null
-  };
-}
-
-function getProjectTemplate(db, orgId, id) {
-  const template = db.prepare(`
-    SELECT id, name, description, status, created_at AS createdAt, updated_at AS updatedAt
-    FROM project_templates
-    WHERE org_id = ? AND id = ?
-  `).get(orgId, String(id || ""));
-  if (!template) return null;
-  template.tasks = db.prepare(`
-    SELECT
-      id,
-      title,
-      status,
-      parent_template_task_id AS parentTaskId,
-      due_offset_days AS dueOffsetDays,
-      sort_order AS sortOrder,
-      updated_at AS updatedAt
-    FROM project_template_tasks
-    WHERE org_id = ? AND template_id = ?
-    ORDER BY sort_order, created_at
-  `).all(orgId, template.id);
-  const tasksById = new Map();
-  for (const task of template.tasks) {
-    task.parentTask = null;
-    task.subtasks = [];
-    tasksById.set(task.id, task);
-  }
-  for (const task of template.tasks) {
-    if (!task.parentTaskId) continue;
-    const parentTask = tasksById.get(task.parentTaskId);
-    if (!parentTask) continue;
-    task.parentTask = { id: parentTask.id, title: parentTask.title, status: parentTask.status };
-    parentTask.subtasks.push({ id: task.id, title: task.title, status: task.status });
-  }
-  template.milestones = db.prepare(`
-    SELECT
-      id,
-      title,
-      due_offset_days AS dueOffsetDays,
-      sort_order AS sortOrder,
-      updated_at AS updatedAt
-    FROM project_template_milestones
-    WHERE org_id = ? AND template_id = ?
-    ORDER BY sort_order, created_at
-  `).all(orgId, template.id);
-  template.taskCount = template.tasks.length;
-  template.milestoneCount = template.milestones.length;
-  return template;
 }
 
 function requireMfaPrivilegedUser(user) {
@@ -11151,6 +10436,40 @@ function requireIntegrationWriter(user) {
     err.statusCode = 403;
     throw err;
   }
+}
+
+function requireAskAiAccess(db, user, context) {
+  if (["Owner", "Admin"].includes(user.role)) return;
+  if (user.role === "Auditor") return;
+  const rawAppId = isPlainObject(context) && typeof context.app === "string"
+    ? context.app.trim()
+    : "";
+  const rawPath = isPlainObject(context) && typeof context.rawPath === "string"
+    ? context.rawPath.trim()
+    : "";
+  const appId = askAiAssignmentAppId(rawAppId, rawPath);
+  if (appId && hasAppAccess(db, user, appId)) return;
+  if (!appId && canUseGeneralAskAi(user)) return;
+  const err = new Error("Ask AI app access required");
+  err.statusCode = 403;
+  throw err;
+}
+
+function askAiAssignmentAppId(appId, rawPath = "") {
+  if (appId === "ask-ai" || (!appId && rawPath === "/app/ask-ai")) return "";
+  if (appId === "copilot" && rawPath === "/app/ask-ai") return "";
+  if (!appId) {
+    const pathAppId = rawPath.split("/").filter(Boolean)[1];
+    return pathAppId || "copilot";
+  }
+  return {
+    cabinet: "docs",
+    forms: "campaigns"
+  }[appId] ?? appId;
+}
+
+function canUseGeneralAskAi(user) {
+  return ["Salesperson", "Operator", "Accountant"].includes(user.role);
 }
 
 function requirePilotTemplateReader(user) {
@@ -12547,22 +11866,6 @@ function requireInventoryReader(user) {
 function requireInventoryWriter(user) {
   if (!["Owner", "Admin", "Operator", "Accountant"].includes(user.role)) {
     const err = new Error("Inventory writer role required");
-    err.statusCode = 403;
-    throw err;
-  }
-}
-
-function requirePosReader(user) {
-  if (!["Owner", "Admin", "Operator", "Accountant", "Salesperson"].includes(user.role)) {
-    const err = new Error("POS reader role required");
-    err.statusCode = 403;
-    throw err;
-  }
-}
-
-function requirePosWriter(user) {
-  if (!["Owner", "Admin", "Operator", "Accountant", "Salesperson"].includes(user.role)) {
-    const err = new Error("POS writer role required");
     err.statusCode = 403;
     throw err;
   }
@@ -46773,10 +46076,6 @@ const ORG_BACKUP_TABLES = [
   "catalog_price_lists",
   "catalog_price_list_items",
   "catalog_margin_rules",
-  "pos_cash_sessions",
-  "pos_sales",
-  "pos_sale_lines",
-  "pos_receipt_packets",
   "stock_locations",
   "stock_quants",
   "stock_moves",
@@ -46786,9 +46085,6 @@ const ORG_BACKUP_TABLES = [
   "purchase_order_lines",
   "purchase_receipts",
   "purchase_returns",
-  "purchase_credit_notes",
-  "landed_cost_allocations",
-  "landed_cost_lines",
   "integration_connectors",
   "integration_connector_checks",
   "pilot_template_installs",
@@ -46909,11 +46205,9 @@ const ORG_BACKUP_TABLES = [
   "finance_vat_returns",
   "tickets",
   "service_cases",
-  "service_sla_policies",
   "case_messages",
   "service_case_escalations",
   "service_case_resolutions",
-  "service_field_visits",
   "automation_rules",
   "automation_rule_versions",
   "webhook_endpoints",
@@ -49482,24 +48776,6 @@ function normalizeServiceCaseCreateInput(body) {
   };
 }
 
-function normalizeServiceSlaPolicyInput(body) {
-  if (!isPlainObject(body)) {
-    throwInvalidServiceSlaPolicyMetadata();
-  }
-  const input = {
-    name: normalizeServiceText(body, "name", { required: true, minLength: 3, maxLength: 120 }),
-    priority: normalizeServiceChoice(body, "priority", ["low", "medium", "high"], "medium"),
-    channel: normalizeServiceChoice(body, "channel", ["WhatsApp", "Telegram", "Email", "Phone", "Manual"], ""),
-    responseMinutes: normalizeServiceSlaMinutes(body, "responseMinutes"),
-    resolutionMinutes: normalizeServiceSlaMinutes(body, "resolutionMinutes"),
-    active: normalizeServiceBoolean(body, "active", true)
-  };
-  if (input.responseMinutes > input.resolutionMinutes) {
-    throwInvalidServiceSlaPolicyMetadata();
-  }
-  return input;
-}
-
 function normalizeServiceReplyInput(body) {
   if (!isPlainObject(body)) {
     throwInvalidServiceMetadata();
@@ -49524,196 +48800,6 @@ function normalizeServiceCaseUpdateInput(body) {
     input.ownerUserId = normalizeServiceText(body, "ownerUserId", { required: true, minLength: 1, maxLength: 120 });
   }
   return input;
-}
-
-function normalizeServiceFieldVisitCreateInput(body) {
-  if (!isPlainObject(body)) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  const input = {
-    caseId: normalizeServiceText(body, "caseId", { required: true, minLength: 1, maxLength: 120 }),
-    customerId: normalizeServiceText(body, "customerId", { required: true, minLength: 1, maxLength: 120 }),
-    assignedUserId: normalizeServiceText(body, "assignedUserId", { required: true, minLength: 1, maxLength: 120 }),
-    projectId: normalizeServiceFieldVisitProjectId(body),
-    scheduledStartAt: normalizeServiceFieldVisitTimestamp(body, "scheduledStartAt"),
-    scheduledEndAt: normalizeServiceFieldVisitTimestamp(body, "scheduledEndAt"),
-    status: normalizeServiceChoice(body, "status", SERVICE_FIELD_VISIT_STATUSES, "scheduled"),
-    location: normalizeServiceText(body, "location", { required: true, minLength: 2, maxLength: 240 }),
-    worksheetSummary: normalizeServiceText(body, "worksheetSummary", { fallback: "", maxLength: 2000, allowMultiline: true })
-  };
-  assertServiceFieldVisitTimeOrder(input.scheduledStartAt, input.scheduledEndAt);
-  return input;
-}
-
-function normalizeServiceFieldVisitPatchInput(body, existing) {
-  if (!isPlainObject(body)) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  const input = {};
-  if (Object.prototype.hasOwnProperty.call(body, "status")) {
-    input.status = normalizeServiceChoice(body, "status", SERVICE_FIELD_VISIT_STATUSES, "");
-    if (!input.status) throwInvalidServiceFieldVisitMetadata();
-  }
-  if (Object.prototype.hasOwnProperty.call(body, "location")) {
-    input.location = normalizeServiceText(body, "location", { required: true, minLength: 2, maxLength: 240 });
-  }
-  if (Object.prototype.hasOwnProperty.call(body, "worksheetSummary")) {
-    input.worksheetSummary = normalizeServiceText(body, "worksheetSummary", { fallback: "", maxLength: 2000, allowMultiline: true });
-  }
-  if (Object.prototype.hasOwnProperty.call(body, "scheduledStartAt")) {
-    input.scheduledStartAt = normalizeServiceFieldVisitTimestamp(body, "scheduledStartAt");
-  }
-  if (Object.prototype.hasOwnProperty.call(body, "scheduledEndAt")) {
-    input.scheduledEndAt = normalizeServiceFieldVisitTimestamp(body, "scheduledEndAt");
-  }
-  if (Object.prototype.hasOwnProperty.call(body, "assignedUserId")) {
-    input.assignedUserId = normalizeServiceText(body, "assignedUserId", { required: true, minLength: 1, maxLength: 120 });
-  }
-  if (Object.prototype.hasOwnProperty.call(body, "projectId")) {
-    input.projectId = normalizeServiceFieldVisitProjectId(body);
-  }
-  if (Object.keys(input).length === 0) {
-    const err = new Error("No updatable fields provided");
-    err.statusCode = 400;
-    throw err;
-  }
-  assertServiceFieldVisitTimeOrder(
-    input.scheduledStartAt || existing.scheduledStartAt,
-    input.scheduledEndAt || existing.scheduledEndAt
-  );
-  return input;
-}
-
-function normalizeServiceFieldVisitTechnicianStatusInput(body) {
-  if (!isPlainObject(body)) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  const input = {
-    status: normalizeServiceChoice(body, "status", SERVICE_FIELD_VISIT_TECHNICIAN_STATUSES, "")
-  };
-  if (!input.status) throwInvalidServiceFieldVisitMetadata();
-  if (Object.prototype.hasOwnProperty.call(body, "worksheetSummary")) {
-    input.worksheetSummary = normalizeServiceText(body, "worksheetSummary", { fallback: "", maxLength: 2000, allowMultiline: true });
-  }
-  if (Object.prototype.hasOwnProperty.call(body, "idempotencyKey")) {
-    input.idempotencyKey = normalizeServiceFieldVisitTechnicianIdempotencyKey(body);
-  }
-  return input;
-}
-
-function normalizeServiceFieldVisitTechnicianLocationInput(body) {
-  if (!isPlainObject(body)) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  const capturedAtProvided = Object.prototype.hasOwnProperty.call(body, "capturedAt") && body.capturedAt !== "";
-  const input = {
-    latitude: normalizeServiceFieldVisitLocationCoordinate(body, "latitude", -90, 90),
-    longitude: normalizeServiceFieldVisitLocationCoordinate(body, "longitude", -180, 180),
-    capturedAt: normalizeServiceFieldVisitOptionalCapturedAt(body),
-    capturedAtProvided,
-    source: normalizeServiceChoice(body, "source", SERVICE_FIELD_VISIT_LOCATION_SOURCES, "gps")
-  };
-  if (Object.prototype.hasOwnProperty.call(body, "accuracyMeters")) {
-    input.accuracyMeters = normalizeServiceFieldVisitAccuracyMeters(body);
-  }
-  if (Object.prototype.hasOwnProperty.call(body, "idempotencyKey")) {
-    input.idempotencyKey = normalizeServiceFieldVisitTechnicianIdempotencyKey(body);
-  }
-  return input;
-}
-
-function normalizeServiceFieldVisitLocationCoordinate(body, field, min, max) {
-  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
-  if (value === undefined || value === "" || value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  if (typeof value === "string" && /[\x00-\x1f\x7f]/.test(value)) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  const coordinate = Number(value);
-  if (!Number.isFinite(coordinate) || coordinate < min || coordinate > max) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  return Number(coordinate.toFixed(6));
-}
-
-function normalizeServiceFieldVisitAccuracyMeters(body) {
-  const value = body.accuracyMeters;
-  if (value === "" || value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  if (typeof value === "string" && /[\x00-\x1f\x7f]/.test(value)) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  const accuracy = Number(value);
-  if (!Number.isFinite(accuracy) || accuracy < 0 || accuracy > 100000) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  return Number(accuracy.toFixed(2));
-}
-
-function normalizeServiceFieldVisitOptionalCapturedAt(body) {
-  if (!Object.prototype.hasOwnProperty.call(body, "capturedAt") || body.capturedAt === "") {
-    return new Date().toISOString();
-  }
-  const text = normalizeServiceText(body, "capturedAt", { required: true, minLength: 10, maxLength: 40 });
-  const parsed = new Date(text);
-  if (Number.isNaN(parsed.getTime())) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  return parsed.toISOString();
-}
-
-function normalizeServiceFieldVisitTechnicianIdempotencyKey(body) {
-  const key = normalizeServiceText(body, "idempotencyKey", { required: true, minLength: 1, maxLength: 200 });
-  if (!/^[A-Za-z0-9._:-]+$/.test(key) || looksLikeSensitiveToken(key)) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  return key;
-}
-
-function normalizeServiceFieldVisitProjectId(body) {
-  if (!Object.prototype.hasOwnProperty.call(body, "projectId") || body.projectId === "" || body.projectId === null) {
-    return null;
-  }
-  const projectId = normalizeServiceText(body, "projectId", { required: true, minLength: 1, maxLength: 160 });
-  if (!/^[a-z0-9-]+$/.test(projectId) || looksLikeSensitiveToken(projectId)) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  return projectId;
-}
-
-function looksLikeSensitiveToken(value) {
-  return /(?:sk-(?:live|test|proj|or)|gh[pousr]_|github_pat_|xox[baprs]-|AKIA[0-9A-Z]{16}|secret)/i.test(value);
-}
-
-function assertServiceFieldVisitTechnicianTransition(currentStatus, nextStatus) {
-  const current = typeof currentStatus === "string" ? currentStatus.trim().toLowerCase() : "";
-  const allowed = {
-    scheduled: ["en-route"],
-    "en-route": ["en-route", "in-progress"],
-    "in-progress": ["in-progress", "completed"],
-    completed: ["completed"],
-    cancelled: []
-  };
-  if (!allowed[current]?.includes(nextStatus)) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-}
-
-function normalizeServiceFieldVisitTimestamp(body, field) {
-  const text = normalizeServiceText(body, field, { required: true, minLength: 10, maxLength: 40 });
-  const parsed = new Date(text);
-  if (Number.isNaN(parsed.getTime())) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  return parsed.toISOString();
-}
-
-function assertServiceFieldVisitTimeOrder(startAt, endAt) {
-  if (new Date(startAt).getTime() >= new Date(endAt).getTime()) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
 }
 
 function normalizeServiceEscalationInput(body) {
@@ -49792,41 +48878,6 @@ function normalizeServiceSatisfactionScore(body) {
   return score;
 }
 
-function normalizeServiceSlaMinutes(body, field) {
-  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
-  if (value === undefined || value === "" || value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") {
-    throwInvalidServiceSlaPolicyMetadata();
-  }
-  let minutes;
-  if (typeof value === "number") {
-    minutes = value;
-  } else if (typeof value === "string") {
-    if (/[\x00-\x1f\x7f]/.test(value)) {
-      throwInvalidServiceSlaPolicyMetadata();
-    }
-    const text = value.trim();
-    if (!/^\d+$/.test(text)) {
-      throwInvalidServiceSlaPolicyMetadata();
-    }
-    minutes = Number(text);
-  } else {
-    throwInvalidServiceSlaPolicyMetadata();
-  }
-  if (!Number.isSafeInteger(minutes) || minutes < 1 || minutes > 43200) {
-    throwInvalidServiceSlaPolicyMetadata();
-  }
-  return minutes;
-}
-
-function normalizeServiceBoolean(body, field, fallback = false) {
-  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
-  if (value === undefined || value === "") return Boolean(fallback);
-  if (typeof value !== "boolean") {
-    throwInvalidServiceSlaPolicyMetadata();
-  }
-  return value;
-}
-
 function normalizeServiceTimestamp(body, field, fallback) {
   if (!Object.prototype.hasOwnProperty.call(body, field) || body[field] === "") {
     return fallback;
@@ -49845,14 +48896,6 @@ function throwInvalidServiceMetadata(message = "Service request requires safe me
   throw err;
 }
 
-function throwInvalidServiceSlaPolicyMetadata() {
-  throwInvalidServiceMetadata("SLA policy requires safe metadata");
-}
-
-function throwInvalidServiceFieldVisitMetadata() {
-  throwInvalidServiceMetadata("Field visit requires safe metadata");
-}
-
 function normalizeServiceCasePathId(value) {
   if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
     throwInvalidServiceCasePathId();
@@ -49866,23 +48909,6 @@ function normalizeServiceCasePathId(value) {
 
 function throwInvalidServiceCasePathId() {
   const err = new Error("Invalid service case id");
-  err.statusCode = 400;
-  throw err;
-}
-
-function normalizeServiceFieldVisitPathId(value) {
-  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
-    throwInvalidServiceFieldVisitPathId();
-  }
-  const text = value.trim();
-  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) {
-    throwInvalidServiceFieldVisitPathId();
-  }
-  return text;
-}
-
-function throwInvalidServiceFieldVisitPathId() {
-  const err = new Error("Invalid service field visit id");
   err.statusCode = 400;
   throw err;
 }
@@ -51516,65 +50542,6 @@ function getServiceQueue(db, orgId) {
     highPriorityOpen: db.prepare("SELECT COUNT(*) AS count FROM service_cases WHERE org_id = ? AND priority = 'high' AND status != 'closed'").get(orgId).count,
     escalatedOpen: db.prepare("SELECT COUNT(*) AS count FROM service_case_escalations WHERE org_id = ? AND status = 'open'").get(orgId).count,
     averageSatisfaction: Math.round(db.prepare("SELECT COALESCE(AVG(satisfaction_score), 0) AS average FROM service_case_resolutions WHERE org_id = ? AND satisfaction_score IS NOT NULL").get(orgId).average)
-  };
-}
-
-function getServiceSlaPolicies(db, orgId) {
-  return db.prepare(`
-    SELECT *
-    FROM service_sla_policies
-    WHERE org_id = ?
-    ORDER BY
-      CASE priority WHEN 'high' THEN 1 WHEN 'medium' THEN 2 ELSE 3 END,
-      CASE WHEN channel = '' THEN 1 ELSE 0 END,
-      channel,
-      name
-  `).all(orgId).map(formatServiceSlaPolicy);
-}
-
-function getServiceSlaPolicyByScope(db, orgId, priority, channel) {
-  const row = db.prepare(`
-    SELECT *
-    FROM service_sla_policies
-    WHERE org_id = ? AND priority = ? AND channel = ?
-  `).get(orgId, priority, channel);
-  return row ? formatServiceSlaPolicy(row) : null;
-}
-
-function getBestServiceSlaPolicy(db, orgId, priority, channel) {
-  const row = db.prepare(`
-    SELECT *
-    FROM service_sla_policies
-    WHERE org_id = ?
-      AND active = 1
-      AND priority = ?
-      AND channel IN (?, '')
-    ORDER BY CASE WHEN channel = ? THEN 0 ELSE 1 END, updated_at DESC
-    LIMIT 1
-  `).get(orgId, priority, channel, channel);
-  return row ? formatServiceSlaPolicy(row) : null;
-}
-
-function calculateServiceSlaDueAt(priority, policy, nowMs = Date.now()) {
-  const resolutionMinutes = policy?.resolutionMinutes || serviceSlaFallbackMinutes(priority);
-  return new Date(nowMs + resolutionMinutes * 60 * 1000).toISOString();
-}
-
-function serviceSlaFallbackMinutes(priority) {
-  return priority === "high" ? 240 : 1440;
-}
-
-function formatServiceSlaPolicy(row) {
-  return {
-    id: row.id,
-    name: row.name,
-    priority: row.priority,
-    channel: row.channel,
-    responseMinutes: row.response_minutes,
-    resolutionMinutes: row.resolution_minutes,
-    active: Boolean(row.active),
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
   };
 }
 
@@ -54072,14 +53039,6 @@ function getStockMoves(db, orgId, filters = {}) {
       source_locations.location_type AS source_location_type,
       destination_locations.code AS destination_location_code, destination_locations.name AS destination_location_name,
       destination_locations.location_type AS destination_location_type,
-      valuation_journal.id AS valuation_journal_id,
-      valuation_journal.entry_date AS valuation_entry_date,
-      valuation_journal.debit_code AS valuation_debit_code,
-      valuation_journal.credit_code AS valuation_credit_code,
-      valuation_journal.amount AS valuation_amount,
-      valuation_journal.source_type AS valuation_source_type,
-      valuation_journal.source_id AS valuation_source_id,
-      valuation_journal.period_key AS valuation_period_key,
       users.name AS created_by_name
     FROM stock_moves
     JOIN catalog_items ON catalog_items.id = stock_moves.catalog_item_id
@@ -54088,11 +53047,6 @@ function getStockMoves(db, orgId, filters = {}) {
       AND source_locations.org_id = stock_moves.org_id
     LEFT JOIN stock_locations AS destination_locations ON destination_locations.id = stock_moves.destination_location_id
       AND destination_locations.org_id = stock_moves.org_id
-    LEFT JOIN ledger_journal AS valuation_journal ON valuation_journal.org_id = stock_moves.org_id
-      AND valuation_journal.source_type = 'stock_move_valuation'
-      AND valuation_journal.source_id = stock_moves.id
-      AND valuation_journal.debit_code = '711'
-      AND valuation_journal.credit_code = '216'
     LEFT JOIN users ON users.id = stock_moves.created_by_user_id
     WHERE ${where.join(" AND ")}
     ORDER BY stock_moves.created_at DESC, stock_moves.id DESC
@@ -54106,14 +53060,6 @@ function getStockMove(db, orgId, moveId) {
       source_locations.location_type AS source_location_type,
       destination_locations.code AS destination_location_code, destination_locations.name AS destination_location_name,
       destination_locations.location_type AS destination_location_type,
-      valuation_journal.id AS valuation_journal_id,
-      valuation_journal.entry_date AS valuation_entry_date,
-      valuation_journal.debit_code AS valuation_debit_code,
-      valuation_journal.credit_code AS valuation_credit_code,
-      valuation_journal.amount AS valuation_amount,
-      valuation_journal.source_type AS valuation_source_type,
-      valuation_journal.source_id AS valuation_source_id,
-      valuation_journal.period_key AS valuation_period_key,
       users.name AS created_by_name
     FROM stock_moves
     JOIN catalog_items ON catalog_items.id = stock_moves.catalog_item_id
@@ -54122,11 +53068,6 @@ function getStockMove(db, orgId, moveId) {
       AND source_locations.org_id = stock_moves.org_id
     LEFT JOIN stock_locations AS destination_locations ON destination_locations.id = stock_moves.destination_location_id
       AND destination_locations.org_id = stock_moves.org_id
-    LEFT JOIN ledger_journal AS valuation_journal ON valuation_journal.org_id = stock_moves.org_id
-      AND valuation_journal.source_type = 'stock_move_valuation'
-      AND valuation_journal.source_id = stock_moves.id
-      AND valuation_journal.debit_code = '711'
-      AND valuation_journal.credit_code = '216'
     LEFT JOIN users ON users.id = stock_moves.created_by_user_id
     WHERE stock_moves.org_id = ? AND stock_moves.id = ?
   `).get(orgId, moveId);
@@ -54154,25 +53095,9 @@ function formatStockMove(row) {
     status: row.status,
     reason: row.reason,
     reference: row.reference,
-    serviceFieldVisitId: row.service_field_visit_id || null,
-    valuationPosting: formatStockMoveValuationPosting(row),
     createdByUserId: row.created_by_user_id,
     createdByName: row.created_by_name || "",
     createdAt: row.created_at
-  };
-}
-
-function formatStockMoveValuationPosting(row) {
-  if (!row.valuation_journal_id) return null;
-  return {
-    id: row.valuation_journal_id,
-    sourceType: row.valuation_source_type,
-    sourceId: row.valuation_source_id,
-    periodKey: row.valuation_period_key,
-    entryDate: row.valuation_entry_date,
-    debitCode: row.valuation_debit_code,
-    creditCode: row.valuation_credit_code,
-    amount: row.valuation_amount
   };
 }
 
@@ -54203,7 +53128,6 @@ function createStockMoveFromInput(db, user, input) {
   }
   const { sourceLocation, destinationLocation } = resolveStockMoveLocations(db, user.org_id, input);
   assertStockMoveLocations(input, sourceLocation, destinationLocation);
-  assertStockMoveServiceFieldVisit(db, user.org_id, input);
   if (isInternalStockLocation(sourceLocation)) assertStockAvailable(db, user.org_id, item.id, sourceLocation.id, input.quantity);
 
   const now = new Date().toISOString();
@@ -54215,9 +53139,9 @@ function createStockMoveFromInput(db, user, input) {
     INSERT INTO stock_moves (
       id, org_id, catalog_item_id, source_location_id, destination_location_id,
       move_type, quantity, unit_cost, total_cost, status, reason, reference,
-      service_field_visit_id, created_by_user_id, created_at
+      created_by_user_id, created_at
     )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `).run(
     moveId,
     user.org_id,
@@ -54231,13 +53155,11 @@ function createStockMoveFromInput(db, user, input) {
     "posted",
     input.reason,
     input.reference,
-    input.serviceFieldVisitId || null,
     user.id,
     now
   );
   if (isInternalStockLocation(sourceLocation)) adjustStockQuant(db, user.org_id, item.id, sourceLocation.id, -input.quantity, unitCost, now);
   if (isInternalStockLocation(destinationLocation)) adjustStockQuant(db, user.org_id, item.id, destinationLocation.id, input.quantity, unitCost, now);
-  postStockMoveValuation(db, user.org_id, moveId, now, sourceLocation, destinationLocation, totalCost);
   emitSuiteEvent(db, {
     orgId: user.org_id,
     actorUserId: user.id,
@@ -54245,9 +53167,9 @@ function createStockMoveFromInput(db, user, input) {
     subjectType: "stock_move",
     subjectId: moveId,
     status: "posted",
-    payload: { catalogItemId: item.id, sku: item.sku, moveType: input.moveType, quantity: input.quantity, unitCost, totalCost, serviceFieldVisitId: input.serviceFieldVisitId || null }
+    payload: { catalogItemId: item.id, sku: item.sku, moveType: input.moveType, quantity: input.quantity, unitCost, totalCost }
   });
-  audit(db, user.org_id, user.id, "inventory.stock_move.posted", { moveId, catalogItemId: item.id, moveType: input.moveType, quantity: input.quantity, serviceFieldVisitId: input.serviceFieldVisitId || null });
+  audit(db, user.org_id, user.id, "inventory.stock_move.posted", { moveId, catalogItemId: item.id, moveType: input.moveType, quantity: input.quantity });
   return getStockMove(db, user.org_id, moveId);
 }
 
@@ -54273,25 +53195,6 @@ function requireDefaultStockLocation(db, orgId, code) {
 
 function isInternalStockLocation(location) {
   return Boolean(location && location.locationType === "internal");
-}
-
-function isVirtualCogsDestination(location) {
-  return Boolean(location && ["customer", "scrap"].includes(location.locationType));
-}
-
-function postStockMoveValuation(db, orgId, moveId, createdAt, sourceLocation, destinationLocation, totalCost) {
-  if (!isInternalStockLocation(sourceLocation) || !isVirtualCogsDestination(destinationLocation) || totalCost <= 0) return null;
-  const periodKey = createdAt.slice(0, 7);
-  return ledger.postEntry(db, orgId, {
-    date: createdAt,
-    debitCode: "711",
-    creditCode: "216",
-    amount: totalCost,
-    memo: `Stock move valuation ${moveId}`,
-    sourceType: "stock_move_valuation",
-    sourceId: moveId,
-    periodKey
-  });
 }
 
 function resolveStockMoveUnitCost(db, orgId, item, input, sourceLocation) {
@@ -54395,19 +53298,6 @@ function assertStockMoveLocations(input, sourceLocation, destinationLocation) {
   }
 }
 
-function assertStockMoveServiceFieldVisit(db, orgId, input) {
-  if (!input.serviceFieldVisitId) return;
-  if (!["delivery", "outbound", "scrap"].includes(input.moveType)) {
-    throwInvalidInventoryMetadata();
-  }
-  const visit = db.prepare("SELECT id FROM service_field_visits WHERE org_id = ? AND id = ?").get(orgId, input.serviceFieldVisitId);
-  if (!visit) {
-    const err = new Error("Service field visit not found");
-    err.statusCode = 404;
-    throw err;
-  }
-}
-
 function normalizeInventoryQuery(query) {
   return {
     catalogItemId: normalizeInventoryQueryText(query, "catalogItemId", { idLike: true }),
@@ -54421,7 +53311,6 @@ function normalizeStockMoveBody(body) {
     catalogItemId: normalizeInventoryText(body, "catalogItemId", { required: true, idLike: true }),
     sourceLocationId: normalizeInventoryText(body, "sourceLocationId", { idLike: true }),
     destinationLocationId: normalizeInventoryText(body, "destinationLocationId", { idLike: true }),
-    serviceFieldVisitId: normalizeInventoryText(body, "serviceFieldVisitId", { idLike: true }),
     moveType: normalizeInventoryChoice(body, "moveType", ["inbound", "outbound", "receipt", "delivery", "adjustment", "transfer", "scrap", "return"], "adjustment", false),
     quantity: normalizeInventoryInteger(body, "quantity", { required: true, min: 1, max: 1000000000 }),
     unitCost: normalizeInventoryMoney(body, "unitCost", { fallback: 0, min: 0, max: 1000000000000 }),
@@ -54519,1170 +53408,18 @@ function throwInvalidInventoryMetadata() {
   throw err;
 }
 
-function getPosWorkspace(db, user) {
-  const sessions = getPosCashSessions(db, user.org_id, { limit: 25 });
-  const activeFiscalCatalogItems = getCatalogItems(db, user.org_id, { status: "active" })
-    .filter(item => item.fiscalReceiptRequired);
-  const activeStockLocations = getStockLocations(db, user.org_id)
-    .filter(location => location.status === "active" && location.locationType === "internal");
-  return {
-    openSession: getOpenPosCashSession(db, user.org_id, user.id),
-    sessions,
-    catalogItems: activeFiscalCatalogItems,
-    activeFiscalCatalogItems,
-    activeStockLocations,
-    fiscalCatalogItems: activeFiscalCatalogItems,
-    stockLocations: activeStockLocations,
-    fiscalCloseoutLabels: {
-      fiscalDeviceId: "Fiscal device id",
-      zReportNumber: "Fiscal Z-report number",
-      receiptNumberStart: "Receipt range start",
-      receiptNumberEnd: "Receipt range end",
-      receiptRangeStart: "Receipt range start",
-      receiptRangeEnd: "Receipt range end",
-      countedCash: "Counted AMD cash",
-      closeNote: "Closeout note"
-    },
-    evidenceMetadata: {
-      requiresFiscalDeviceId: true,
-      requiresZReportNumber: true,
-      requiresReceiptRange: true,
-      expectedCashBasis: "opening-cash-plus-cash-sales",
-      currency: "AMD"
-    },
-    capabilityStatus: {
-      salePosting: "available",
-      refunds: "not-implemented",
-      offlineReplay: "not-implemented",
-      receiptPrinting: "not-implemented",
-      inventoryPosting: "available",
-      ledgerPosting: "not-implemented"
-    }
-  };
-}
-
-function getOpenPosCashSession(db, orgId, cashierUserId) {
-  const row = selectPosCashSessionRows(db, orgId, "pos_cash_sessions.status = 'open' AND pos_cash_sessions.cashier_user_id = ?", [cashierUserId], 1)[0];
-  return row ? formatPosCashSession(row) : null;
-}
-
-function getPosCashSessions(db, orgId, filters = {}) {
-  const where = [];
-  const params = [];
-  if (filters.status) {
-    where.push("pos_cash_sessions.status = ?");
-    params.push(filters.status);
-  }
-  const limit = Number.isSafeInteger(filters.limit) ? filters.limit : 50;
-  return selectPosCashSessionRows(db, orgId, where.join(" AND "), params, limit).map(formatPosCashSession);
-}
-
-function getPosCashSession(db, orgId, sessionId) {
-  const row = selectPosCashSessionRows(db, orgId, "pos_cash_sessions.id = ?", [sessionId], 1)[0];
-  return row ? formatPosCashSession(row) : null;
-}
-
-function getPosCashSessionRow(db, orgId, sessionId) {
-  return selectPosCashSessionRows(db, orgId, "pos_cash_sessions.id = ?", [sessionId], 1)[0] || null;
-}
-
-function getPosSale(db, orgId, saleId) {
-  const row = db.prepare(`
-    SELECT pos_sales.*,
-      cashier.name AS cashier_name,
-      stock_locations.code AS stock_location_code,
-      stock_locations.name AS stock_location_name,
-      created_by.name AS created_by_name
-    FROM pos_sales
-    JOIN users AS cashier ON cashier.id = pos_sales.cashier_user_id
-      AND cashier.org_id = pos_sales.org_id
-    JOIN stock_locations ON stock_locations.id = pos_sales.stock_location_id
-      AND stock_locations.org_id = pos_sales.org_id
-    LEFT JOIN users AS created_by ON created_by.id = pos_sales.created_by_user_id
-    WHERE pos_sales.org_id = ? AND pos_sales.id = ?
-  `).get(orgId, saleId);
-  if (!row) return null;
-  const lines = db.prepare(`
-    SELECT *
-    FROM pos_sale_lines
-    WHERE org_id = ? AND sale_id = ?
-    ORDER BY line_number, id
-  `).all(orgId, saleId);
-  return formatPosSale(row, lines);
-}
-
-function getPosSaleSourceRow(db, orgId, sourceKey) {
-  return db.prepare(`
-    SELECT id, cash_session_id
-    FROM pos_sales
-    WHERE org_id = ? AND source_key = ?
-  `).get(orgId, sourceKey) || null;
-}
-
-function buildPosSaleResponse(db, orgId, saleId, sessionId) {
-  return {
-    ok: true,
-    sale: getPosSale(db, orgId, saleId),
-    session: getPosCashSession(db, orgId, sessionId)
-  };
-}
-
-function buildPosSaleLines(db, orgId, lines) {
-  return lines.map((line, index) => {
-    const item = getCatalogItem(db, orgId, line.catalogItemId);
-    if (!item) {
-      const err = new Error("POS catalog item not found");
-      err.statusCode = 404;
-      throw err;
-    }
-    if (item.status !== "active" || !item.fiscalReceiptRequired || item.currency !== "AMD") {
-      const err = new Error("Active fiscal AMD catalog item required");
-      err.statusCode = 422;
-      throw err;
-    }
-    if (line.catalogItemVariantId) {
-      const variant = getCatalogItemVariant(db, orgId, line.catalogItemVariantId);
-      if (!variant) {
-        const err = new Error("POS catalog item variant not found");
-        err.statusCode = 404;
-        throw err;
-      }
-      if (variant.status !== "active" || variant.catalogItemId !== item.id) {
-        const err = new Error("Active catalog item variant required");
-        err.statusCode = 422;
-        throw err;
-      }
-    }
-    const total = item.listPrice * line.quantity;
-    if (!Number.isSafeInteger(total)) throwInvalidPosMetadata();
-    const split = item.vatMode === "standard"
-      ? splitStoredVatInclusive(total, 0.2)
-      : { subtotal: total, vat: 0, total };
-    return {
-      id: randomId("pos-sale-line"),
-      lineNumber: index + 1,
-      catalogItemId: item.id,
-      catalogItemVariantId: line.catalogItemVariantId || null,
-      sku: item.sku,
-      name: item.name,
-      description: item.description || "",
-      quantity: line.quantity,
-      unitPrice: item.listPrice,
-      subtotal: split.subtotal,
-      vat: split.vat,
-      total: split.total,
-      vatMode: item.vatMode,
-      fiscalReceiptRequired: item.fiscalReceiptRequired,
-      trackStock: item.trackStock,
-      stockMoveId: null
-    };
-  });
-}
-
-function assertPosSaleUniqueness(db, orgId, sessionId, input) {
-  const existingReceipt = db.prepare("SELECT id FROM pos_sales WHERE org_id = ? AND cash_session_id = ? AND receipt_number = ?")
-    .get(orgId, sessionId, input.receiptNumber);
-  if (existingReceipt) {
-    const err = new Error("POS sale receipt already exists");
-    err.statusCode = 409;
-    throw err;
-  }
-}
-
-function selectPosCashSessionRows(db, orgId, extraWhere = "", extraParams = [], limit = 50) {
-  const where = ["pos_cash_sessions.org_id = ?"];
-  const params = [orgId];
-  if (extraWhere) {
-    where.push(extraWhere);
-    params.push(...extraParams);
-  }
-  return db.prepare(`
-    SELECT pos_cash_sessions.*,
-      cashier.name AS cashier_name,
-      cashier.email AS cashier_email,
-      stock_locations.code AS stock_location_code,
-      stock_locations.name AS stock_location_name,
-      stock_locations.location_type AS stock_location_type,
-      created_by.name AS created_by_name,
-      updated_by.name AS updated_by_name,
-      (
-        SELECT COUNT(*)
-        FROM pos_sales
-        WHERE pos_sales.org_id = pos_cash_sessions.org_id
-          AND pos_sales.cash_session_id = pos_cash_sessions.id
-      ) AS sale_count,
-      (
-        SELECT COUNT(*)
-        FROM pos_sale_lines
-        JOIN pos_sales AS line_sales ON line_sales.id = pos_sale_lines.sale_id
-          AND line_sales.org_id = pos_sale_lines.org_id
-        WHERE line_sales.org_id = pos_cash_sessions.org_id
-          AND line_sales.cash_session_id = pos_cash_sessions.id
-          AND pos_sale_lines.stock_move_id IS NOT NULL
-      ) AS inventory_posted_line_count
-    FROM pos_cash_sessions
-    JOIN users AS cashier ON cashier.id = pos_cash_sessions.cashier_user_id
-      AND cashier.org_id = pos_cash_sessions.org_id
-    JOIN stock_locations ON stock_locations.id = pos_cash_sessions.stock_location_id
-      AND stock_locations.org_id = pos_cash_sessions.org_id
-    LEFT JOIN users AS created_by ON created_by.id = pos_cash_sessions.created_by_user_id
-    LEFT JOIN users AS updated_by ON updated_by.id = pos_cash_sessions.updated_by_user_id
-    WHERE ${where.join(" AND ")}
-    ORDER BY pos_cash_sessions.status = 'closed', pos_cash_sessions.opened_at DESC, pos_cash_sessions.id DESC
-    LIMIT ?
-  `).all(...params, limit);
-}
-
-function createPosCashSession(db, user, body) {
-  const input = normalizePosCashSessionOpenBody(body, user);
-  if (input.cashierUserId !== user.id && !["Owner", "Admin"].includes(user.role)) {
-    const err = new Error("Only Owner/Admin can open POS cash sessions for another cashier");
-    err.statusCode = 403;
-    throw err;
-  }
-  const cashier = assertPosCashier(db, user.org_id, input.cashierUserId);
-  const stockLocation = getStockLocation(db, user.org_id, input.stockLocationId);
-  if (!stockLocation || stockLocation.status !== "active") throwPosStockLocationNotFound();
-  if (stockLocation.locationType !== "internal") throwInvalidPosMetadata();
-
-  const openRegister = db.prepare(`
-    SELECT id
-    FROM pos_cash_sessions
-    WHERE org_id = ? AND stock_location_id = ? AND register_code = ? AND status = 'open'
-    LIMIT 1
-  `).get(user.org_id, stockLocation.id, input.registerCode);
-  if (openRegister) {
-    const err = new Error("POS register already has an open cash session");
-    err.statusCode = 409;
-    throw err;
-  }
-
-  const now = new Date().toISOString();
-  const sessionId = randomId("pos-session");
-  db.prepare(`
-    INSERT INTO pos_cash_sessions (
-      id, org_id, cashier_user_id, stock_location_id, register_code, status,
-      opening_cash_amd, expected_cash_amd, counted_cash_amd, cash_difference_amd,
-      currency, opened_at, closed_at, fiscal_device_id, z_report_number,
-      receipt_number_start, receipt_number_end, close_note, created_by_user_id,
-      updated_by_user_id, created_at, updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, ?, ?, NULL, ?, '', '', '', '', ?, ?, ?, ?)
-  `).run(
-    sessionId,
-    user.org_id,
-    cashier.id,
-    stockLocation.id,
-    input.registerCode,
-    "open",
-    input.openingCash,
-    input.openingCash,
-    input.currency,
-    input.openedAt || now,
-    input.fiscalDeviceId,
-    user.id,
-    user.id,
-    now,
-    now
-  );
-  emitSuiteEvent(db, {
-    orgId: user.org_id,
-    actorUserId: user.id,
-    eventType: "pos.cash_session.opened",
-    subjectType: "pos_cash_session",
-    subjectId: sessionId,
-    status: "open",
-    payload: {
-      cashierUserId: cashier.id,
-      stockLocationId: stockLocation.id,
-      registerCode: input.registerCode,
-      expectedCashBasis: "opening-cash-plus-cash-sales"
-    }
-  });
-  audit(db, user.org_id, user.id, "pos.cash_session.opened", {
-    sessionId,
-    cashierUserId: cashier.id,
-    stockLocationId: stockLocation.id,
-    registerCode: input.registerCode
-  });
-  return getPosCashSession(db, user.org_id, sessionId);
-}
-
-function createPosCashSale(db, user, sessionId, body) {
-  const input = normalizePosCashSaleBody(body);
-  const saleId = randomId("pos-sale");
-  db.exec("BEGIN");
-  try {
-    const session = getPosCashSessionRow(db, user.org_id, sessionId);
-    if (!session) throwPosCashSessionNotFound();
-    const existingSource = getPosSaleSourceRow(db, user.org_id, input.idempotencyKey);
-    if (existingSource) {
-      if (existingSource.cash_session_id !== session.id) {
-        const err = new Error("POS sale source key already exists");
-        err.statusCode = 409;
-        throw err;
-      }
-      db.exec("COMMIT");
-      return buildPosSaleResponse(db, user.org_id, existingSource.id, session.id);
-    }
-    if (session.status !== "open") {
-      const err = new Error("POS cash session is closed");
-      err.statusCode = 409;
-      throw err;
-    }
-    assertPosSaleUniqueness(db, user.org_id, session.id, input);
-    const lines = buildPosSaleLines(db, user.org_id, input.lines);
-    const totals = lines.reduce((sum, line) => ({
-      subtotal: sum.subtotal + line.subtotal,
-      vat: sum.vat + line.vat,
-      total: sum.total + line.total
-    }), { subtotal: 0, vat: 0, total: 0 });
-    if (!Number.isSafeInteger(totals.subtotal) || !Number.isSafeInteger(totals.vat) || !Number.isSafeInteger(totals.total)) {
-      throwInvalidPosMetadata();
-    }
-    const paidCash = input.paymentMethod === "cash" ? totals.total : 0;
-    const now = new Date().toISOString();
-    const soldAt = input.soldAt || now;
-
-    db.prepare(`
-      INSERT INTO pos_sales (
-        id, org_id, cash_session_id, cashier_user_id, stock_location_id, register_code,
-        receipt_number, source_key, status, sold_at, currency, subtotal_amd, vat_amd,
-        total_amd, paid_cash_amd, payment_method, inventory_posting_status,
-        ledger_posting_status, created_by_user_id, created_at, updated_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?, 'AMD', ?, ?, ?, ?, ?, 'not-posted', 'not-posted', ?, ?, ?)
-    `).run(
-      saleId,
-      user.org_id,
-      session.id,
-      session.cashier_user_id,
-      session.stock_location_id,
-      session.register_code,
-      input.receiptNumber,
-      input.idempotencyKey,
-      soldAt,
-      totals.subtotal,
-      totals.vat,
-      totals.total,
-      paidCash,
-      input.paymentMethod,
-      user.id,
-      now,
-      now
-    );
-
-    const insertLine = db.prepare(`
-      INSERT INTO pos_sale_lines (
-        id, org_id, sale_id, line_number, catalog_item_id, catalog_item_variant_id,
-        sku, name, description, quantity, unit_price_amd, subtotal_amd, vat_amd,
-        total_amd, vat_mode, fiscal_receipt_required, stock_move_id, created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
-    `);
-    const updateLineStockMove = db.prepare(`
-      UPDATE pos_sale_lines
-      SET stock_move_id = ?
-      WHERE org_id = ? AND id = ?
-    `);
-    let postedStockMoveCount = 0;
-    for (const line of lines) {
-      insertLine.run(
-        line.id,
-        user.org_id,
-        saleId,
-        line.lineNumber,
-        line.catalogItemId,
-        line.catalogItemVariantId || null,
-        line.sku,
-        line.name,
-        line.description,
-        line.quantity,
-        line.unitPrice,
-        line.subtotal,
-        line.vat,
-        line.total,
-        line.vatMode,
-        line.fiscalReceiptRequired ? 1 : 0,
-        now
-      );
-      if (!line.trackStock) continue;
-      const move = createStockMoveFromInput(db, user, {
-        catalogItemId: line.catalogItemId,
-        sourceLocationId: session.stock_location_id,
-        destinationLocationId: "",
-        serviceFieldVisitId: "",
-        moveType: "delivery",
-        quantity: line.quantity,
-        unitCost: 0,
-        reason: "POS cash sale delivery",
-        reference: `POS sale ${input.receiptNumber}`
-      });
-      line.stockMoveId = move.id;
-      updateLineStockMove.run(move.id, user.org_id, line.id);
-      postedStockMoveCount += 1;
-    }
-
-    const inventoryPostingStatus = postedStockMoveCount > 0 ? "posted" : "not-posted";
-    db.prepare(`
-      UPDATE pos_sales
-      SET inventory_posting_status = ?, updated_at = ?
-      WHERE org_id = ? AND id = ?
-    `).run(inventoryPostingStatus, now, user.org_id, saleId);
-    if (paidCash > 0) {
-      db.prepare(`
-        UPDATE pos_cash_sessions
-        SET expected_cash_amd = expected_cash_amd + ?, updated_by_user_id = ?, updated_at = ?
-        WHERE org_id = ? AND id = ? AND status = 'open'
-      `).run(paidCash, user.id, now, user.org_id, session.id);
-    }
-    emitSuiteEvent(db, {
-      orgId: user.org_id,
-      actorUserId: user.id,
-      eventType: "pos.sale.posted",
-      subjectType: "pos_sale",
-      subjectId: saleId,
-      status: "posted",
-      payload: {
-        cashSessionId: session.id,
-        receiptNumber: input.receiptNumber,
-        paymentMethod: input.paymentMethod,
-        total: totals.total,
-        paidCash,
-        lineCount: lines.length,
-        inventoryPostingStatus,
-        ledgerPostingStatus: "not-posted"
-      }
-    });
-    audit(db, user.org_id, user.id, "pos.sale.posted", {
-      saleId,
-      cashSessionId: session.id,
-      receiptNumber: input.receiptNumber,
-      paymentMethod: input.paymentMethod,
-      total: totals.total,
-      idempotencyKey: input.idempotencyKey
-    });
-    db.exec("COMMIT");
-  } catch (err) {
-    try { db.exec("ROLLBACK"); } catch {}
-    if (isPosSaleUniqueConstraint(err)) {
-      const existingSource = getPosSaleSourceRow(db, user.org_id, input.idempotencyKey);
-      if (existingSource && existingSource.cash_session_id === sessionId) {
-        return buildPosSaleResponse(db, user.org_id, existingSource.id, sessionId);
-      }
-      const conflict = new Error("POS sale receipt or source key already exists");
-      conflict.statusCode = 409;
-      throw conflict;
-    }
-    throw err;
-  }
-  return buildPosSaleResponse(db, user.org_id, saleId, sessionId);
-}
-
-function createPosReceiptPacket(db, user, saleId, body) {
-  const input = normalizePosReceiptPacketBody(body);
-  const source = getPosReceiptPacketSource(db, user.org_id, saleId);
-  if (!source) throwPosSaleNotFound();
-
-  const existing = getPosReceiptPacketBySale(db, user.org_id, saleId, true);
-  if (existing) {
-    return {
-      ok: true,
-      idempotent: true,
-      receiptPacket: existing,
-      sale: getPosSale(db, user.org_id, saleId)
-    };
-  }
-  if (source.sale.status !== "posted") {
-    const err = new Error("POS sale must be posted before receipt packet preparation");
-    err.statusCode = 409;
-    throw err;
-  }
-
-  const fiscalDeviceId = input.fiscalDeviceId || source.sale.session_fiscal_device_id || "";
-  if (!fiscalDeviceId) throwInvalidPosMetadata();
-
-  const now = new Date().toISOString();
-  const packetId = randomId("pos-receipt-packet");
-  const payload = buildPosReceiptPacketPayload(source, input, fiscalDeviceId, user, now);
-  const checksum = sha256Json(payload);
-
-  try {
-    db.exec("BEGIN");
-    db.prepare(`
-      INSERT INTO pos_receipt_packets (
-        id, org_id, sale_id, cash_session_id, receipt_number, fiscal_device_id,
-        packet_status, packet_kind, packet_format, checksum, payload_json,
-        prepared_by_user_id, prepared_at, created_at
-      )
-      VALUES (?, ?, ?, ?, ?, ?, 'prepared', ?, ?, ?, ?, ?, ?, ?)
-    `).run(
-      packetId,
-      user.org_id,
-      source.sale.id,
-      source.sale.cash_session_id,
-      source.sale.receipt_number,
-      fiscalDeviceId,
-      input.packetKind,
-      input.packetFormat,
-      checksum,
-      JSON.stringify(payload),
-      user.id,
-      now,
-      now
-    );
-    emitSuiteEvent(db, {
-      orgId: user.org_id,
-      actorUserId: user.id,
-      eventType: "pos.receipt_packet.prepared",
-      subjectType: "pos_receipt_packet",
-      subjectId: packetId,
-      status: "prepared",
-      payload: {
-        saleId: source.sale.id,
-        cashSessionId: source.sale.cash_session_id,
-        receiptNumber: source.sale.receipt_number,
-        fiscalDeviceId,
-        checksum,
-        handoffMode: "local-prepared-only"
-      }
-    });
-    audit(db, user.org_id, user.id, "pos.receipt_packet.prepared", {
-      packetId,
-      saleId: source.sale.id,
-      cashSessionId: source.sale.cash_session_id,
-      receiptNumber: source.sale.receipt_number,
-      fiscalDeviceId,
-      checksum,
-      handoffMode: "local-prepared-only"
-    });
-    db.exec("COMMIT");
-  } catch (err) {
-    try { db.exec("ROLLBACK"); } catch {}
-    if (isPosReceiptPacketUniqueConstraint(err)) {
-      const replay = getPosReceiptPacketBySale(db, user.org_id, saleId, true);
-      if (replay) {
-        return {
-          ok: true,
-          idempotent: true,
-          receiptPacket: replay,
-          sale: getPosSale(db, user.org_id, saleId)
-        };
-      }
-    }
-    throw err;
-  }
-
-  return {
-    ok: true,
-    idempotent: false,
-    receiptPacket: getPosReceiptPacketBySale(db, user.org_id, saleId, true),
-    sale: getPosSale(db, user.org_id, saleId)
-  };
-}
-
-function getPosReceiptPacketSource(db, orgId, saleId) {
-  const sale = db.prepare(`
-    SELECT
-      pos_sales.id,
-      pos_sales.cash_session_id,
-      pos_sales.cashier_user_id,
-      pos_sales.stock_location_id,
-      pos_sales.register_code,
-      pos_sales.receipt_number,
-      pos_sales.source_key,
-      pos_sales.status,
-      pos_sales.sold_at,
-      pos_sales.currency,
-      pos_sales.subtotal_amd,
-      pos_sales.vat_amd,
-      pos_sales.total_amd,
-      pos_sales.paid_cash_amd,
-      pos_sales.payment_method,
-      pos_sales.inventory_posting_status,
-      pos_sales.ledger_posting_status,
-      pos_sales.created_by_user_id,
-      pos_sales.created_at,
-      pos_sales.updated_at,
-      pos_cash_sessions.status AS session_status,
-      pos_cash_sessions.opening_cash_amd AS session_opening_cash_amd,
-      pos_cash_sessions.expected_cash_amd AS session_expected_cash_amd,
-      pos_cash_sessions.counted_cash_amd AS session_counted_cash_amd,
-      pos_cash_sessions.cash_difference_amd AS session_cash_difference_amd,
-      pos_cash_sessions.opened_at AS session_opened_at,
-      pos_cash_sessions.closed_at AS session_closed_at,
-      pos_cash_sessions.fiscal_device_id AS session_fiscal_device_id,
-      pos_cash_sessions.z_report_number AS session_z_report_number,
-      pos_cash_sessions.receipt_number_start AS session_receipt_number_start,
-      pos_cash_sessions.receipt_number_end AS session_receipt_number_end
-    FROM pos_sales
-    JOIN pos_cash_sessions ON pos_cash_sessions.id = pos_sales.cash_session_id
-      AND pos_cash_sessions.org_id = pos_sales.org_id
-    WHERE pos_sales.org_id = ? AND pos_sales.id = ?
-  `).get(orgId, saleId);
-  if (!sale) return null;
-  const lines = db.prepare(`
-    SELECT *
-    FROM pos_sale_lines
-    WHERE org_id = ? AND sale_id = ?
-    ORDER BY line_number, id
-  `).all(orgId, saleId);
-  return { sale, lines };
-}
-
-function buildPosReceiptPacketPayload(source, input, fiscalDeviceId, user, preparedAt) {
-  const sale = source.sale;
-  return {
-    kind: "armosphera-one-pos-receipt-packet",
-    product: "Armosphera One",
-    schemaVersion: 1,
-    generatedAt: preparedAt,
-    packet: {
-      status: "prepared",
-      kind: input.packetKind,
-      format: input.packetFormat,
-      preparedAt,
-      preparedByUserId: user.id
-    },
-    sale: {
-      id: sale.id,
-      cashSessionId: sale.cash_session_id,
-      receiptNumber: sale.receipt_number,
-      sourceKey: sale.source_key,
-      status: sale.status,
-      soldAt: sale.sold_at,
-      currency: sale.currency,
-      paymentMethod: sale.payment_method,
-      cashierUserId: sale.cashier_user_id,
-      stockLocationId: sale.stock_location_id,
-      registerCode: sale.register_code,
-      totals: {
-        subtotal: sale.subtotal_amd,
-        vat: sale.vat_amd,
-        total: sale.total_amd,
-        paidCash: sale.paid_cash_amd
-      },
-      postings: {
-        salePosting: sale.status === "posted" ? "posted" : "not-posted",
-        inventoryPosting: sale.inventory_posting_status || "not-posted",
-        ledgerPosting: sale.ledger_posting_status || "not-posted"
-      }
-    },
-    session: {
-      id: sale.cash_session_id,
-      status: sale.session_status,
-      registerCode: sale.register_code,
-      cashierUserId: sale.cashier_user_id,
-      stockLocationId: sale.stock_location_id,
-      openingCash: sale.session_opening_cash_amd,
-      expectedCash: sale.session_expected_cash_amd,
-      countedCash: sale.session_counted_cash_amd,
-      cashDifference: sale.session_cash_difference_amd,
-      openedAt: sale.session_opened_at,
-      closedAt: sale.session_closed_at || "",
-      fiscalDeviceId: sale.session_fiscal_device_id || "",
-      zReportNumber: sale.session_z_report_number || "",
-      receiptNumberStart: sale.session_receipt_number_start || "",
-      receiptNumberEnd: sale.session_receipt_number_end || ""
-    },
-    lines: source.lines.map(line => ({
-      lineNumber: line.line_number,
-      catalogItemId: line.catalog_item_id,
-      catalogItemVariantId: line.catalog_item_variant_id || null,
-      sku: line.sku,
-      name: line.name,
-      quantity: line.quantity,
-      unitPrice: line.unit_price_amd,
-      subtotal: line.subtotal_amd,
-      vat: line.vat_amd,
-      total: line.total_amd,
-      vatMode: line.vat_mode,
-      fiscalReceiptRequired: Boolean(line.fiscal_receipt_required),
-      stockMoveId: line.stock_move_id || null
-    })),
-    fiscal: {
-      deviceId: fiscalDeviceId,
-      receiptNumber: sale.receipt_number,
-      packetStatus: "prepared",
-      liveSubmission: false,
-      submissionStatus: "not-submitted"
-    },
-    controls: [
-      "posted-pos-sale-required",
-      "tenant-scoped-replay-by-sale",
-      "checksum-covers-sale-session-lines",
-      "local-fiscal-handoff-evidence-only",
-      "no-live-fiscal-device-submission"
-    ]
-  };
-}
-
-function getPosReceiptPacketBySale(db, orgId, saleId, includePayload = false) {
-  const row = db.prepare(`
-    SELECT pos_receipt_packets.*, users.name AS prepared_by_name
-    FROM pos_receipt_packets
-    LEFT JOIN users ON users.id = pos_receipt_packets.prepared_by_user_id
-      AND users.org_id = pos_receipt_packets.org_id
-    WHERE pos_receipt_packets.org_id = ? AND pos_receipt_packets.sale_id = ?
-  `).get(orgId, saleId);
-  return row ? formatPosReceiptPacket(row, includePayload) : null;
-}
-
-function formatPosReceiptPacket(row, includePayload = false) {
-  const packet = {
-    id: row.id,
-    saleId: row.sale_id,
-    cashSessionId: row.cash_session_id,
-    receiptNumber: row.receipt_number,
-    fiscalDeviceId: row.fiscal_device_id,
-    status: row.packet_status,
-    packetStatus: row.packet_status,
-    packetKind: row.packet_kind,
-    packetFormat: row.packet_format,
-    checksum: row.checksum,
-    preparedByUserId: row.prepared_by_user_id || "",
-    preparedByName: row.prepared_by_name || "",
-    preparedAt: row.prepared_at,
-    createdAt: row.created_at
-  };
-  if (includePayload) packet.payload = safeJson(row.payload_json);
-  return packet;
-}
-
-function closePosCashSession(db, user, sessionId, body) {
-  const session = getPosCashSessionRow(db, user.org_id, sessionId);
-  if (!session) throwPosCashSessionNotFound();
-  if (session.status === "closed") {
-    const err = new Error("POS cash session is already closed");
-    err.statusCode = 409;
-    throw err;
-  }
-  const input = normalizePosCashSessionCloseBody(body, session);
-  const expectedCash = Number(session.expected_cash_amd || session.opening_cash_amd || 0);
-  const cashDifference = input.countedCash - expectedCash;
-  const now = new Date().toISOString();
-  const info = db.prepare(`
-    UPDATE pos_cash_sessions
-    SET status = 'closed',
-      expected_cash_amd = ?,
-      counted_cash_amd = ?,
-      cash_difference_amd = ?,
-      closed_at = ?,
-      fiscal_device_id = ?,
-      z_report_number = ?,
-      receipt_number_start = ?,
-      receipt_number_end = ?,
-      close_note = ?,
-      updated_by_user_id = ?,
-      updated_at = ?
-    WHERE org_id = ? AND id = ? AND status = 'open'
-  `).run(
-    expectedCash,
-    input.countedCash,
-    cashDifference,
-    input.closedAt || now,
-    input.fiscalDeviceId,
-    input.zReportNumber,
-    input.receiptNumberStart,
-    input.receiptNumberEnd,
-    input.closeNote,
-    user.id,
-    now,
-    user.org_id,
-    sessionId
-  );
-  if (info.changes === 0) {
-    const err = new Error("POS cash session is already closed");
-    err.statusCode = 409;
-    throw err;
-  }
-  emitSuiteEvent(db, {
-    orgId: user.org_id,
-    actorUserId: user.id,
-    eventType: "pos.cash_session.closed",
-    subjectType: "pos_cash_session",
-    subjectId: sessionId,
-    status: "closed",
-    payload: {
-      cashierUserId: session.cashier_user_id,
-      stockLocationId: session.stock_location_id,
-      registerCode: session.register_code,
-      zReportNumber: input.zReportNumber,
-      expectedCashBasis: "opening-cash-plus-cash-sales"
-    }
-  });
-  audit(db, user.org_id, user.id, "pos.cash_session.closed", {
-    sessionId,
-    zReportNumber: input.zReportNumber,
-    receiptNumberStart: input.receiptNumberStart,
-    receiptNumberEnd: input.receiptNumberEnd
-  });
-  return getPosCashSession(db, user.org_id, sessionId);
-}
-
-function formatPosCashSession(row) {
-  return {
-    id: row.id,
-    cashierUserId: row.cashier_user_id,
-    cashierName: row.cashier_name || "",
-    cashierEmail: row.cashier_email || "",
-    stockLocationId: row.stock_location_id,
-    stockLocationCode: row.stock_location_code || "",
-    stockLocationName: row.stock_location_name || "",
-    stockLocationType: row.stock_location_type || "",
-    registerCode: row.register_code,
-    status: row.status,
-    openingCash: row.opening_cash_amd,
-    expectedCash: row.expected_cash_amd,
-    countedCash: row.counted_cash_amd,
-    cashDifference: row.cash_difference_amd,
-    currency: row.currency,
-    openedAt: row.opened_at,
-    closedAt: row.closed_at || "",
-    fiscalDeviceId: row.fiscal_device_id || "",
-    zReportNumber: row.z_report_number || "",
-    receiptNumberStart: row.receipt_number_start || "",
-    receiptNumberEnd: row.receipt_number_end || "",
-    receiptRangeStart: row.receipt_number_start || "",
-    receiptRangeEnd: row.receipt_number_end || "",
-    closeNote: row.close_note || "",
-    expectedCashBasis: "opening-cash-plus-cash-sales",
-    postings: {
-      salePosting: Number(row.sale_count || 0) > 0 ? "posted" : "not-posted",
-      inventoryPosting: Number(row.inventory_posted_line_count || 0) > 0 ? "posted" : "not-posted",
-      ledgerPosting: "not-posted"
-    },
-    createdByUserId: row.created_by_user_id || "",
-    createdByName: row.created_by_name || "",
-    updatedByUserId: row.updated_by_user_id || "",
-    updatedByName: row.updated_by_name || "",
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
-}
-
-function formatPosSale(row, lines) {
-  return {
-    id: row.id,
-    cashSessionId: row.cash_session_id,
-    receiptNumber: row.receipt_number,
-    status: row.status,
-    paymentMethod: row.payment_method,
-    currency: row.currency,
-    subtotal: row.subtotal_amd,
-    vat: row.vat_amd,
-    total: row.total_amd,
-    paidCash: row.paid_cash_amd,
-    lineCount: lines.length,
-    soldAt: row.sold_at,
-    cashierUserId: row.cashier_user_id,
-    cashierName: row.cashier_name || "",
-    stockLocationId: row.stock_location_id,
-    stockLocationCode: row.stock_location_code || "",
-    stockLocationName: row.stock_location_name || "",
-    registerCode: row.register_code,
-    postings: {
-      salePosting: row.status === "posted" ? "posted" : "not-posted",
-      inventoryPosting: row.inventory_posting_status || "not-posted",
-      ledgerPosting: row.ledger_posting_status || "not-posted"
-    },
-    lines: lines.map(formatPosSaleLine),
-    createdByUserId: row.created_by_user_id || "",
-    createdByName: row.created_by_name || "",
-    createdAt: row.created_at,
-    updatedAt: row.updated_at
-  };
-}
-
-function formatPosSaleLine(row) {
-  return {
-    id: row.id,
-    catalogItemId: row.catalog_item_id,
-    catalogItemVariantId: row.catalog_item_variant_id || null,
-    sku: row.sku,
-    name: row.name,
-    description: row.description || "",
-    quantity: row.quantity,
-    unitPrice: row.unit_price_amd,
-    subtotal: row.subtotal_amd,
-    vat: row.vat_amd,
-    total: row.total_amd,
-    vatMode: row.vat_mode,
-    fiscalReceiptRequired: Boolean(row.fiscal_receipt_required),
-    stockMoveId: row.stock_move_id || null,
-    createdAt: row.created_at
-  };
-}
-
-function normalizePosCashSessionQuery(query) {
-  const status = normalizePosQueryChoice(query, "status", ["open", "closed"]);
-  return {
-    status,
-    limit: normalizePosQueryInteger(query, "limit", { fallback: 50, min: 1, max: 100 })
-  };
-}
-
-function normalizePosCashSessionOpenBody(body, user) {
-  if (!isPlainObject(body)) throwInvalidPosMetadata();
-  return {
-    cashierUserId: normalizePosText(body, "cashierUserId", { fallback: user.id, required: false, idLike: true, maxLength: 160 }),
-    stockLocationId: normalizePosText(body, "stockLocationId", { required: true, idLike: true, maxLength: 160 }),
-    registerCode: normalizePosRegisterCode(body, "registerCode"),
-    openingCash: normalizePosMoney(body, "openingCash", { required: true, min: 0, max: 100000000000 }),
-    currency: normalizePosCurrency(body, "currency", "AMD"),
-    openedAt: normalizePosTimestamp(body, "openedAt", ""),
-    fiscalDeviceId: normalizePosText(body, "fiscalDeviceId", { fallback: "", maxLength: 120 })
-  };
-}
-
-function normalizePosCashSessionCloseBody(body, session) {
-  if (!isPlainObject(body)) throwInvalidPosMetadata();
-  const fiscalDeviceId = normalizePosText(body, "fiscalDeviceId", { fallback: session.fiscal_device_id || "", maxLength: 120 });
-  if (!fiscalDeviceId) throwInvalidPosMetadata();
-  return {
-    countedCash: normalizePosMoney(body, "countedCash", { required: true, min: 0, max: 100000000000 }),
-    fiscalDeviceId,
-    zReportNumber: normalizePosText(body, "zReportNumber", { required: true, minLength: 1, maxLength: 120 }),
-    receiptNumberStart: normalizePosTextAlias(body, ["receiptNumberStart", "receiptRangeStart"], { required: true, minLength: 1, maxLength: 120 }),
-    receiptNumberEnd: normalizePosTextAlias(body, ["receiptNumberEnd", "receiptRangeEnd"], { required: true, minLength: 1, maxLength: 120 }),
-    closeNote: normalizePosText(body, "closeNote", { fallback: "", maxLength: 500 }),
-    closedAt: normalizePosTimestamp(body, "closedAt", "")
-  };
-}
-
-function normalizePosCashSaleBody(body) {
-  if (!isPlainObject(body)) throwInvalidPosMetadata();
-  if (!Array.isArray(body.lines) || body.lines.length === 0 || body.lines.length > 100) throwInvalidPosMetadata();
-  return {
-    receiptNumber: normalizePosReceiptNumber(body, "receiptNumber"),
-    paymentMethod: normalizePosChoice(body, "paymentMethod", ["cash", "card", "bank-transfer"], "", true),
-    soldAt: normalizePosTimestamp(body, "soldAt", ""),
-    idempotencyKey: normalizePosSourceKey(body, "idempotencyKey"),
-    lines: body.lines.map(normalizePosCashSaleLine)
-  };
-}
-
-function normalizePosReceiptPacketBody(body) {
-  if (!isPlainObject(body)) throwInvalidPosMetadata();
-  return {
-    fiscalDeviceId: normalizePosText(body, "fiscalDeviceId", { fallback: "", maxLength: 120 }),
-    packetKind: normalizePosChoice(body, "packetKind", ["pos-fiscal-receipt-handoff"], "pos-fiscal-receipt-handoff"),
-    packetFormat: normalizePosChoice(body, "packetFormat", ["json-v1"], "json-v1")
-  };
-}
-
-function normalizePosCashSaleLine(line) {
-  if (!isPlainObject(line)) throwInvalidPosMetadata();
-  let catalogItemVariantId = "";
-  if (
-    Object.prototype.hasOwnProperty.call(line, "catalogItemVariantId")
-    && line.catalogItemVariantId !== undefined
-    && line.catalogItemVariantId !== null
-    && line.catalogItemVariantId !== ""
-  ) {
-    catalogItemVariantId = normalizePosText(line, "catalogItemVariantId", { idLike: true, maxLength: 160 });
-  }
-  return {
-    catalogItemId: normalizePosText(line, "catalogItemId", { required: true, idLike: true, maxLength: 160 }),
-    catalogItemVariantId,
-    quantity: normalizePosInteger(line, "quantity", { required: true, min: 1, max: 1000000 })
-  };
-}
-
-function normalizePosTextAlias(body, fields, options = {}) {
-  for (const field of fields) {
-    const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
-    if (value !== undefined && value !== "") return normalizePosText(body, field, options);
-  }
-  return normalizePosText(body, fields[0], options);
-}
-
-function normalizePosText(body, field, options = {}) {
-  const { required = false, fallback = "", minLength = 0, maxLength = 200, idLike = false } = options;
-  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
-  if (value === undefined || value === "") {
-    if (required) throwInvalidPosMetadata();
-    return String(fallback || "").trim();
-  }
-  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
-  const text = value.trim();
-  if (text.length < minLength || text.length > maxLength) throwInvalidPosMetadata();
-  if (idLike && text && !/^[a-z0-9-]+$/.test(text)) throwInvalidPosMetadata();
-  return text;
-}
-
-function normalizePosRegisterCode(body, field) {
-  const value = normalizePosText(body, field, { required: true, minLength: 1, maxLength: 80 });
-  const code = value.toUpperCase();
-  if (!/^[A-Z0-9][A-Z0-9._/-]{0,79}$/.test(code)) throwInvalidPosMetadata();
-  return code;
-}
-
-function normalizePosReceiptNumber(body, field) {
-  const value = normalizePosText(body, field, { required: true, minLength: 1, maxLength: 120 });
-  const receiptNumber = value.toUpperCase();
-  if (!/^[A-Z0-9][A-Z0-9._/-]{0,119}$/.test(receiptNumber)) throwInvalidPosMetadata();
-  return receiptNumber;
-}
-
-function normalizePosSourceKey(body, field) {
-  const value = normalizePosText(body, field, { required: true, minLength: 1, maxLength: 160 });
-  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value)) throwInvalidPosMetadata();
-  return value;
-}
-
-function normalizePosCurrency(body, field, fallback) {
-  const value = normalizePosText(body, field, { fallback, maxLength: 3 }).toUpperCase();
-  if (value !== "AMD") throwInvalidPosMetadata();
-  return value;
-}
-
-function normalizePosChoice(body, field, allowed, fallback, required = false) {
-  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
-  if (value === undefined || value === "") {
-    if (required) throwInvalidPosMetadata();
-    return fallback;
-  }
-  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
-  const text = value.trim();
-  if (!allowed.includes(text)) throwInvalidPosMetadata();
-  return text;
-}
-
-function normalizePosMoney(body, field, options = {}) {
-  const { required = false, min = 0, max = 1000000000000 } = options;
-  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
-  if (value === undefined || value === "") {
-    if (required) throwInvalidPosMetadata();
-    return 0;
-  }
-  return toStoredMoneyInput(value, throwInvalidPosMetadata, { min, max, positive: min > 0, zeroSubunitFraction: "none" });
-}
-
-function normalizePosInteger(body, field, options = {}) {
-  const { required = false, fallback = 0, min = 0, max = 1000000000 } = options;
-  let value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
-  if (value === undefined || value === "") {
-    if (required) throwInvalidPosMetadata();
-    value = fallback;
-  }
-  if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") throwInvalidPosMetadata();
-  let number;
-  if (typeof value === "number") {
-    number = value;
-  } else if (typeof value === "string") {
-    if (/[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
-    if (!/^\d+$/.test(value.trim())) throwInvalidPosMetadata();
-    number = Number(value.trim());
-  } else {
-    throwInvalidPosMetadata();
-  }
-  if (!Number.isSafeInteger(number) || number < min || number > max) throwInvalidPosMetadata();
-  return number;
-}
-
-function normalizePosTimestamp(body, field, fallback) {
-  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
-  if (value === undefined || value === "") return fallback;
-  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
-  const date = new Date(value.trim());
-  if (!Number.isFinite(date.valueOf())) throwInvalidPosMetadata();
-  return date.toISOString();
-}
-
-function normalizePosQueryChoice(query, field, allowed) {
-  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
-  if (value === undefined || value === "") return "";
-  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
-  const text = value.trim();
-  if (!allowed.includes(text)) throwInvalidPosMetadata();
-  return text;
-}
-
-function normalizePosQueryInteger(query, field, options = {}) {
-  const { fallback = 50, min = 1, max = 100 } = options;
-  const value = Object.prototype.hasOwnProperty.call(query, field) ? query[field] : undefined;
-  if (value === undefined || value === "") return fallback;
-  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
-  if (!/^\d+$/.test(value.trim())) throwInvalidPosMetadata();
-  const number = Number(value.trim());
-  if (!Number.isSafeInteger(number) || number < min || number > max) throwInvalidPosMetadata();
-  return number;
-}
-
-function normalizePosCashSessionPathId(value) {
-  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
-  const text = value.trim();
-  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) throwInvalidPosMetadata();
-  return text;
-}
-
-function normalizePosSalePathId(value) {
-  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
-  const text = value.trim();
-  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) throwInvalidPosMetadata();
-  return text;
-}
-
-function assertPosCashier(db, orgId, userId) {
-  const row = db.prepare("SELECT id, role FROM users WHERE org_id = ? AND id = ?").get(orgId, userId);
-  if (!row) {
-    const err = new Error("POS cashier not found");
-    err.statusCode = 404;
-    throw err;
-  }
-  if (!APP_ASSIGNMENT_ROLE_GUARDS.pos.has(row.role)) {
-    const err = new Error("POS cashier role required");
-    err.statusCode = 422;
-    throw err;
-  }
-  return row;
-}
-
-function throwPosStockLocationNotFound() {
-  const err = new Error("POS stock location not found");
-  err.statusCode = 404;
-  throw err;
-}
-
-function throwPosCashSessionNotFound() {
-  const err = new Error("POS cash session not found");
-  err.statusCode = 404;
-  throw err;
-}
-
-function throwPosSaleNotFound() {
-  const err = new Error("POS sale not found");
-  err.statusCode = 404;
-  throw err;
-}
-
-function throwInvalidPosMetadata() {
-  const err = new Error("POS request requires safe metadata");
-  err.statusCode = 400;
-  throw err;
-}
-
-function isPosSaleUniqueConstraint(err) {
-  return Boolean(err && /UNIQUE constraint failed: pos_sales\./.test(String(err.message || "")));
-}
-
-function isPosReceiptPacketUniqueConstraint(err) {
-  return Boolean(err && /UNIQUE constraint failed: pos_receipt_packets\./.test(String(err.message || "")));
-}
-
-function getPurchaseVendors(db, orgId, asOfDate = armeniaDateString()) {
+function getPurchaseVendors(db, orgId) {
   return db.prepare(`
     SELECT *
     FROM purchase_vendors
     WHERE org_id = ?
     ORDER BY status = 'active' DESC, name
-  `).all(orgId).map(row => formatPurchaseVendor(row, getPurchaseVendorPrices(db, orgId, row.id), asOfDate));
+  `).all(orgId).map(row => formatPurchaseVendor(row, getPurchaseVendorPrices(db, orgId, row.id)));
 }
 
-function getPurchaseVendor(db, orgId, vendorId, asOfDate = armeniaDateString()) {
+function getPurchaseVendor(db, orgId, vendorId) {
   const row = db.prepare("SELECT * FROM purchase_vendors WHERE org_id = ? AND id = ?").get(orgId, vendorId);
-  return row ? formatPurchaseVendor(row, getPurchaseVendorPrices(db, orgId, row.id), asOfDate) : null;
+  return row ? formatPurchaseVendor(row, getPurchaseVendorPrices(db, orgId, row.id)) : null;
 }
 
 function getPurchaseVendorPrices(db, orgId, vendorId) {
@@ -55698,7 +53435,7 @@ function getPurchaseVendorPrices(db, orgId, vendorId) {
   `).all(orgId, vendorId).map(formatPurchaseVendorPrice);
 }
 
-function formatPurchaseVendor(row, prices = [], asOfDate = armeniaDateString()) {
+function formatPurchaseVendor(row, prices = []) {
   return {
     id: row.id,
     name: row.name,
@@ -55712,57 +53449,8 @@ function formatPurchaseVendor(row, prices = [], asOfDate = armeniaDateString()) 
     createdByUserId: row.created_by_user_id || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    prices,
-    priceLifecycle: summarizePurchaseVendorPriceLifecycle(row, prices, asOfDate)
+    prices
   };
-}
-
-function summarizePurchaseVendorPriceLifecycle(vendor, prices = [], asOfDate = armeniaDateString()) {
-  const soonThrough = addDays(asOfDate, PURCHASE_PRICE_EXPIRING_SOON_DAYS);
-  const lifecycle = {
-    totalPrices: prices.length,
-    usablePriceCount: 0,
-    expiredPriceCount: 0,
-    futurePriceCount: 0,
-    archivedPriceCount: 0,
-    expiringSoonCount: 0,
-    nextExpiryDate: "",
-    daysToNextExpiry: null,
-    riskLevel: "ok",
-    riskReasons: []
-  };
-
-  for (const price of prices) {
-    const activePrice = price.status === "active";
-    if (price.status === "archived") lifecycle.archivedPriceCount += 1;
-    if (activePrice && price.validFrom > asOfDate) lifecycle.futurePriceCount += 1;
-    if (activePrice && price.validTo && price.validTo < asOfDate) lifecycle.expiredPriceCount += 1;
-    if (activePrice && price.validFrom <= asOfDate && (!price.validTo || price.validTo >= asOfDate) && vendor.status === "active") {
-      lifecycle.usablePriceCount += 1;
-    }
-    if (activePrice && price.validFrom <= asOfDate && price.validTo && price.validTo >= asOfDate) {
-      if (!lifecycle.nextExpiryDate || price.validTo < lifecycle.nextExpiryDate) lifecycle.nextExpiryDate = price.validTo;
-      if (price.validTo <= soonThrough) lifecycle.expiringSoonCount += 1;
-    }
-  }
-
-  if (lifecycle.nextExpiryDate) {
-    lifecycle.daysToNextExpiry = daysBetween(asOfDate, lifecycle.nextExpiryDate);
-  }
-  if (vendor.status === "blocked") lifecycle.riskReasons.push("vendor blocked");
-  else if (vendor.status !== "active") lifecycle.riskReasons.push("vendor inactive");
-  if (lifecycle.totalPrices === 0) lifecycle.riskReasons.push("no prices");
-  if (lifecycle.usablePriceCount === 0 && lifecycle.totalPrices > 0) lifecycle.riskReasons.push("no usable active prices");
-  if (lifecycle.expiredPriceCount > 0) lifecycle.riskReasons.push("expired prices");
-  if (lifecycle.futurePriceCount > 0) lifecycle.riskReasons.push("future prices");
-  if (lifecycle.archivedPriceCount > 0) lifecycle.riskReasons.push("archived prices");
-  if (lifecycle.expiringSoonCount > 0) lifecycle.riskReasons.push(`prices expiring within ${PURCHASE_PRICE_EXPIRING_SOON_DAYS} days`);
-
-  if (lifecycle.totalPrices === 0) lifecycle.riskLevel = "empty";
-  else if (vendor.status !== "active" || lifecycle.usablePriceCount === 0) lifecycle.riskLevel = "blocked";
-  else if (lifecycle.expiredPriceCount > 0 || lifecycle.futurePriceCount > 0 || lifecycle.archivedPriceCount > 0 || lifecycle.expiringSoonCount > 0) lifecycle.riskLevel = "watch";
-
-  return lifecycle;
 }
 
 function formatPurchaseVendorPrice(row) {
@@ -55858,53 +53546,6 @@ function createPurchaseVendor(db, user, body) {
   return { ok: true, vendor: getPurchaseVendor(db, user.org_id, vendorId) };
 }
 
-function updatePurchaseVendorStatus(db, user, vendorId, body) {
-  const input = normalizePurchaseVendorStatusBody(body);
-  const current = db.prepare("SELECT * FROM purchase_vendors WHERE org_id = ? AND id = ?").get(user.org_id, vendorId);
-  if (!current) {
-    const err = new Error("Purchase vendor not found");
-    err.statusCode = 404;
-    throw err;
-  }
-  const now = new Date().toISOString();
-  let vendor;
-  db.exec("BEGIN");
-  try {
-    db.prepare(`
-      UPDATE purchase_vendors
-      SET status = ?, note = ?, updated_at = ?
-      WHERE org_id = ? AND id = ?
-    `).run(input.status, input.noteChanged ? input.note : current.note, now, user.org_id, vendorId);
-    emitSuiteEvent(db, {
-      orgId: user.org_id,
-      actorUserId: user.id,
-      eventType: "purchase.vendor.status.updated",
-      subjectType: "purchase_vendor",
-      subjectId: vendorId,
-      status: input.status,
-      payload: {
-        name: current.name,
-        previousStatus: current.status,
-        status: input.status,
-        noteChanged: input.noteChanged
-      }
-    });
-    audit(db, user.org_id, user.id, "purchase.vendor.status.updated", {
-      vendorId,
-      name: current.name,
-      previousStatus: current.status,
-      status: input.status,
-      noteChanged: input.noteChanged
-    });
-    vendor = getPurchaseVendor(db, user.org_id, vendorId);
-    db.exec("COMMIT");
-  } catch (err) {
-    db.exec("ROLLBACK");
-    throw err;
-  }
-  return { ok: true, vendor };
-}
-
 function getPurchaseOrders(db, orgId) {
   return db.prepare(`
     SELECT purchase_orders.*, purchase_vendors.name AS vendor_name,
@@ -55916,7 +53557,7 @@ function getPurchaseOrders(db, orgId) {
     LEFT JOIN users ON users.id = purchase_orders.created_by_user_id
     WHERE purchase_orders.org_id = ?
     ORDER BY purchase_orders.order_date DESC, purchase_orders.created_at DESC
-  `).all(orgId).map(row => formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id), getPurchaseCreditNotesForOrder(db, orgId, row.id), getPurchaseLandedCostsForOrder(db, orgId, row.id)));
+  `).all(orgId).map(row => formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id)));
 }
 
 function getPurchaseOrder(db, orgId, orderId) {
@@ -55930,15 +53571,13 @@ function getPurchaseOrder(db, orgId, orderId) {
     LEFT JOIN users ON users.id = purchase_orders.created_by_user_id
     WHERE purchase_orders.org_id = ? AND purchase_orders.id = ?
   `).get(orgId, orderId);
-  return row ? formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id), getPurchaseCreditNotesForOrder(db, orgId, row.id), getPurchaseLandedCostsForOrder(db, orgId, row.id)) : null;
+  return row ? formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id)) : null;
 }
 
 function getPurchaseAnalytics(db, orgId) {
   const orders = getPurchaseOrders(db, orgId);
-  const asOfDate = armeniaDateString();
-  const vendors = getPurchaseVendors(db, orgId, asOfDate);
-  const priceCoverage = getPurchasePriceCoverage(db, orgId, asOfDate);
-  const vendorLifecycle = summarizePurchaseVendorLifecycle(vendors);
+  const vendors = getPurchaseVendors(db, orgId);
+  const priceCoverage = getPurchasePriceCoverage(db, orgId, armeniaDateString());
   const receivableOrders = orders.filter(order => ["confirmed", "partial", "received", "billed"].includes(order.status));
   const stockableCatalogItemCount = db.prepare(`
     SELECT COUNT(*) AS count
@@ -55947,25 +53586,12 @@ function getPurchaseAnalytics(db, orgId) {
   `).get(orgId).count;
   const lineStats = summarizePurchaseLines(orders);
   const receivableStats = summarizePurchaseLines(receivableOrders);
-  const creditNoteAmount = orders.reduce((total, order) => total + Number(order.creditNoteAmount || 0), 0);
-  const creditNoteCount = orders.reduce((total, order) => total + Number(order.creditNoteCount || 0), 0);
-  const landedCostAmount = orders.reduce((total, order) => total + Number(order.landedCostAmount || 0), 0);
-  const landedCostCount = orders.reduce((total, order) => total + Number(order.landedCostCount || 0), 0);
-  const replenishmentSuggestions = procurement.computeReplenishment(db, orgId);
-  const replenishmentSummary = procurement.summarizeReplenishment(replenishmentSuggestions);
   const summary = {
     orderCount: orders.length,
     vendorCount: vendors.length,
     activeVendorCount: vendors.filter(vendor => vendor.status === "active").length,
     openValue: orders.filter(order => order.status !== "billed").reduce((total, order) => total + Number(order.total || 0), 0),
     billedValue: orders.filter(order => order.status === "billed").reduce((total, order) => total + Number(order.total || 0), 0),
-    returnCreditNoteAmount: creditNoteAmount,
-    returnCreditNoteCount: creditNoteCount,
-    landedCostAmount,
-    landedCostCount,
-    replenishmentSuggestionCount: replenishmentSummary.suggestionCount,
-    replenishmentSuggestedQty: replenishmentSummary.suggestedQty,
-    replenishmentSalesDemandQty: replenishmentSummary.salesDemandQty,
     receiptProgressPercent: percent(receivableStats.receivedQuantity, receivableStats.orderedQuantity),
     returnedQuantity: lineStats.returnedQuantity,
     remainingQuantity: receivableStats.remainingQuantity,
@@ -55980,65 +53606,14 @@ function getPurchaseAnalytics(db, orgId) {
     summary,
     receiptBacklog: getPurchaseReceiptBacklog(orders),
     vendorPerformance: getPurchaseVendorPerformance(orders, vendors),
-    vendorLifecycle,
     priceCoverage: {
       activePriceCount: priceCoverage.activePriceCount,
       stockableCatalogItemCount,
       activeVendorCount: summary.activeVendorCount,
       coveredStockableItemCount: priceCoverage.coveredStockableItemCount,
       coveragePercent: summary.vendorPriceCoveragePercent
-    },
-    replenishment: {
-      summary: replenishmentSummary,
-      suggestions: replenishmentSuggestions
     }
   };
-}
-
-function summarizePurchaseVendorLifecycle(vendors) {
-  const rows = Array.isArray(vendors) ? vendors : [];
-  const atRiskVendors = rows
-    .filter(vendor => vendor.priceLifecycle && vendor.priceLifecycle.riskLevel !== "ok")
-    .map(vendor => ({
-      vendorId: vendor.id,
-      name: vendor.name,
-      taxId: vendor.taxId,
-      status: vendor.status,
-      totalPrices: vendor.priceLifecycle.totalPrices,
-      usablePriceCount: vendor.priceLifecycle.usablePriceCount,
-      expiredPriceCount: vendor.priceLifecycle.expiredPriceCount,
-      futurePriceCount: vendor.priceLifecycle.futurePriceCount,
-      archivedPriceCount: vendor.priceLifecycle.archivedPriceCount,
-      expiringSoonCount: vendor.priceLifecycle.expiringSoonCount,
-      nextExpiryDate: vendor.priceLifecycle.nextExpiryDate,
-      daysToNextExpiry: vendor.priceLifecycle.daysToNextExpiry,
-      riskLevel: vendor.priceLifecycle.riskLevel,
-      riskReasons: vendor.priceLifecycle.riskReasons
-    }))
-    .sort((a, b) => purchaseVendorRiskRank(b.riskLevel) - purchaseVendorRiskRank(a.riskLevel)
-      || (a.daysToNextExpiry ?? 1000000) - (b.daysToNextExpiry ?? 1000000)
-      || b.expiredPriceCount - a.expiredPriceCount
-      || a.name.localeCompare(b.name))
-    .slice(0, 8);
-  return {
-    totalVendorCount: rows.length,
-    activeVendorCount: rows.filter(vendor => vendor.status === "active").length,
-    blockedVendorCount: rows.filter(vendor => vendor.status === "blocked").length,
-    inactiveVendorCount: rows.filter(vendor => vendor.status !== "active" && vendor.status !== "blocked").length,
-    vendorRiskCount: rows.filter(vendor => vendor.priceLifecycle?.riskLevel !== "ok").length,
-    expiringSoonPriceCount: rows.reduce((total, vendor) => total + Number(vendor.priceLifecycle?.expiringSoonCount || 0), 0),
-    expiredPriceCount: rows.reduce((total, vendor) => total + Number(vendor.priceLifecycle?.expiredPriceCount || 0), 0),
-    futurePriceCount: rows.reduce((total, vendor) => total + Number(vendor.priceLifecycle?.futurePriceCount || 0), 0),
-    archivedPriceCount: rows.reduce((total, vendor) => total + Number(vendor.priceLifecycle?.archivedPriceCount || 0), 0),
-    atRiskVendors
-  };
-}
-
-function purchaseVendorRiskRank(level) {
-  if (level === "blocked") return 3;
-  if (level === "empty") return 2;
-  if (level === "watch") return 1;
-  return 0;
 }
 
 function summarizePurchaseLines(orders) {
@@ -56152,7 +53727,6 @@ function percent(numerator, denominator) {
 function getPurchaseOrderLines(db, orgId, orderId) {
   const receiptsByLine = getPurchaseReceiptsByLine(db, orgId, orderId);
   const returnsByLine = getPurchaseReturnsByLine(db, orgId, orderId);
-  const landedCostsByLine = getPurchaseLandedCostsByLine(db, orgId, orderId);
   return db.prepare(`
     SELECT purchase_order_lines.*, catalog_items.sku AS catalog_sku,
       catalog_items.name AS catalog_name, catalog_items.unit_of_measure AS unit_of_measure,
@@ -56164,7 +53738,7 @@ function getPurchaseOrderLines(db, orgId, orderId) {
       AND stock_moves.org_id = purchase_order_lines.org_id
     WHERE purchase_order_lines.org_id = ? AND purchase_order_lines.purchase_order_id = ?
     ORDER BY purchase_order_lines.created_at, purchase_order_lines.id
-  `).all(orgId, orderId).map(row => formatPurchaseOrderLine(row, receiptsByLine.get(row.id) || [], returnsByLine.get(row.id) || [], landedCostsByLine.get(row.id) || []));
+  `).all(orgId, orderId).map(row => formatPurchaseOrderLine(row, receiptsByLine.get(row.id) || [], returnsByLine.get(row.id) || []));
 }
 
 function getPurchaseReceiptsByLine(db, orgId, orderId) {
@@ -56209,94 +53783,11 @@ function getPurchaseReturnsByLine(db, orgId, orderId) {
   return byLine;
 }
 
-function getPurchaseLandedCostsByLine(db, orgId, orderId) {
-  const rows = db.prepare(`
-    SELECT landed_cost_lines.*, landed_cost_allocations.kind,
-      landed_cost_allocations.currency, landed_cost_allocations.allocation_method,
-      landed_cost_allocations.created_at AS allocation_created_at
-    FROM landed_cost_lines
-    JOIN landed_cost_allocations ON landed_cost_allocations.id = landed_cost_lines.landed_cost_allocation_id
-      AND landed_cost_allocations.org_id = landed_cost_lines.org_id
-    WHERE landed_cost_lines.org_id = ? AND landed_cost_lines.po_id = ?
-    ORDER BY landed_cost_lines.created_at, landed_cost_lines.id
-  `).all(orgId, orderId);
-  const byLine = new Map();
-  for (const row of rows) {
-    const evidence = formatPurchaseLandedCostLine(row);
-    const items = byLine.get(evidence.purchaseOrderLineId) || [];
-    items.push(evidence);
-    byLine.set(evidence.purchaseOrderLineId, items);
-  }
-  return byLine;
-}
-
-function getPurchaseCreditNotesForOrder(db, orgId, orderId) {
-  return db.prepare(`
-    SELECT purchase_credit_notes.*, users.name AS created_by_name,
-      GROUP_CONCAT(ledger_journal.id) AS ledger_posting_ids
-    FROM purchase_credit_notes
-    LEFT JOIN users ON users.id = purchase_credit_notes.created_by_user_id
-      AND users.org_id = purchase_credit_notes.org_id
-    LEFT JOIN ledger_journal ON ledger_journal.org_id = purchase_credit_notes.org_id
-      AND ledger_journal.source_type = 'purchase_credit_note'
-      AND ledger_journal.source_id = purchase_credit_notes.id
-    WHERE purchase_credit_notes.org_id = ? AND purchase_credit_notes.po_id = ?
-    GROUP BY purchase_credit_notes.id
-    ORDER BY purchase_credit_notes.created_at, purchase_credit_notes.id
-  `).all(orgId, orderId).map(formatPurchaseCreditNote);
-}
-
-function getPurchaseCreditNotesByReturnIds(db, orgId, returnIds) {
-  const ids = [...new Set((returnIds || []).filter(Boolean))];
-  if (ids.length === 0) return [];
-  const placeholders = ids.map(() => "?").join(", ");
-  return db.prepare(`
-    SELECT purchase_credit_notes.*, users.name AS created_by_name,
-      GROUP_CONCAT(ledger_journal.id) AS ledger_posting_ids
-    FROM purchase_credit_notes
-    LEFT JOIN users ON users.id = purchase_credit_notes.created_by_user_id
-      AND users.org_id = purchase_credit_notes.org_id
-    LEFT JOIN ledger_journal ON ledger_journal.org_id = purchase_credit_notes.org_id
-      AND ledger_journal.source_type = 'purchase_credit_note'
-      AND ledger_journal.source_id = purchase_credit_notes.id
-    WHERE purchase_credit_notes.org_id = ?
-      AND purchase_credit_notes.return_id IN (${placeholders})
-    GROUP BY purchase_credit_notes.id
-    ORDER BY purchase_credit_notes.created_at, purchase_credit_notes.id
-  `).all(orgId, ...ids).map(formatPurchaseCreditNote);
-}
-
-function getPurchaseLandedCostsForOrder(db, orgId, orderId) {
-  return db.prepare(`
-    SELECT landed_cost_allocations.*, users.name AS created_by_name
-    FROM landed_cost_allocations
-    LEFT JOIN users ON users.id = landed_cost_allocations.created_by_user_id
-      AND users.org_id = landed_cost_allocations.org_id
-    WHERE landed_cost_allocations.org_id = ? AND landed_cost_allocations.po_id = ?
-    ORDER BY landed_cost_allocations.created_at, landed_cost_allocations.id
-  `).all(orgId, orderId).map(row => formatPurchaseLandedCost(row, getPurchaseLandedCostLinesForAllocation(db, orgId, row.id)));
-}
-
-function getPurchaseLandedCostLinesForAllocation(db, orgId, allocationId) {
-  return db.prepare(`
-    SELECT landed_cost_lines.*, landed_cost_allocations.kind,
-      landed_cost_allocations.currency, landed_cost_allocations.allocation_method,
-      landed_cost_allocations.created_at AS allocation_created_at
-    FROM landed_cost_lines
-    JOIN landed_cost_allocations ON landed_cost_allocations.id = landed_cost_lines.landed_cost_allocation_id
-      AND landed_cost_allocations.org_id = landed_cost_lines.org_id
-    WHERE landed_cost_lines.org_id = ? AND landed_cost_lines.landed_cost_allocation_id = ?
-    ORDER BY landed_cost_lines.created_at, landed_cost_lines.id
-  `).all(orgId, allocationId).map(formatPurchaseLandedCostLine);
-}
-
-function formatPurchaseOrder(row, lines = [], creditNotes = [], landedCosts = []) {
+function formatPurchaseOrder(row, lines = []) {
   const orderedQuantity = lines.reduce((total, line) => total + Number(line.quantity || 0), 0);
   const receivedQuantity = lines.reduce((total, line) => total + Number(line.receivedQuantity || 0), 0);
   const returnedQuantity = lines.reduce((total, line) => total + Number(line.returnedQuantity || 0), 0);
   const remainingQuantity = Math.max(0, orderedQuantity - receivedQuantity);
-  const creditNoteAmount = creditNotes.reduce((total, note) => total + Number(note.amount || 0), 0);
-  const landedCostAmount = landedCosts.reduce((total, cost) => total + Number(cost.amount || 0), 0);
   return {
     id: row.id,
     vendorId: row.vendor_id || "",
@@ -56322,26 +53813,18 @@ function formatPurchaseOrder(row, lines = [], creditNotes = [], landedCosts = []
     remainingQuantity,
     receiptCount: lines.reduce((total, line) => total + (line.receipts?.length || 0), 0),
     returnCount: lines.reduce((total, line) => total + (line.returns?.length || 0), 0),
-    creditNoteCount: creditNotes.length,
-    creditNoteAmount,
-    landedCostCount: landedCosts.length,
-    landedCostAmount,
     note: row.note || "",
     createdByUserId: row.created_by_user_id,
     createdByName: row.created_by_name || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    lines,
-    creditNotes,
-    landedCosts
+    lines
   };
 }
 
-function formatPurchaseOrderLine(row, receipts = [], returns = [], landedCosts = []) {
+function formatPurchaseOrderLine(row, receipts = [], returns = []) {
   const remainingQuantity = Math.max(0, row.quantity - row.received_quantity);
   const returnedQuantity = returns.reduce((total, item) => total + Number(item.quantity || 0), 0);
-  const landedCostAmount = landedCosts.reduce((total, item) => total + Number(item.amount || 0), 0);
-  const landedUnitCostDelta = landedCosts.reduce((total, item) => total + Number(item.unitCostDelta || 0), 0);
   return {
     id: row.id,
     purchaseOrderId: row.purchase_order_id,
@@ -56357,9 +53840,6 @@ function formatPurchaseOrderLine(row, receipts = [], returns = [], landedCosts =
     remainingQuantity,
     returnableQuantity: row.received_quantity,
     unitCost: row.unit_cost,
-    landedCostAmount,
-    landedUnitCostDelta,
-    effectiveUnitCost: row.unit_cost + landedUnitCostDelta,
     subtotal: row.subtotal,
     vat: row.vat,
     total: row.total,
@@ -56367,7 +53847,6 @@ function formatPurchaseOrderLine(row, receipts = [], returns = [], landedCosts =
     stockMoveReference: row.stock_move_reference || "",
     receipts,
     returns,
-    landedCosts,
     createdAt: row.created_at
   };
 }
@@ -56403,85 +53882,6 @@ function formatPurchaseReturn(row) {
     createdByName: row.created_by_name || "",
     createdAt: row.created_at
   };
-}
-
-function formatPurchaseCreditNote(row) {
-  const ledgerPostingIds = row.ledger_posting_ids
-    ? String(row.ledger_posting_ids).split(",").filter(Boolean)
-    : [];
-  return {
-    id: row.id,
-    poId: row.po_id,
-    billId: row.bill_id || "",
-    returnId: row.return_id || "",
-    amount: row.amount,
-    currency: row.currency,
-    status: row.status,
-    postedAt: row.posted_at || "",
-    note: row.note || "",
-    ledgerPostingIds,
-    createdByUserId: row.created_by_user_id || "",
-    createdByName: row.created_by_name || "",
-    createdAt: row.created_at
-  };
-}
-
-function formatPurchaseLandedCostLine(row) {
-  return {
-    id: row.id,
-    landedCostId: row.landed_cost_allocation_id,
-    purchaseOrderLineId: row.purchase_order_line_id,
-    lineId: row.purchase_order_line_id,
-    amount: row.amount,
-    allocated: row.amount,
-    basis: row.basis,
-    quantity: row.quantity,
-    subtotal: row.subtotal,
-    unitCostDelta: row.unit_cost_delta,
-    unitCostAdjustment: row.unit_cost_delta,
-    kind: row.kind || "",
-    currency: row.currency || "",
-    allocationMethod: row.allocation_method || "",
-    createdAt: row.created_at || row.allocation_created_at || ""
-  };
-}
-
-function formatPurchaseLandedCost(row, allocatedRows = []) {
-  const allocated = allocatedRows.length > 0
-    ? allocatedRows
-    : normalizePurchaseLandedCostAllocations(row.allocation_json);
-  return {
-    id: row.id,
-    poId: row.po_id,
-    kind: row.kind,
-    amount: row.amount,
-    currency: row.currency,
-    fxRate: row.fx_rate,
-    allocationMethod: row.allocation_method,
-    baseTotal: row.base_total,
-    allocated,
-    allocations: allocated.map(item => ({ ...item, allocated: item.amount })),
-    totalAllocated: allocated.reduce((total, item) => total + Number(item.amount || 0), 0) || row.amount,
-    createdByUserId: row.created_by_user_id || "",
-    createdByName: row.created_by_name || "",
-    createdAt: row.created_at
-  };
-}
-
-function normalizePurchaseLandedCostAllocations(value) {
-  const rows = safeJson(value);
-  if (!Array.isArray(rows)) return [];
-  return rows
-    .filter(item => item && typeof item === "object" && item.lineId)
-    .map(item => ({
-      lineId: String(item.lineId),
-      amount: Number(item.amount ?? item.allocated ?? 0),
-      basis: Number(item.basis || 0),
-      quantity: Number(item.quantity || 0),
-      subtotal: Number(item.subtotal || 0),
-      unitCostDelta: Number(item.unitCostDelta ?? item.unitCostAdjustment ?? 0),
-      unitCostAdjustment: Number(item.unitCostAdjustment ?? item.unitCostDelta ?? 0)
-    }));
 }
 
 function createPurchaseOrder(db, user, body) {
@@ -56654,7 +54054,7 @@ function receivePurchaseOrder(db, user, orderId, body) {
         destinationLocationId: mainWarehouse.id,
         moveType: "receipt",
         quantity: line.receiptQuantity,
-        unitCost: line.effectiveUnitCost || line.unitCost,
+        unitCost: line.unitCost,
         reason: `Purchase receipt for ${order.orderNumber}`,
         reference
       });
@@ -56728,11 +54128,6 @@ function returnPurchaseOrder(db, user, orderId, body) {
   if (!order) throwPurchaseOrderNotFound();
   const input = normalizePurchaseReturnBody(body);
   const reference = resolvePurchaseReturnReference(db, user.org_id, order, input.reference);
-  const billedReturn = order.status === "billed";
-  if (billedReturn) {
-    requireFinanceOperator(user);
-    if (!input.reference) throwPurchaseStateConflict("Billed purchase order returns require a reference");
-  }
   if (input.reference) {
     const existingReturns = getPurchaseReturnsByReference(db, user.org_id, order.id, input.reference);
     if (existingReturns.length > 0) {
@@ -56744,24 +54139,18 @@ function returnPurchaseOrder(db, user, orderId, body) {
         idempotent: true,
         order,
         returns: existingReturns,
-        creditNotes: getPurchaseCreditNotesByReturnIds(db, user.org_id, existingReturns.map(returned => returned.id)),
         stockMoves: existingReturns.map(returned => getStockMove(db, user.org_id, returned.stockMoveId)).filter(Boolean)
       };
     }
   }
-  if (order.status !== "partial" && order.status !== "received" && order.status !== "billed") throwPurchaseStateConflict("Purchase order must have received stock before return");
+  if (order.status === "billed") throwPurchaseStateConflict("Billed purchase order returns require credit-note handling");
+  if (order.status !== "partial" && order.status !== "received") throwPurchaseStateConflict("Purchase order must have received stock before return");
   const mainWarehouse = getStockLocationByCode(db, user.org_id, "WH/STOCK");
   const supplierLocation = getStockLocationByCode(db, user.org_id, "SUPPLIERS");
   if (!mainWarehouse || mainWarehouse.status !== "active" || !supplierLocation || supplierLocation.status !== "active") throwStockLocationNotFound();
   const returnPlan = buildPurchaseReturnPlan(order, input);
-  const creditPlan = billedReturn ? buildPurchaseReturnCreditPlan(order, returnPlan) : [];
-  if (billedReturn) {
-    ledger.assertPeriodOpen(db, user.org_id, input.returnedAt.slice(0, 7));
-    assertPurchaseCreditDoesNotExceedOutstanding(db, user.org_id, order.billId, creditPlan.reduce((total, line) => total + line.amount, 0));
-  }
   const stockMoves = [];
   let returns = [];
-  let creditNotes = [];
   let returnedOrder;
   db.exec("BEGIN");
   try {
@@ -56774,15 +54163,13 @@ function returnPurchaseOrder(db, user, orderId, body) {
     `);
     const now = new Date().toISOString();
     for (const line of returnPlan) {
-      const creditLine = creditPlan.find(item => item.lineId === line.id);
-      if (billedReturn && !creditLine) throwInvalidPurchaseMetadata();
       const move = createStockMoveFromInput(db, user, {
         catalogItemId: line.catalogItemId,
         sourceLocationId: mainWarehouse.id,
         destinationLocationId: supplierLocation.id,
         moveType: "return",
         quantity: line.returnQuantity,
-        unitCost: line.effectiveUnitCost || line.unitCost,
+        unitCost: line.unitCost,
         reason: input.reason || `Purchase return for ${order.orderNumber}`,
         reference
       });
@@ -56792,9 +54179,8 @@ function returnPurchaseOrder(db, user, orderId, body) {
         SET received_quantity = received_quantity - ?
         WHERE org_id = ? AND id = ?
       `).run(line.returnQuantity, user.org_id, line.id);
-      const returnId = randomId("purchase-return");
       insertReturn.run(
-        returnId,
+        randomId("purchase-return"),
         user.org_id,
         orderId,
         line.id,
@@ -56806,42 +54192,12 @@ function returnPurchaseOrder(db, user, orderId, body) {
         user.id,
         now
       );
-      if (billedReturn) {
-        const creditNoteId = randomId("purchase-credit-note");
-        db.prepare(`
-          INSERT INTO purchase_credit_notes (
-            id, org_id, po_id, bill_id, return_id, amount, currency, status,
-            posted_at, note, created_by_user_id, created_at
-          )
-          VALUES (?, ?, ?, ?, ?, ?, ?, 'posted', ?, ?, ?, ?)
-        `).run(
-          creditNoteId,
-          user.org_id,
-          orderId,
-          order.billId,
-          returnId,
-          creditLine.amount,
-          order.currency || activeCurrencyCode(),
-          input.returnedAt,
-          input.reason || `Credit note for ${reference}`,
-          user.id,
-          now
-        );
-        ledger.postBillCreditNote(db, user.org_id, {
-          id: creditNoteId,
-          subtotal: fromMinorAmount(creditLine.subtotal),
-          vat: fromMinorAmount(creditLine.vat),
-          total: fromMinorAmount(creditLine.amount),
-          date: input.returnedAt,
-          period_key: input.returnedAt.slice(0, 7)
-        });
-      }
     }
 
     const updatedLines = getPurchaseOrderLines(db, user.org_id, orderId);
     const isFullyReceived = updatedLines.every(line => line.receivedQuantity >= line.quantity);
     const hasAnyReceived = updatedLines.some(line => line.receivedQuantity > 0);
-    const status = billedReturn ? "billed" : isFullyReceived ? "received" : hasAnyReceived ? "partial" : "confirmed";
+    const status = isFullyReceived ? "received" : hasAnyReceived ? "partial" : "confirmed";
     const totalReturnedQuantity = returnPlan.reduce((total, line) => total + line.returnQuantity, 0);
     const totalRemainingQuantity = updatedLines.reduce((total, line) => total + line.remainingQuantity, 0);
     db.prepare(`
@@ -56850,7 +54206,6 @@ function returnPurchaseOrder(db, user, orderId, body) {
       WHERE org_id = ? AND id = ?
     `).run(status, now, user.org_id, orderId);
     returns = getPurchaseReturnsByReference(db, user.org_id, orderId, reference);
-    creditNotes = getPurchaseCreditNotesByReturnIds(db, user.org_id, returns.map(returned => returned.id));
     emitSuiteEvent(db, {
       orgId: user.org_id,
       actorUserId: user.id,
@@ -56863,9 +54218,7 @@ function returnPurchaseOrder(db, user, orderId, body) {
         reference,
         reason: input.reason,
         stockMoveIds: stockMoves.map(move => move.id),
-        creditNoteIds: creditNotes.map(note => note.id),
         returnedQuantity: totalReturnedQuantity,
-        creditNoteAmount: creditNotes.reduce((total, note) => total + Number(note.amount || 0), 0),
         remainingQuantity: totalRemainingQuantity,
         total: order.total
       }
@@ -56876,9 +54229,7 @@ function returnPurchaseOrder(db, user, orderId, body) {
       reference,
       reason: input.reason,
       stockMoveIds: stockMoves.map(move => move.id),
-      creditNoteIds: creditNotes.map(note => note.id),
       returnedQuantity: totalReturnedQuantity,
-      creditNoteAmount: creditNotes.reduce((total, note) => total + Number(note.amount || 0), 0),
       remainingQuantity: totalRemainingQuantity,
       total: order.total
     });
@@ -56888,7 +54239,7 @@ function returnPurchaseOrder(db, user, orderId, body) {
     db.exec("ROLLBACK");
     throw err;
   }
-  return { ok: true, order: returnedOrder, returns, creditNotes, stockMoves };
+  return { ok: true, order: returnedOrder, returns, stockMoves };
 }
 
 function billPurchaseOrder(db, user, orderId, body) {
@@ -56981,21 +54332,16 @@ function buildPurchaseOrderLine(db, orgId, line, orderDate, vatRate, vendorId = 
 
 function getBestPurchaseVendorPrice(db, orgId, vendorId, catalogItemId, quantity, orderDate) {
   const rows = db.prepare(`
-    SELECT purchase_vendor_prices.*
+    SELECT *
     FROM purchase_vendor_prices
-    JOIN purchase_vendors ON purchase_vendors.org_id = purchase_vendor_prices.org_id
-      AND purchase_vendors.id = purchase_vendor_prices.vendor_id
-      AND purchase_vendors.status = 'active'
-    WHERE purchase_vendor_prices.org_id = ?
-      AND purchase_vendor_prices.vendor_id = ?
-      AND purchase_vendor_prices.catalog_item_id = ?
-      AND purchase_vendor_prices.status = 'active'
-      AND purchase_vendor_prices.min_quantity <= ?
-      AND purchase_vendor_prices.valid_from <= ?
-      AND (purchase_vendor_prices.valid_to = '' OR purchase_vendor_prices.valid_to >= ?)
-    ORDER BY purchase_vendor_prices.min_quantity DESC,
-      purchase_vendor_prices.valid_from DESC,
-      purchase_vendor_prices.unit_cost ASC
+    WHERE org_id = ?
+      AND vendor_id = ?
+      AND catalog_item_id = ?
+      AND status = 'active'
+      AND min_quantity <= ?
+      AND valid_from <= ?
+      AND (valid_to = '' OR valid_to >= ?)
+    ORDER BY min_quantity DESC, valid_from DESC, unit_cost ASC
     LIMIT 1
   `).all(orgId, vendorId, catalogItemId, quantity, orderDate, orderDate);
   return rows[0] ? formatPurchaseVendorPrice({
@@ -57127,40 +54473,6 @@ function buildPurchaseReturnPlan(order, input) {
   });
 }
 
-function buildPurchaseReturnCreditPlan(order, returnPlan) {
-  if (!order.billId) throwPurchaseStateConflict("Billed purchase order return requires a linked bill");
-  return returnPlan.map(line => {
-    const quantity = Number(line.quantity || 0);
-    const returnQuantity = Number(line.returnQuantity || 0);
-    if (quantity <= 0 || returnQuantity <= 0) throwInvalidPurchaseMetadata();
-    const subtotal = proratePurchaseReturnCreditAmount(line.subtotal, quantity, returnQuantity);
-    const vat = proratePurchaseReturnCreditAmount(line.vat, quantity, returnQuantity);
-    const amount = subtotal + vat;
-    if (!Number.isSafeInteger(amount) || amount <= 0) throwInvalidPurchaseMetadata();
-    return {
-      lineId: line.id,
-      subtotal,
-      vat,
-      amount
-    };
-  });
-}
-
-function proratePurchaseReturnCreditAmount(total, quantity, returnQuantity) {
-  const amount = Math.round((Number(total || 0) * returnQuantity) / quantity);
-  if (!Number.isSafeInteger(amount) || amount < 0) throwInvalidPurchaseMetadata();
-  return amount;
-}
-
-function assertPurchaseCreditDoesNotExceedOutstanding(db, orgId, billId, creditAmount) {
-  const bill = db.prepare("SELECT total FROM bills WHERE org_id = ? AND id = ?").get(orgId, billId);
-  if (!bill) throwPurchaseStateConflict("Billed purchase order return requires a linked bill");
-  const paid = db.prepare("SELECT COALESCE(SUM(amount), 0) AS amount FROM bill_payments WHERE org_id = ? AND bill_id = ?").get(orgId, billId).amount;
-  const credited = db.prepare("SELECT COALESCE(SUM(amount), 0) AS amount FROM purchase_credit_notes WHERE org_id = ? AND bill_id = ? AND status = 'posted'").get(orgId, billId).amount;
-  const outstanding = Math.max(0, Number(bill.total || 0) - Number(paid || 0) - Number(credited || 0));
-  if (creditAmount > outstanding) throwPurchaseStateConflict("Purchase credit note exceeds outstanding bill amount");
-}
-
 function isMatchingPurchaseReceiptRetry(existingReceipts, input) {
   if (input.lines.length === 0) return false;
   if (existingReceipts.length !== input.lines.length) return false;
@@ -57198,18 +54510,6 @@ function normalizePurchaseVendorBody(body) {
     leadTimeDays: normalizePurchaseInteger(body, "leadTimeDays", { fallback: 0, min: 0, max: 365 }),
     note: normalizePurchaseText(body, "note", { fallback: "", maxLength: 500 }),
     prices: normalizePurchaseVendorPrices(body)
-  };
-}
-
-function normalizePurchaseVendorStatusBody(body) {
-  if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
-  const status = normalizePurchaseChoice(body, "status", ["active", "inactive", "blocked"], undefined);
-  if (!status) throwInvalidPurchaseMetadata();
-  const noteChanged = Object.prototype.hasOwnProperty.call(body, "note");
-  return {
-    status,
-    noteChanged,
-    note: noteChanged ? normalizePurchaseText(body, "note", { fallback: "", maxLength: 500 }) : ""
   };
 }
 
@@ -58884,992 +56184,6 @@ function formatServiceCase(row) {
     updatedAt: row.updated_at,
     createdAt: row.created_at
   };
-}
-
-function getServiceFieldVisits(db, orgId, customerId = "", assignedUserId = "") {
-  const params = [orgId];
-  let where = "WHERE service_field_visits.org_id = ?";
-  if (customerId) {
-    where += " AND service_field_visits.customer_id = ?";
-    params.push(customerId);
-  }
-  if (assignedUserId) {
-    where += " AND service_field_visits.assigned_user_id = ?";
-    params.push(assignedUserId);
-  }
-  const rows = db.prepare(`
-    SELECT service_field_visits.*, service_cases.case_number, service_cases.subject,
-      customers.name AS customer_name, users.name AS assigned_user_name
-    FROM service_field_visits
-    JOIN service_cases
-      ON service_cases.org_id = service_field_visits.org_id
-      AND service_cases.id = service_field_visits.case_id
-    JOIN customers
-      ON customers.org_id = service_field_visits.org_id
-      AND customers.id = service_field_visits.customer_id
-    LEFT JOIN users
-      ON users.org_id = service_field_visits.org_id
-      AND users.id = service_field_visits.assigned_user_id
-    ${where}
-    ORDER BY service_field_visits.scheduled_start_at ASC, service_field_visits.created_at DESC
-  `).all(...params);
-  const locationsByVisitId = getLatestServiceFieldVisitTechnicianLocations(db, orgId, rows.map(row => row.id));
-  const materialsByVisitId = getServiceFieldVisitMaterialEvidenceByVisit(db, orgId, rows.map(row => row.id));
-  return addServiceFieldVisitRouteOptimizationEvidence(
-    rows.map(row => formatServiceFieldVisit(row, locationsByVisitId.get(row.id), materialsByVisitId.get(row.id) || []))
-  );
-}
-
-function getServiceFieldVisit(db, orgId, visitId) {
-  const row = db.prepare(`
-    SELECT service_field_visits.*, service_cases.case_number, service_cases.subject,
-      customers.name AS customer_name, users.name AS assigned_user_name
-    FROM service_field_visits
-    JOIN service_cases
-      ON service_cases.org_id = service_field_visits.org_id
-      AND service_cases.id = service_field_visits.case_id
-    JOIN customers
-      ON customers.org_id = service_field_visits.org_id
-      AND customers.id = service_field_visits.customer_id
-    LEFT JOIN users
-      ON users.org_id = service_field_visits.org_id
-      AND users.id = service_field_visits.assigned_user_id
-    WHERE service_field_visits.org_id = ? AND service_field_visits.id = ?
-  `).get(orgId, visitId);
-  if (!row) return null;
-  const locationsByVisitId = getLatestServiceFieldVisitTechnicianLocations(db, orgId, [row.id]);
-  const materialsByVisitId = getServiceFieldVisitMaterialEvidenceByVisit(db, orgId, [row.id]);
-  return formatServiceFieldVisit(row, locationsByVisitId.get(row.id), materialsByVisitId.get(row.id) || []);
-}
-
-function formatServiceFieldVisit(row, technicianLocation = null, materialEvidence = []) {
-  const visit = {
-    id: row.id,
-    caseId: row.case_id,
-    caseNumber: row.case_number,
-    subject: row.subject,
-    customerId: row.customer_id,
-    customerName: row.customer_name,
-    projectId: row.project_id || null,
-    assignedUserId: row.assigned_user_id,
-    assignedUserName: row.assigned_user_name,
-    scheduledStartAt: row.scheduled_start_at,
-    scheduledEndAt: row.scheduled_end_at,
-    status: row.status,
-    location: row.location,
-    worksheetSummary: row.worksheet_summary,
-    createdAt: row.created_at,
-    updatedAt: row.updated_at,
-    dispatchNavigation: buildServiceFieldVisitDispatchNavigation(row),
-    costAllocation: buildServiceFieldVisitCostAllocationEvidence(row, { materialEvidence })
-  };
-  if (technicianLocation) {
-    visit.technicianLocation = technicianLocation;
-  }
-  return visit;
-}
-
-function getServiceDispatchAlerts(db, user, options = {}) {
-  const visits = getServiceFieldVisits(db, user.org_id, "", user.id);
-  const acknowledgedKeys = getAcknowledgedServiceDispatchAlertDedupeKeys(db, user);
-  const includeAcknowledged = Boolean(options.includeAcknowledged);
-  const alerts = buildServiceDispatchAlerts(visits)
-    .map(alert => acknowledgedKeys.has(alert.dedupeKey) ? { ...alert, acknowledged: true } : alert)
-    .filter(alert => includeAcknowledged || !alert.acknowledged)
-    .slice(0, 100);
-  return alerts;
-}
-
-function buildServiceDispatchAlerts(visits, now = new Date()) {
-  const nowMs = now.getTime();
-  const soonMs = nowMs + 2 * 60 * 60 * 1000;
-  const alerts = [];
-  for (const visit of visits) {
-    if (isTerminalServiceFieldVisitStatus(visit.status)) continue;
-    const startMs = Date.parse(visit.scheduledStartAt);
-    const endMs = Date.parse(visit.scheduledEndAt);
-    if (visit.status === "en-route" || visit.status === "in-progress") {
-      alerts.push(formatServiceDispatchAlert("active-route", "high", visit, {
-        title: `Active route for ${visit.caseNumber}`,
-        body: `${visit.customerName} visit is ${visit.status} at ${visit.location}.`,
-        notify: true,
-        referenceAt: visit.updatedAt || visit.scheduledStartAt
-      }));
-    }
-    if (visit.status === "scheduled" && Number.isFinite(startMs) && startMs >= nowMs && startMs <= soonMs) {
-      alerts.push(formatServiceDispatchAlert("due-soon", "medium", visit, {
-        title: `Visit due soon for ${visit.caseNumber}`,
-        body: `${visit.customerName} visit starts within 2 hours at ${visit.location}.`,
-        notify: true,
-        referenceAt: visit.scheduledStartAt
-      }));
-    }
-    if (Number.isFinite(endMs) && endMs < nowMs) {
-      alerts.push(formatServiceDispatchAlert("overdue-window", "high", visit, {
-        title: `Visit window overdue for ${visit.caseNumber}`,
-        body: `${visit.customerName} visit window ended before completion.`,
-        notify: true,
-        referenceAt: visit.scheduledEndAt
-      }));
-    }
-    if (["scheduled", "en-route", "in-progress"].includes(visit.status) && !visit.technicianLocation) {
-      alerts.push(formatServiceDispatchAlert("gps-missing", visit.status === "scheduled" ? "info" : "medium", visit, {
-        title: `GPS evidence missing for ${visit.caseNumber}`,
-        body: `${visit.customerName} visit has no technician location evidence yet.`,
-        notify: false,
-        referenceAt: visit.updatedAt || visit.scheduledStartAt
-      }));
-    }
-  }
-  const severityOrder = { high: 0, medium: 1, info: 2 };
-  const kindOrder = { "overdue-window": 0, "active-route": 1, "due-soon": 2, "gps-missing": 3 };
-  return alerts.sort((a, b) => {
-    const severity = severityOrder[a.severity] - severityOrder[b.severity];
-    if (severity !== 0) return severity;
-    const reference = String(a.referenceAt).localeCompare(String(b.referenceAt));
-    if (reference !== 0) return reference;
-    const kind = kindOrder[a.kind] - kindOrder[b.kind];
-    if (kind !== 0) return kind;
-    return a.visitId.localeCompare(b.visitId);
-  });
-}
-
-function formatServiceDispatchAlert(kind, severity, visit, options) {
-  const referenceAt = options.referenceAt || visit.updatedAt || visit.scheduledStartAt;
-  const dedupeKey = `service-field-visit:${visit.id}:${kind}:${referenceAt}`;
-  return {
-    id: buildServiceDispatchAlertId(kind, visit.id, dedupeKey),
-    dedupeKey,
-    kind,
-    severity,
-    visitId: visit.id,
-    caseNumber: visit.caseNumber,
-    customerName: visit.customerName,
-    location: visit.location,
-    status: visit.status,
-    scheduledStartAt: visit.scheduledStartAt,
-    scheduledEndAt: visit.scheduledEndAt,
-    title: options.title,
-    body: options.body,
-    notify: Boolean(options.notify),
-    createdAt: referenceAt,
-    referenceAt
-  };
-}
-
-function buildServiceDispatchAlertId(kind, visitId, dedupeKey) {
-  return `svc-dispatch-alert-${kind}-v${buildServiceDispatchAlertVersion(dedupeKey)}-${visitId}`;
-}
-
-function buildServiceDispatchAlertVersion(dedupeKey) {
-  return crypto.createHash("sha256").update(String(dedupeKey || ""), "utf8").digest("hex").slice(0, 12);
-}
-
-function parseServiceDispatchAlertId(alertId) {
-  const prefix = "svc-dispatch-alert-";
-  if (!alertId.startsWith(prefix)) throwInvalidServiceDispatchAlertPathId();
-  const rest = alertId.slice(prefix.length);
-  for (const kind of SERVICE_DISPATCH_ALERT_KINDS) {
-    const marker = `${kind}-v`;
-    if (!rest.startsWith(marker)) continue;
-    const versionAndVisitId = rest.slice(marker.length);
-    const separatorIndex = versionAndVisitId.indexOf("-");
-    if (separatorIndex !== 12) throwInvalidServiceDispatchAlertPathId();
-    const version = versionAndVisitId.slice(0, separatorIndex);
-    const visitId = versionAndVisitId.slice(separatorIndex + 1);
-    if (!/^[a-f0-9]{12}$/.test(version)) throwInvalidServiceDispatchAlertPathId();
-    if (!visitId || !/^[a-z0-9-]+$/.test(visitId)) throwInvalidServiceDispatchAlertPathId();
-    return { kind, visitId, version };
-  }
-  throwInvalidServiceDispatchAlertPathId();
-}
-
-function acknowledgeServiceDispatchAlert(db, user, alertId) {
-  const parsed = parseServiceDispatchAlertId(alertId);
-  const alert = buildServiceDispatchAlerts(getServiceFieldVisits(db, user.org_id, "", user.id))
-    .find(candidate => candidate.id === alertId && candidate.kind === parsed.kind && candidate.visitId === parsed.visitId);
-  if (!alert) {
-    const err = new Error("Dispatch alert not found");
-    err.statusCode = 404;
-    throw err;
-  }
-  const acknowledgedKeys = getAcknowledgedServiceDispatchAlertDedupeKeys(db, user);
-  if (!acknowledgedKeys.has(alert.dedupeKey)) {
-    audit(db, user.org_id, user.id, "service.dispatch_alert.acknowledged", {
-      alertId: alert.id,
-      dedupeKey: alert.dedupeKey,
-      kind: alert.kind,
-      visitId: alert.visitId,
-      caseNumber: alert.caseNumber,
-      referenceAt: alert.referenceAt
-    });
-  }
-  return { ...alert, acknowledged: true };
-}
-
-function getAcknowledgedServiceDispatchAlertDedupeKeys(db, user) {
-  const rows = db.prepare(`
-    SELECT details
-    FROM audit_events
-    WHERE org_id = ? AND user_id = ? AND type = ?
-    ORDER BY id DESC
-  `).all(user.org_id, user.id, "service.dispatch_alert.acknowledged");
-  const keys = new Set();
-  for (const row of rows) {
-    let details;
-    try {
-      details = JSON.parse(row.details || "{}");
-    } catch {
-      continue;
-    }
-    if (typeof details.dedupeKey === "string" && details.dedupeKey.startsWith("service-field-visit:")) {
-      keys.add(details.dedupeKey);
-    }
-  }
-  return keys;
-}
-
-function normalizeServiceDispatchAlertIncludeAcknowledged(query) {
-  const value = query.includeAcknowledged;
-  if (value === undefined || value === null || value === "") return false;
-  if (Array.isArray(value)) return value.some(item => normalizeServiceDispatchAlertIncludeAcknowledged({ includeAcknowledged: item }));
-  const text = String(value).trim().toLowerCase();
-  return ["1", "true", "yes", "y", "on"].includes(text);
-}
-
-function normalizeServiceDispatchAlertPathId(value) {
-  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
-    throwInvalidServiceDispatchAlertPathId();
-  }
-  const text = value;
-  if (text !== text.trim()) {
-    throwInvalidServiceDispatchAlertPathId();
-  }
-  if (!text || text.length > 220 || !/^svc-dispatch-alert-[a-z0-9-]+$/.test(text)) {
-    throwInvalidServiceDispatchAlertPathId();
-  }
-  parseServiceDispatchAlertId(text);
-  return text;
-}
-
-function throwInvalidServiceDispatchAlertPathId() {
-  const err = new Error("Invalid dispatch alert id");
-  err.statusCode = 400;
-  throw err;
-}
-
-function isTerminalServiceFieldVisitStatus(status) {
-  return status === "completed" || status === "cancelled";
-}
-
-function addServiceFieldVisitRouteOptimizationEvidence(visits) {
-  const activeByAssignee = new Map();
-  for (const visit of visits) {
-    if (!visit.assignedUserId || isTerminalServiceFieldVisitStatus(visit.status)) continue;
-    const key = visit.assignedUserId;
-    if (!activeByAssignee.has(key)) activeByAssignee.set(key, []);
-    activeByAssignee.get(key).push(visit);
-  }
-  for (const stops of activeByAssignee.values()) {
-    stops.sort(compareServiceFieldVisitRouteStops);
-    const totalStops = stops.length;
-    stops.forEach((visit, index) => {
-      visit.dispatchNavigation.routeOptimization = buildServiceFieldVisitRouteOptimizationEvidence(visit, index + 1, totalStops);
-    });
-  }
-  return visits;
-}
-
-function compareServiceFieldVisitRouteStops(a, b) {
-  const start = compareServiceFieldVisitRouteText(a.scheduledStartAt, b.scheduledStartAt);
-  if (start !== 0) return start;
-  const end = compareServiceFieldVisitRouteText(a.scheduledEndAt, b.scheduledEndAt);
-  if (end !== 0) return end;
-  const location = compareServiceFieldVisitRouteText(a.location, b.location);
-  if (location !== 0) return location;
-  return String(a.id || "").localeCompare(String(b.id || ""));
-}
-
-function compareServiceFieldVisitRouteText(a, b) {
-  const left = serviceFieldVisitRouteSortText(a);
-  const right = serviceFieldVisitRouteSortText(b);
-  if (left === right) return 0;
-  if (!left) return 1;
-  if (!right) return -1;
-  return left.localeCompare(right);
-}
-
-function serviceFieldVisitRouteSortText(value) {
-  return serviceFieldVisitNavigationText(value).toLowerCase();
-}
-
-function buildServiceFieldVisitRouteOptimizationEvidence(visit, stopNumber, totalStops) {
-  const destination = serviceFieldVisitNavigationText(visit.dispatchNavigation?.address)
-    || serviceFieldVisitNavigationText(visit.location)
-    || "service field visit";
-  const technicianName = serviceFieldVisitNavigationText(visit.assignedUserName) || "assigned technician";
-  const referenceAt = visit.scheduledStartAt || visit.updatedAt || visit.createdAt || null;
-  return {
-    strategy: "scheduled-window-order-v1",
-    status: "fallback",
-    provider: "local-schedule",
-    source: "service_field_visits.scheduled_start_at",
-    locationSource: "service_field_visits.location",
-    stopNumber,
-    totalStops,
-    summary: `${technicianName} stop ${stopNumber} of ${totalStops} by scheduled window for ${destination}.`,
-    computedAt: visit.updatedAt || visit.createdAt || referenceAt,
-    referenceAt,
-    limitations: ["distance-matrix-not-run"]
-  };
-}
-
-function getServiceFieldVisitMaterialEvidenceByVisit(db, orgId, visitIds) {
-  const ids = [...new Set(visitIds.filter(Boolean))];
-  const evidenceByVisit = new Map();
-  if (ids.length === 0) return evidenceByVisit;
-  const placeholders = ids.map(() => "?").join(", ");
-  const rows = db.prepare(`
-    SELECT
-      stock_moves.service_field_visit_id AS serviceFieldVisitId,
-      stock_moves.id AS stockMoveId,
-      stock_moves.catalog_item_id AS catalogItemId,
-      catalog_items.sku AS catalogSku,
-      catalog_items.name AS catalogName,
-      stock_moves.move_type AS moveType,
-      stock_moves.quantity,
-      stock_moves.unit_cost AS unitCost,
-      stock_moves.total_cost AS totalCost,
-      stock_moves.reference,
-      stock_moves.reason,
-      stock_moves.created_at AS createdAt,
-      valuation_journal.id AS valuationJournalId,
-      valuation_journal.source_type AS valuationSourceType,
-      valuation_journal.source_id AS valuationSourceId,
-      valuation_journal.entry_date AS valuationEntryDate,
-      valuation_journal.debit_code AS valuationDebitCode,
-      valuation_journal.credit_code AS valuationCreditCode,
-      valuation_journal.amount AS valuationAmount,
-      valuation_journal.period_key AS valuationPeriodKey
-    FROM stock_moves
-    JOIN catalog_items
-      ON catalog_items.org_id = stock_moves.org_id
-     AND catalog_items.id = stock_moves.catalog_item_id
-    LEFT JOIN ledger_journal AS valuation_journal
-      ON valuation_journal.org_id = stock_moves.org_id
-     AND valuation_journal.source_type = 'stock_move_valuation'
-     AND valuation_journal.source_id = stock_moves.id
-     AND valuation_journal.debit_code = '711'
-     AND valuation_journal.credit_code = '216'
-    WHERE stock_moves.org_id = ?
-      AND stock_moves.service_field_visit_id IN (${placeholders})
-      AND stock_moves.status = 'posted'
-      AND stock_moves.move_type IN ('delivery', 'outbound', 'scrap')
-    ORDER BY stock_moves.created_at, stock_moves.id
-  `).all(orgId, ...ids).map(formatServiceFieldVisitMaterialEvidence);
-  for (const row of rows) {
-    const list = evidenceByVisit.get(row.serviceFieldVisitId) || [];
-    list.push(row);
-    evidenceByVisit.set(row.serviceFieldVisitId, list);
-  }
-  return evidenceByVisit;
-}
-
-function formatServiceFieldVisitMaterialEvidence(row) {
-  return {
-    serviceFieldVisitId: row.serviceFieldVisitId,
-    stockMoveId: row.stockMoveId,
-    catalogItemId: row.catalogItemId,
-    catalogSku: row.catalogSku || null,
-    catalogName: row.catalogName || null,
-    moveType: row.moveType,
-    quantity: Number(row.quantity || 0),
-    unitCost: Number(row.unitCost || 0),
-    totalCost: Number(row.totalCost || 0),
-    reference: row.reference || "",
-    reason: row.reason || "",
-    source: "stock_moves.service_field_visit_id",
-    createdAt: row.createdAt,
-    valuationPosting: row.valuationJournalId ? {
-      id: row.valuationJournalId,
-      sourceType: row.valuationSourceType,
-      sourceId: row.valuationSourceId,
-      periodKey: row.valuationPeriodKey,
-      entryDate: row.valuationEntryDate,
-      debitCode: row.valuationDebitCode,
-      creditCode: row.valuationCreditCode,
-      amount: row.valuationAmount
-    } : null
-  };
-}
-
-function buildServiceFieldVisitCostAllocationEvidence(row, options = {}) {
-  const materialEvidence = Array.isArray(options.materialEvidence) ? options.materialEvidence : [];
-  const scheduledMinutes = serviceFieldVisitScheduledMinutes(row.scheduled_start_at, row.scheduled_end_at);
-  const materialCost = materialEvidence.reduce((sum, item) => sum + Number(item.totalCost || 0), 0);
-  const totalCost = materialCost;
-  const hasMaterialEvidence = materialCost > 0;
-  const materialLedgerStatus = summarizeServiceFieldVisitMaterialLedgerStatus(materialEvidence, materialCost);
-  return {
-    strategy: "scheduled-window-cost-basis-v1",
-    status: "estimate",
-    currency: activeCurrencyCode(),
-    scheduledMinutes,
-    laborMinutes: scheduledMinutes,
-    laborCost: 0,
-    travelCost: 0,
-    materialCost,
-    totalCost,
-    source: hasMaterialEvidence
-      ? "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at/stock_moves.service_field_visit_id"
-      : "service_field_visits.scheduled_start_at/service_field_visits.scheduled_end_at",
-    computedAt: row.updated_at || row.created_at || row.scheduled_start_at || null,
-    ledgerMappings: [
-      {
-        bucket: "labor",
-        basis: "scheduled-window",
-        managementAccount: "8112",
-        recognitionAccount: "7113",
-        amount: 0,
-        status: "not-posted"
-      },
-      {
-        bucket: "travel",
-        basis: "rate-not-configured",
-        expenseAccount: "713",
-        amount: 0,
-        status: "not-posted"
-      },
-      {
-        bucket: "materials",
-        basis: materialLedgerStatus.basis,
-        inventoryAccountClass: "2",
-        recognitionAccount: "7113",
-        amount: materialCost,
-        ...(hasMaterialEvidence ? {
-          expenseAccount: materialLedgerStatus.expenseAccount,
-          inventoryAccount: materialLedgerStatus.inventoryAccount,
-          postedAmount: materialLedgerStatus.postedAmount,
-          unpostedAmount: materialLedgerStatus.unpostedAmount,
-          valuationPostingIds: materialLedgerStatus.valuationPostingIds,
-          valuationSourceType: "stock_move_valuation"
-        } : {}),
-        status: materialLedgerStatus.status
-      }
-    ],
-    limitations: [
-      "labor-rate-not-configured",
-      "travel-rate-not-configured",
-      ...(hasMaterialEvidence ? [] : ["inventory-consumption-not-linked"]),
-      "not-posted-to-ledger"
-    ],
-    materialEvidence
-  };
-}
-
-function summarizeServiceFieldVisitMaterialLedgerStatus(materialEvidence, materialCost) {
-  if (materialCost <= 0) {
-    return {
-      basis: "inventory-consumption-not-linked",
-      status: "not-posted",
-      postedAmount: 0,
-      unpostedAmount: 0,
-      valuationPostingIds: [],
-      expenseAccount: "711",
-      inventoryAccount: "216"
-    };
-  }
-  const postedRows = materialEvidence.filter(item => item.valuationPosting);
-  const postedAmount = postedRows.reduce((sum, item) => sum + Number(item.valuationPosting?.amount || 0), 0);
-  const isFullyPosted = postedRows.length === materialEvidence.length && postedAmount === materialCost;
-  const status = isFullyPosted ? "posted" : (postedAmount > 0 ? "partial" : "not-posted");
-  return {
-    basis: status === "posted" ? "stock-move-valuation-journal" : "linked-stock-moves",
-    status,
-    postedAmount,
-    unpostedAmount: Math.max(0, materialCost - postedAmount),
-    valuationPostingIds: postedRows.map(item => item.valuationPosting.id).filter(Boolean),
-    expenseAccount: "711",
-    inventoryAccount: "216"
-  };
-}
-
-function serviceFieldVisitScheduledMinutes(startAt, endAt) {
-  const startMs = Date.parse(startAt || "");
-  const endMs = Date.parse(endAt || "");
-  if (!Number.isFinite(startMs) || !Number.isFinite(endMs) || endMs <= startMs) return 0;
-  return Math.min(10_080, Math.max(0, Math.round((endMs - startMs) / 60_000)));
-}
-
-function getLatestServiceFieldVisitTechnicianLocations(db, orgId, visitIds) {
-  const targetVisitIds = new Set(visitIds.filter(Boolean));
-  const locationsByVisitId = new Map();
-  if (targetVisitIds.size === 0) return locationsByVisitId;
-  const rows = db.prepare(`
-    SELECT id, user_id, details, created_at
-    FROM audit_events
-    WHERE org_id = ? AND type = ?
-    ORDER BY id DESC
-  `).all(orgId, "service.field_visit.technician_location");
-  for (const row of rows) {
-    let details;
-    try {
-      details = JSON.parse(row.details || "{}");
-    } catch {
-      continue;
-    }
-    if (!targetVisitIds.has(details.visitId) || locationsByVisitId.has(details.visitId)) {
-      continue;
-    }
-    locationsByVisitId.set(details.visitId, formatServiceFieldVisitTechnicianLocation(details, row));
-    if (locationsByVisitId.size === targetVisitIds.size) break;
-  }
-  return locationsByVisitId;
-}
-
-function formatServiceFieldVisitTechnicianLocation(details, row = {}) {
-  const location = {
-    latitude: details.latitude,
-    longitude: details.longitude,
-    capturedAt: details.capturedAt,
-    source: details.source,
-    capturedByUserId: details.actorUserId || row.user_id || null,
-    recordedAt: row.created_at || details.recordedAt || null,
-    mapUrl: buildServiceFieldVisitNavigationUrl("/maps/search/", { api: "1", query: `${details.latitude},${details.longitude}` }),
-    provider: "google-maps"
-  };
-  if (Object.prototype.hasOwnProperty.call(details, "accuracyMeters")) {
-    location.accuracyMeters = details.accuracyMeters;
-  }
-  return location;
-}
-
-function buildServiceFieldVisitDispatchNavigation(row) {
-  const address = serviceFieldVisitNavigationText(row.location)
-    || serviceFieldVisitNavigationText(row.customer_name)
-    || serviceFieldVisitNavigationText(row.case_number)
-    || "Service field visit";
-  const queryParts = [
-    address,
-    serviceFieldVisitNavigationText(row.customer_name),
-    serviceFieldVisitNavigationText(row.case_number)
-  ];
-  const seen = new Set();
-  const mapQuery = queryParts
-    .filter(part => {
-      if (!part || seen.has(part)) return false;
-      seen.add(part);
-      return true;
-    })
-    .join(", ");
-  return {
-    address,
-    mapQuery,
-    mapUrl: buildServiceFieldVisitNavigationUrl("/maps/search/", { api: "1", query: mapQuery }),
-    directionsUrl: buildServiceFieldVisitNavigationUrl("/maps/dir/", { api: "1", destination: address }),
-    provider: "google-maps",
-    source: "service_field_visits.location"
-  };
-}
-
-function serviceFieldVisitNavigationText(value) {
-  if (value === null || value === undefined) return "";
-  const text = String(value).replace(/[\x00-\x1f\x7f]+/g, " ").replace(/\s+/g, " ").trim();
-  if (!text || looksLikeSensitiveToken(text)) return "";
-  return text.slice(0, 240);
-}
-
-function buildServiceFieldVisitNavigationUrl(pathname, params) {
-  const url = new URL(`https://www.google.com${pathname}`);
-  for (const [key, value] of Object.entries(params)) {
-    url.searchParams.set(key, value);
-  }
-  return url.toString();
-}
-
-function createServiceFieldVisit(db, user, body) {
-  const input = normalizeServiceFieldVisitCreateInput(body);
-  assertCustomer(db, user.org_id, input.customerId);
-  const serviceCase = assertServiceFieldVisitCase(db, user.org_id, input.caseId, input.customerId);
-  const project = assertServiceFieldVisitProject(db, user.org_id, input.projectId, input.customerId);
-  const assignedUser = assertServiceFieldVisitAssignedUser(db, user.org_id, input.assignedUserId);
-  const now = new Date().toISOString();
-  const visitId = randomId("svc-visit");
-  db.prepare(`
-    INSERT INTO service_field_visits (
-      id, org_id, case_id, customer_id, project_id, assigned_user_id,
-      scheduled_start_at, scheduled_end_at, status, location,
-      worksheet_summary, created_at, updated_at
-    )
-    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
-  `).run(
-    visitId,
-    user.org_id,
-    serviceCase.id,
-    input.customerId,
-    project?.id || null,
-    assignedUser.id,
-    input.scheduledStartAt,
-    input.scheduledEndAt,
-    input.status,
-    input.location,
-    input.worksheetSummary,
-    now,
-    now
-  );
-  audit(db, user.org_id, user.id, "service.field_visit.created", {
-    visitId,
-    caseId: serviceCase.id,
-    customerId: input.customerId,
-    projectId: project?.id || null,
-    assignedUserId: assignedUser.id,
-    status: input.status
-  });
-  return getServiceFieldVisit(db, user.org_id, visitId);
-}
-
-function updateServiceFieldVisit(db, user, visitId, body) {
-  const existing = getServiceFieldVisit(db, user.org_id, visitId);
-  if (!existing) {
-    const err = new Error("Service field visit not found");
-    err.statusCode = 404;
-    throw err;
-  }
-  const input = normalizeServiceFieldVisitPatchInput(body, existing);
-  const sets = [];
-  const values = [];
-  const changedFields = [];
-  if (Object.prototype.hasOwnProperty.call(input, "status")) {
-    sets.push("status = ?");
-    values.push(input.status);
-    changedFields.push("status");
-  }
-  if (Object.prototype.hasOwnProperty.call(input, "location")) {
-    sets.push("location = ?");
-    values.push(input.location);
-    changedFields.push("location");
-  }
-  if (Object.prototype.hasOwnProperty.call(input, "worksheetSummary")) {
-    sets.push("worksheet_summary = ?");
-    values.push(input.worksheetSummary);
-    changedFields.push("worksheetSummary");
-  }
-  if (Object.prototype.hasOwnProperty.call(input, "scheduledStartAt")) {
-    sets.push("scheduled_start_at = ?");
-    values.push(input.scheduledStartAt);
-    changedFields.push("scheduledStartAt");
-  }
-  if (Object.prototype.hasOwnProperty.call(input, "scheduledEndAt")) {
-    sets.push("scheduled_end_at = ?");
-    values.push(input.scheduledEndAt);
-    changedFields.push("scheduledEndAt");
-  }
-  if (Object.prototype.hasOwnProperty.call(input, "assignedUserId")) {
-    const assignedUser = assertServiceFieldVisitAssignedUser(db, user.org_id, input.assignedUserId);
-    sets.push("assigned_user_id = ?");
-    values.push(assignedUser.id);
-    changedFields.push("assignedUserId");
-  }
-  if (Object.prototype.hasOwnProperty.call(input, "projectId")) {
-    const project = assertServiceFieldVisitProject(db, user.org_id, input.projectId, existing.customerId);
-    sets.push("project_id = ?");
-    values.push(project?.id || null);
-    changedFields.push("projectId");
-  }
-  const now = new Date().toISOString();
-  sets.push("updated_at = ?");
-  values.push(now);
-  db.prepare(`UPDATE service_field_visits SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`).run(...values, user.org_id, existing.id);
-  audit(db, user.org_id, user.id, "service.field_visit.updated", {
-    visitId: existing.id,
-    caseId: existing.caseId,
-    customerId: existing.customerId,
-    changedFields
-  });
-  return getServiceFieldVisit(db, user.org_id, existing.id);
-}
-
-function updateServiceFieldVisitTechnicianStatus(db, user, visitId, body) {
-  const existing = getServiceFieldVisit(db, user.org_id, visitId);
-  if (!existing) {
-    const err = new Error("Service field visit not found");
-    err.statusCode = 404;
-    throw err;
-  }
-  if (existing.assignedUserId !== user.id && !["Owner", "Admin", "Service Manager"].includes(user.role)) {
-    const err = new Error("Assigned technician or service supervisor role required");
-    err.statusCode = 403;
-    throw err;
-  }
-  const input = normalizeServiceFieldVisitTechnicianStatusInput(body);
-  if (input.idempotencyKey) {
-    const replay = findServiceFieldVisitTechnicianStatusReplay(db, user, existing.id, input);
-    if (replay) {
-      if (replay.matches) {
-        return {
-          visit: getServiceFieldVisit(db, user.org_id, existing.id),
-          idempotent: true,
-          dispatchSync: {
-            idempotencyKey: input.idempotencyKey,
-            status: input.status,
-            replayed: true
-          }
-        };
-      }
-      throwServiceFieldVisitTechnicianIdempotencyConflict();
-    }
-  }
-  assertServiceFieldVisitTechnicianTransition(existing.status, input.status);
-  const worksheetSummaryChanged = Object.prototype.hasOwnProperty.call(input, "worksheetSummary")
-    && input.worksheetSummary !== existing.worksheetSummary;
-  const now = new Date().toISOString();
-  const sets = ["status = ?", "updated_at = ?"];
-  const values = [input.status, now];
-  if (Object.prototype.hasOwnProperty.call(input, "worksheetSummary")) {
-    sets.splice(1, 0, "worksheet_summary = ?");
-    values.splice(1, 0, input.worksheetSummary);
-  }
-  db.prepare(`UPDATE service_field_visits SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`)
-    .run(...values, user.org_id, existing.id);
-  const details = {
-    visitId: existing.id,
-    caseId: existing.caseId,
-    customerId: existing.customerId,
-    status: input.status,
-    actorUserId: user.id,
-    worksheetSummaryChanged
-  };
-  if (input.idempotencyKey) {
-    details.idempotencyKey = input.idempotencyKey;
-    details.dispatchSync = {
-      idempotencyKey: input.idempotencyKey,
-      status: input.status,
-      replayed: false,
-      worksheetIntent: buildServiceFieldVisitTechnicianWorksheetIntent(input)
-    };
-  }
-  audit(db, user.org_id, user.id, "service.field_visit.technician_status", details);
-  const visit = getServiceFieldVisit(db, user.org_id, existing.id);
-  if (input.idempotencyKey) {
-    return {
-      visit,
-      idempotent: false,
-      dispatchSync: {
-        idempotencyKey: input.idempotencyKey,
-        status: input.status,
-        replayed: false
-      }
-    };
-  }
-  return visit;
-}
-
-function captureServiceFieldVisitTechnicianLocation(db, user, visitId, body) {
-  const existing = getServiceFieldVisit(db, user.org_id, visitId);
-  if (!existing) {
-    const err = new Error("Service field visit not found");
-    err.statusCode = 404;
-    throw err;
-  }
-  if (existing.assignedUserId !== user.id && !["Owner", "Admin", "Service Manager"].includes(user.role)) {
-    const err = new Error("Assigned technician or service supervisor role required");
-    err.statusCode = 403;
-    throw err;
-  }
-  const input = normalizeServiceFieldVisitTechnicianLocationInput(body);
-  if (input.idempotencyKey) {
-    const replay = findServiceFieldVisitTechnicianLocationReplay(db, user, existing.id, input);
-    if (replay) {
-      if (replay.matches) {
-        return {
-          visit: getServiceFieldVisit(db, user.org_id, existing.id),
-          idempotent: true,
-          locationSync: {
-            idempotencyKey: input.idempotencyKey,
-            replayed: true,
-            capturedAt: replay.capturedAt
-          }
-        };
-      }
-      throwServiceFieldVisitTechnicianLocationIdempotencyConflict();
-    }
-  }
-  const details = {
-    visitId: existing.id,
-    caseId: existing.caseId,
-    customerId: existing.customerId,
-    actorUserId: user.id,
-    latitude: input.latitude,
-    longitude: input.longitude,
-    capturedAt: input.capturedAt,
-    source: input.source
-  };
-  if (Object.prototype.hasOwnProperty.call(input, "accuracyMeters")) {
-    details.accuracyMeters = input.accuracyMeters;
-  }
-  if (input.idempotencyKey) {
-    details.idempotencyKey = input.idempotencyKey;
-    details.locationSync = {
-      idempotencyKey: input.idempotencyKey,
-      replayed: false,
-      locationIntent: buildServiceFieldVisitTechnicianLocationIntent(input)
-    };
-  }
-  audit(db, user.org_id, user.id, "service.field_visit.technician_location", details);
-  const visit = getServiceFieldVisit(db, user.org_id, existing.id);
-  if (input.idempotencyKey) {
-    return {
-      visit,
-      idempotent: false,
-      locationSync: {
-        idempotencyKey: input.idempotencyKey,
-        replayed: false,
-        capturedAt: input.capturedAt
-      }
-    };
-  }
-  return { visit };
-}
-
-function findServiceFieldVisitTechnicianStatusReplay(db, user, visitId, input) {
-  const incomingIntent = buildServiceFieldVisitTechnicianWorksheetIntent(input);
-  const rows = db.prepare(`
-    SELECT details
-    FROM audit_events
-    WHERE org_id = ? AND user_id = ? AND type = ?
-    ORDER BY id DESC
-  `).all(user.org_id, user.id, "service.field_visit.technician_status");
-  for (const row of rows) {
-    let details;
-    try {
-      details = JSON.parse(row.details || "{}");
-    } catch {
-      continue;
-    }
-    if (details.visitId !== visitId || details.idempotencyKey !== input.idempotencyKey) {
-      continue;
-    }
-    const storedIntent = details.dispatchSync?.worksheetIntent;
-    return {
-      matches: details.status === input.status && serviceFieldVisitTechnicianWorksheetIntentMatches(storedIntent, incomingIntent)
-    };
-  }
-  return null;
-}
-
-function buildServiceFieldVisitTechnicianWorksheetIntent(input) {
-  const provided = Object.prototype.hasOwnProperty.call(input, "worksheetSummary");
-  return {
-    provided,
-    digest: provided ? crypto.createHash("sha256").update(input.worksheetSummary, "utf8").digest("hex") : null
-  };
-}
-
-function findServiceFieldVisitTechnicianLocationReplay(db, user, visitId, input) {
-  const incomingIntent = buildServiceFieldVisitTechnicianLocationIntent(input);
-  const rows = db.prepare(`
-    SELECT details
-    FROM audit_events
-    WHERE org_id = ? AND user_id = ? AND type = ?
-    ORDER BY id DESC
-  `).all(user.org_id, user.id, "service.field_visit.technician_location");
-  for (const row of rows) {
-    let details;
-    try {
-      details = JSON.parse(row.details || "{}");
-    } catch {
-      continue;
-    }
-    if (details.idempotencyKey !== input.idempotencyKey) {
-      continue;
-    }
-    const storedIntent = details.locationSync?.locationIntent;
-    return {
-      capturedAt: details.capturedAt,
-      matches: details.visitId === visitId && serviceFieldVisitTechnicianLocationIntentMatches(storedIntent, incomingIntent)
-    };
-  }
-  return null;
-}
-
-function buildServiceFieldVisitTechnicianLocationIntent(input) {
-  return {
-    latitude: input.latitude,
-    longitude: input.longitude,
-    accuracyMeters: Object.prototype.hasOwnProperty.call(input, "accuracyMeters") ? input.accuracyMeters : null,
-    capturedAtProvided: Boolean(input.capturedAtProvided),
-    capturedAt: input.capturedAtProvided ? input.capturedAt : null,
-    source: input.source
-  };
-}
-
-function serviceFieldVisitTechnicianLocationIntentMatches(storedIntent, incomingIntent) {
-  return Boolean(storedIntent)
-    && storedIntent.latitude === incomingIntent.latitude
-    && storedIntent.longitude === incomingIntent.longitude
-    && storedIntent.accuracyMeters === incomingIntent.accuracyMeters
-    && storedIntent.capturedAtProvided === incomingIntent.capturedAtProvided
-    && storedIntent.capturedAt === incomingIntent.capturedAt
-    && storedIntent.source === incomingIntent.source;
-}
-
-function serviceFieldVisitTechnicianWorksheetIntentMatches(storedIntent, incomingIntent) {
-  return Boolean(storedIntent)
-    && storedIntent.provided === incomingIntent.provided
-    && storedIntent.digest === incomingIntent.digest;
-}
-
-function throwServiceFieldVisitTechnicianIdempotencyConflict() {
-  const err = new Error("Idempotency key already used for a different technician dispatch action");
-  err.statusCode = 409;
-  throw err;
-}
-
-function throwServiceFieldVisitTechnicianLocationIdempotencyConflict() {
-  const err = new Error("Idempotency key already used for a different technician location capture");
-  err.statusCode = 409;
-  throw err;
-}
-
-function assertServiceFieldVisitCase(db, orgId, caseId, customerId) {
-  const safeCaseId = normalizeServiceCasePathId(caseId);
-  const serviceCase = getServiceCase(db, orgId, safeCaseId);
-  if (!serviceCase) {
-    const err = new Error("Service case not found");
-    err.statusCode = 404;
-    throw err;
-  }
-  if (serviceCase.customerId !== customerId) {
-    const err = new Error("Service case/customer mismatch");
-    err.statusCode = 400;
-    throw err;
-  }
-  return serviceCase;
-}
-
-function assertServiceFieldVisitProject(db, orgId, projectId, customerId) {
-  if (!projectId) return null;
-  const project = db.prepare("SELECT id, customer_id AS customerId FROM projects WHERE org_id = ? AND id = ?").get(orgId, projectId);
-  if (!project) {
-    throwInvalidServiceFieldVisitMetadata();
-  }
-  if (project.customerId !== customerId) {
-    const err = new Error("Project/customer mismatch");
-    err.statusCode = 400;
-    throw err;
-  }
-  return project;
-}
-
-function assertServiceFieldVisitAssignedUser(db, orgId, userId) {
-  const safeUserId = normalizeServiceText({ userId }, "userId", { required: true, minLength: 1, maxLength: 120 });
-  const assignedUser = db.prepare("SELECT id FROM users WHERE org_id = ? AND id = ?").get(orgId, safeUserId);
-  if (!assignedUser) {
-    const err = new Error("Assigned user must be a user in this organization");
-    err.statusCode = 400;
-    throw err;
-  }
-  return assignedUser;
 }
 
 function getCaseMessages(db, orgId, caseId) {
@@ -67425,6 +63739,143 @@ function safeJson(value) {
   } catch {
     return [];
   }
+}
+
+function buildAskAiFallback(question, context, idempotencyKey) {
+  const response = {
+    answer:
+      "AI provider output is unavailable, so this is a server-side fallback for the Ask AI request: " +
+      question,
+    citations: askAiCitationsForContext(context),
+    tokensUsed: 0
+  };
+  if (idempotencyKey) response.idempotencyKey = idempotencyKey;
+  return response;
+}
+
+async function runAskAiProvider({ question, context, fallback }) {
+  const settings = settingsStore.getSettings();
+  const policy = settingsStore.resolveModelPolicy();
+  const model = aiProvider.resolveModelForRequest(policy, { aspect: "default" }) || config.ai.copilotModel || "openai/gpt-4o-mini";
+  if (!settings.openrouterApiKey || !config.isOpenRouterEgressAllowed()) {
+    return {
+      ok: false,
+      data: fallback,
+      error: settings.openrouterApiKey ? "openrouter_egress_blocked" : "openrouter_api_key_missing",
+      provider: "openrouter",
+      model
+    };
+  }
+  const provider = smbCrmAiProvider.createOpenRouterProvider({
+    apiKey: settings.openrouterApiKey,
+    baseUrl: config.openrouter.baseUrl,
+    referer: config.openrouter.referer,
+    title: config.openrouter.title,
+    model
+  });
+  const result = await provider.generateStructured({
+    systemPrompt:
+      "You answer A1 Suite in-app questions. Return only JSON matching " +
+      "{answer:string,citations:array,tokensUsed:number}. Keep citations to route links from the supplied context.",
+    userPrompt: JSON.stringify({ question, context }),
+    jsonSchema: {
+      type: "object",
+      additionalProperties: false,
+      required: ["answer", "citations", "tokensUsed"],
+      properties: {
+        answer: { type: "string" },
+        citations: {
+          type: "array",
+          items: {
+            type: "object",
+            additionalProperties: true,
+            required: ["kind", "id", "label"],
+            properties: {
+              kind: { type: "string" },
+              id: { type: "string" },
+              label: { type: "string" },
+              app: { type: "string" },
+              href: { type: "string" }
+            }
+          }
+        },
+        tokensUsed: { type: "integer", minimum: 0 }
+      }
+    },
+    maxOutputTokens: 1024,
+    temperature: 0.2,
+    model
+  });
+  return {
+    ok: result.ok === true,
+    data: result.data,
+    error: result.error || (Array.isArray(result.warnings) ? result.warnings.join("; ") : undefined),
+    provider: provider.name,
+    model
+  };
+}
+
+function coerceAskAiResponse(result, fallback, idempotencyKey) {
+  if (!result || result.ok !== true || !isPlainObject(result.data)) {
+    return fallback;
+  }
+  const data = result.data;
+  const answer = typeof data.answer === "string" && data.answer.trim()
+    ? data.answer.trim()
+    : fallback.answer;
+  const citations = Array.isArray(data.citations)
+    ? data.citations.map(coerceAskAiCitation).filter(Boolean)
+    : fallback.citations;
+  const tokensUsed = Number.isInteger(data.tokensUsed) && data.tokensUsed >= 0
+    ? data.tokensUsed
+    : 0;
+  const response = { answer, citations, tokensUsed };
+  if (idempotencyKey) response.idempotencyKey = idempotencyKey;
+  return response;
+}
+
+function askAiCitationsForContext(context) {
+  if (!isPlainObject(context) || typeof context.app !== "string" || !context.app.trim()) {
+    return [];
+  }
+  const app = context.app.trim();
+  const entity = typeof context.entity === "string" ? context.entity.trim() : "";
+  const id = typeof context.id === "string" ? context.id.trim() : "";
+  const href = id
+    ? `/app/${app}/${entity}/${id}`
+    : entity
+      ? `/app/${app}/${entity}`
+      : `/app/${app}`;
+  return [{
+    kind: "route",
+    id: `${app}${entity ? `:${entity}` : ""}${id ? `:${id}` : ""}`,
+    app,
+    label: entity || app,
+    href
+  }];
+}
+
+function isAskAiCitation(value) {
+  return Boolean(coerceAskAiCitation(value));
+}
+
+function coerceAskAiCitation(value) {
+  if (!isPlainObject(value)) return false;
+  if (value.kind !== "route" && value.kind !== "document") return false;
+  const id = typeof value.id === "string" ? value.id.trim() : "";
+  const label = typeof value.label === "string" ? value.label.trim() : "";
+  if (!id || !label) return false;
+  const citation = { kind: value.kind, id, label };
+  if (value.kind === "route") {
+    const app = typeof value.app === "string" ? value.app.trim() : "";
+    if (!app) return false;
+    citation.app = app;
+  }
+  if (value.href !== undefined) {
+    if (typeof value.href !== "string" || !value.href.trim()) return false;
+    citation.href = value.href.trim();
+  }
+  return citation;
 }
 
 module.exports = { buildApp };

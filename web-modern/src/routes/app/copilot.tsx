@@ -24,7 +24,7 @@
  *
  * Data source: /api/service/console (one round-trip).
  */
-import { createFileRoute, Link, notFound } from "@tanstack/react-router";
+import { createFileRoute, Link, Outlet, useRouterState } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   Activity,
@@ -98,6 +98,11 @@ function timeAgo(iso: string | null | undefined): string {
 /* ────────────── component ────────────── */
 
 function MissionControl() {
+  const pathname = useRouterState({ select: (state) => state.location.pathname });
+  if (pathname !== "/app/copilot") {
+    return <Outlet />;
+  }
+
   const consoleQuery = useQuery({
     queryKey: ["service", "console"],
     queryFn: () => getJson("/api/service/console", ServiceConsoleSchema),
@@ -521,6 +526,3 @@ function runTone(status: string): { bg: string; fg: string } {
     fg: "text-[var(--color-muted)]",
   };
 }
-
-// Satisfy the linter — `notFound` may be used in future specializations.
-void notFound;

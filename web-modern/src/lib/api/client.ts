@@ -136,6 +136,16 @@ export function patchJson<T>(path: string, body: JsonBody, schema?: z.ZodType<T>
   return api(path, schema ?? null, { method: "PATCH", body, signal } as RequestInit & ApiOptions);
 }
 
+/** Convenience: PUT JSON. Mirrors postJson but with method PUT. */
+export function putJson<T>(path: string, body: JsonBody, schema?: z.ZodType<T>, signal?: AbortSignal) {
+  return api(path, schema ?? null, { method: "PUT", body, signal } as RequestInit & ApiOptions);
+}
+
+/** Convenience: DELETE. No body; the response is validated against an optional schema. */
+export function deleteJson<T>(path: string, schema?: z.ZodType<T>, signal?: AbortSignal) {
+  return api(path, schema ?? null, { method: "DELETE", signal });
+}
+
 /** Convenience: POST that returns nothing (e.g. logout). */
 export function postVoid(path: string, body?: JsonBody) {
   return api(path, null, { method: "POST", body, noParse: true } as RequestInit & ApiOptions);
@@ -145,3 +155,84 @@ export function postVoid(path: string, body?: JsonBody) {
  *  the response is validated against an optional schema. */
 // (duplicate patchJson removed — sequences worker added a redundant copy; the
 // canonical one at line 135 is kept)
+
+/* ── NDJSON streaming (Phase 10.13 / slice 14) ─────────────────────
+ *
+ * Used by /api/ai/chat/stream. The server returns
+ * Content-Type: application/x-ndjson with one JSON object per
+ * line. Each line is {type, data} where type is one of
+ * 'token' | 'done' | 'error'. The body is consumed with a
+ * streaming reader; we do NOT wait for the entire response
+ * before resolving.
+ *
+ * The returned AsyncIterable yields the parsed events. The
+ * caller pattern-matches on `type` to render each token.
+ *
+ * `signal` aborts the underlying fetch. Errors before the
+ * first byte yield an `{type: 'error', data: {code, message}}`
+ * event so the caller can render a friendly message without
+ * special-casing the network path.
+ */
+export interface NdjsonEvent {
+  type: string;
+  data: unknown;
+}
+
+export async function* streamNdjson(
+  path: string,
+  body: JsonBody,
+  options: { signal?: AbortSignal; skipAuth?: boolean } = {},
+): AsyncGenerator<NdjsonEvent, void, void> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    Accept: "application/x-ndjson"
+  };
+  if (!options.skipAuth) {
+    const token = getToken();
+    if (token) headers["Authorization"] = `Bearer ${token}`;
+  }
+  const res = await fetch(path, {
+    method: "POST",
+    credentials: "include",
+    headers,
+    body: body == null ? undefined : JSON.stringify(body),
+    signal: options.signal ?? null
+  });
+  if (!res.ok) {
+    yield {
+      type: "error",
+      data: { code: `http_${res.status}`, message: res.statusText || "stream error" }
+    };
+    return;
+  }
+  if (!res.body || typeof res.body.getReader !== "function") {
+    yield { type: "error", data: { code: "no_stream_body", message: "response is not a stream" } };
+    return;
+  }
+  const reader = res.body.getReader();
+  const decoder = new TextDecoder("utf-8");
+  let buffer = "";
+  try {
+    while (true) {
+      const { value, done } = await reader.read();
+      if (done) break;
+      buffer += decoder.decode(value, { stream: true });
+      let nlIdx;
+      while ((nlIdx = buffer.indexOf("\n")) >= 0) {
+        const line = buffer.slice(0, nlIdx).trim();
+        buffer = buffer.slice(nlIdx + 1);
+        if (line.length === 0) continue;
+        try {
+          yield JSON.parse(line) as NdjsonEvent;
+        } catch {
+          // Skip malformed lines defensively.
+        }
+      }
+    }
+    if (buffer.trim().length > 0) {
+      try { yield JSON.parse(buffer.trim()) as NdjsonEvent; } catch { /* ignore */ }
+    }
+  } finally {
+    try { reader.releaseLock(); } catch { /* ignore */ }
+  }
+}

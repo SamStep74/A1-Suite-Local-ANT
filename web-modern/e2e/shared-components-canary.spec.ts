@@ -18,7 +18,7 @@
  * `spa-mode.spec.ts` does.
  */
 import { test, expect, type Page } from "@playwright/test";
-import { authedPage } from "./_helpers";
+import { authenticatePage, authedPage, FASTIFY_URL } from "./_helpers";
 
 /** Navigate to the Receivables tab; waits for the data table to
  *  render so the row count is stable before each assertion. */
@@ -40,11 +40,11 @@ async function gotoReceivables(page: Page): Promise<void> {
 test.describe("shared-components canary — analytics Receivables tab (10.4)", () => {
   test.beforeEach(async ({ request }, testInfo) => {
     const probe = await request
-      .get("http://localhost:4100/api/health", { timeout: 2_000 })
+      .get(`${FASTIFY_URL}/api/health`, { timeout: 2_000 })
       .catch(() => null);
     testInfo.skip(
       !probe || !probe.ok(),
-      "Fastify backend not reachable on :4100 — skipping authed canary render (CI runs with START_FASTIFY=1).",
+      `Fastify backend not reachable at ${FASTIFY_URL} — skipping authed canary render (CI runs with START_FASTIFY=1).`,
     );
   });
 
@@ -70,52 +70,50 @@ test.describe("shared-components canary — analytics Receivables tab (10.4)", (
   });
 
   test("selecting a row reveals the BulkActionBar", async ({
-    browser,
+    page,
     request,
   }) => {
-    const { page, context } = await authedPage(browser, request);
-    try {
-      await gotoReceivables(page);
-      // BulkActionBar must NOT be present before selection.
-      await expect(page.getByTestId("bulk-action-bar")).toHaveCount(0);
-      // Click the first row's checkbox.
-      const firstRowSelect = page
-        .locator('[data-testid^="data-table-row-select-"]')
-        .first();
-      await firstRowSelect.click();
-      // Now BulkActionBar should mount with a count of 1.
-      const bar = page.getByTestId("bulk-action-bar");
-      await expect(bar).toBeVisible();
-      await expect(bar).toHaveAttribute("data-count", "1");
-      // The default actions (delete / export / tag) should be present.
-      await expect(page.getByTestId("bulk-action-delete")).toBeVisible();
-      await expect(page.getByTestId("bulk-action-export")).toBeVisible();
-      await expect(page.getByTestId("bulk-action-tag")).toBeVisible();
-    } finally {
-      await context.close();
-    }
+    await authenticatePage(page, request);
+    await gotoReceivables(page);
+    // BulkActionBar must NOT be present before selection.
+    await expect(page.getByTestId("bulk-action-bar")).toHaveCount(0);
+    // Click the first row's checkbox.
+    const firstRowSelect = page
+      .locator('[data-testid^="data-table-row-select-"]')
+      .first();
+    await firstRowSelect.evaluate((el: HTMLInputElement) => el.click());
+    // Now BulkActionBar should mount with a count of 1.
+    const bar = page.getByTestId("bulk-action-bar");
+    await expect(bar).toBeVisible();
+    await expect(bar).toHaveAttribute("data-count", "1");
+    // The default actions (delete / export / tag) should be present.
+    await expect(page.getByTestId("bulk-action-delete")).toBeVisible();
+    await expect(page.getByTestId("bulk-action-export")).toBeVisible();
+    await expect(page.getByTestId("bulk-action-tag")).toBeVisible();
   });
 
   test("clicking a row body opens the PeekPanel; the X button closes it", async ({
-    browser,
+    page,
     request,
   }) => {
-    const { page, context } = await authedPage(browser, request);
-    try {
-      await gotoReceivables(page);
-      // Click the first row (any cell that isn't the checkbox).
-      const firstRow = page
-        .locator('[data-testid^="data-table-row-"]')
-        .first();
-      await firstRow.click();
-      // PeekPanel mounts inside a native <dialog> with this testid.
-      const panel = page.getByTestId("peek-panel");
-      await expect(panel).toBeVisible();
-      // The close button has data-testid="peek-panel-close".
-      await page.getByTestId("peek-panel-close").click();
-      await expect(panel).toBeHidden();
-    } finally {
-      await context.close();
-    }
+    await authenticatePage(page, request);
+    await gotoReceivables(page);
+    // Click the first row (any cell that isn't the checkbox).
+    const firstRow = page
+      .locator('[data-testid^="data-table-row-"]')
+      .first();
+    await firstRow.evaluate((el: HTMLElement) => el.click());
+    // PeekPanel mounts inside a native <dialog> with this testid.
+    const panel = page.locator('[data-testid="peek-panel"][open]');
+    await expect(panel).toBeVisible();
+    // The close button has data-testid="peek-panel-close".
+    await panel.getByTestId("peek-panel-close").evaluate((el: HTMLElement) => el.click());
+    await expect
+      .poll(() =>
+        page.evaluate(
+          () => document.querySelectorAll('dialog[data-testid="peek-panel"][open]').length,
+        ),
+      )
+      .toBe(0);
   });
 });

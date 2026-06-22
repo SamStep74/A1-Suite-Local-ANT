@@ -32,7 +32,6 @@ import type {
   ProcurementAllocationMethod,
   ProcurementLandedCostKind,
 } from "../api/schemas";
-import { formatArmenianInteger } from "../utils/money";
 
 /* ────────── type re-exports (UI narrowing) ────────── */
 
@@ -159,6 +158,15 @@ export function isAllocationMethod(value: string): value is AllocationMethod {
 
 /* ────────── formatting ────────── */
 
+const NBSP = "\u00A0";
+
+function groupInteger(value: number): string {
+  const rounded = Math.round(value);
+  const sign = rounded < 0 ? "-" : "";
+  const digits = String(Math.abs(rounded));
+  return `${sign}${digits.replace(/\B(?=(\d{3})+(?!\d))/g, NBSP)}`;
+}
+
 /**
  * Format a vendor score (a 0..100 float from the AI ranking engine)
  * to two decimals, e.g. `0.85` → `"0.85"`. Stable for negative
@@ -181,7 +189,7 @@ export function formatPrice(price: number, currency: string): string {
   if (!Number.isFinite(price)) return "—";
   const ccy = (currency || "").toUpperCase();
   const suffix = ccy.length > 0 ? ` ${ccy}` : "";
-  return `${formatArmenianInteger(price)}${suffix}`;
+  return `${groupInteger(price)}${suffix}`;
 }
 
 /* ────────── deep-linking helpers (tab ↔ URL hash) ────────── */

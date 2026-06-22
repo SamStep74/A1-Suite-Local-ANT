@@ -32,11 +32,7 @@ export const DEFAULT_LOCALE: Locale = "hy";
 // locale". The async `activateLocale()` in `I18nProvider`'s useEffect
 // then replaces the empty messages dict with the real per-locale
 // catalog on the next render.
-//
-// NOTE: in Lingui v5 the second arg of `i18n.activate` is a `Locales`
-// (a list of additional locale codes), NOT the messages catalog.
-// Use `loadAndActivate({ locale, messages })` to set both at once.
-i18n.loadAndActivate({ locale: DEFAULT_LOCALE, messages: {} });
+i18n.activate(DEFAULT_LOCALE, {} as unknown as string[]);
 
 const LOCALE_LABELS: Record<Locale, string> = {
   hy: "Հյ",
@@ -87,58 +83,53 @@ export const getActiveLocale = (): Locale => {
  * pull all three into the initial bundle (worst case) or trip
  * `vite:dynamic-import-vars`' "file extension required" rule.
  *
- * `lingui compile` emits CJS (`module.exports = { messages: ... }`),
- * which the browser can't parse as ESM. The `ant-lingui-catalogs`
- * Vite plugin (see vite.config.ts) rewrites the CJS into a clean
- * `export default { messages: ... }` at the dev/build layer, so
- * we can `import.meta.glob` them as plain ESM. No `?raw`, no
- * `new Function`, no string-of-code evaluation.
+ * Dev-mode CJS workaround: `lingui compile` emits CJS
+ * (`module.exports = { messages: ... }`), but Vite's dev server
+ * serves the file verbatim to the browser, where `module` is
+ * undefined. We sidestep that with `import.meta.glob`, which
+ * tells Vite to bundle the matching files as raw strings
+ * (`?raw`). We then evaluate the CJS in an isolated `Function`
+ * scope to extract `module.exports`. The production build
+ * bundles the catalogs into proper ESM chunks, so the raw path
+ * is only hit in dev.
+ *
+ * Security note: the `raw` string is a build artifact from
+ * `lingui compile` (derived from the committed `.po` files in
+ * the source tree) — not user input. The content is
+ * deterministic and reviewed via the `.po` files in git.
  */
-const CATALOGS = import.meta.glob<{ messages: Record<string, string> }>(
+const RAW_CATALOGS = import.meta.glob<string>(
   "/src/locales/*/messages.js",
-  { import: "default" },
+  { query: "?raw", import: "default" },
 );
 
-const loadCatalog = async (
+const loadCJS = async (
   localeKey: string,
 ): Promise<{ messages: Record<string, string> }> => {
-  const loader = CATALOGS[`/src/locales/${localeKey}/messages.js`];
+  const loader = RAW_CATALOGS[`/src/locales/${localeKey}/messages.js`];
   if (!loader) {
     throw new Error(`No compiled catalog for locale "${localeKey}"`);
   }
-  return await loader();
+  const raw: string = await loader();
+  const mod: { exports: unknown } = { exports: {} };
+  new Function("module", raw)(mod);
+  return mod.exports as { messages: Record<string, string> };
 };
 
 const CATALOG_LOADERS: Record<Locale, () => Promise<{ messages: Record<string, string> }>> = {
-  hy: () => loadCatalog("hy"),
-  ru: () => loadCatalog("ru"),
-  en: () => loadCatalog("en"),
+  hy: () => loadCJS("hy"),
+  ru: () => loadCJS("ru"),
+  en: () => loadCJS("en"),
 };
 
 export const activateLocale = async (l: Locale): Promise<void> => {
+  setStoredLocale(l);
+  document.documentElement.lang = l;
   // Each loader is its own dynamic import, so Vite emits one
   // chunk per locale and only fetches it on first activation.
   const { messages } = await CATALOG_LOADERS[l]();
-  // Always merge in the English source catalog as a fallback so
-  // a message that hasn't been translated yet (e.g. a brand-new
-  // validation message) doesn't render as an empty string. We
-  // load en once and cache the merged result; subsequent
-  // activations skip the en fetch. Lingui v5's `loadAndActivate`
-  // accepts a flat `messages` map (no built-in fallbackLocale
-  // parameter), so the merge is done here at the catalog level.
-  const en = await CATALOG_LOADERS.en();
-  const merged: Record<string, string> = { ...en.messages, ...messages };
-  // Lingui v5: `activate(locale, locales)` only sets the locale
-  // (the second arg is a list of additional locale codes, NOT
-  // the messages). `loadAndActivate({ locale, messages })` is
-  // the right API for setting both at once. Using `activate`
-  // here would silently drop the catalog and leave `_messages`
-  // empty — every `i18n._` call would then fall back to the
-  // `message` field on the MessageDescriptor.
-  i18n.loadAndActivate({ locale: l, messages: merged });
-  setStoredLocale(l);
-  document.documentElement.lang = l;
+  i18n.loadAndActivate({ locale: l, messages });
+  window.dispatchEvent(new CustomEvent("a1:locale-changed", { detail: l }));
 };
 
 export { i18n };
-

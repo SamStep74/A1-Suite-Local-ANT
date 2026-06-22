@@ -9435,7 +9435,7 @@ function seedServiceCases(db, orgId) {
     "ticket-van-catalog": [
       "case-van-catalog",
       "AO-CASE-1003",
-      "waiting-customer",
+      "on-track",
       "Request the seasonal package CSV, then map package price and VAT fields before import.",
       "KB-TOURISM-CATALOG-IMPORT"
     ]
@@ -11153,10 +11153,21 @@ function ensureSmbCrmRecordsSchema(db) {
       created_at      TEXT NOT NULL,
       updated_at      TEXT NOT NULL
     );
-    CREATE INDEX IF NOT EXISTS idx_smb_crm_goals_org
-      ON smb_crm_goals(org_id, period_end);
-  `);
-}
+     CREATE INDEX IF NOT EXISTS idx_smb_crm_goals_org
+       ON smb_crm_goals(org_id, period_end);
+   `);
+
+   // Quote templates (Phase 10.13 / slice 12). The
+   // `quote-templates` engine creates the table + seeds the
+   // 4 built-ins. We call it here so an openDatabase() call
+   // has the templates ready. Wrapped in try/catch so a
+   // partial lib load (e.g. during the parser smoke tests)
+   // doesn't blow up the whole initSchema.
+   try {
+     const { ensureQuoteTemplatesSchema } = require('./lib/quote-templates');
+     ensureQuoteTemplatesSchema(db);
+   } catch (e) { /* lib not loaded during partial init — non-fatal */ }
+ }
 
 /**
  * SMB CRM — Assist track (Track 3: M14.11–M14.14).

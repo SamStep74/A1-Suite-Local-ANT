@@ -28,7 +28,6 @@ import {
   Truck,
   Sprout,
   Building2,
-  Store,
   type LucideIcon,
 } from "lucide-react";
 
@@ -37,7 +36,6 @@ export const APP_IDS = [
   "crm-tube",
   "smb-crm",
   "finance",
-  "pos",
   "copilot",
   "desk",
   "campaigns",
@@ -117,16 +115,6 @@ export const APPS: Record<AppId, AppMeta> = {
     accent: "blue",
     group: "core",
     legacyMountId: "suite-app-finance",
-  },
-  pos: {
-    id: "pos",
-    label: "POS",
-    labelAm: "Վաճառք",
-    tagline: "Cash sessions · fiscal closeout",
-    icon: Store,
-    accent: "ruby",
-    group: "core",
-    legacyMountId: "suite-app-pos",
   },
   copilot: {
     id: "copilot",
@@ -326,10 +314,10 @@ export function appHref(id: AppId): string {
 export function appLinkTo(
   id: string,
 ): { to: "/app/$appId"; params: { appId: string } } {
-  if (id === "copilot") {
-    return { to: "/app/copilot" as unknown as "/app/$appId", params: { appId: id } };
-  }
   if ((APP_IDS as readonly string[]).includes(id)) {
+    if (id === "copilot") {
+      return { to: "/app/copilot" as unknown as "/app/$appId", params: { appId: id } };
+    }
     return { to: `/app/${id}/` as unknown as "/app/$appId", params: { appId: id } };
   }
   return { to: "/app/$appId", params: { appId: id } };

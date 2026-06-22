@@ -1,57 +1,52 @@
-#!/usr/bin/env node
 "use strict";
 
 const fs = require("node:fs");
 const path = require("node:path");
 const { spawnSync } = require("node:child_process");
 
-const rootDir = path.resolve(__dirname, "..");
-const testRoots = ["server/lib/__tests__", "test"];
-const testFilePattern = /\.test\.(?:cjs|js|mjs)$/;
-const excluded = new Set([
-  // The modern SPA is served by web-modern/Vite. Keep this browser smoke in
-  // the Playwright lane instead of the backend Node lane.
-  "test/suite-dashboard-sidebar-openability.test.mjs"
-]);
+const ROOT = path.resolve(__dirname, "..");
+const TEST_ROOTS = [
+  path.join(ROOT, "test"),
+  path.join(ROOT, "server", "lib", "__tests__"),
+];
+const TEST_FILE_RE = /\.test\.(?:cjs|js|mjs)$/;
 
-function walk(dir, files = []) {
-  if (!fs.existsSync(dir)) return files;
+function walk(dir, out) {
+  if (!fs.existsSync(dir)) return;
   for (const entry of fs.readdirSync(dir, { withFileTypes: true })) {
-    const fullPath = path.join(dir, entry.name);
+    const full = path.join(dir, entry.name);
     if (entry.isDirectory()) {
-      walk(fullPath, files);
-    } else if (entry.isFile()) {
-      const relativePath = path.relative(rootDir, fullPath).split(path.sep).join("/");
-      if (testFilePattern.test(relativePath) && !excluded.has(relativePath)) {
-        files.push(relativePath);
-      }
+      if (entry.name === "node_modules") continue;
+      walk(full, out);
+    } else if (TEST_FILE_RE.test(entry.name)) {
+      out.push(full);
     }
   }
-  return files;
 }
 
-const testFiles = testRoots
-  .flatMap(root => walk(path.join(rootDir, root)))
-  .sort();
+const files = [];
+for (const root of TEST_ROOTS) walk(root, files);
+files.sort();
 
-if (testFiles.length === 0) {
-  console.error("No Node test files found.");
+if (files.length === 0) {
+  console.error("No node:test files found.");
   process.exit(1);
 }
 
-const result = spawnSync(process.execPath, [
+const args = [
   "--test",
   "--test-concurrency=4",
   "--test-timeout=180000",
-  ...testFiles
-], {
-  cwd: rootDir,
-  stdio: "inherit"
+  ...process.argv.slice(2),
+  ...files,
+];
+const result = spawnSync(process.execPath, args, {
+  cwd: ROOT,
+  stdio: "inherit",
 });
 
-if (result.signal) {
-  console.error(`Node test runner terminated by ${result.signal}`);
+if (result.error) {
+  console.error(result.error);
   process.exit(1);
 }
-
 process.exit(result.status ?? 1);

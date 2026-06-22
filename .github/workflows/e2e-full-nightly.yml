@@ -36,7 +36,6 @@ concurrency:
 
 jobs:
   e2e-full:
-    if: false  # disabled 2026-06-21 — repo is private, local CI in ~/dev/armosphera/
     name: E2E full (Playwright, all 110 specs)
     runs-on: ubuntu-latest
     timeout-minutes: 30
@@ -44,21 +43,20 @@ jobs:
       run:
         working-directory: web-modern
     steps:
-      - uses: actions/checkout@v7
+      - uses: actions/checkout@v4
 
       - name: Set up Node
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v4
         with:
-          node-version: "26"
+          node-version: "22.5"
           cache: "npm"
           cache-dependency-path: web-modern/package-lock.json
 
       - name: Install root (for Fastify + node --test deps)
         run: npm ci --no-audit --no-fund
-        working-directory: ${{ github.workspace }}
 
       - name: Install web-modern
-        run: npm ci --legacy-peer-deps --no-audit --no-fund
+        run: npm ci --no-audit --no-fund
         working-directory: web-modern
 
       - name: Install Playwright chromium
@@ -66,7 +64,6 @@ jobs:
 
       - name: Reset data dir (use the seeded default credentials)
         run: rm -rf data && mkdir -p data
-        working-directory: ${{ github.workspace }}
 
       - name: Start Vite dev server (background)
         run: |
@@ -102,7 +99,7 @@ jobs:
 
       - name: Upload Playwright report
         if: always()
-        uses: actions/upload-artifact@v7
+        uses: actions/upload-artifact@v4
         with:
           name: playwright-report-full
           path: web-modern/playwright-report/

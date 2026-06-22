@@ -9,9 +9,9 @@
  *
  * Theme and density are NOT mounted as providers here — they expose
  * `useTheme()` / `useDensity()` hooks that mutate `<html>` via useEffect
- * (see lib/theme/ThemeProvider.tsx, lib/density/DensityProvider.tsx). The
- * `<html data-theme="light" data-density="comfortable">` defaults below
- * are SSR-only; the client takes over from `localStorage` on first paint.
+ * (see lib/theme/ThemeProvider.tsx, lib/density/DensityProvider.tsx). This
+ * route runs as a static SPA, so it must not render a nested `<html>` document
+ * into `#root`; the client effect below applies the default attributes.
  *
  * The QueryClient IS a real provider — every page that uses `useQuery`
  * needs it above in the tree. See lib/api/queryClient.ts for the defaults.
@@ -87,15 +87,12 @@ function NotFoundRoot() {
 }
 
 function RootComponent() {
-  // Keep `<html lang>` in sync with the active Lingui locale. The
-  // hard-coded `lang="hy"` in `index.html` is the SPA-shell default;
-  // once the client activates a different locale (via `?lang=`,
-  // localStorage, or the Topbar switcher), we re-set the
-  // attribute here so React's next render doesn't clobber it
-  // back to "hy". `i18n` emits a "change" event on every
-  // `i18n.activate(...)`, so we subscribe to that and mirror
-  // the locale onto the document element.
+  // Keep `<html>` attributes in sync with the active SPA state.
+  // index.html owns the actual document; this route only mutates
+  // documentElement so React never nests a second HTML document under #root.
   useEffect(() => {
+    document.documentElement.setAttribute("data-theme", "light");
+    document.documentElement.setAttribute("data-density", "comfortable");
     const sync = () => {
       if (i18n.locale) document.documentElement.lang = i18n.locale;
     };
@@ -105,14 +102,6 @@ function RootComponent() {
     const unsubscribe = i18n.on("change", sync);
     return unsubscribe;
   }, []);
-  // SPA mode: the document is the static `index.html` (served by
-  // Vite); this React tree is mounted on `<div id="root">` which
-  // already lives inside the real `<body>`. Rendering `<html>` or
-  // `<body>` from here would nest a second `<html>` inside the
-  // real one, and React 19 fires a hydration error + enters
-  // recovery mode on every state change, wedging the page. Keep
-  // this component a thin wrapper around the query client + body
-  // content.
   return (
     <QueryClientProvider client={queryClient}>
       <a className="skip-to-content" href="#main">

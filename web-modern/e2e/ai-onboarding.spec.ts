@@ -65,8 +65,9 @@ test.describe("AI Onboarding — Phase 8.11 provider settings skeleton", () => {
       // the English H1 so the assertion survives the rare case
       // where the subtitle line is dropped.
       await expect(
-        panel.getByText(/AI մատակարար|AI Provider/),
+        panel.getByRole("heading", { level: 1, name: /AI Provider & Models/i }),
       ).toBeVisible();
+      await expect(panel.getByText(/AI մատակարար/)).toBeVisible();
 
       // Model grid — 6 <select> elements (default, copilot,
       // transform, finance, crm, docs). The legacy module defined
@@ -107,7 +108,7 @@ test.describe("AI Onboarding — Phase 8.11 provider settings skeleton", () => {
       // most stable assertion.
       const back = page.getByRole("link", { name: /back/i });
       await expect(back).toBeVisible();
-      await expect(back).toHaveAttribute("href", "/app/copilot");
+      await expect(back).toHaveAttribute("href", "/app/copilot?view=chats");
     } finally {
       await page.context().close();
     }

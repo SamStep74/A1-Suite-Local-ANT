@@ -66,13 +66,8 @@ export function PeekPanel<TRecord>({
     if (!record && el.open) el.close();
   }, [record]);
 
-  // Wire the native `close` event (fires on ESC) back to the parent
-  // so the parent can clear its `record` state.
-  useEffect(() => {
-    const el = dialogRef.current;
-    if (!el) return;
-    el.addEventListener("close", onClose);
-    return () => el.removeEventListener("close", onClose);
+  const requestClose = useCallback(() => {
+    window.setTimeout(onClose, 0);
   }, [onClose]);
 
   // Click on the dialog itself (not the inner content) closes it.
@@ -80,15 +75,24 @@ export function PeekPanel<TRecord>({
   // the backdrop is technically outside the inner <div>.
   const onDialogClick = useCallback(
     (e: React.MouseEvent<HTMLDialogElement>) => {
-      if (e.target === dialogRef.current) onClose();
+      if (e.target === dialogRef.current) requestClose();
     },
-    [onClose],
+    [requestClose],
+  );
+
+  const onDialogCancel = useCallback(
+    (e: React.SyntheticEvent<HTMLDialogElement>) => {
+      e.preventDefault();
+      requestClose();
+    },
+    [requestClose],
   );
 
   return (
     <dialog
       ref={dialogRef}
       onClick={onDialogClick}
+      onCancel={onDialogCancel}
       aria-labelledby={headingId}
       data-testid="peek-panel"
       data-open={record ? "true" : "false"}
@@ -115,7 +119,7 @@ export function PeekPanel<TRecord>({
           </h2>
           <button
             type="button"
-            onClick={onClose}
+            onClick={requestClose}
             aria-label={t`Close`}
             data-testid="peek-panel-close"
             className="inline-flex h-7 w-7 items-center justify-center rounded-[var(--radius-sm)] text-[var(--color-muted)] hover:bg-[var(--color-surface-soft)] hover:text-[var(--color-ink)]"

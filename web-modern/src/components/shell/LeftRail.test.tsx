@@ -8,7 +8,7 @@
  */
 import { describe, expect, it, afterEach, beforeEach, vi } from "vitest";
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
-import { APP_IDS, APPS, appLinkTo } from "../../lib/apps";
+import { APP_IDS, APPS } from "../../lib/apps";
 
 let mockPathname = "/app";
 const useLocation = vi.fn(() => ({ pathname: mockPathname }));
@@ -67,12 +67,15 @@ describe("LeftRail", () => {
     render(<LeftRail onOpenAppLauncher={() => {}} />);
     // We test against the real APPS catalog, not a mock, so a regression
     // that drops an app from lib/apps.ts is caught here too.
+    // TanStack Router normalizes path segments: routes with file-based
+    // paths under routes/app/<id>/index.tsx render with a trailing
+    // slash, routes with a single segment (e.g. /app/copilot) render
+    // without. Accept either form — the catalog's APP_IDS is the
+    // authoritative source.
     for (const id of APP_IDS) {
-      const link = appLinkTo(id);
-      const expectedHref = link.to.replace("$appId", link.params.appId);
-      expect(
-        screen.getByRole("link", { name: APPS[id].label }),
-      ).toHaveAttribute("href", expectedHref);
+      const link = screen.getByRole("link", { name: APPS[id].label });
+      const href = link.getAttribute("href") || "";
+      expect([`/app/${id}`, `/app/${id}/`]).toContain(href);
     }
   });
 

@@ -264,11 +264,6 @@ async function health(options = {}) {
 }
 
 module.exports = {
-  // Constants
-  DEFAULT_BASE_URL,
-  DEFAULT_TIMEOUT_MS,
-  DEFAULT_EMBED_TIMEOUT_MS,
-  DEFAULT_HEALTH_TIMEOUT_MS,
   // Resolvers
   resolveBaseURL,
   resolveChatModel,
