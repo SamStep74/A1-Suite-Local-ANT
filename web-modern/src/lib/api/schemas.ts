@@ -849,6 +849,15 @@ export type PosCashSessionStatus = z.infer<typeof PosCashSessionStatusSchema>;
 export const PosCurrencySchema = z.literal("AMD");
 export type PosCurrency = z.infer<typeof PosCurrencySchema>;
 
+export const PosCashSessionPostingsSchema = z
+  .object({
+    salePosting: z.string(),
+    inventoryPosting: z.string(),
+    ledgerPosting: z.string(),
+  })
+  .passthrough();
+export type PosCashSessionPostings = z.infer<typeof PosCashSessionPostingsSchema>;
+
 /** POS cash session — the cash drawer spine for fiscal closeout.
  *  Source: /api/pos/workspace and /api/pos/cash-sessions. */
 export const PosCashSessionSchema = z.object({
@@ -871,6 +880,7 @@ export const PosCashSessionSchema = z.object({
   receiptRangeStart: z.string().nullable().optional(),
   receiptRangeEnd: z.string().nullable().optional(),
   closeNote: z.string().nullable().optional(),
+  postings: PosCashSessionPostingsSchema.optional(),
   createdAt: z.string(),
   updatedAt: z.string(),
 }).passthrough();
@@ -941,6 +951,8 @@ export const PosSalePostingsSchema = z
     salePosting: z.string(),
     inventoryPosting: z.string(),
     ledgerPosting: z.string(),
+    ledgerPostingIds: z.array(z.string()).optional(),
+    ledgerPostingCount: z.number().int().min(0).optional(),
   })
   .passthrough();
 export type PosSalePostings = z.infer<typeof PosSalePostingsSchema>;
@@ -1078,6 +1090,8 @@ export const PosRefundPostingsSchema = z
     refundPosting: z.string(),
     inventoryPosting: z.string(),
     ledgerPosting: z.string(),
+    ledgerPostingIds: z.array(z.string()).optional(),
+    ledgerPostingCount: z.number().int().min(0).optional(),
   })
   .passthrough();
 export type PosRefundPostings = z.infer<typeof PosRefundPostingsSchema>;

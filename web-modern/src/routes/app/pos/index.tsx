@@ -1,10 +1,10 @@
 /**
  * /app/pos — POS cash-session spine.
  *
- * Slice 425 frontend scope: open/close cash sessions, one-line sale
+ * Slice 426 frontend scope: open/close cash sessions, one-line sale
  * capture, receipt packet handoff, full-sale refund evidence, and tracked-line
- * stock return evidence. Terminal refunds, fiscal submission, receipt
- * printing, offline replay, and ledger posting stay outside this surface.
+ * stock return evidence with POS ledger journal visibility. Terminal refunds,
+ * fiscal submission, receipt printing, and offline replay stay outside this surface.
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -615,6 +615,8 @@ export function SaleCapturePanel({
   const unitPrice = typeof selectedItem?.listPrice === "number" ? selectedItem.listPrice : 0;
   const totalPreview =
     Number.isInteger(quantityNumber) && quantityNumber > 0 ? unitPrice * quantityNumber : Number.NaN;
+  const lastSaleLedgerCount =
+    lastSale?.postings.ledgerPostingCount ?? lastSale?.postings.ledgerPostingIds?.length;
   const canSubmit =
     Boolean(selectedItem) &&
     receiptNumber.trim().length > 0 &&
@@ -766,7 +768,11 @@ export function SaleCapturePanel({
             data-testid="pos-sale-success"
           >
             {isRefundedSale(lastSale) ? "Refunded sale" : "Posted sale"} {lastSale.id} · receipt{" "}
-            {lastSale.receiptNumber} · {money(lastSale.total)} · status {lastSale.status}
+            {lastSale.receiptNumber} · {money(lastSale.total)} · status {lastSale.status} · ledger{" "}
+            {lastSale.postings.ledgerPosting}
+            {typeof lastSaleLedgerCount === "number"
+              ? ` (${journalCountLabel(lastSaleLedgerCount)})`
+              : ""}
           </p>
           {!isRefundedSale(lastSale) || receiptPacket ? (
             <ReceiptPacketHandoff
@@ -902,6 +908,9 @@ export function RefundEvidencePanel({
   const [reason, setReason] = useState("");
   const alreadyRefunded = isRefundedSale(sale) || Boolean(refund);
   const returnStockMoveCount = refund?.lines.filter((line) => line.returnStockMoveId).length ?? 0;
+  const refundLedgerCount =
+    refund?.postings.ledgerPostingCount ?? refund?.postings.ledgerPostingIds?.length;
+  const refundLedgerStatus = refund?.ledgerPostingStatus ?? "ready";
   const canSubmit =
     !alreadyRefunded &&
     refundReference.trim().length > 0 &&
@@ -921,7 +930,7 @@ export function RefundEvidencePanel({
             Refund evidence
           </h4>
           <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
-            Full-sale evidence · stock return evidence · no ledger posting
+            Full-sale evidence · stock return evidence · ledger {refundLedgerStatus}
           </p>
         </div>
       </div>
@@ -940,11 +949,19 @@ export function RefundEvidencePanel({
             <EvidenceRow label="Cash adjustment" value={money(refund.cashAdjustment)} />
             <EvidenceRow label="Inventory" value={refund.inventoryPostingStatus} />
             <EvidenceRow label="Return stock moves" value={String(returnStockMoveCount)} />
-            <EvidenceRow label="Ledger" value={refund.ledgerPostingStatus} />
+            <EvidenceRow
+              label="Ledger journals"
+              value={
+                typeof refundLedgerCount === "number"
+                  ? `${refund.ledgerPostingStatus} (${journalCountLabel(refundLedgerCount)})`
+                  : refund.ledgerPostingStatus
+              }
+            />
           </dl>
           <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
-            Return stock evidence is recorded for tracked lines. Ledger journals,
-            fiscal refunds, and receipt printing remain deferred.
+            {refund.ledgerPostingStatus === "posted"
+              ? "Return stock evidence is recorded for tracked lines. Ledger reversal journals are posted; fiscal refunds and receipt printing remain deferred."
+              : "Return stock evidence is recorded for tracked lines. Ledger journals, fiscal refunds, and receipt printing remain deferred."}
           </p>
         </div>
       ) : alreadyRefunded ? (
@@ -1231,6 +1248,10 @@ export function FiscalEvidencePanel({
           label="Expected cash"
           value={openSession ? money(openSession.expectedCash) : "—"}
         />
+        <EvidenceRow
+          label="Ledger"
+          value={openSession ? openSession.postings?.ledgerPosting ?? "not-posted" : "—"}
+        />
       </dl>
 
       <div>
@@ -1446,6 +1467,10 @@ function isRefundedSale(sale: { status: string }): boolean {
 
 function refundMethodLabel(method: PosRefundMethod): string {
   return POS_REFUND_METHODS.find((entry) => entry.value === method)?.label ?? method;
+}
+
+function journalCountLabel(count: number): string {
+  return `${count} journal${count === 1 ? "" : "s"}`;
 }
 
 function sessionCashierName(session: PosCashSession): string {

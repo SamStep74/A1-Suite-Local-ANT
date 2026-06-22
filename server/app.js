@@ -47221,6 +47221,7 @@ const ORG_BACKUP_TABLES = [
   "finance_bank_transactions",
   "finance_src_exports",
   "finance_vat_returns",
+  "ledger_journal",
   "tickets",
   "service_cases",
   "case_messages",
@@ -54873,7 +54874,7 @@ function getPosWorkspace(db, user) {
       offlineReplay: "not-implemented",
       receiptPrinting: "not-implemented",
       inventoryPosting: "available",
-      ledgerPosting: "not-implemented"
+      ledgerPosting: "available"
     }
   };
 }
@@ -54909,7 +54910,14 @@ function getPosSale(db, orgId, saleId) {
       cashier.name AS cashier_name,
       stock_locations.code AS stock_location_code,
       stock_locations.name AS stock_location_name,
-      created_by.name AS created_by_name
+      created_by.name AS created_by_name,
+      (
+        SELECT GROUP_CONCAT(ledger_journal.id)
+        FROM ledger_journal
+        WHERE ledger_journal.org_id = pos_sales.org_id
+          AND ledger_journal.source_type = 'pos_sale'
+          AND ledger_journal.source_id = pos_sales.id
+      ) AS ledger_posting_ids
     FROM pos_sales
     JOIN users AS cashier ON cashier.id = pos_sales.cashier_user_id
       AND cashier.org_id = pos_sales.org_id
@@ -55054,7 +55062,21 @@ function selectPosCashSessionRows(db, orgId, extraWhere = "", extraParams = [], 
         WHERE line_sales.org_id = pos_cash_sessions.org_id
           AND line_sales.cash_session_id = pos_cash_sessions.id
           AND pos_sale_lines.stock_move_id IS NOT NULL
-      ) AS inventory_posted_line_count
+      ) AS inventory_posted_line_count,
+      (
+        SELECT COUNT(*)
+        FROM pos_sales
+        WHERE pos_sales.org_id = pos_cash_sessions.org_id
+          AND pos_sales.cash_session_id = pos_cash_sessions.id
+          AND pos_sales.ledger_posting_status = 'posted'
+      ) AS ledger_posted_sale_count,
+      (
+        SELECT COUNT(*)
+        FROM pos_sale_refunds
+        WHERE pos_sale_refunds.org_id = pos_cash_sessions.org_id
+          AND pos_sale_refunds.cash_session_id = pos_cash_sessions.id
+          AND pos_sale_refunds.ledger_posting_status = 'posted'
+      ) AS ledger_posted_refund_count
     FROM pos_cash_sessions
     JOIN users AS cashier ON cashier.id = pos_cash_sessions.cashier_user_id
       AND cashier.org_id = pos_cash_sessions.org_id
@@ -55178,6 +55200,7 @@ function createPosCashSale(db, user, sessionId, body) {
     const paidCash = input.paymentMethod === "cash" ? totals.total : 0;
     const now = new Date().toISOString();
     const soldAt = input.soldAt || now;
+    const ledgerPostingStatus = "posted";
 
     db.prepare(`
       INSERT INTO pos_sales (
@@ -55258,12 +55281,25 @@ function createPosCashSale(db, user, sessionId, body) {
       postedStockMoveCount += 1;
     }
 
+    if (ledgerPostingStatus === "posted") {
+      ledger.postPosSale(db, user.org_id, {
+        id: saleId,
+        receiptNumber: input.receiptNumber,
+        paymentMethod: input.paymentMethod,
+        subtotal: totals.subtotal,
+        vat: totals.vat,
+        total: totals.total,
+        date: soldAt,
+        period_key: soldAt.slice(0, 7)
+      });
+    }
+
     const inventoryPostingStatus = postedStockMoveCount > 0 ? "posted" : "not-posted";
     db.prepare(`
       UPDATE pos_sales
-      SET inventory_posting_status = ?, updated_at = ?
+      SET inventory_posting_status = ?, ledger_posting_status = ?, updated_at = ?
       WHERE org_id = ? AND id = ?
-    `).run(inventoryPostingStatus, now, user.org_id, saleId);
+    `).run(inventoryPostingStatus, ledgerPostingStatus, now, user.org_id, saleId);
     if (paidCash > 0) {
       db.prepare(`
         UPDATE pos_cash_sessions
@@ -55286,7 +55322,7 @@ function createPosCashSale(db, user, sessionId, body) {
         paidCash,
         lineCount: lines.length,
         inventoryPostingStatus,
-        ledgerPostingStatus: "not-posted"
+        ledgerPostingStatus
       }
     });
     audit(db, user.org_id, user.id, "pos.sale.posted", {
@@ -55360,6 +55396,9 @@ function createPosSaleRefund(db, user, saleId, body) {
       : 0;
     const returnStockMoves = createPosRefundReturnStockMoves(db, user, source, input);
     const inventoryPostingStatus = returnStockMoves.size > 0 ? "posted" : "not-posted";
+    const ledgerPostingStatus = source.sale.ledger_posting_status === "posted"
+      ? "posted"
+      : "not-posted";
 
     db.prepare(`
       INSERT INTO pos_sale_refunds (
@@ -55368,7 +55407,7 @@ function createPosSaleRefund(db, user, saleId, body) {
         status, inventory_posting_status, ledger_posting_status, refunded_at,
         created_by_user_id, created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?, 'not-posted', ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?, ?, ?, ?, ?)
     `).run(
       refundId,
       user.org_id,
@@ -55381,6 +55420,7 @@ function createPosSaleRefund(db, user, saleId, body) {
       refundedTotal,
       cashAdjustment,
       inventoryPostingStatus,
+      ledgerPostingStatus,
       refundedAt,
       user.id,
       now
@@ -55434,6 +55474,19 @@ function createPosSaleRefund(db, user, saleId, body) {
       }
     }
 
+    if (ledgerPostingStatus === "posted") {
+      ledger.postPosRefund(db, user.org_id, {
+        id: refundId,
+        refundReference: input.refundReference,
+        refundMethod: input.refundMethod,
+        subtotal: source.sale.subtotal_amd,
+        vat: source.sale.vat_amd,
+        total: refundedTotal,
+        date: refundedAt,
+        period_key: refundedAt.slice(0, 7)
+      });
+    }
+
     const saleInfo = db.prepare(`
       UPDATE pos_sales
       SET status = 'refunded_full', updated_at = ?
@@ -55460,7 +55513,7 @@ function createPosSaleRefund(db, user, saleId, body) {
         refundedTotal,
         cashAdjustment,
         inventoryPostingStatus,
-        ledgerPostingStatus: "not-posted"
+        ledgerPostingStatus
       }
     });
     audit(db, user.org_id, user.id, "pos.sale.refunded", {
@@ -55473,7 +55526,7 @@ function createPosSaleRefund(db, user, saleId, body) {
       cashAdjustment,
       idempotencyKey: input.idempotencyKey,
       inventoryPostingStatus,
-      ledgerPostingStatus: "not-posted"
+      ledgerPostingStatus
     });
     db.exec("COMMIT");
   } catch (err) {
@@ -55794,7 +55847,14 @@ function formatPosReceiptPacket(row, includePayload = false) {
 
 function getPosSaleRefundById(db, orgId, refundId, includeLines = false) {
   const row = db.prepare(`
-    SELECT pos_sale_refunds.*, users.name AS created_by_name
+    SELECT pos_sale_refunds.*, users.name AS created_by_name,
+      (
+        SELECT GROUP_CONCAT(ledger_journal.id)
+        FROM ledger_journal
+        WHERE ledger_journal.org_id = pos_sale_refunds.org_id
+          AND ledger_journal.source_type = 'pos_sale_refund'
+          AND ledger_journal.source_id = pos_sale_refunds.id
+      ) AS ledger_posting_ids
     FROM pos_sale_refunds
     LEFT JOIN users ON users.id = pos_sale_refunds.created_by_user_id
       AND users.org_id = pos_sale_refunds.org_id
@@ -55813,6 +55873,9 @@ function getPosSaleRefundById(db, orgId, refundId, includeLines = false) {
 function formatPosSaleRefund(row, lines) {
   const inventoryPostingStatus = row.inventory_posting_status || "not-posted";
   const ledgerPostingStatus = row.ledger_posting_status || "not-posted";
+  const ledgerPostingIds = row.ledger_posting_ids
+    ? String(row.ledger_posting_ids).split(",").filter(Boolean)
+    : [];
   return {
     id: row.id,
     saleId: row.sale_id,
@@ -55829,7 +55892,9 @@ function formatPosSaleRefund(row, lines) {
     postings: {
       refundPosting: row.status,
       inventoryPosting: inventoryPostingStatus,
-      ledgerPosting: ledgerPostingStatus
+      ledgerPosting: ledgerPostingStatus,
+      ledgerPostingIds,
+      ledgerPostingCount: ledgerPostingIds.length
     },
     refundedAt: row.refunded_at,
     lineCount: lines.length,
@@ -55963,7 +56028,7 @@ function formatPosCashSession(row) {
     postings: {
       salePosting: Number(row.sale_count || 0) > 0 ? "posted" : "not-posted",
       inventoryPosting: Number(row.inventory_posted_line_count || 0) > 0 ? "posted" : "not-posted",
-      ledgerPosting: "not-posted"
+      ledgerPosting: Number(row.ledger_posted_sale_count || 0) + Number(row.ledger_posted_refund_count || 0) > 0 ? "posted" : "not-posted"
     },
     createdByUserId: row.created_by_user_id || "",
     createdByName: row.created_by_name || "",
@@ -55975,6 +56040,9 @@ function formatPosCashSession(row) {
 }
 
 function formatPosSale(row, lines) {
+  const ledgerPostingIds = row.ledger_posting_ids
+    ? String(row.ledger_posting_ids).split(",").filter(Boolean)
+    : [];
   return {
     id: row.id,
     cashSessionId: row.cash_session_id,
@@ -55997,7 +56065,9 @@ function formatPosSale(row, lines) {
     postings: {
       salePosting: ["posted", "refunded", "refunded_full"].includes(row.status) ? "posted" : "not-posted",
       inventoryPosting: row.inventory_posting_status || "not-posted",
-      ledgerPosting: row.ledger_posting_status || "not-posted"
+      ledgerPosting: row.ledger_posting_status || "not-posted",
+      ledgerPostingIds,
+      ledgerPostingCount: ledgerPostingIds.length
     },
     lines: lines.map(formatPosSaleLine),
     createdByUserId: row.created_by_user_id || "",

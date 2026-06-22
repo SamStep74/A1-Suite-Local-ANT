@@ -286,6 +286,84 @@ function postPaymentReceived(db, orgId, payment) {
   })].filter(Boolean);
 }
 
+function posSettlementAccountCode(paymentMethod) {
+  const C = postingCodesFor(locale.activeLocale());
+  if (locale.activeLocale() === "am") {
+    if (paymentMethod === "bank-transfer") return "252";
+    if (paymentMethod === "card") return "255";
+  }
+  if (locale.activeLocale() === "ru") {
+    if (paymentMethod === "card") return "57";
+  }
+  return C.cash;
+}
+
+function postPosSale(db, orgId, sale) {
+  const total = assertMinorUnitInteger(sale.total);
+  const vat = assertMinorUnitInteger(sale.vat || 0);
+  const hasSubtotal = sale.subtotal !== undefined && sale.subtotal !== null && sale.subtotal !== "";
+  const net = hasSubtotal ? assertMinorUnitInteger(sale.subtotal) : total - vat;
+  const date = sale.date || sale.sold_at || new Date().toISOString().slice(0, 10);
+  const periodKey = sale.period_key || String(date).slice(0, 7);
+  const C = postingCodesFor(locale.activeLocale());
+  const settlementCode = posSettlementAccountCode(sale.paymentMethod || sale.payment_method || "cash");
+  const ids = [];
+  if (net > 0) ids.push(postEntry(db, orgId, {
+    date,
+    debitCode: settlementCode,
+    creditCode: C.revenue,
+    amount: net,
+    memo: `POS sale ${sale.receiptNumber || sale.receipt_number || sale.id}`,
+    sourceType: "pos_sale",
+    sourceId: sale.id,
+    periodKey
+  }));
+  if (vat > 0) ids.push(postEntry(db, orgId, {
+    date,
+    debitCode: settlementCode,
+    creditCode: C.outputVat,
+    amount: vat,
+    memo: `POS sale VAT ${sale.receiptNumber || sale.receipt_number || sale.id}`,
+    sourceType: "pos_sale",
+    sourceId: sale.id,
+    periodKey
+  }));
+  return ids.filter(Boolean);
+}
+
+function postPosRefund(db, orgId, refund) {
+  const total = assertMinorUnitInteger(refund.total ?? refund.refundedTotal);
+  const vat = assertMinorUnitInteger(refund.vat || 0);
+  const hasSubtotal = refund.subtotal !== undefined && refund.subtotal !== null && refund.subtotal !== "";
+  const net = hasSubtotal ? assertMinorUnitInteger(refund.subtotal) : total - vat;
+  const date = refund.date || refund.refunded_at || new Date().toISOString().slice(0, 10);
+  const periodKey = refund.period_key || String(date).slice(0, 7);
+  const C = postingCodesFor(locale.activeLocale());
+  const settlementCode = posSettlementAccountCode(refund.refundMethod || refund.refund_method || "cash");
+  const ids = [];
+  if (net > 0) ids.push(postEntry(db, orgId, {
+    date,
+    debitCode: C.revenue,
+    creditCode: settlementCode,
+    amount: net,
+    memo: `POS refund ${refund.refundReference || refund.refund_reference || refund.id}`,
+    sourceType: "pos_sale_refund",
+    sourceId: refund.id,
+    periodKey
+  }));
+  if (vat > 0) ids.push(postEntry(db, orgId, {
+    date,
+    debitCode: C.outputVat,
+    creditCode: settlementCode,
+    amount: vat,
+    memo: `POS refund VAT ${refund.refundReference || refund.refund_reference || refund.id}`,
+    sourceType: "pos_sale_refund",
+    sourceId: refund.id,
+    periodKey
+  }));
+  return ids.filter(Boolean);
+}
+
 function buildLedgerModel(db, orgId) {
   ensureChartOfAccounts(db, orgId);
   const accounts = db.prepare("SELECT code, name, type FROM ledger_accounts WHERE org_id = ?").all(orgId)
@@ -339,9 +417,14 @@ function vatReport(db, orgId, periodKey = "") {
   }
   const filter = periodKey ? "AND period_key = ?" : "";
   const args = periodKey ? [orgId, periodKey] : [orgId];
-  const outputVat = db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM ledger_journal WHERE org_id = ? AND credit_code = '524' ${filter}`).get(...args).v;
-  const inputVat = db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM ledger_journal WHERE org_id = ? AND debit_code IN (${INPUT_VAT_ACCOUNT_CODES.map(() => "?").join(", ")}) ${filter}`)
+  const outputVatCredit = db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM ledger_journal WHERE org_id = ? AND credit_code = '524' ${filter}`).get(...args).v;
+  const outputVatDebit = db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM ledger_journal WHERE org_id = ? AND debit_code = '524' ${filter}`).get(...args).v;
+  const inputVatDebit = db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM ledger_journal WHERE org_id = ? AND debit_code IN (${INPUT_VAT_ACCOUNT_CODES.map(() => "?").join(", ")}) ${filter}`)
     .get(...(periodKey ? [orgId, ...INPUT_VAT_ACCOUNT_CODES, periodKey] : [orgId, ...INPUT_VAT_ACCOUNT_CODES])).v;
+  const inputVatCredit = db.prepare(`SELECT COALESCE(SUM(amount),0) AS v FROM ledger_journal WHERE org_id = ? AND credit_code IN (${INPUT_VAT_ACCOUNT_CODES.map(() => "?").join(", ")}) ${filter}`)
+    .get(...(periodKey ? [orgId, ...INPUT_VAT_ACCOUNT_CODES, periodKey] : [orgId, ...INPUT_VAT_ACCOUNT_CODES])).v;
+  const outputVat = outputVatCredit - outputVatDebit;
+  const inputVat = inputVatDebit - inputVatCredit;
   return {
     periodKey: periodKey || "all",
     outputVat: fromMinor(outputVat),
@@ -419,4 +502,4 @@ function payablesReport(db, orgId, asOf) {
   return accounting.calculatePayables(buildPayablesModel(db, orgId), { asOf: asOf || new Date().toISOString().slice(0, 10) });
 }
 
-module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, OPENING_BALANCE_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postExpensePosted, postPayrollRun, postBillPosted, postBillCreditNote, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, openingBalanceAccountByCode, openingBalanceSideForCode, postOpeningBalance, postOpeningBalances, openingBalances };
+module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, OPENING_BALANCE_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postPosSale, postPosRefund, postExpensePosted, postPayrollRun, postBillPosted, postBillCreditNote, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, openingBalanceAccountByCode, openingBalanceSideForCode, postOpeningBalance, postOpeningBalances, openingBalances };

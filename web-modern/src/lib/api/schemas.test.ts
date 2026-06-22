@@ -1870,7 +1870,9 @@ describe("POS cash-session schemas", () => {
         postings: {
           salePosting: "posted",
           inventoryPosting: "posted",
-          ledgerPosting: "not-posted",
+          ledgerPosting: "posted",
+          ledgerPostingIds: ["ledger-pos-sale-net", "ledger-pos-sale-vat"],
+          ledgerPostingCount: 2,
         },
         lines: [
           {
@@ -1900,6 +1902,7 @@ describe("POS cash-session schemas", () => {
     expect(r.success).toBe(true);
     if (r.success) {
       expect(r.data.sale.status).toBe("posted");
+      expect(r.data.sale.postings.ledgerPostingCount).toBe(2);
       expect(r.data.sale.lines[0]?.catalogItemVariantId).toBeNull();
       expect(r.data.session.expectedCash).toBe(110000);
     }
@@ -1931,7 +1934,9 @@ describe("POS cash-session schemas", () => {
       postings: {
         salePosting: "posted",
         inventoryPosting: "posted",
-        ledgerPosting: "not-posted",
+        ledgerPosting: "posted",
+        ledgerPostingIds: ["ledger-pos-sale-net", "ledger-pos-sale-vat"],
+        ledgerPostingCount: 2,
       },
       lines: [
         {
@@ -2034,7 +2039,9 @@ describe("POS cash-session schemas", () => {
       postings: {
         salePosting: "posted",
         inventoryPosting: "posted",
-        ledgerPosting: "not-posted",
+        ledgerPosting: "posted",
+        ledgerPostingIds: ["ledger-pos-sale-net", "ledger-pos-sale-vat"],
+        ledgerPostingCount: 2,
       },
       lines: [
         {
@@ -2071,11 +2078,13 @@ describe("POS cash-session schemas", () => {
         cashAdjustment: 60000,
         status: "posted",
         inventoryPostingStatus: "posted",
-        ledgerPostingStatus: "not-posted",
+        ledgerPostingStatus: "posted",
         postings: {
           refundPosting: "posted",
           inventoryPosting: "posted",
-          ledgerPosting: "not-posted",
+          ledgerPosting: "posted",
+          ledgerPostingIds: ["ledger-pos-refund-net", "ledger-pos-refund-vat"],
+          ledgerPostingCount: 2,
         },
         refundedAt: "2026-06-22T10:00:00.000Z",
         lineCount: 1,
@@ -2115,7 +2124,11 @@ describe("POS cash-session schemas", () => {
     if (r.success) {
       expect(r.data.sale.status).toBe("refunded_full");
       expect(r.data.refund.inventoryPostingStatus).toBe("posted");
-      expect(r.data.refund.ledgerPostingStatus).toBe("not-posted");
+      expect(r.data.refund.ledgerPostingStatus).toBe("posted");
+      expect(r.data.refund.postings.ledgerPostingIds).toEqual([
+        "ledger-pos-refund-net",
+        "ledger-pos-refund-vat",
+      ]);
       expect(r.data.refund.lines[0]?.sourceStockMoveId).toBe("stock-move-1");
       expect(r.data.refund.lines[0]?.returnStockMoveId).toBe("stock-move-return-1");
       expect(r.data.session?.expectedCash).toBe(-10000);

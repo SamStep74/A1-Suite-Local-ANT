@@ -211,7 +211,9 @@ const VALID_SALE_RESPONSE = {
     postings: {
       salePosting: "posted",
       inventoryPosting: "posted",
-      ledgerPosting: "not-posted",
+      ledgerPosting: "posted",
+      ledgerPostingIds: ["ledger-pos-sale-net", "ledger-pos-sale-vat"],
+      ledgerPostingCount: 2,
     },
     lines: [
       {
@@ -268,11 +270,13 @@ const VALID_REFUND_RESPONSE = {
     cashAdjustment: 50000,
     status: "posted",
     inventoryPostingStatus: "posted",
-    ledgerPostingStatus: "not-posted",
+    ledgerPostingStatus: "posted",
     postings: {
       refundPosting: "posted",
       inventoryPosting: "posted",
-      ledgerPosting: "not-posted",
+      ledgerPosting: "posted",
+      ledgerPostingIds: ["ledger-pos-refund-net", "ledger-pos-refund-vat"],
+      ledgerPostingCount: 2,
     },
     refundedAt: "2026-06-22T10:00:00.000Z",
     lineCount: 1,
@@ -466,6 +470,9 @@ describe("POS route", () => {
       expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(/pos-sale-1/);
     });
     expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(/R-2026-0002/);
+    expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(
+      /ledger posted \(2 journals\)/,
+    );
     expect(mocks.invalidateQueries).toHaveBeenCalledWith({
       queryKey: ["pos", "workspace"],
     });
@@ -593,7 +600,10 @@ describe("POS route", () => {
       /Return stock moves\s*1/,
     );
     expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
-      /Ledger journals, fiscal refunds, and receipt printing remain deferred/,
+      /Ledger journals\s*posted \(2 journals\)/,
+    );
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+      /Ledger reversal journals are posted; fiscal refunds and receipt printing remain deferred/,
     );
     expect(screen.queryByTestId("pos-refund-form")).toBeNull();
     expect(screen.queryByTestId("pos-receipt-packet-form")).toBeNull();

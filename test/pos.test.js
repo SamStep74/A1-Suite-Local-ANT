@@ -4,6 +4,7 @@ const assert = require("node:assert/strict");
 const crypto = require("node:crypto");
 const { buildApp } = require("../server/app");
 const { DEFAULT_EMAIL, DEFAULT_PASSWORD } = require("../server/db");
+const ledger = require("../server/ledger");
 
 async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
   const response = await app.inject({
@@ -183,7 +184,7 @@ test("pos: open, list, and workspace return the bounded cash-session spine", asy
     assert.ok(body.activeStockLocations.every(location => location.status === "active" && location.locationType === "internal"));
     assert.equal(body.evidenceMetadata.expectedCashBasis, "opening-cash-plus-cash-sales-minus-cash-refunds");
     assert.equal(body.capabilityStatus.inventoryPosting, "available");
-    assert.equal(body.capabilityStatus.ledgerPosting, "not-implemented");
+    assert.equal(body.capabilityStatus.ledgerPosting, "available");
   } finally {
     await app.close();
   }
@@ -285,6 +286,7 @@ test("pos: cash sale posts sale rows, delivery stock move, expected cash, and ba
     assert.equal(body.session.expectedCash, 180000);
     assert.equal(body.session.postings.salePosting, "posted");
     assert.equal(body.session.postings.inventoryPosting, "posted");
+    assert.equal(body.session.postings.ledgerPosting, "posted");
 
     const sale = body.sale;
     assert.match(sale.id, /^pos-sale-/);
@@ -301,7 +303,21 @@ test("pos: cash sale posts sale rows, delivery stock move, expected cash, and ba
     assert.equal(sale.soldAt, "2026-06-22T09:15:00.000Z");
     assert.equal(sale.cashierUserId, "user-operator");
     assert.equal(sale.stockLocationId, stockLocationId);
-    assert.deepEqual(sale.postings, { salePosting: "posted", inventoryPosting: "posted", ledgerPosting: "not-posted" });
+    assert.equal(sale.postings.salePosting, "posted");
+    assert.equal(sale.postings.inventoryPosting, "posted");
+    assert.equal(sale.postings.ledgerPosting, "posted");
+    assert.equal(sale.postings.ledgerPostingCount, 2);
+    assert.equal(sale.postings.ledgerPostingIds.length, 2);
+    const saleJournals = app.db.prepare(`
+      SELECT debit_code, credit_code, amount, source_type, source_id, period_key
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = ? AND source_id = ?
+      ORDER BY credit_code
+    `).all(orgId, "pos_sale", sale.id).map(row => ({ ...row }));
+    assert.deepEqual(saleJournals, [
+      { debit_code: "251", credit_code: "524", amount: 28333, source_type: "pos_sale", source_id: sale.id, period_key: "2026-06" },
+      { debit_code: "251", credit_code: "611", amount: 141667, source_type: "pos_sale", source_id: sale.id, period_key: "2026-06" }
+    ]);
 
     const saleLine = sale.lines[0];
     assert.equal(saleLine.catalogItemId, itemId);
@@ -340,11 +356,26 @@ test("pos: cash sale posts sale rows, delivery stock move, expected cash, and ba
       && row.receipt_number === "R-422-001"
       && row.source_key === "pos-sale-happy-1"
       && row.total_amd === 170000
+      && row.ledger_posting_status === "posted"
     )));
     assert.ok(tables.pos_sale_lines.some(row => (
       row.sale_id === sale.id
       && row.catalog_item_id === itemId
       && row.stock_move_id === saleLine.stockMoveId
+    )));
+    assert.ok(tables.ledger_journal.some(row => (
+      row.source_type === "pos_sale"
+      && row.source_id === sale.id
+      && row.debit_code === "251"
+      && row.credit_code === "611"
+      && row.amount === 141667
+    )));
+    assert.ok(tables.ledger_journal.some(row => (
+      row.source_type === "pos_sale"
+      && row.source_id === sale.id
+      && row.debit_code === "251"
+      && row.credit_code === "524"
+      && row.amount === 28333
     )));
   } finally {
     await app.close();
@@ -659,6 +690,7 @@ test("pos: cash full refund posts evidence, reduces expected cash, replays idemp
     const beforeMoves = stockMoveCount();
     const beforeAudit = auditCount();
     const beforeEvents = eventCount();
+    const vatAfterSale = ledger.vatReport(app.db, orgId, "2026-06");
 
     const payload = {
       idempotencyKey: "pos-refund-cash-1",
@@ -681,7 +713,10 @@ test("pos: cash full refund posts evidence, reduces expected cash, replays idemp
     assert.equal(body.session.expectedCash, 20000);
     assert.equal(body.sale.id, sale.id);
     assert.equal(body.sale.status, "refunded_full");
-    assert.deepEqual(body.sale.postings, { salePosting: "posted", inventoryPosting: "posted", ledgerPosting: "not-posted" });
+    assert.equal(body.sale.postings.salePosting, "posted");
+    assert.equal(body.sale.postings.inventoryPosting, "posted");
+    assert.equal(body.sale.postings.ledgerPosting, "posted");
+    assert.equal(body.sale.postings.ledgerPostingCount, 2);
 
     const refund = body.refund;
     assert.match(refund.id, /^pos-sale-refund-/);
@@ -695,7 +730,10 @@ test("pos: cash full refund posts evidence, reduces expected cash, replays idemp
     assert.equal(refund.cashAdjustment, sale.paidCash);
     assert.equal(refund.status, "posted");
     assert.equal(refund.inventoryPostingStatus, "posted");
-    assert.equal(refund.ledgerPostingStatus, "not-posted");
+    assert.equal(refund.ledgerPostingStatus, "posted");
+    assert.equal(refund.postings.ledgerPosting, "posted");
+    assert.equal(refund.postings.ledgerPostingCount, 2);
+    assert.equal(refund.postings.ledgerPostingIds.length, 2);
     assert.equal(refund.refundedAt, "2026-06-22T10:00:00.000Z");
     assert.equal(refund.lineCount, sale.lineCount);
     assert.equal(refund.lines[0].saleLineId, sale.lines[0].id);
@@ -713,6 +751,19 @@ test("pos: cash full refund posts evidence, reduces expected cash, replays idemp
     assert.equal(returnStockMove.quantity, sale.lines[0].quantity);
     assert.equal(returnStockMove.reference, "POS refund RF-CASH-001 line 1");
     assert.equal(returnStockMove.status, "posted");
+    const refundJournals = app.db.prepare(`
+      SELECT debit_code, credit_code, amount, source_type, source_id, period_key
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = ? AND source_id = ?
+      ORDER BY debit_code
+    `).all(orgId, "pos_sale_refund", refund.id).map(row => ({ ...row }));
+    assert.deepEqual(refundJournals, [
+      { debit_code: "524", credit_code: "251", amount: sale.vat, source_type: "pos_sale_refund", source_id: refund.id, period_key: "2026-06" },
+      { debit_code: "611", credit_code: "251", amount: sale.subtotal, source_type: "pos_sale_refund", source_id: refund.id, period_key: "2026-06" }
+    ]);
+    const refundVat = ledger.vatReport(app.db, orgId, "2026-06");
+    assert.equal(refundVat.outputVat, vatAfterSale.outputVat - sale.vat);
+    assert.equal(refundVat.netVatPayable, vatAfterSale.netVatPayable - sale.vat);
     assert.equal(auditCount(), beforeAudit + 1);
     assert.equal(eventCount(), beforeEvents + 1);
 
@@ -759,7 +810,7 @@ test("pos: cash full refund posts evidence, reduces expected cash, replays idemp
       && row.refunded_total_amd === sale.total
       && row.cash_adjustment_amd === sale.paidCash
       && row.inventory_posting_status === "posted"
-      && row.ledger_posting_status === "not-posted"
+      && row.ledger_posting_status === "posted"
     )));
     assert.ok(tables.pos_sale_refund_lines.some(row => (
       row.refund_id === refund.id
@@ -773,6 +824,20 @@ test("pos: cash full refund posts evidence, reduces expected cash, replays idemp
       && row.move_type === "return"
       && row.source_location_id === "stockloc-customer"
       && row.destination_location_id === stockLocationId
+    )));
+    assert.ok(tables.ledger_journal.some(row => (
+      row.source_type === "pos_sale_refund"
+      && row.source_id === refund.id
+      && row.debit_code === "611"
+      && row.credit_code === "251"
+      && row.amount === sale.subtotal
+    )));
+    assert.ok(tables.ledger_journal.some(row => (
+      row.source_type === "pos_sale_refund"
+      && row.source_id === refund.id
+      && row.debit_code === "524"
+      && row.credit_code === "251"
+      && row.amount === sale.vat
     )));
   } finally {
     await app.close();
@@ -809,9 +874,20 @@ test("pos: card and bank full refunds record evidence without changing expected 
     assert.equal(cardRefund.json().refund.refundMethod, "card");
     assert.equal(cardRefund.json().refund.cashAdjustment, 0);
     assert.equal(cardRefund.json().refund.inventoryPostingStatus, "posted");
-    assert.equal(cardRefund.json().refund.ledgerPostingStatus, "not-posted");
+    assert.equal(cardRefund.json().refund.ledgerPostingStatus, "posted");
+    assert.equal(cardRefund.json().refund.postings.ledgerPostingCount, 2);
     assert.match(cardRefund.json().refund.lines[0].returnStockMoveId, /^stockmove-/);
     assert.equal(cardRefund.json().session.expectedCash, 30000);
+    const cardRefundJournals = app.db.prepare(`
+      SELECT debit_code, credit_code, amount, source_type, source_id, period_key
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = ? AND source_id = ?
+      ORDER BY debit_code
+    `).all("org-armosphera-demo", "pos_sale_refund", cardRefund.json().refund.id).map(row => ({ ...row }));
+    assert.deepEqual(cardRefundJournals, [
+      { debit_code: "524", credit_code: "255", amount: card.sale.vat, source_type: "pos_sale_refund", source_id: cardRefund.json().refund.id, period_key: "2026-06" },
+      { debit_code: "611", credit_code: "255", amount: card.sale.subtotal, source_type: "pos_sale_refund", source_id: cardRefund.json().refund.id, period_key: "2026-06" }
+    ]);
 
     const bank = await createPostedPosSale(app, operator, {
       registerCode: "POS-REFUND-BANK",
@@ -837,8 +913,20 @@ test("pos: card and bank full refunds record evidence without changing expected 
     assert.equal(bankRefund.json().refund.refundMethod, "bank-transfer");
     assert.equal(bankRefund.json().refund.cashAdjustment, 0);
     assert.equal(bankRefund.json().refund.inventoryPostingStatus, "posted");
+    assert.equal(bankRefund.json().refund.ledgerPostingStatus, "posted");
+    assert.equal(bankRefund.json().refund.postings.ledgerPostingCount, 2);
     assert.match(bankRefund.json().refund.lines[0].returnStockMoveId, /^stockmove-/);
     assert.equal(bankRefund.json().session.expectedCash, 40000);
+    const bankRefundJournals = app.db.prepare(`
+      SELECT debit_code, credit_code, amount, source_type, source_id, period_key
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = ? AND source_id = ?
+      ORDER BY debit_code
+    `).all("org-armosphera-demo", "pos_sale_refund", bankRefund.json().refund.id).map(row => ({ ...row }));
+    assert.deepEqual(bankRefundJournals, [
+      { debit_code: "524", credit_code: "252", amount: bank.sale.vat, source_type: "pos_sale_refund", source_id: bankRefund.json().refund.id, period_key: "2026-06" },
+      { debit_code: "611", credit_code: "252", amount: bank.sale.subtotal, source_type: "pos_sale_refund", source_id: bankRefund.json().refund.id, period_key: "2026-06" }
+    ]);
   } finally {
     await app.close();
   }
