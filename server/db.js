@@ -7472,14 +7472,38 @@ function initSchema(db) {
     );
     CREATE INDEX IF NOT EXISTS idx_cabinet_ai ON cabinet_ai_annotations(org_id, cabinet_id, kind);
 
-    CREATE VIRTUAL TABLE IF NOT EXISTS cabinet_fts USING fts5(
-      org_id UNINDEXED,
-      cabinet_id UNINDEXED,
-      title,
-      body,
-      tokenize = 'unicode61 remove_diacritics 2'
-    );
   `);
+  ensureCabinetFtsSchema(db);
+}
+
+function isMissingFts5Error(error) {
+  return String(error && error.message || "").includes("no such module: fts5");
+}
+
+function ensureCabinetFtsSchema(db) {
+  try {
+    db.exec(`
+      CREATE VIRTUAL TABLE IF NOT EXISTS cabinet_fts USING fts5(
+        org_id UNINDEXED,
+        cabinet_id UNINDEXED,
+        title,
+        body,
+        tokenize = 'unicode61 remove_diacritics 2'
+      );
+    `);
+  } catch (error) {
+    if (!isMissingFts5Error(error)) throw error;
+    db.exec(`
+      CREATE TABLE IF NOT EXISTS cabinet_fts (
+        org_id TEXT NOT NULL,
+        cabinet_id TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        body TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (org_id, cabinet_id)
+      );
+      CREATE INDEX IF NOT EXISTS idx_cabinet_fts_fallback_org ON cabinet_fts(org_id);
+    `);
+  }
 }
 
 function seedIfEmpty(db) {
@@ -10895,6 +10919,7 @@ module.exports = {
   ensureSmbCrmAutomationSchema,
   __test: {
     backfillCatalogUnitsOfMeasureFromItems,
+    ensureCabinetFtsSchema,
     ensureMoneyPrecisionMigration,
     seedInventoryCore
   }

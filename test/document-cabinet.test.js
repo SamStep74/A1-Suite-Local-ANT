@@ -2,7 +2,7 @@
 const test = require("node:test");
 const assert = require("node:assert/strict");
 const { buildApp } = require("../server/app");
-const { DEFAULT_EMAIL, DEFAULT_PASSWORD } = require("../server/db");
+const { DEFAULT_EMAIL, DEFAULT_PASSWORD, __test: dbTest } = require("../server/db");
 
 async function withApp(fn) {
   const app = buildApp({ dbPath: ":memory:" });
@@ -238,6 +238,62 @@ test("document-cabinet: full-text search returns matching documents scoped to or
     for (const hit of hits) {
       assert.equal(hit.orgId, "org-armosphera-demo", "hit is scoped to the org");
     }
+  });
+});
+
+test("document-cabinet: schema falls back when SQLite lacks FTS5", () => {
+  const statements = [];
+  const fakeDb = {
+    exec(sql) {
+      statements.push(sql);
+      if (statements.length === 1) {
+        throw new Error("no such module: fts5");
+      }
+    }
+  };
+
+  dbTest.ensureCabinetFtsSchema(fakeDb);
+
+  assert.equal(statements.length, 2);
+  assert.match(statements[0], /CREATE VIRTUAL TABLE IF NOT EXISTS cabinet_fts USING fts5/);
+  assert.match(statements[1], /CREATE TABLE IF NOT EXISTS cabinet_fts/);
+  assert.match(statements[1], /PRIMARY KEY \(org_id, cabinet_id\)/);
+});
+
+test("document-cabinet: search works against fallback table without FTS5 MATCH", async () => {
+  await withApp(async app => {
+    const owner = await login(app);
+    app.db.exec(`
+      DROP TABLE cabinet_fts;
+      CREATE TABLE cabinet_fts (
+        org_id TEXT NOT NULL,
+        cabinet_id TEXT NOT NULL,
+        title TEXT NOT NULL DEFAULT '',
+        body TEXT NOT NULL DEFAULT '',
+        PRIMARY KEY (org_id, cabinet_id)
+      );
+    `);
+
+    for (const [idx, title] of [
+      "Fallback invoice probe",
+      "Fallback delivery probe",
+      "Unrelated document"
+    ].entries()) {
+      const created = await app.inject({
+        method: "POST",
+        url: "/api/cabinet/documents",
+        headers: { cookie: owner },
+        payload: { title, direction: "internal", idempotencyKey: `cab-fallback-search-${idx}`, body: title }
+      });
+      assert.equal(created.statusCode, 200, created.body);
+    }
+
+    const search = await app.inject({ method: "GET", url: "/api/cabinet/search?q=Fallback", headers: { cookie: owner } });
+    assert.equal(search.statusCode, 200, search.body);
+    assert.deepEqual(search.json().hits.map(hit => hit.title).sort(), [
+      "Fallback delivery probe",
+      "Fallback invoice probe"
+    ]);
   });
 });
 
