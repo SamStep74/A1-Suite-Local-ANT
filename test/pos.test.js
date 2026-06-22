@@ -1274,6 +1274,119 @@ test("pos: cash partial refund reduces expected cash by the partial amount and p
   }
 });
 
+test("pos: line-level partial refund derives amount, restocks returned quantity, and replays idempotently", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const orgId = "org-armosphera-demo";
+    const { session, sale } = await createPostedPosSale(app, operator, {
+      registerCode: "POS-REFUND-LINE-RETURN",
+      openingCash: 20000,
+      fiscalDeviceId: "FISCAL-AM-REFUND-LINE",
+      receiptNumber: "R-REFUND-LINE-001",
+      idempotencyKey: "pos-refund-line-return-sale-1",
+      lines: [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 2 }]
+    });
+    assert.equal(session.expectedCash, 190000);
+    const sourceLine = sale.lines[0];
+    const returnedQuantity = 1;
+    const refundedTotal = Math.round((sourceLine.total * returnedQuantity) / sourceLine.quantity);
+    const refundedVat = Math.min(sourceLine.vat, Math.round((sourceLine.vat * returnedQuantity) / sourceLine.quantity));
+    const refundedSubtotal = refundedTotal - refundedVat;
+
+    const itemId = "catitem-pos-barcode-scanner";
+    const stockLocationId = "stockloc-main-warehouse";
+    const quant = () => app.db.prepare(`
+      SELECT quantity
+      FROM stock_quants
+      WHERE org_id = ? AND catalog_item_id = ? AND location_id = ?
+    `).get(orgId, itemId, stockLocationId).quantity;
+    const afterSaleQuantity = quant();
+    const stockMoveCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM stock_moves WHERE org_id = ?").get(orgId).count;
+    const beforeMoves = stockMoveCount();
+    const vatAfterSale = ledger.vatReport(app.db, orgId, "2026-06");
+
+    const payload = {
+      idempotencyKey: "pos-refund-line-return-1",
+      refundReference: "RF-LINE-RETURN-001",
+      reason: "Customer returned one scanner from a two-unit sale.",
+      refundMethod: "cash",
+      lines: [{ saleLineId: sourceLine.id, quantity: returnedQuantity }],
+      refundedAt: "2026-06-22T10:45:00.000Z"
+    };
+    const refunded = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/refund`,
+      headers: { cookie: operator },
+      payload
+    });
+    assert.equal(refunded.statusCode, 200, refunded.body);
+    const body = refunded.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.idempotent, false);
+    assert.equal(body.session.expectedCash, session.expectedCash - refundedTotal);
+    assert.equal(body.sale.status, "refunded");
+
+    const refund = body.refund;
+    assert.equal(refund.refundReference, "RF-LINE-RETURN-001");
+    assert.equal(refund.refundedTotal, refundedTotal);
+    assert.equal(refund.cashAdjustment, refundedTotal);
+    assert.equal(refund.inventoryPostingStatus, "posted");
+    assert.equal(refund.ledgerPostingStatus, "posted");
+    assert.equal(refund.postings.ledgerPostingCount, 2);
+    assert.equal(refund.lineCount, 1);
+    assert.equal(refund.lines[0].saleLineId, sourceLine.id);
+    assert.equal(refund.lines[0].quantity, returnedQuantity);
+    assert.equal(refund.lines[0].unitPrice, sourceLine.unitPrice);
+    assert.equal(refund.lines[0].subtotal, refundedSubtotal);
+    assert.equal(refund.lines[0].vat, refundedVat);
+    assert.equal(refund.lines[0].total, refundedTotal);
+    assert.equal(refund.lines[0].sourceStockMoveId, sourceLine.stockMoveId);
+    assert.match(refund.lines[0].returnStockMoveId, /^stockmove-/);
+    assert.equal(stockMoveCount(), beforeMoves + 1);
+    assert.equal(quant(), afterSaleQuantity + returnedQuantity);
+
+    const returnStockMove = app.db.prepare("SELECT * FROM stock_moves WHERE org_id = ? AND id = ?")
+      .get(orgId, refund.lines[0].returnStockMoveId);
+    assert.equal(returnStockMove.move_type, "return");
+    assert.equal(returnStockMove.source_location_id, "stockloc-customer");
+    assert.equal(returnStockMove.destination_location_id, stockLocationId);
+    assert.equal(returnStockMove.quantity, returnedQuantity);
+    assert.equal(returnStockMove.reference, "POS refund RF-LINE-RETURN-001 line 1");
+
+    const refundJournals = app.db.prepare(`
+      SELECT debit_code, credit_code, amount, source_type, source_id, period_key
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = ? AND source_id = ?
+      ORDER BY debit_code
+    `).all(orgId, "pos_sale_refund", refund.id).map(row => ({ ...row }));
+    assert.deepEqual(refundJournals, [
+      { debit_code: "524", credit_code: "251", amount: refundedVat, source_type: "pos_sale_refund", source_id: refund.id, period_key: "2026-06" },
+      { debit_code: "611", credit_code: "251", amount: refundedSubtotal, source_type: "pos_sale_refund", source_id: refund.id, period_key: "2026-06" }
+    ]);
+    const refundVat = ledger.vatReport(app.db, orgId, "2026-06");
+    assert.equal(refundVat.outputVat, vatAfterSale.outputVat - refundedVat);
+    assert.equal(refundVat.netVatPayable, vatAfterSale.netVatPayable - refundedVat);
+
+    const replayed = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: { ...payload, reason: "Replay should not alter the line refund." }
+    });
+    assert.equal(replayed.statusCode, 200, replayed.body);
+    assert.equal(replayed.json().idempotent, true);
+    assert.equal(replayed.json().refund.id, refund.id);
+    assert.equal(replayed.json().refund.reason, "Customer returned one scanner from a two-unit sale.");
+    assert.equal(replayed.json().refund.lines[0].returnStockMoveId, refund.lines[0].returnStockMoveId);
+    assert.equal(stockMoveCount(), beforeMoves + 1);
+    assert.equal(quant(), afterSaleQuantity + returnedQuantity);
+  } finally {
+    await app.close();
+  }
+});
+
 test("pos: card and bank full refunds record evidence without changing expected cash", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -1651,6 +1764,91 @@ test("pos: refund rejects malformed ids, unsafe bodies, missing sales, and non-p
       payload: { refundReference: "RF-MISSING-FIELDS", reason: "Missing idempotency key.", refundMethod: "card" }
     });
     assert.equal(missingFields.statusCode, 400, missingFields.body);
+
+    const lineSale = await createPostedPosSale(app, operator, {
+      registerCode: "POS-REFUND-LINE-VALIDATION",
+      receiptNumber: "R-REFUND-LINE-VALIDATION",
+      idempotencyKey: "pos-refund-line-validation-sale",
+      lines: [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 2 }]
+    });
+    const linePayload = {
+      idempotencyKey: "pos-refund-line-validation",
+      refundReference: "RF-LINE-VALIDATION",
+      reason: "Validate line-level refund guards.",
+      refundMethod: "card"
+    };
+    const duplicateLine = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${lineSale.sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: {
+        ...linePayload,
+        lines: [
+          { saleLineId: lineSale.sale.lines[0].id, quantity: 1 },
+          { saleLineId: lineSale.sale.lines[0].id, quantity: 1 }
+        ]
+      }
+    });
+    assert.equal(duplicateLine.statusCode, 400, duplicateLine.body);
+
+    const unknownLine = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${lineSale.sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: {
+        ...linePayload,
+        idempotencyKey: "pos-refund-line-validation-unknown",
+        lines: [{ saleLineId: "pos-sale-line-missing", quantity: 1 }]
+      }
+    });
+    assert.equal(unknownLine.statusCode, 400, unknownLine.body);
+
+    const overQuantity = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${lineSale.sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: {
+        ...linePayload,
+        idempotencyKey: "pos-refund-line-validation-over",
+        lines: [{ saleLineId: lineSale.sale.lines[0].id, quantity: lineSale.sale.lines[0].quantity + 1 }]
+      }
+    });
+    assert.equal(overQuantity.statusCode, 400, overQuantity.body);
+
+    const mismatchedTotal = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${lineSale.sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: {
+        ...linePayload,
+        idempotencyKey: "pos-refund-line-validation-total",
+        refundedTotal: Math.round(lineSale.sale.lines[0].total / 2) - 1,
+        lines: [{ saleLineId: lineSale.sale.lines[0].id, quantity: 1 }]
+      }
+    });
+    assert.equal(mismatchedTotal.statusCode, 400, mismatchedTotal.body);
+
+    const nonRestockable = await createPostedPosSale(app, operator, {
+      registerCode: "POS-REFUND-LINE-NONRESTOCK",
+      receiptNumber: "R-REFUND-LINE-NONRESTOCK",
+      idempotencyKey: "pos-refund-line-nonrestock-sale"
+    });
+    app.db.prepare("UPDATE pos_sale_lines SET stock_move_id = NULL WHERE org_id = ? AND id = ?")
+      .run(orgId, nonRestockable.sale.lines[0].id);
+    const missingStockMove = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${nonRestockable.sale.id}/refund`,
+      headers: { cookie: operator },
+      payload: {
+        ...linePayload,
+        idempotencyKey: "pos-refund-line-validation-nonrestock",
+        refundReference: "RF-LINE-NONRESTOCK",
+        lines: [{ saleLineId: nonRestockable.sale.lines[0].id, quantity: 1 }]
+      }
+    });
+    assert.equal(missingStockMove.statusCode, 409, missingStockMove.body);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_sale_refunds WHERE org_id = ? AND sale_id = ?").get(orgId, lineSale.sale.id).count, 0);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_sale_refunds WHERE org_id = ? AND sale_id = ?").get(orgId, nonRestockable.sale.id).count, 0);
 
     const missingSale = await app.inject({
       method: "POST",

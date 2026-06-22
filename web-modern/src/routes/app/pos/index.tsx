@@ -47,6 +47,7 @@ import {
   type PosReceiptPacketResponse,
   type PosRefund,
   type PosRefundMethod,
+  type PosRefundRequest,
   type PosTerminalSettlement,
   type PosTerminalSettlementPreview,
   type PosVoid,
@@ -230,6 +231,7 @@ function PosWorkspace() {
       refundMethod: PosRefundMethod;
       refundedTotal: string;
       reason: string;
+      lines?: PosRefundRequest["lines"];
     }) => {
       const refundedTotal = optionalAmount(input.refundedTotal);
       const payload = PosRefundRequestSchema.parse({
@@ -238,6 +240,7 @@ function PosWorkspace() {
         refundMethod: input.refundMethod,
         ...(refundedTotal !== undefined ? { refundedTotal } : {}),
         reason: input.reason.trim(),
+        ...(input.lines?.length ? { lines: input.lines } : {}),
       });
       return postJson(
         `/api/pos/sales/${input.saleId}/refund`,
@@ -714,6 +717,7 @@ export function SaleCapturePanel({
     refundMethod: PosRefundMethod;
     refundedTotal: string;
     reason: string;
+    lines?: PosRefundRequest["lines"];
   }) => void;
   isRefunding?: boolean;
   refundError?: string;
@@ -1168,6 +1172,7 @@ export function RefundEvidencePanel({
     refundMethod: PosRefundMethod;
     refundedTotal: string;
     reason: string;
+    lines?: PosRefundRequest["lines"];
   }) => void;
   isPending?: boolean;
   error?: string;
@@ -1179,6 +1184,7 @@ export function RefundEvidencePanel({
   const [refundMethod, setRefundMethod] = useState<PosRefundMethod>("cash");
   const [refundedTotal, setRefundedTotal] = useState("");
   const [reason, setReason] = useState("");
+  const [returnQuantities, setReturnQuantities] = useState<Record<string, string>>({});
   const alreadyRefunded = isTerminalSale(sale) || Boolean(refund);
   const refundedAmount = optionalAmount(refundedTotal);
   const refundedTotalValid =
@@ -1187,7 +1193,48 @@ export function RefundEvidencePanel({
       Number.isSafeInteger(refundedAmount) &&
       refundedAmount > 0 &&
       refundedAmount <= sale.total);
+  const refundLineInputs = sale.lines.map((line) => {
+    const quantityText = returnQuantities[line.id] ?? "";
+    const normalizedText = quantityText.trim();
+    const quantity = toPositiveInteger(normalizedText || "0");
+    const soldQuantity = Number.isSafeInteger(line.quantity) ? line.quantity : 0;
+    const isBlankOrZero = normalizedText.length === 0 || normalizedText === "0";
+    const isValid =
+      isBlankOrZero ||
+      (Number.isSafeInteger(quantity) && quantity > 0 && quantity <= soldQuantity);
+    const returnedTotal =
+      isValid && quantity > 0 && soldQuantity > 0
+        ? Math.round((line.total * quantity) / soldQuantity)
+        : 0;
+    return {
+      line,
+      quantityText,
+      quantity,
+      isBlankOrZero,
+      isValid,
+      returnedTotal,
+    };
+  });
+  const refundReturnLines: NonNullable<PosRefundRequest["lines"]> = refundLineInputs
+    .filter((entry) => entry.isValid && !entry.isBlankOrZero && entry.quantity > 0)
+    .map((entry) => ({
+      saleLineId: entry.line.id,
+      quantity: entry.quantity,
+    }));
+  const returnLinesValid = refundLineInputs.every((entry) => entry.isValid);
+  const lineReturnTotal = refundLineInputs.reduce((sum, entry) => sum + entry.returnedTotal, 0);
+  const hasReturnLines = refundReturnLines.length > 0;
+  const returnAmountMatches =
+    !hasReturnLines ||
+    refundedAmount === undefined ||
+    refundedAmount === lineReturnTotal;
+  const returnLineError = !returnLinesValid
+    ? "Return quantity must be a whole number within sold quantity."
+    : hasReturnLines && !returnAmountMatches
+      ? `Amount must match returned-line total ${money(lineReturnTotal)}.`
+      : "";
   const returnStockMoveCount = refund?.lines.filter((line) => line.returnStockMoveId).length ?? 0;
+  const returnedStockLines = refund?.lines.filter((line) => line.returnStockMoveId) ?? [];
   const refundLedgerCount =
     refund?.postings.ledgerPostingCount ?? refund?.postings.ledgerPostingIds?.length;
   const refundLedgerStatus = refund?.ledgerPostingStatus ?? "ready";
@@ -1199,6 +1246,8 @@ export function RefundEvidencePanel({
     !alreadyRefunded &&
     refundReference.trim().length > 0 &&
     refundedTotalValid &&
+    returnLinesValid &&
+    returnAmountMatches &&
     reason.trim().length > 0 &&
     !isPending;
 
@@ -1245,6 +1294,22 @@ export function RefundEvidencePanel({
               }
             />
           </dl>
+          {returnedStockLines.length > 0 ? (
+            <div
+              className="grid gap-1 border-t border-[var(--color-line)] pt-2 text-[var(--text-xs)] text-[var(--color-muted)]"
+              data-testid="pos-refund-line-evidence"
+            >
+              {returnedStockLines.map((line) => {
+                const soldLine = sale.lines.find((saleLine) => saleLine.id === line.saleLineId);
+                return (
+                  <p key={line.id}>
+                    {line.name} · returned {line.quantity}
+                    {soldLine ? ` / sold ${soldLine.quantity}` : ""} · {money(line.total)}
+                  </p>
+                );
+              })}
+            </div>
+          ) : null}
           <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
             {refund.ledgerPostingStatus === "posted"
               ? `${refundStockEvidenceCopy} Ledger reversal journals are posted; fiscal refunds and receipt printing remain deferred.`
@@ -1272,6 +1337,7 @@ export function RefundEvidencePanel({
               refundMethod,
               refundedTotal,
               reason,
+              ...(refundReturnLines.length ? { lines: refundReturnLines } : {}),
             });
           }}
         >
@@ -1325,6 +1391,56 @@ export function RefundEvidencePanel({
               data-testid="pos-refund-reason"
             />
           </label>
+
+          <fieldset
+            className="grid gap-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] p-2 sm:col-span-2 lg:col-span-5"
+            data-testid="pos-refund-line-return"
+          >
+            <legend className="px-1 text-[var(--text-xs)] font-semibold text-[var(--color-muted)]">
+              Return stock
+            </legend>
+            <div className="grid gap-2 md:grid-cols-2">
+              {refundLineInputs.map((entry) => (
+                <label
+                  key={entry.line.id}
+                  className="grid gap-1 text-[var(--text-xs)] font-medium text-[var(--color-ink)]"
+                >
+                  <span className="flex min-w-0 items-center justify-between gap-2">
+                    <span className="truncate">
+                      {entry.line.sku} · {entry.line.name}
+                    </span>
+                    <span className="shrink-0 text-[var(--color-muted)]">
+                      sold {entry.line.quantity}
+                    </span>
+                  </span>
+                  <input
+                    type="number"
+                    min="0"
+                    max={entry.line.quantity}
+                    step="1"
+                    value={entry.quantityText}
+                    onChange={(event) =>
+                      setReturnQuantities((current) => ({
+                        ...current,
+                        [entry.line.id]: event.target.value,
+                      }))
+                    }
+                    className="h-8 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+                    data-testid={`pos-refund-line-quantity-${entry.line.id}`}
+                  />
+                </label>
+              ))}
+            </div>
+            <p
+              className={cn(
+                "text-[var(--text-xs)]",
+                returnLineError ? "text-[var(--color-ruby)]" : "text-[var(--color-muted)]",
+              )}
+              data-testid="pos-refund-line-return-total"
+            >
+              {returnLineError || `Line return total ${money(lineReturnTotal)}`}
+            </p>
+          </fieldset>
 
           <div className="flex items-end">
             <button
