@@ -22,6 +22,7 @@ export type PosLocalSaleDraftAutoReplayBlockReason =
   | "closed-session"
   | "conflict"
   | "client-error";
+export type PosLocalSaleDraftOfflineReplayStatus = "queued" | "replayed" | "rejected";
 
 export type PosLocalSaleDraftEvidence = {
   receiptNumber: string;
@@ -45,6 +46,9 @@ export type PosLocalSaleDraft = {
   autoReplayLastAttemptAt?: string;
   autoReplayLastFailureAt?: string;
   autoReplayBlockReason?: PosLocalSaleDraftAutoReplayBlockReason;
+  offlineReplayItemId?: string;
+  offlineReplaySourceKey?: string;
+  offlineReplayStatus?: PosLocalSaleDraftOfflineReplayStatus;
   evidence: PosLocalSaleDraftEvidence;
 };
 
@@ -120,6 +124,14 @@ function normalizeAutoReplayBlockReason(
     : undefined;
 }
 
+function normalizeOfflineReplayStatus(
+  value: unknown,
+): PosLocalSaleDraftOfflineReplayStatus | undefined {
+  return value === "queued" || value === "replayed" || value === "rejected"
+    ? value
+    : undefined;
+}
+
 function normalizeSaleDraftEvidence(
   value: unknown,
   payload: PosCreateSaleRequest,
@@ -168,6 +180,15 @@ function normalizeQueuedPosSaleDraft(value: unknown): PosLocalSaleDraft | null {
       : {}),
     ...(normalizeAutoReplayBlockReason(value.autoReplayBlockReason)
       ? { autoReplayBlockReason: normalizeAutoReplayBlockReason(value.autoReplayBlockReason) }
+      : {}),
+    ...(stringValue(value.offlineReplayItemId)
+      ? { offlineReplayItemId: stringValue(value.offlineReplayItemId) }
+      : {}),
+    ...(stringValue(value.offlineReplaySourceKey)
+      ? { offlineReplaySourceKey: stringValue(value.offlineReplaySourceKey) }
+      : {}),
+    ...(normalizeOfflineReplayStatus(value.offlineReplayStatus)
+      ? { offlineReplayStatus: normalizeOfflineReplayStatus(value.offlineReplayStatus) }
       : {}),
     evidence,
   };
@@ -232,6 +253,35 @@ export function createQueuedPosSaleDraft(input: {
     autoReplayAttemptCount: 0,
     ...(input.lastError ? { lastError: input.lastError.slice(0, 240) } : {}),
     evidence: input.evidence,
+  };
+}
+
+export function derivePosSaleDraftOfflineReplaySourceKey(
+  draft: Pick<PosLocalSaleDraft, "payload">,
+): string {
+  return `pos-sale:${draft.payload.idempotencyKey}`;
+}
+
+export function linkQueuedPosSaleDraftOfflineReplay(
+  draft: PosLocalSaleDraft,
+  input: {
+    offlineReplayItemId?: string;
+    offlineReplayStatus?: PosLocalSaleDraftOfflineReplayStatus;
+    offlineReplaySourceKey?: string;
+  },
+): PosLocalSaleDraft {
+  const offlineReplayItemId = stringValue(input.offlineReplayItemId);
+  const offlineReplaySourceKey =
+    stringValue(input.offlineReplaySourceKey) ||
+    derivePosSaleDraftOfflineReplaySourceKey(draft);
+
+  return {
+    ...draft,
+    offlineReplaySourceKey,
+    ...(offlineReplayItemId ? { offlineReplayItemId } : {}),
+    ...(input.offlineReplayStatus
+      ? { offlineReplayStatus: input.offlineReplayStatus }
+      : {}),
   };
 }
 

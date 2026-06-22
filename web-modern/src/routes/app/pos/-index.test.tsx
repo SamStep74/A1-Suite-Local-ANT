@@ -673,6 +673,40 @@ const VALID_OFFLINE_REPLAY_MARK_RESPONSE = {
   },
 };
 
+function saleDraftOfflineReplayQueueResponse(sourceKey: string) {
+  return {
+    ok: true,
+    item: {
+      ...VALID_OFFLINE_REPLAY_ITEM,
+      id: "pos-offline-replay-draft-1",
+      actionType: "sale",
+      sourceKey,
+      saleId: null,
+      replayStatus: "queued",
+      note: "Browser-local sale draft replay evidence from POS UI.",
+      queuedAt: "2026-06-22T12:20:00.000Z",
+      createdAt: "2026-06-22T12:20:00.000Z",
+    },
+  };
+}
+
+function saleDraftOfflineReplayMarkResponse(sourceKey: string) {
+  return {
+    ok: true,
+    item: {
+      ...VALID_OFFLINE_REPLAY_ITEM,
+      id: "pos-offline-replay-draft-1",
+      actionType: "sale",
+      sourceKey,
+      saleId: null,
+      replayStatus: "replayed",
+      note: "Marked replayed after browser-local sale draft posted.",
+      replayedAt: "2026-06-22T12:21:00.000Z",
+      updatedAt: "2026-06-22T12:21:00.000Z",
+    },
+  };
+}
+
 function renderRoute(opts?: { noPosAccess?: boolean }) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -1183,24 +1217,58 @@ describe("POS route", () => {
       /Cash 20[,\s]000 ֏ \/ Card 25[,\s]000 ֏ \/ Bank transfer 5[,\s]000 ֏/,
     );
 
-    mocks.postJson.mockResolvedValueOnce({
-      ...VALID_SALE_RESPONSE,
-      sale: {
-        ...VALID_SALE_RESPONSE.sale,
-        id: "pos-sale-local-retry-1",
-        receiptNumber: "R-LOCAL-QUEUE-1",
-        customerId: "cust-retail-2",
-        customerName: "Vanadzor Retail",
-      },
-    });
+    const offlineReplaySourceKey = `pos-sale:${String(storedPayload.idempotencyKey)}`;
+    mocks.postJson
+      .mockResolvedValueOnce(saleDraftOfflineReplayQueueResponse(offlineReplaySourceKey))
+      .mockResolvedValueOnce({
+        ...VALID_SALE_RESPONSE,
+        sale: {
+          ...VALID_SALE_RESPONSE.sale,
+          id: "pos-sale-local-retry-1",
+          receiptNumber: "R-LOCAL-QUEUE-1",
+          customerId: "cust-retail-2",
+          customerName: "Vanadzor Retail",
+        },
+      })
+      .mockResolvedValueOnce(saleDraftOfflineReplayMarkResponse(offlineReplaySourceKey));
     fireEvent.click(screen.getByTestId("pos-local-sale-draft-retry"));
 
     await waitFor(() => {
-      expect(mocks.postJson).toHaveBeenCalledTimes(1);
+      expect(mocks.postJson).toHaveBeenCalledTimes(3);
     });
-    const [path, retryBody] = mocks.postJson.mock.calls[0]!;
+    const [queuePath, queueBody] = mocks.postJson.mock.calls[0]!;
+    const [path, retryBody] = mocks.postJson.mock.calls[1]!;
+    const [markPath, markBody] = mocks.postJson.mock.calls[2]!;
+    expect(queuePath).toBe("/api/pos/offline-replay-items");
+    expect(queueBody).toMatchObject({
+      actionType: "sale",
+      sourceKey: offlineReplaySourceKey,
+      cashSessionId: "pos-session-1",
+      note: "Browser-local sale draft replay evidence from POS UI.",
+      payload: {
+        evidenceMode: "browser-local-sale-draft",
+        actionType: "sale",
+        browserOfflineExecution: false,
+        fiscalSubmission: false,
+        terminalSubmission: false,
+        printerCommands: false,
+        route: "/app/pos",
+        cashSessionId: "pos-session-1",
+        queueReason: "manual",
+        receiptNumber: "R-LOCAL-QUEUE-1",
+        saleIdempotencyKey: storedPayload.idempotencyKey,
+        salePayload: storedPayload,
+      },
+    });
     expect(path).toBe("/api/pos/cash-sessions/pos-session-1/sales");
     expect(retryBody).toEqual(storedPayload);
+    expect(markPath).toBe(
+      "/api/pos/offline-replay-items/pos-offline-replay-draft-1/mark-replayed",
+    );
+    expect(markBody).toEqual({
+      replayStatus: "replayed",
+      note: "Marked replayed after browser-local sale draft posted.",
+    });
 
     await waitFor(() => {
       expect(readStoredSaleDrafts()).toHaveLength(0);
@@ -1212,6 +1280,9 @@ describe("POS route", () => {
     expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(
       /pos-sale-local-retry-1/,
     );
+    expect(screen.getByTestId("pos-offline-replay-mark-success")).toHaveTextContent(
+      /marked replayed/,
+    );
   });
 
   it("auto-replays a stored post-failed sale draft with the same payload", async () => {
@@ -1222,23 +1293,52 @@ describe("POS route", () => {
     };
     const draft = storedSaleDraft();
     writeStoredSaleDrafts([draft]);
-    mocks.postJson.mockResolvedValueOnce({
-      ...VALID_SALE_RESPONSE,
-      sale: {
-        ...VALID_SALE_RESPONSE.sale,
-        id: "pos-sale-auto-replayed-1",
-        receiptNumber: "R-AUTO-REPLAY-1",
-      },
-    });
+    const offlineReplaySourceKey = `pos-sale:${String(
+      (draft.payload as Record<string, unknown>).idempotencyKey,
+    )}`;
+    mocks.postJson
+      .mockResolvedValueOnce(saleDraftOfflineReplayQueueResponse(offlineReplaySourceKey))
+      .mockResolvedValueOnce({
+        ...VALID_SALE_RESPONSE,
+        sale: {
+          ...VALID_SALE_RESPONSE.sale,
+          id: "pos-sale-auto-replayed-1",
+          receiptNumber: "R-AUTO-REPLAY-1",
+        },
+      })
+      .mockResolvedValueOnce(saleDraftOfflineReplayMarkResponse(offlineReplaySourceKey));
 
     renderRoute();
 
     await waitFor(() => {
-      expect(mocks.postJson).toHaveBeenCalledTimes(1);
+      expect(mocks.postJson).toHaveBeenCalledTimes(3);
     });
-    const [path, retryBody] = mocks.postJson.mock.calls[0]!;
+    const [queuePath, queueBody] = mocks.postJson.mock.calls[0]!;
+    const [path, retryBody] = mocks.postJson.mock.calls[1]!;
+    const [markPath, markBody] = mocks.postJson.mock.calls[2]!;
+    expect(queuePath).toBe("/api/pos/offline-replay-items");
+    expect(queueBody).toMatchObject({
+      actionType: "sale",
+      sourceKey: offlineReplaySourceKey,
+      cashSessionId: "pos-session-1",
+      payload: {
+        evidenceMode: "browser-local-sale-draft",
+        actionType: "sale",
+        browserOfflineExecution: false,
+        queueReason: "post-failed",
+        receiptNumber: "R-AUTO-REPLAY-1",
+        salePayload: draft.payload,
+      },
+    });
     expect(path).toBe("/api/pos/cash-sessions/pos-session-1/sales");
     expect(retryBody).toEqual((draft.payload as Record<string, unknown>));
+    expect(markPath).toBe(
+      "/api/pos/offline-replay-items/pos-offline-replay-draft-1/mark-replayed",
+    );
+    expect(markBody).toEqual({
+      replayStatus: "replayed",
+      note: "Marked replayed after browser-local sale draft posted.",
+    });
 
     await waitFor(() => {
       expect(readStoredSaleDrafts()).toHaveLength(0);
@@ -1248,6 +1348,9 @@ describe("POS route", () => {
     );
     expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(
       /pos-sale-auto-replayed-1/,
+    );
+    expect(screen.getByTestId("pos-offline-replay-mark-success")).toHaveTextContent(
+      /marked replayed/,
     );
   });
 
@@ -1276,21 +1379,42 @@ describe("POS route", () => {
       openSession: OPEN_SESSION,
       sessions: [OPEN_SESSION, CLOSED_SESSION],
     };
-    writeStoredSaleDrafts([storedSaleDraft()]);
-    mocks.postJson.mockRejectedValueOnce(
-      new ApiError(409, "POS_SESSION_CLOSED", "POS cash session is closed"),
-    );
+    const draft = storedSaleDraft();
+    const offlineReplaySourceKey = `pos-sale:${String(
+      (draft.payload as Record<string, unknown>).idempotencyKey,
+    )}`;
+    writeStoredSaleDrafts([draft]);
+    mocks.postJson
+      .mockResolvedValueOnce(saleDraftOfflineReplayQueueResponse(offlineReplaySourceKey))
+      .mockRejectedValueOnce(
+        new ApiError(409, "POS_SESSION_CLOSED", "POS cash session is closed"),
+      );
 
     renderRoute();
 
     await waitFor(() => {
-      expect(mocks.postJson).toHaveBeenCalledTimes(1);
+      expect(mocks.postJson).toHaveBeenCalledTimes(2);
     });
+    const [queuePath, queueBody] = mocks.postJson.mock.calls[0]!;
+    const [path, retryBody] = mocks.postJson.mock.calls[1]!;
+    expect(queuePath).toBe("/api/pos/offline-replay-items");
+    expect(queueBody).toMatchObject({
+      sourceKey: offlineReplaySourceKey,
+      payload: {
+        evidenceMode: "browser-local-sale-draft",
+        salePayload: draft.payload,
+      },
+    });
+    expect(path).toBe("/api/pos/cash-sessions/pos-session-1/sales");
+    expect(retryBody).toEqual((draft.payload as Record<string, unknown>));
     await waitFor(() => {
       const [storedDraft] = readStoredSaleDrafts();
       expect(storedDraft?.autoReplayStatus).toBe("conflict-ready");
       expect(storedDraft?.autoReplayBlockReason).toBe("closed-session");
       expect(storedDraft?.autoReplayAttemptCount).toBe(1);
+      expect(storedDraft?.offlineReplayItemId).toBe("pos-offline-replay-draft-1");
+      expect(storedDraft?.offlineReplaySourceKey).toBe(offlineReplaySourceKey);
+      expect(storedDraft?.offlineReplayStatus).toBe("queued");
     });
     expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
       /Needs review/,

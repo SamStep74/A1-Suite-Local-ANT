@@ -4,6 +4,8 @@ import {
   canAutoReplayQueuedPosSaleDraft,
   classifyPosSaleDraftAutoReplayFailure,
   createQueuedPosSaleDraft,
+  derivePosSaleDraftOfflineReplaySourceKey,
+  linkQueuedPosSaleDraftOfflineReplay,
   localSaleDraftReasonCanAutoReplay,
   markQueuedPosSaleDraftAutoReplayAttempt,
   markQueuedPosSaleDraftAutoReplayFailure,
@@ -117,6 +119,51 @@ describe("POS sale draft queue", () => {
       .toMatchObject([{ queueReason: "browser-offline" }]);
   });
 
+  it("round-trips durable offline replay evidence metadata from storage", () => {
+    const draft = linkQueuedPosSaleDraftOfflineReplay(sampleDraft(1, "browser-offline"), {
+      offlineReplayItemId: "offline-replay-item-1",
+      offlineReplayStatus: "queued",
+    });
+
+    window.localStorage.setItem(
+      POS_SALE_DRAFT_QUEUE_STORAGE_KEY,
+      JSON.stringify([draft]),
+    );
+
+    const [stored] = readQueuedPosSaleDrafts();
+
+    expect(stored).toMatchObject({
+      offlineReplayItemId: "offline-replay-item-1",
+      offlineReplaySourceKey: "pos-sale:pos-sale-ui-queue-test-1",
+      offlineReplayStatus: "queued",
+    });
+    expect(stored?.payload.idempotencyKey).toBe(draft.payload.idempotencyKey);
+  });
+
+  it("drops unknown durable offline replay statuses while preserving valid draft data", () => {
+    const draft = {
+      ...sampleDraft(1, "browser-offline"),
+      offlineReplayItemId: "offline-replay-item-1",
+      offlineReplaySourceKey: "pos-sale:pos-sale-ui-queue-test-1",
+      offlineReplayStatus: "legacy-pending",
+    };
+
+    window.localStorage.setItem(
+      POS_SALE_DRAFT_QUEUE_STORAGE_KEY,
+      JSON.stringify([draft]),
+    );
+
+    const [stored] = readQueuedPosSaleDrafts();
+    const persisted = JSON.parse(
+      window.localStorage.getItem(POS_SALE_DRAFT_QUEUE_STORAGE_KEY) || "[]",
+    );
+
+    expect(stored?.offlineReplayItemId).toBe("offline-replay-item-1");
+    expect(stored?.offlineReplaySourceKey).toBe("pos-sale:pos-sale-ui-queue-test-1");
+    expect(stored?.offlineReplayStatus).toBeUndefined();
+    expect(persisted[0]).not.toHaveProperty("offlineReplayStatus");
+  });
+
   it("normalizes unknown legacy draft reasons to manual", () => {
     const draft = {
       ...sampleDraft(1, "post-failed"),
@@ -199,6 +246,32 @@ describe("POS sale draft queue", () => {
     expect(retrying.autoReplayLastAttemptAt).toBe("2026-06-23T08:00:00.000Z");
     expect(retrying.lastRetryAt).toBe("2026-06-23T08:00:00.000Z");
     expect(canAutoReplayQueuedPosSaleDraft(retrying)).toBe(false);
+  });
+
+  it("derives deterministic durable offline replay source keys from sale idempotency", () => {
+    const draft = sampleDraft();
+
+    expect(derivePosSaleDraftOfflineReplaySourceKey(draft)).toBe(
+      "pos-sale:pos-sale-ui-queue-test-1",
+    );
+    expect(derivePosSaleDraftOfflineReplaySourceKey({ ...draft })).toBe(
+      derivePosSaleDraftOfflineReplaySourceKey(draft),
+    );
+  });
+
+  it("links durable offline replay evidence without changing sale payload identity", () => {
+    const draft = sampleDraft();
+    const linked = linkQueuedPosSaleDraftOfflineReplay(draft, {
+      offlineReplayItemId: "offline-replay-item-1",
+      offlineReplayStatus: "replayed",
+    });
+
+    expect(linked.id).toBe(draft.id);
+    expect(linked.payload).toBe(draft.payload);
+    expect(linked.payload.idempotencyKey).toBe(draft.payload.idempotencyKey);
+    expect(linked.offlineReplayItemId).toBe("offline-replay-item-1");
+    expect(linked.offlineReplaySourceKey).toBe("pos-sale:pos-sale-ui-queue-test-1");
+    expect(linked.offlineReplayStatus).toBe("replayed");
   });
 
   it("keeps retryable automatic replay failures eligible for another auto pass", () => {
