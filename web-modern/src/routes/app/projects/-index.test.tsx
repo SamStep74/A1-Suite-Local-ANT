@@ -251,9 +251,58 @@ const PROFITABILITY = {
     unbilledRevenue: 100000,
     totalRevenue: 250000,
     costTotal: 143750,
+    costRate: 8750,
+    laborCostTotal: 87500,
+    productCostTotal: 56250,
     grossProfit: 106250,
     grossMarginPct: 42,
     invoiceCount: 1,
+    taskProfitability: [
+      {
+        taskId: "task-1",
+        taskTitle: "Implementation",
+        taskStatus: "in-progress",
+        billedMinutes: 180,
+        unbilledMinutes: 60,
+        totalMinutes: 240,
+        entries: 3,
+        revenue: 100000,
+        laborCost: 35000,
+        grossProfit: 65000,
+        grossMarginPct: 65,
+      },
+      {
+        taskId: null,
+        taskTitle: "Unassigned time",
+        taskStatus: null,
+        billedMinutes: 180,
+        unbilledMinutes: 180,
+        totalMinutes: 360,
+        entries: 4,
+        revenue: 150000,
+        laborCost: 52500,
+        grossProfit: 97500,
+        grossMarginPct: null,
+      },
+    ],
+    productCostEvidence: [
+      {
+        quoteId: "quote-1",
+        quoteNumber: "Q-2026-007",
+        quoteStatus: "accepted",
+        catalogItemId: "cat-1",
+        catalogSku: "IMPL-BASE",
+        catalogName: "Implementation pack",
+        catalogItemVariantId: "variant-1",
+        variantSku: "IMPL-BASE-PRO",
+        quantity: 2,
+        revenue: 120000,
+        unitCost: 18000,
+        cost: 36000,
+        grossProfit: 84000,
+        grossMarginPct: 70,
+      },
+    ],
     invoices: [
       {
         id: "inv-1",
@@ -717,6 +766,24 @@ describe("Projects — Billing view", () => {
     expect(within(marker as HTMLElement).getByText("Gross profit")).toBeInTheDocument();
     expect(within(marker as HTMLElement).getByText("Gross margin")).toBeInTheDocument();
     expect(within(marker as HTMLElement).getByText("42%")).toBeInTheDocument();
+    expect(within(marker as HTMLElement).getByText("Cost rate")).toBeInTheDocument();
+    expect(within(marker as HTMLElement).getByText("Labor cost")).toBeInTheDocument();
+    expect(within(marker as HTMLElement).getByText("Product cost")).toBeInTheDocument();
+    const taskMarker = marker?.querySelector('[data-entity="projects-task-profitability"]');
+    expect(taskMarker).not.toBeNull();
+    expect(taskMarker).toHaveAttribute("data-count", "2");
+    expect(within(taskMarker as HTMLElement).getByText("Task cost basis")).toBeInTheDocument();
+    expect(within(taskMarker as HTMLElement).getByText("Implementation")).toBeInTheDocument();
+    expect(within(taskMarker as HTMLElement).getByText("Unassigned time")).toBeInTheDocument();
+    expect(within(taskMarker as HTMLElement).getByText("65%")).toBeInTheDocument();
+    const productMarker = marker?.querySelector('[data-entity="projects-product-cost-evidence"]');
+    expect(productMarker).not.toBeNull();
+    expect(productMarker).toHaveAttribute("data-count", "1");
+    expect(within(productMarker as HTMLElement).getByText("Product cost evidence")).toBeInTheDocument();
+    expect(within(productMarker as HTMLElement).getByText("Q-2026-007")).toBeInTheDocument();
+    expect(within(productMarker as HTMLElement).getByText("Implementation pack")).toBeInTheDocument();
+    expect(within(productMarker as HTMLElement).getByText("IMPL-BASE-PRO")).toBeInTheDocument();
+    expect(within(productMarker as HTMLElement).getByText("70%")).toBeInTheDocument();
     expect(within(marker as HTMLElement).getByText("INV-2026-001")).toBeInTheDocument();
     expect(within(marker as HTMLElement).getByText("2026-06-10")).toBeInTheDocument();
   });

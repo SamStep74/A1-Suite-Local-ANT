@@ -30,6 +30,17 @@ async function createBillableProject(app, cookie) {
   return proj;
 }
 
+async function createProjectTask(app, cookie, projectId, payload) {
+  const response = await app.inject({
+    method: "POST",
+    url: `/api/projects/${projectId}/tasks`,
+    headers: { cookie },
+    payload
+  });
+  assert.strictEqual(response.statusCode, 200, response.body);
+  return response.json().project.tasks.find(task => task.title === payload.title);
+}
+
 test("project-billing: unbilled time → posted invoice → ledger; entries marked billed; idempotent", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -100,12 +111,14 @@ test("project-billing: project profitability reports billed and unbilled revenue
     assert.deepStrictEqual(Object.keys(initial.json()), ["profitability"]);
     assert.deepStrictEqual(Object.keys(initial.json().profitability), [
       "projectId", "customerId", "currency",
-      "hourlyRate",
+      "hourlyRate", "costRate",
       "billedMinutes", "billedEntries",
       "unbilledMinutes", "unbilledEntries",
       "totalMinutes", "totalEntries",
       "billedRevenue", "unbilledRevenue", "totalRevenue",
+      "laborCostTotal", "productCostTotal",
       "costTotal", "grossProfit", "grossMarginPct",
+      "taskProfitability", "productCostEvidence",
       "invoiceCount",
       "invoices"
     ]);
@@ -114,6 +127,7 @@ test("project-billing: project profitability reports billed and unbilled revenue
       customerId: "cust-ani",
       currency: "AMD",
       hourlyRate: 10000,
+      costRate: 0,
       billedMinutes: 0,
       billedEntries: 0,
       unbilledMinutes: 180,
@@ -123,9 +137,25 @@ test("project-billing: project profitability reports billed and unbilled revenue
       billedRevenue: 0,
       unbilledRevenue: 30000,
       totalRevenue: 30000,
+      laborCostTotal: 0,
+      productCostTotal: 0,
       costTotal: 0,
       grossProfit: 30000,
       grossMarginPct: 100,
+      taskProfitability: [{
+        taskId: null,
+        taskTitle: "Unassigned",
+        taskStatus: null,
+        billedMinutes: 0,
+        unbilledMinutes: 180,
+        totalMinutes: 180,
+        entries: 2,
+        revenue: 30000,
+        laborCost: 0,
+        grossProfit: 30000,
+        grossMarginPct: 100
+      }],
+      productCostEvidence: [],
       invoiceCount: 0,
       invoices: []
     });
@@ -137,9 +167,13 @@ test("project-billing: project profitability reports billed and unbilled revenue
     });
     assert.strictEqual(defaultRate.statusCode, 200, defaultRate.body);
     assert.strictEqual(defaultRate.json().profitability.hourlyRate, 0);
+    assert.strictEqual(defaultRate.json().profitability.costRate, 0);
     assert.strictEqual(defaultRate.json().profitability.unbilledRevenue, 0);
     assert.strictEqual(defaultRate.json().profitability.totalRevenue, 0);
+    assert.strictEqual(defaultRate.json().profitability.costTotal, 0);
     assert.strictEqual(defaultRate.json().profitability.grossMarginPct, null);
+    assert.strictEqual(defaultRate.json().profitability.taskProfitability[0].revenue, 0);
+    assert.strictEqual(defaultRate.json().profitability.taskProfitability[0].grossMarginPct, null);
 
     const billed = await app.inject({
       method: "POST",
@@ -161,6 +195,7 @@ test("project-billing: project profitability reports billed and unbilled revenue
       customerId: "cust-ani",
       currency: "AMD",
       hourlyRate: 10000,
+      costRate: 0,
       billedMinutes: 180,
       billedEntries: 2,
       unbilledMinutes: 0,
@@ -170,9 +205,25 @@ test("project-billing: project profitability reports billed and unbilled revenue
       billedRevenue: 30000,
       unbilledRevenue: 0,
       totalRevenue: 30000,
+      laborCostTotal: 0,
+      productCostTotal: 0,
       costTotal: 0,
       grossProfit: 30000,
       grossMarginPct: 100,
+      taskProfitability: [{
+        taskId: null,
+        taskTitle: "Unassigned",
+        taskStatus: null,
+        billedMinutes: 180,
+        unbilledMinutes: 0,
+        totalMinutes: 180,
+        entries: 2,
+        revenue: 30000,
+        laborCost: 0,
+        grossProfit: 30000,
+        grossMarginPct: 100
+      }],
+      productCostEvidence: [],
       invoiceCount: 1,
       invoices: [{
         id: invoice.id,
@@ -202,6 +253,162 @@ test("project-billing: project profitability reports billed and unbilled revenue
     assert.strictEqual(mixed.json().profitability.unbilledMinutes, 30);
     assert.strictEqual(mixed.json().profitability.unbilledRevenue, 5000);
     assert.strictEqual(mixed.json().profitability.totalRevenue, 35000);
+    assert.deepStrictEqual(mixed.json().profitability.taskProfitability, [{
+      taskId: null,
+      taskTitle: "Unassigned",
+      taskStatus: null,
+      billedMinutes: 180,
+      unbilledMinutes: 30,
+      totalMinutes: 210,
+      entries: 3,
+      revenue: 35000,
+      laborCost: 0,
+      grossProfit: 35000,
+      grossMarginPct: 100
+    }]);
+  } finally { await app.close(); }
+});
+
+test("project-billing: profitability rolls up task labor cost and catalog quote product cost", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const orgId = app.db.prepare("SELECT org_id FROM users WHERE email = ?").get(DEFAULT_EMAIL).org_id;
+    const projectId = (await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie: owner },
+      payload: {
+        name: "Catalog profitability delivery",
+        customerId: "cust-ani",
+        dealId: "deal-ani-inbox",
+        status: "active"
+      }
+    })).json().project.id;
+
+    const discovery = await createProjectTask(app, owner, projectId, { title: "Discovery", status: "in-progress" });
+    const build = await createProjectTask(app, owner, projectId, { title: "Build", status: "todo" });
+    await app.inject({ method: "POST", url: `/api/projects/${projectId}/time-entries`, headers: { cookie: owner }, payload: { taskId: discovery.id, minutes: 90, entryDate: "2026-05-10", note: "discovery" } });
+    await app.inject({ method: "POST", url: `/api/projects/${projectId}/time-entries`, headers: { cookie: owner }, payload: { taskId: build.id, minutes: 30, entryDate: "2026-05-11", note: "build" } });
+    await app.inject({ method: "POST", url: `/api/projects/${projectId}/time-entries`, headers: { cookie: owner }, payload: { minutes: 60, entryDate: "2026-05-12", note: "unassigned handoff" } });
+
+    const quote = await app.inject({
+      method: "POST",
+      url: "/api/crm/quotes",
+      headers: { cookie: owner },
+      payload: {
+        customerId: "cust-ani",
+        dealId: "deal-ani-inbox",
+        title: "Scanner evidence quote",
+        validUntil: "2026-07-31",
+        lines: [{
+          catalogItemId: "catitem-pos-barcode-scanner",
+          catalogItemVariantId: "catvar-pos-scanner-usb",
+          quantity: 2,
+          unitPrice: 100000
+        }]
+      }
+    });
+    assert.strictEqual(quote.statusCode, 200, quote.body);
+    app.db.prepare("UPDATE quotes SET status = ?, sent_at = ?, updated_at = ? WHERE org_id = ? AND id = ?")
+      .run("sent", "2026-05-13T10:00:00.000Z", "2026-05-13T10:00:00.000Z", orgId, quote.json().quote.id);
+
+    const draftQuote = await app.inject({
+      method: "POST",
+      url: "/api/crm/quotes",
+      headers: { cookie: owner },
+      payload: {
+        customerId: "cust-ani",
+        dealId: "deal-ani-inbox",
+        title: "Draft scanner quote",
+        validUntil: "2026-07-31",
+        lines: [{ catalogItemId: "catitem-pos-barcode-scanner", quantity: 1, unitPrice: 500000 }]
+      }
+    });
+    assert.strictEqual(draftQuote.statusCode, 200, draftQuote.body);
+
+    const zeroCostRate = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/profitability?hourlyRate=60000&costRate=0&asOf=2026-05-15`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(zeroCostRate.statusCode, 200, zeroCostRate.body);
+    assert.strictEqual(zeroCostRate.json().profitability.laborCostTotal, 0);
+    assert.strictEqual(zeroCostRate.json().profitability.productCostTotal, 124000);
+    assert.strictEqual(zeroCostRate.json().profitability.costTotal, 124000);
+    assert.strictEqual(zeroCostRate.json().profitability.grossProfit, 56000);
+    assert.strictEqual(zeroCostRate.json().profitability.grossMarginPct, 31.11);
+
+    const detailed = await app.inject({
+      method: "GET",
+      url: `/api/projects/${projectId}/profitability?hourlyRate=60000&costRate=3000&asOf=2026-05-15`,
+      headers: { cookie: owner }
+    });
+    assert.strictEqual(detailed.statusCode, 200, detailed.body);
+    assert.deepStrictEqual(detailed.json().profitability.taskProfitability, [
+      {
+        taskId: discovery.id,
+        taskTitle: "Discovery",
+        taskStatus: "in-progress",
+        billedMinutes: 0,
+        unbilledMinutes: 90,
+        totalMinutes: 90,
+        entries: 1,
+        revenue: 90000,
+        laborCost: 4500,
+        grossProfit: 85500,
+        grossMarginPct: 95
+      },
+      {
+        taskId: build.id,
+        taskTitle: "Build",
+        taskStatus: "todo",
+        billedMinutes: 0,
+        unbilledMinutes: 30,
+        totalMinutes: 30,
+        entries: 1,
+        revenue: 30000,
+        laborCost: 1500,
+        grossProfit: 28500,
+        grossMarginPct: 95
+      },
+      {
+        taskId: null,
+        taskTitle: "Unassigned",
+        taskStatus: null,
+        billedMinutes: 0,
+        unbilledMinutes: 60,
+        totalMinutes: 60,
+        entries: 1,
+        revenue: 60000,
+        laborCost: 3000,
+        grossProfit: 57000,
+        grossMarginPct: 95
+      }
+    ]);
+    assert.deepStrictEqual(detailed.json().profitability.productCostEvidence, [{
+      quoteId: quote.json().quote.id,
+      quoteNumber: quote.json().quote.number,
+      quoteStatus: "sent",
+      catalogItemId: "catitem-pos-barcode-scanner",
+      catalogSku: "HW-BARCODE-SCANNER",
+      catalogName: "POS barcode scanner",
+      catalogItemVariantId: "catvar-pos-scanner-usb",
+      variantSku: "HW-BARCODE-SCANNER-USB",
+      quantity: 2,
+      revenue: 200000,
+      unitCost: 62000,
+      cost: 124000,
+      grossProfit: 76000,
+      grossMarginPct: 38
+    }]);
+    assert.strictEqual(detailed.json().profitability.totalRevenue, 180000);
+    assert.strictEqual(detailed.json().profitability.laborCostTotal, 9000);
+    assert.strictEqual(detailed.json().profitability.productCostTotal, 124000);
+    assert.strictEqual(detailed.json().profitability.costTotal, 133000);
+    assert.strictEqual(detailed.json().profitability.grossProfit, 47000);
+    assert.strictEqual(detailed.json().profitability.grossMarginPct, 26.11);
   } finally { await app.close(); }
 });
 
@@ -405,6 +612,9 @@ test("project-billing: rejects malformed profitability query before reporting", 
     const rejectedUrls = [
       `/api/projects/${proj}/profitability?hourlyRate=abc`,
       `/api/projects/${proj}/profitability?hourlyRate=-1`,
+      `/api/projects/${proj}/profitability?hourlyRate=10000&costRate=abc`,
+      `/api/projects/${proj}/profitability?hourlyRate=10000&costRate=-1`,
+      `/api/projects/${proj}/profitability?hourlyRate=10000&costRate=1000%0Asecret-project-profitability-cost-token`,
       `/api/projects/${proj}/profitability?hourlyRate=10000&asOf=not-a-date`,
       `/api/projects/${proj}/profitability?hourlyRate=10000%0Asecret-project-profitability-query-token`
     ];
@@ -417,6 +627,7 @@ test("project-billing: rejects malformed profitability query before reporting", 
       });
       assert.strictEqual(rejected.statusCode, 400, rejected.body);
       assert.doesNotMatch(rejected.body, /secret-project-profitability/);
+      assert.doesNotMatch(rejected.body, /secret-project-profitability-cost/);
     }
   } finally { await app.close(); }
 });

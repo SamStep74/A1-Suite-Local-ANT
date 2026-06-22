@@ -5880,6 +5880,7 @@ function registerApi(app, db, options = {}) {
     const input = isPlainObject(query) ? query : {};
     return {
       hourlyRate: normalizeProjectBillingAmount(input, "hourlyRate", { fallback: 0 }),
+      costRate: normalizeProjectBillingAmount(input, "costRate", { fallback: 0, min: 0 }),
       asOf: normalizeProjectDate(input, "asOf", nowIso.slice(0, 10))
     };
   }
@@ -6156,7 +6157,7 @@ function registerApi(app, db, options = {}) {
     const projectId = normalizeProjectPathId(request.params.id, request.raw?.url);
     const project = getProject(db, user.org_id, projectId);
     if (!project) { const e = new Error("Project not found"); e.statusCode = 404; throw e; }
-    const { hourlyRate, asOf } = normalizeProjectBillingPreviewQuery(request.query, new Date().toISOString());
+    const { hourlyRate, costRate, asOf } = normalizeProjectBillingPreviewQuery(request.query, new Date().toISOString());
     const minutes = db.prepare(`
       SELECT
         COALESCE(SUM(CASE WHEN billed_invoice_id IS NOT NULL THEN minutes ELSE 0 END), 0) AS billedMinutes,
@@ -6198,15 +6199,114 @@ function registerApi(app, db, options = {}) {
     const vatRate = resolveVatRate(db, user.org_id, asOf);
     const unbilledRevenue = splitVatInclusive(unbilledGrossMajor, vatRate).total;
     const totalRevenue = billedRevenue + unbilledRevenue;
-    const costTotal = 0;
+    const laborCostTotal = projectTimeAmount(Number(minutes.totalMinutes || 0), costRate, vatRate);
+    const taskProfitability = db.prepare(`
+      SELECT
+        project_time_entries.task_id AS taskId,
+        project_tasks.title AS taskTitle,
+        project_tasks.status AS taskStatus,
+        COALESCE(SUM(CASE WHEN project_time_entries.billed_invoice_id IS NOT NULL THEN project_time_entries.minutes ELSE 0 END), 0) AS billedMinutes,
+        COALESCE(SUM(CASE WHEN project_time_entries.billed_invoice_id IS NULL THEN project_time_entries.minutes ELSE 0 END), 0) AS unbilledMinutes,
+        COALESCE(SUM(project_time_entries.minutes), 0) AS totalMinutes,
+        COUNT(*) AS entries,
+        MIN(project_time_entries.entry_date) AS firstEntryDate
+      FROM project_time_entries
+      LEFT JOIN project_tasks
+        ON project_tasks.org_id = project_time_entries.org_id
+       AND project_tasks.project_id = project_time_entries.project_id
+       AND project_tasks.id = project_time_entries.task_id
+      WHERE project_time_entries.org_id = ?
+        AND project_time_entries.project_id = ?
+      GROUP BY project_time_entries.task_id, project_tasks.title, project_tasks.status
+      ORDER BY project_time_entries.task_id IS NULL, firstEntryDate, project_tasks.title, project_time_entries.task_id
+    `).all(user.org_id, project.id).map(row => {
+      const totalMinutes = Number(row.totalMinutes || 0);
+      const revenue = projectTimeAmount(totalMinutes, hourlyRate, vatRate);
+      const laborCost = projectTimeAmount(totalMinutes, costRate, vatRate);
+      const grossProfit = revenue - laborCost;
+      return {
+        taskId: row.taskId || null,
+        taskTitle: row.taskId ? row.taskTitle : "Unassigned",
+        taskStatus: row.taskId ? row.taskStatus : null,
+        billedMinutes: Number(row.billedMinutes || 0),
+        unbilledMinutes: Number(row.unbilledMinutes || 0),
+        totalMinutes,
+        entries: Number(row.entries || 0),
+        revenue,
+        laborCost,
+        grossProfit,
+        grossMarginPct: projectGrossMarginPct(revenue, grossProfit)
+      };
+    });
+    const productCostEvidence = project.dealId ? db.prepare(`
+      SELECT
+        quotes.id AS quoteId,
+        quotes.number AS quoteNumber,
+        quotes.status AS quoteStatus,
+        quote_lines.catalog_item_id AS catalogItemId,
+        catalog_items.sku AS catalogSku,
+        catalog_items.name AS catalogName,
+        quote_lines.catalog_item_variant_id AS catalogItemVariantId,
+        catalog_item_variants.sku AS variantSku,
+        quote_lines.quantity AS quantity,
+        quote_lines.total AS revenue,
+        CASE
+          WHEN quote_lines.catalog_item_variant_id IS NOT NULL
+            AND catalog_item_variants.id IS NOT NULL
+          THEN catalog_item_variants.standard_cost
+          ELSE catalog_items.standard_cost
+        END AS unitCost,
+        quote_lines.position AS position,
+        quotes.created_at AS quoteCreatedAt
+      FROM quotes
+      JOIN quote_lines
+        ON quote_lines.org_id = quotes.org_id
+       AND quote_lines.quote_id = quotes.id
+      JOIN catalog_items
+        ON catalog_items.org_id = quote_lines.org_id
+       AND catalog_items.id = quote_lines.catalog_item_id
+      LEFT JOIN catalog_item_variants
+        ON catalog_item_variants.org_id = quote_lines.org_id
+       AND catalog_item_variants.id = quote_lines.catalog_item_variant_id
+      WHERE quotes.org_id = ?
+        AND quotes.deal_id = ?
+        AND quotes.status IN ('sent', 'viewed', 'accepted')
+        AND quote_lines.catalog_item_id IS NOT NULL
+      ORDER BY quotes.created_at, quotes.number, quotes.id, quote_lines.position, quote_lines.id
+    `).all(user.org_id, project.dealId).map(row => {
+      const quantity = Number(row.quantity || 0);
+      const revenue = Number(row.revenue || 0);
+      const unitCost = Number(row.unitCost || 0);
+      const cost = quantity * unitCost;
+      const grossProfit = revenue - cost;
+      return {
+        quoteId: row.quoteId,
+        quoteNumber: row.quoteNumber,
+        quoteStatus: row.quoteStatus,
+        catalogItemId: row.catalogItemId,
+        catalogSku: row.catalogSku,
+        catalogName: row.catalogName,
+        catalogItemVariantId: row.catalogItemVariantId || null,
+        variantSku: row.variantSku || null,
+        quantity,
+        revenue,
+        unitCost,
+        cost,
+        grossProfit,
+        grossMarginPct: projectGrossMarginPct(revenue, grossProfit)
+      };
+    }) : [];
+    const productCostTotal = productCostEvidence.reduce((sum, row) => sum + row.cost, 0);
+    const costTotal = laborCostTotal + productCostTotal;
     const grossProfit = totalRevenue - costTotal;
-    const grossMarginPct = totalRevenue > 0 ? Math.round((grossProfit / totalRevenue) * 10000) / 100 : null;
+    const grossMarginPct = projectGrossMarginPct(totalRevenue, grossProfit);
     return {
       profitability: {
         projectId: project.id,
         customerId: project.customerId,
         currency: activeCurrencyCode(),
         hourlyRate,
+        costRate,
         billedMinutes: Number(minutes.billedMinutes || 0),
         billedEntries: Number(minutes.billedEntries || 0),
         unbilledMinutes: Number(minutes.unbilledMinutes || 0),
@@ -6216,14 +6316,27 @@ function registerApi(app, db, options = {}) {
         billedRevenue,
         unbilledRevenue,
         totalRevenue,
+        laborCostTotal,
+        productCostTotal,
         costTotal,
         grossProfit,
         grossMarginPct,
+        taskProfitability,
+        productCostEvidence,
         invoiceCount: invoices.length,
         invoices
       }
     };
   });
+
+  function projectTimeAmount(minutes, rate, vatRate) {
+    const grossMajor = rate > 0 ? (Number(minutes || 0) / 60) * rate : 0;
+    return splitVatInclusive(grossMajor, vatRate).total;
+  }
+
+  function projectGrossMarginPct(revenue, grossProfit) {
+    return revenue > 0 ? Math.round((grossProfit / revenue) * 10000) / 100 : null;
+  }
 
   // Billing seam: convert a project's UNBILLED logged time into a posted invoice (+ ledger),
   // then mark those entries billed so they can never be billed twice. Reuses postDraftInvoice

@@ -43,6 +43,7 @@ import {
   CreateStockMoveInputSchema,
   ProjectTaskSchema,
   ProjectDetailResponseSchema,
+  ProjectProfitabilityResponseSchema,
   ProjectRecurringTaskSchema,
   ProjectRecurringTasksResponseSchema,
   ProjectTemplateResponseSchema,
@@ -883,6 +884,117 @@ describe("Project task dependency schemas", () => {
       expect(r.data.project.tasks?.[0]?.parentTask?.id).toBe("t-1");
       expect(r.data.project.tasks?.[0]?.subtasks?.[0]?.status).toBe("todo");
       expect(r.data.project.tasks?.[0]?.blockedBy?.[0]?.id).toBe("t-1");
+    }
+  });
+});
+
+describe("Project profitability schemas", () => {
+  const profitability = {
+    projectId: "p-1",
+    customerId: "c-1",
+    currency: "AMD",
+    hourlyRate: 25000,
+    billedMinutes: 360,
+    billedEntries: 3,
+    unbilledMinutes: 240,
+    unbilledEntries: 4,
+    totalMinutes: 600,
+    totalEntries: 7,
+    billedRevenue: 150000,
+    unbilledRevenue: 100000,
+    totalRevenue: 250000,
+    costTotal: 143750,
+    grossProfit: 106250,
+    grossMarginPct: 42,
+    invoiceCount: 1,
+    invoices: [
+      {
+        id: "inv-1",
+        number: "INV-2026-001",
+        status: "issued",
+        total: 150000,
+        subtotal: 125000,
+        vat: 25000,
+        issueDate: "2026-06-10",
+        dueDate: "2026-06-25",
+      },
+    ],
+  };
+
+  it("accepts task and product cost-basis evidence", () => {
+    const r = ProjectProfitabilityResponseSchema.safeParse({
+      profitability: {
+        ...profitability,
+        costRate: 8750,
+        laborCostTotal: 87500,
+        productCostTotal: 56250,
+        taskProfitability: [
+          {
+            taskId: "task-1",
+            taskTitle: "Implementation",
+            taskStatus: "in-progress",
+            billedMinutes: 180,
+            unbilledMinutes: 60,
+            totalMinutes: 240,
+            entries: 3,
+            revenue: 100000,
+            laborCost: 35000,
+            grossProfit: 65000,
+            grossMarginPct: 65,
+          },
+          {
+            taskId: null,
+            taskTitle: "Unassigned time",
+            taskStatus: null,
+            billedMinutes: 180,
+            unbilledMinutes: 180,
+            totalMinutes: 360,
+            entries: 4,
+            revenue: 150000,
+            laborCost: 52500,
+            grossProfit: 97500,
+            grossMarginPct: null,
+          },
+        ],
+        productCostEvidence: [
+          {
+            quoteId: "quote-1",
+            quoteNumber: "Q-2026-007",
+            quoteStatus: "accepted",
+            catalogItemId: "cat-1",
+            catalogSku: "IMPL-BASE",
+            catalogName: "Implementation pack",
+            catalogItemVariantId: "variant-1",
+            variantSku: "IMPL-BASE-PRO",
+            quantity: 2,
+            revenue: 120000,
+            unitCost: 18000,
+            cost: 36000,
+            grossProfit: 84000,
+            grossMarginPct: 70,
+          },
+        ],
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.profitability.costRate).toBe(8750);
+      expect(r.data.profitability.laborCostTotal).toBe(87500);
+      expect(r.data.profitability.productCostTotal).toBe(56250);
+      expect(r.data.profitability.taskProfitability?.[0]?.taskTitle).toBe("Implementation");
+      expect(r.data.profitability.taskProfitability?.[1]?.taskId).toBeNull();
+      expect(r.data.profitability.productCostEvidence?.[0]?.variantSku).toBe("IMPL-BASE-PRO");
+    }
+  });
+
+  it("continues to accept profitability payloads without cost-basis evidence", () => {
+    const r = ProjectProfitabilityResponseSchema.safeParse({ profitability });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.profitability.taskProfitability).toBeUndefined();
+      expect(r.data.profitability.productCostEvidence).toBeUndefined();
     }
   });
 });

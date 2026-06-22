@@ -138,8 +138,8 @@ Source: [the reference ERP Helpdesk](https://www.the reference ERP.com/documenta
 
 Comparison to A1:
 
-- A1 has projects, project template evidence, recurring task evidence, tasks, subtask hierarchy evidence, task dependency evidence, milestones, time entries, project billing, project-level profitability evidence, service cases, SLA policy evidence and editing UX, field service visit planning evidence, worksheet summaries, assigned-technician visit workflow, support replies, escalations, and Customer 360.
-- Missing the reference ERP-style depth: dedicated mobile/offline dispatch tooling and profitability reporting below project level, including task/product cost basis.
+- A1 has projects, project template evidence, recurring task evidence, tasks, subtask hierarchy evidence, task dependency evidence, milestones, time entries, project billing, project-level profitability evidence, task/product cost-basis profitability evidence, service cases, SLA policy evidence and editing UX, field service visit planning evidence, worksheet summaries, assigned-technician visit workflow, support replies, escalations, and Customer 360.
+- Missing the reference ERP-style depth: dedicated mobile/offline dispatch tooling and deeper accounting-grade cost allocation across inventory, procurement, and field-service operations.
 
 ### Documents, Sign, Knowledge, Spreadsheet, Dashboards
 
@@ -212,7 +212,7 @@ Current A1 strengths:
 - Desk: service cases, replies, escalations, knowledge-grounded support summaries.
 - People-HR: employee registry and payroll seam.
 - Docs & Sign: templates, signer lifecycle, evidence packets, export certificate.
-- Projects: project/task/milestone/time entries, task dependency evidence, project billing, project-level profitability evidence.
+- Projects: project/task/milestone/time entries, task dependency evidence, project billing, project-level profitability evidence, task/product cost-basis profitability evidence.
 - Forms/Campaigns: public forms, lead intake, rate limits.
 - Copilot: Armenian legal/accounting advisory, citations, guarded proposed actions, Open Notebook supplemental sources.
 - Security/governance: RBAC, MFA/session controls, audit packets, tenant routing, public route throttling, payload redaction, many malformed-input/path-id guards.

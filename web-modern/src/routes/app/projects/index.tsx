@@ -1257,6 +1257,12 @@ function BillingView({
     profitability?.grossMarginPct == null
       ? "—"
       : formatPercent(profitability.grossMarginPct);
+  const hasCostBreakdown =
+    profitability?.costRate != null ||
+    profitability?.laborCostTotal != null ||
+    profitability?.productCostTotal != null;
+  const taskProfitability = profitability?.taskProfitability ?? [];
+  const productCostEvidence = profitability?.productCostEvidence ?? [];
 
   return (
     <div className="space-y-4">
@@ -1320,45 +1326,279 @@ function BillingView({
               tone={(profitability.grossMarginPct ?? 0) >= 0 ? "positive" : "negative"}
             />
           </div>
-          <div className="mt-4 overflow-hidden rounded-[var(--radius-sm)] border border-[var(--color-line)]">
-            <table className="w-full text-[var(--text-sm)]" role="table">
-              <thead className="bg-[var(--color-surface-soft)] text-[var(--text-xs)] uppercase tracking-wide text-[var(--color-muted)]">
-                <tr>
-                  <th scope="col" className="px-3 py-2 text-left font-semibold">
-                    Invoice
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-left font-semibold">
-                    Issue date
-                  </th>
-                  <th scope="col" className="px-3 py-2 text-right font-semibold">
-                    Total
-                  </th>
-                </tr>
-              </thead>
-              <tbody className="divide-y divide-[var(--color-line)]">
-                {profitability.invoices.length === 0 ? (
+
+          {hasCostBreakdown && (
+            <div
+              className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-3"
+              data-entity="projects-cost-breakdown"
+            >
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+                  Cost rate
+                </p>
+                <p className="mt-1 font-mono text-[var(--text-sm)] text-[var(--color-ink)]">
+                  {profitability.costRate == null
+                    ? "—"
+                    : `${formatCurrency(profitability.costRate, profitability.currency)}/h`}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+                  Labor cost
+                </p>
+                <p className="mt-1 font-mono text-[var(--text-sm)] text-[var(--color-ink)]">
+                  {formatCurrency(profitability.laborCostTotal, profitability.currency)}
+                </p>
+              </div>
+              <div>
+                <p className="text-[11px] uppercase tracking-wide text-[var(--color-muted)]">
+                  Product cost
+                </p>
+                <p className="mt-1 font-mono text-[var(--text-sm)] text-[var(--color-ink)]">
+                  {formatCurrency(profitability.productCostTotal, profitability.currency)}
+                </p>
+              </div>
+            </div>
+          )}
+
+          {profitability.taskProfitability !== undefined && (
+            <div
+              className="mt-4"
+              data-entity="projects-task-profitability"
+              data-count={String(taskProfitability.length)}
+            >
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[var(--text-xs)] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                  Task cost basis
+                </p>
+                <p className="font-mono text-[11px] text-[var(--color-muted)]">
+                  {taskProfitability.length} tasks
+                </p>
+              </div>
+              <div className="overflow-x-auto rounded-[var(--radius-sm)] border border-[var(--color-line)]">
+                <table className="min-w-[760px] w-full text-[var(--text-sm)]" role="table">
+                  <thead className="bg-[var(--color-surface-soft)] text-[var(--text-xs)] uppercase tracking-wide text-[var(--color-muted)]">
+                    <tr>
+                      <th scope="col" className="px-3 py-2 text-left font-semibold">
+                        Task
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Minutes
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Revenue
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Labor
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Profit
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Margin
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--color-line)]">
+                    {taskProfitability.length === 0 ? (
+                      <tr>
+                        <td colSpan={6} className="px-3 py-3 text-center text-[var(--color-muted)]">
+                          No task cost basis yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      taskProfitability.map((task, index) => (
+                        <tr
+                          key={task.taskId ?? `${task.taskTitle}-${index}`}
+                          className="hover:bg-[var(--color-surface-soft)]"
+                        >
+                          <td className="px-3 py-2 text-[var(--color-ink)]">
+                            <span className="block max-w-[18rem] truncate" title={task.taskTitle}>
+                              {task.taskTitle}
+                            </span>
+                            <span className="block text-[11px] text-[var(--color-muted)]">
+                              {task.taskStatus || "No status"} · {task.entries} entries
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-[var(--color-muted)]">
+                            <span className="block text-[var(--color-ink)]">
+                              {task.totalMinutes}
+                            </span>
+                            <span className="block text-[11px]">
+                              {task.billedMinutes} billed / {task.unbilledMinutes} open
+                            </span>
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                            {formatCurrency(task.revenue, profitability.currency)}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                            {formatCurrency(task.laborCost, profitability.currency)}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                            {formatCurrency(task.grossProfit, profitability.currency)}
+                          </td>
+                          <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                            {formatPercent(task.grossMarginPct)}
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {profitability.productCostEvidence !== undefined && (
+            <div
+              className="mt-4"
+              data-entity="projects-product-cost-evidence"
+              data-count={String(productCostEvidence.length)}
+            >
+              <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                <p className="text-[var(--text-xs)] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                  Product cost evidence
+                </p>
+                <p className="font-mono text-[11px] text-[var(--color-muted)]">
+                  {productCostEvidence.length} lines
+                </p>
+              </div>
+              <div className="overflow-x-auto rounded-[var(--radius-sm)] border border-[var(--color-line)]">
+                <table className="min-w-[820px] w-full text-[var(--text-sm)]" role="table">
+                  <thead className="bg-[var(--color-surface-soft)] text-[var(--text-xs)] uppercase tracking-wide text-[var(--color-muted)]">
+                    <tr>
+                      <th scope="col" className="px-3 py-2 text-left font-semibold">
+                        Quote
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-left font-semibold">
+                        Item
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Qty
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Revenue
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Cost
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Profit
+                      </th>
+                      <th scope="col" className="px-3 py-2 text-right font-semibold">
+                        Margin
+                      </th>
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-[var(--color-line)]">
+                    {productCostEvidence.length === 0 ? (
+                      <tr>
+                        <td colSpan={7} className="px-3 py-3 text-center text-[var(--color-muted)]">
+                          No product cost evidence yet.
+                        </td>
+                      </tr>
+                    ) : (
+                      productCostEvidence.map((line, index) => {
+                        const itemLabel = line.catalogName || line.catalogSku || line.catalogItemId;
+                        const quoteLabel = line.quoteNumber || line.quoteId;
+                        return (
+                          <tr
+                            key={`${line.quoteId}-${line.catalogItemId}-${line.catalogItemVariantId ?? index}`}
+                            className="hover:bg-[var(--color-surface-soft)]"
+                          >
+                            <td className="px-3 py-2 text-[var(--color-ink)]">
+                              <span className="block font-mono">{quoteLabel}</span>
+                              <span className="block text-[11px] text-[var(--color-muted)]">
+                                {line.quoteStatus || "No status"}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-[var(--color-ink)]">
+                              <span className="block max-w-[18rem] truncate" title={itemLabel}>
+                                {itemLabel}
+                              </span>
+                              <span className="block font-mono text-[11px] text-[var(--color-muted)]">
+                                {line.variantSku || line.catalogSku || line.catalogItemId}
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                              {line.quantity}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                              {formatCurrency(line.revenue, profitability.currency)}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-[var(--color-muted)]">
+                              <span className="block text-[var(--color-ink)]">
+                                {formatCurrency(line.cost, profitability.currency)}
+                              </span>
+                              <span className="block text-[11px]">
+                                {formatCurrency(line.unitCost, profitability.currency)} each
+                              </span>
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                              {formatCurrency(line.grossProfit, profitability.currency)}
+                            </td>
+                            <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                              {formatPercent(line.grossMarginPct)}
+                            </td>
+                          </tr>
+                        );
+                      })
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          <div className="mt-4" data-entity="projects-invoice-evidence">
+            <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[var(--text-xs)] font-semibold uppercase tracking-wide text-[var(--color-muted)]">
+                Invoice evidence
+              </p>
+              <p className="font-mono text-[11px] text-[var(--color-muted)]">
+                {profitability.invoices.length} invoices
+              </p>
+            </div>
+            <div className="overflow-x-auto rounded-[var(--radius-sm)] border border-[var(--color-line)]">
+              <table className="min-w-[520px] w-full text-[var(--text-sm)]" role="table">
+                <thead className="bg-[var(--color-surface-soft)] text-[var(--text-xs)] uppercase tracking-wide text-[var(--color-muted)]">
                   <tr>
-                    <td colSpan={3} className="px-3 py-3 text-center text-[var(--color-muted)]">
-                      No billed invoice evidence yet.
-                    </td>
+                    <th scope="col" className="px-3 py-2 text-left font-semibold">
+                      Invoice
+                    </th>
+                    <th scope="col" className="px-3 py-2 text-left font-semibold">
+                      Issue date
+                    </th>
+                    <th scope="col" className="px-3 py-2 text-right font-semibold">
+                      Total
+                    </th>
                   </tr>
-                ) : (
-                  profitability.invoices.map((invoice) => (
-                    <tr key={invoice.id} className="hover:bg-[var(--color-surface-soft)]">
-                      <td className="px-3 py-2 text-[var(--color-ink)]">
-                        {invoice.number || invoice.id}
-                      </td>
-                      <td className="px-3 py-2 font-mono text-[var(--color-muted)]">
-                        {invoice.issueDate || "—"}
-                      </td>
-                      <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
-                        {formatCurrency(invoice.total, profitability.currency)}
+                </thead>
+                <tbody className="divide-y divide-[var(--color-line)]">
+                  {profitability.invoices.length === 0 ? (
+                    <tr>
+                      <td colSpan={3} className="px-3 py-3 text-center text-[var(--color-muted)]">
+                        No billed invoice evidence yet.
                       </td>
                     </tr>
-                  ))
-                )}
-              </tbody>
-            </table>
+                  ) : (
+                    profitability.invoices.map((invoice) => (
+                      <tr key={invoice.id} className="hover:bg-[var(--color-surface-soft)]">
+                        <td className="px-3 py-2 text-[var(--color-ink)]">
+                          {invoice.number || invoice.id}
+                        </td>
+                        <td className="px-3 py-2 font-mono text-[var(--color-muted)]">
+                          {invoice.issueDate || "—"}
+                        </td>
+                        <td className="px-3 py-2 text-right font-mono text-[var(--color-ink)]">
+                          {formatCurrency(invoice.total, profitability.currency)}
+                        </td>
+                      </tr>
+                    ))
+                  )}
+                </tbody>
+              </table>
+            </div>
           </div>
         </section>
       )}

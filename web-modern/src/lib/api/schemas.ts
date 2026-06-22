@@ -2102,12 +2102,52 @@ export const ProjectProfitabilityInvoiceSchema = z
   .passthrough();
 export type ProjectProfitabilityInvoice = z.infer<typeof ProjectProfitabilityInvoiceSchema>;
 
+export const ProjectProfitabilityTaskSchema = z
+  .object({
+    taskId: z.string().nullable(),
+    taskTitle: z.string(),
+    taskStatus: z.string().nullable().optional(),
+    billedMinutes: z.number().int(),
+    unbilledMinutes: z.number().int(),
+    totalMinutes: z.number().int(),
+    entries: z.number().int(),
+    revenue: z.number(),
+    laborCost: z.number(),
+    grossProfit: z.number(),
+    grossMarginPct: z.number().nullable(),
+  })
+  .passthrough();
+export type ProjectProfitabilityTask = z.infer<typeof ProjectProfitabilityTaskSchema>;
+
+export const ProjectProfitabilityProductCostEvidenceSchema = z
+  .object({
+    quoteId: z.string(),
+    quoteNumber: z.string().nullable().optional(),
+    quoteStatus: z.string().nullable().optional(),
+    catalogItemId: z.string(),
+    catalogSku: z.string().nullable().optional(),
+    catalogName: z.string().nullable().optional(),
+    catalogItemVariantId: z.string().nullable().optional(),
+    variantSku: z.string().nullable().optional(),
+    quantity: z.number(),
+    revenue: z.number(),
+    unitCost: z.number(),
+    cost: z.number(),
+    grossProfit: z.number(),
+    grossMarginPct: z.number().nullable(),
+  })
+  .passthrough();
+export type ProjectProfitabilityProductCostEvidence = z.infer<
+  typeof ProjectProfitabilityProductCostEvidenceSchema
+>;
+
 export const ProjectProfitabilitySchema = z
   .object({
     projectId: z.string(),
     customerId: z.string().nullable().optional(),
     currency: z.string(),
     hourlyRate: z.number(),
+    costRate: z.number().optional(),
     billedMinutes: z.number().int(),
     billedEntries: z.number().int(),
     unbilledMinutes: z.number().int(),
@@ -2118,10 +2158,16 @@ export const ProjectProfitabilitySchema = z
     unbilledRevenue: z.number(),
     totalRevenue: z.number(),
     costTotal: z.number(),
+    laborCostTotal: z.number().optional(),
+    productCostTotal: z.number().optional(),
     grossProfit: z.number(),
     grossMarginPct: z.number().nullable(),
     invoiceCount: z.number().int(),
     invoices: z.array(ProjectProfitabilityInvoiceSchema),
+    taskProfitability: z.array(ProjectProfitabilityTaskSchema).optional(),
+    productCostEvidence: z
+      .array(ProjectProfitabilityProductCostEvidenceSchema)
+      .optional(),
   })
   .passthrough();
 export type ProjectProfitability = z.infer<typeof ProjectProfitabilitySchema>;
