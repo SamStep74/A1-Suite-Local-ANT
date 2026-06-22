@@ -707,6 +707,23 @@ function saleDraftOfflineReplayMarkResponse(sourceKey: string) {
   };
 }
 
+function saleDraftOfflineReplayRejectResponse(sourceKey: string) {
+  return {
+    ok: true,
+    item: {
+      ...VALID_OFFLINE_REPLAY_ITEM,
+      id: "pos-offline-replay-draft-1",
+      actionType: "sale",
+      sourceKey,
+      saleId: null,
+      replayStatus: "rejected",
+      note: "Marked rejected after browser-local sale draft replay failed.",
+      rejectedAt: "2026-06-22T12:22:00.000Z",
+      updatedAt: "2026-06-22T12:22:00.000Z",
+    },
+  };
+}
+
 function renderRoute(opts?: { noPosAccess?: boolean }) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -1388,15 +1405,17 @@ describe("POS route", () => {
       .mockResolvedValueOnce(saleDraftOfflineReplayQueueResponse(offlineReplaySourceKey))
       .mockRejectedValueOnce(
         new ApiError(409, "POS_SESSION_CLOSED", "POS cash session is closed"),
-      );
+      )
+      .mockResolvedValueOnce(saleDraftOfflineReplayRejectResponse(offlineReplaySourceKey));
 
     renderRoute();
 
     await waitFor(() => {
-      expect(mocks.postJson).toHaveBeenCalledTimes(2);
+      expect(mocks.postJson).toHaveBeenCalledTimes(3);
     });
     const [queuePath, queueBody] = mocks.postJson.mock.calls[0]!;
     const [path, retryBody] = mocks.postJson.mock.calls[1]!;
+    const [markPath, markBody] = mocks.postJson.mock.calls[2]!;
     expect(queuePath).toBe("/api/pos/offline-replay-items");
     expect(queueBody).toMatchObject({
       sourceKey: offlineReplaySourceKey,
@@ -1407,6 +1426,13 @@ describe("POS route", () => {
     });
     expect(path).toBe("/api/pos/cash-sessions/pos-session-1/sales");
     expect(retryBody).toEqual((draft.payload as Record<string, unknown>));
+    expect(markPath).toBe(
+      "/api/pos/offline-replay-items/pos-offline-replay-draft-1/mark-replayed",
+    );
+    expect(markBody).toEqual({
+      replayStatus: "rejected",
+      note: "Marked rejected after browser-local sale draft replay failed.",
+    });
     await waitFor(() => {
       const [storedDraft] = readStoredSaleDrafts();
       expect(storedDraft?.autoReplayStatus).toBe("conflict-ready");
@@ -1414,16 +1440,63 @@ describe("POS route", () => {
       expect(storedDraft?.autoReplayAttemptCount).toBe(1);
       expect(storedDraft?.offlineReplayItemId).toBe("pos-offline-replay-draft-1");
       expect(storedDraft?.offlineReplaySourceKey).toBe(offlineReplaySourceKey);
-      expect(storedDraft?.offlineReplayStatus).toBe("queued");
+      expect(storedDraft?.offlineReplayStatus).toBe("rejected");
     });
     expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
       /Needs review/,
+    );
+    expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
+      /Durable evidence rejected/,
     );
     expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
       /Closed cash session/,
     );
     expect(screen.getByTestId("pos-local-sale-draft-last-error")).toHaveTextContent(
       /POS cash session is closed/,
+    );
+  });
+
+  it("keeps durable replay evidence queued for retryable replay failures", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+    const draft = storedSaleDraft();
+    const offlineReplaySourceKey = `pos-sale:${String(
+      (draft.payload as Record<string, unknown>).idempotencyKey,
+    )}`;
+    writeStoredSaleDrafts([draft]);
+    mocks.postJson
+      .mockResolvedValueOnce(saleDraftOfflineReplayQueueResponse(offlineReplaySourceKey))
+      .mockRejectedValueOnce(
+        new ApiError(503, "POS_BACKEND_UNAVAILABLE", "Backend unavailable"),
+      );
+
+    renderRoute();
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(2);
+    });
+    const [queuePath] = mocks.postJson.mock.calls[0]!;
+    const [path, retryBody] = mocks.postJson.mock.calls[1]!;
+    expect(queuePath).toBe("/api/pos/offline-replay-items");
+    expect(path).toBe("/api/pos/cash-sessions/pos-session-1/sales");
+    expect(retryBody).toEqual((draft.payload as Record<string, unknown>));
+
+    await waitFor(() => {
+      const [storedDraft] = readStoredSaleDrafts();
+      expect(storedDraft?.autoReplayStatus).toBe("retryable-failed");
+      expect(storedDraft?.autoReplayBlockReason).toBeUndefined();
+      expect(storedDraft?.offlineReplayItemId).toBe("pos-offline-replay-draft-1");
+      expect(storedDraft?.offlineReplaySourceKey).toBe(offlineReplaySourceKey);
+      expect(storedDraft?.offlineReplayStatus).toBe("queued");
+    });
+    expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
+      /Durable evidence queued/,
+    );
+    expect(screen.getByTestId("pos-local-sale-draft-last-error")).toHaveTextContent(
+      /Backend unavailable/,
     );
   });
 

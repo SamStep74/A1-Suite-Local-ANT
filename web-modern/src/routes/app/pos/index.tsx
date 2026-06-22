@@ -136,6 +136,24 @@ type PosSaleMutationResponse = PosCreateSaleResponse & {
   replayDraft?: PosLocalSaleDraft;
 };
 
+type PosSaleDraftReplayStage = "queue-evidence" | "sale-post" | "mark-replayed";
+
+class PosSaleDraftReplayStageError extends Error {
+  readonly stage: PosSaleDraftReplayStage;
+  override readonly cause: unknown;
+
+  constructor(stage: PosSaleDraftReplayStage, cause: unknown) {
+    super(cause instanceof Error ? cause.message : String(cause));
+    this.name = "PosSaleDraftReplayStageError";
+    this.stage = stage;
+    this.cause = cause;
+  }
+}
+
+function saleDraftReplayFailureCause(error: unknown): unknown {
+  return error instanceof PosSaleDraftReplayStageError ? error.cause : error;
+}
+
 function localSaleDraftOfflineReplayStatusFromItem(
   item: PosOfflineReplayItem,
 ): PosLocalSaleDraftOfflineReplayStatus {
@@ -188,10 +206,16 @@ async function queueSaleDraftOfflineReplayEvidence(
   );
 }
 
-async function markSaleDraftOfflineReplayEvidence(itemId: string) {
+async function markSaleDraftOfflineReplayEvidence(
+  itemId: string,
+  replayStatus: PosOfflineReplayMarkStatus = "replayed",
+) {
   const payload = PosOfflineReplayMarkRequestSchema.parse({
-    replayStatus: "replayed",
-    note: "Marked replayed after browser-local sale draft posted.",
+    replayStatus,
+    note:
+      replayStatus === "replayed"
+        ? "Marked replayed after browser-local sale draft posted."
+        : "Marked rejected after browser-local sale draft replay failed.",
   });
   return postJson(
     `/api/pos/offline-replay-items/${itemId}/mark-replayed`,
@@ -403,17 +427,32 @@ function PosWorkspace() {
     let offlineReplayMarkedItem: PosOfflineReplayItem | undefined;
 
     if (replayDraft.offlineReplayStatus !== "replayed" && !replayDraft.offlineReplayItemId) {
-      const replayResponse = await queueSaleDraftOfflineReplayEvidence(replayDraft);
+      let replayResponse;
+      try {
+        replayResponse = await queueSaleDraftOfflineReplayEvidence(replayDraft);
+      } catch (error) {
+        throw new PosSaleDraftReplayStageError("queue-evidence", error);
+      }
       offlineReplayQueuedItem = replayResponse.item;
       replayDraft = linkLocalSaleDraftOfflineReplay(replayDraft, replayResponse.item);
     }
 
-    const saleResponse = await sendQueuedPosSaleDraft(replayDraft);
+    let saleResponse;
+    try {
+      saleResponse = await sendQueuedPosSaleDraft(replayDraft);
+    } catch (error) {
+      throw new PosSaleDraftReplayStageError("sale-post", error);
+    }
 
     if (replayDraft.offlineReplayStatus !== "replayed" && replayDraft.offlineReplayItemId) {
-      const markResponse = await markSaleDraftOfflineReplayEvidence(
-        replayDraft.offlineReplayItemId,
-      );
+      let markResponse;
+      try {
+        markResponse = await markSaleDraftOfflineReplayEvidence(
+          replayDraft.offlineReplayItemId,
+        );
+      } catch (error) {
+        throw new PosSaleDraftReplayStageError("mark-replayed", error);
+      }
       offlineReplayMarkedItem = markResponse.item;
       replayDraft = linkLocalSaleDraftOfflineReplay(replayDraft, markResponse.item);
     }
@@ -486,12 +525,52 @@ function PosWorkspace() {
       const currentDraft =
         localSaleDraftsRef.current.find((draft) => draft.id === input.draft.id) ??
         input.draft;
-      const failedDraft = markQueuedPosSaleDraftAutoReplayFailure(currentDraft, error);
+      const replayStageError =
+        error instanceof PosSaleDraftReplayStageError ? error : null;
+      const failureCause = saleDraftReplayFailureCause(error);
+      const failedDraft = markQueuedPosSaleDraftAutoReplayFailure(
+        currentDraft,
+        failureCause,
+      );
       persistLocalSaleDrafts((current) =>
         current.map((draft) =>
           draft.id === input.draft.id ? failedDraft : draft,
         ),
       );
+      if (
+        replayStageError?.stage === "sale-post" &&
+        currentDraft.offlineReplayItemId &&
+        currentDraft.offlineReplayStatus === "queued" &&
+        (failedDraft.autoReplayStatus === "conflict-ready" ||
+          failedDraft.autoReplayStatus === "failed")
+      ) {
+        void markSaleDraftOfflineReplayEvidence(
+          currentDraft.offlineReplayItemId,
+          "rejected",
+        )
+          .then((markResponse) => {
+            const rejectedDraft = linkQueuedPosSaleDraftOfflineReplay(failedDraft, {
+              offlineReplayItemId: markResponse.item.id,
+              offlineReplaySourceKey: markResponse.item.sourceKey,
+              offlineReplayStatus: localSaleDraftOfflineReplayStatusFromItem(
+                markResponse.item,
+              ),
+            });
+            persistLocalSaleDrafts((current) =>
+              current.map((draft) =>
+                draft.id === input.draft.id ? rejectedDraft : draft,
+              ),
+            );
+            setLocalOfflineReplayItems((current) =>
+              mergeOfflineReplayItems([markResponse.item], current),
+            );
+            setLastMarkedOfflineReplayItem(markResponse.item);
+            void queryClient.invalidateQueries({ queryKey: POS_OFFLINE_REPLAY_QUERY_KEY });
+          })
+          .catch(() => {
+            // Keep the queued durable evidence linked for manual review if marking fails.
+          });
+      }
       if (input.mode === "auto-replay-draft") {
         setLastAutoReplayedLocalSaleDraftId(null);
       } else {
