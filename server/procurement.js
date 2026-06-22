@@ -205,9 +205,20 @@ function allocateLandedCost(db, user, body) {
   const kind = required(body.kind, "kind");
   const amount = positiveInt(body.amount, "amount");
   const method = String(body.allocationMethod || "value");
-  if (!["quantity", "value"].includes(method)) {
-    const err = new Error("allocationMethod must be 'quantity' or 'value'");
+  if (!["quantity", "value", "weight"].includes(method)) {
+    const err = new Error("allocationMethod must be 'quantity', 'value', or 'weight'");
     err.statusCode = 400;
+    throw err;
+  }
+  const po = db.prepare("SELECT id, status FROM purchase_orders WHERE org_id = ? AND id = ?").get(user.org_id, poId);
+  if (!po) {
+    const err = new Error("PO not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (["partial", "received", "billed"].includes(po.status)) {
+    const err = new Error("Landed costs must be allocated before purchase receipt");
+    err.statusCode = 409;
     throw err;
   }
   const lines = db.prepare("SELECT * FROM purchase_order_lines WHERE org_id = ? AND purchase_order_id = ?").all(user.org_id, poId);
@@ -216,24 +227,100 @@ function allocateLandedCost(db, user, body) {
     err.statusCode = 400;
     throw err;
   }
-  const baseTotal = method === "value"
-    ? lines.reduce((s, l) => s + l.subtotal, 0)
-    : lines.reduce((s, l) => s + l.quantity, 0);
-  const allocations = lines.map(line => {
-    const share = method === "value" ? line.subtotal : line.quantity;
-    const allocated = baseTotal === 0 ? 0 : Math.round((amount * share) / baseTotal);
-    return { lineId: line.id, allocated };
-  });
-  const totalAllocated = allocations.reduce((s, a) => s + a.allocated, 0);
+  const allocationBasis = method === "value" ? "value" : "quantity";
+  const baseTotal = lines.reduce((s, line) => s + landedCostBasisForLine(line, allocationBasis), 0);
+  if (baseTotal <= 0) {
+    const err = new Error("PO landed cost allocation base is empty");
+    err.statusCode = 400;
+    throw err;
+  }
+  const allocations = allocateIntegerShares(lines, amount, allocationBasis);
+  const totalAllocated = allocations.reduce((s, a) => s + a.amount, 0);
   const now = new Date().toISOString();
   const id = newId("lca");
-  db.prepare("INSERT INTO landed_cost_allocations (id, org_id, po_id, kind, amount, currency, fx_rate, allocation_method, base_total, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-    .run(id, user.org_id, poId, kind, amount, String(body.currency || "AMD").toUpperCase(), Number(body.fxRate) || 1, method, baseTotal, user.id, now);
-  for (const a of allocations) {
-    db.prepare("UPDATE purchase_order_lines SET unit_cost = unit_cost + ? WHERE id = ? AND org_id = ?")
-      .run(Math.round(a.allocated / Math.max(1, lines.find(l => l.id === a.lineId).quantity)), a.lineId, user.org_id);
+  db.exec("BEGIN");
+  try {
+    db.prepare("INSERT INTO landed_cost_allocations (id, org_id, po_id, kind, amount, currency, fx_rate, allocation_method, base_total, allocation_json, created_by_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
+      .run(id, user.org_id, poId, kind, amount, String(body.currency || "AMD").toUpperCase(), Number(body.fxRate) || 1, method, baseTotal, JSON.stringify(allocations), user.id, now);
+    const insertLine = db.prepare(`
+      INSERT INTO landed_cost_lines (
+        id, org_id, landed_cost_allocation_id, po_id, purchase_order_line_id,
+        amount, basis, quantity, subtotal, unit_cost_delta, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `);
+    for (const a of allocations) {
+      insertLine.run(
+        newId("lcl"),
+        user.org_id,
+        id,
+        poId,
+        a.lineId,
+        a.amount,
+        a.basis,
+        a.quantity,
+        a.subtotal,
+        a.unitCostAdjustment,
+        now
+      );
+    }
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
   }
-  return { id, poId, kind, amount, allocationMethod: method, allocations, totalAllocated, createdAt: now };
+  return {
+    id,
+    poId,
+    kind,
+    amount,
+    currency: String(body.currency || "AMD").toUpperCase(),
+    fxRate: Number(body.fxRate) || 1,
+    allocationMethod: method,
+    baseTotal,
+    allocated: allocations,
+    allocations: allocations.map(item => ({ ...item, allocated: item.amount })),
+    totalAllocated,
+    createdAt: now
+  };
+}
+
+function landedCostBasisForLine(line, allocationBasis) {
+  return allocationBasis === "value"
+    ? Math.max(0, Number(line.subtotal || 0))
+    : Math.max(0, Number(line.quantity || 0));
+}
+
+function allocateIntegerShares(lines, amount, allocationBasis) {
+  const baseTotal = lines.reduce((s, item) => s + landedCostBasisForLine(item, allocationBasis), 0);
+  const weighted = lines.map((line, index) => {
+    const basis = landedCostBasisForLine(line, allocationBasis);
+    const raw = basis > 0 ? (amount * basis) : 0;
+    const floored = Math.floor(raw / baseTotal);
+    return {
+      line,
+      index,
+      basis,
+      floored,
+      remainder: raw - (floored * baseTotal)
+    };
+  });
+  let allocatedTotal = weighted.reduce((sum, item) => sum + item.floored, 0);
+  const byRemainder = [...weighted].sort((a, b) => b.remainder - a.remainder || a.index - b.index);
+  for (let i = 0; allocatedTotal < amount && i < byRemainder.length; i += 1) {
+    byRemainder[i].floored += 1;
+    allocatedTotal += 1;
+  }
+  return weighted
+    .sort((a, b) => a.index - b.index)
+    .map(item => ({
+      lineId: item.line.id,
+      amount: item.floored,
+      basis: item.basis,
+      quantity: item.line.quantity,
+      subtotal: item.line.subtotal,
+      unitCostAdjustment: Math.round(item.floored / Math.max(1, Number(item.line.quantity || 0)))
+    }));
 }
 
 function isPeriodOpen(db, orgId, period) {

@@ -74,7 +74,7 @@ Source: [the reference ERP Purchase](https://www.the reference ERP.com/documenta
 
 Comparison to A1:
 
-- This remains one of A1's largest ERP gaps, but the first catalog/inventory/purchase spine is now shipped: product master rows, stock locations, stock balances, governed stock moves, Suite sidebar Inventory and Purchase workspaces, RFQ/PO -> partial/full receipt -> supplier return -> AP bill flow, billed-return credit notes with AP reversal evidence, first vendor master/pricelist defaults, receipt and return evidence, procurement analytics, and Vendor 360 coverage/backlog panels. A1 still lacks warehouse operations depth, replenishment, valuation accounting, lots/serials, advanced vendor lifecycle/pricelist rules, tenders/blanket orders, landed costs, and replenishment analytics.
+- This remains one of A1's largest ERP gaps, but the first catalog/inventory/purchase spine is now shipped: product master rows, stock locations, stock balances, governed stock moves, Suite sidebar Inventory and Purchase workspaces, RFQ/PO -> partial/full receipt -> supplier return -> AP bill flow, billed-return credit notes with AP reversal evidence, pre-receipt landed-cost allocation evidence for receipt valuation, first vendor master/pricelist defaults, receipt and return evidence, procurement analytics, and Vendor 360 coverage/backlog panels. A1 still lacks warehouse operations depth, replenishment, valuation accounting, lots/serials, advanced vendor lifecycle/pricelist rules, tenders/blanket orders, post-receipt landed-cost revaluation/accounting, and replenishment analytics.
 - This should be the first major post-core module because it connects CRM quotes, finance invoices, eCommerce, POS, and Armenian retail/wholesale needs.
 
 ### Manufacturing, Quality, Maintenance, PLM, And Repairs
@@ -223,7 +223,7 @@ Major A1 gaps relative to the reference ERP:
 |---|---|---|---|
 | Product catalog | Products, variants, UoM, pricelists, discounts, margins | Shipped core product master + quote-line integration + Catalog & Inventory UI + governed UoM catalog + seeded variant spine + margin evidence + first sales pricelist spine + first sales discount evidence + first margin-rule evidence + read-only price resolution + quote-line resolver consumption + variant-aware quote lines + quote-line pricing evidence + quote-line pricing evidence UI + first quantity-break discount evidence + first category-scoped margin-rule evidence + quote-line margin-rule provenance; advanced configurable discount and margin-rule management still missing | P0 |
 | Inventory/WMS | Warehouses, locations, stock moves, lots/serials, replenishment, valuation | Shipped core locations/quants/moves + sidebar workspace; advanced WMS and valuation still missing | P0 |
-| Purchase/procurement | RFQ, PO, vendor pricelists, tender/blanket orders, vendor bills | Shipped RFQ/PO -> partial/full receipt -> supplier return -> AP bill spine plus billed-return credit-note/AP reversal evidence, first Purchase sidebar workspace, vendor/pricelist defaults, receipt/return evidence, procurement analytics, and Vendor 360; tenders, advanced vendor lifecycle, landed costs, and replenishment analytics still missing | P0 |
+| Purchase/procurement | RFQ, PO, vendor pricelists, tender/blanket orders, vendor bills | Shipped RFQ/PO -> partial/full receipt -> supplier return -> AP bill spine plus billed-return credit-note/AP reversal evidence, pre-receipt landed-cost allocation evidence for receipt valuation, first Purchase sidebar workspace, vendor/pricelist defaults, receipt/return evidence, procurement analytics, and Vendor 360; tenders, advanced vendor lifecycle, post-receipt landed-cost revaluation/accounting, and replenishment analytics still missing | P0 |
 | POS | Browser POS, offline mode, cash sessions, stock sync, receipts | Missing | P1 |
 | eCommerce/portal | Storefront, checkout, B2B/B2C, customer accounts | Public forms/quotes only | P1 |
 | Manufacturing/MRP | BoM, work orders, shop floor, MPS, quality, maintenance | Missing | P2 |
@@ -293,7 +293,7 @@ Deliverables:
   - vendors, vendor pricelists, RFQ, purchase order, receiving, vendor bill generation.
   - PO -> partial/full stock receipts -> AP bill -> payment.
   - Shipped core backend, first sidebar workspace, vendor/pricelist defaults, procurement analytics, and first supplier returns on 2026-06-06: RFQ/PO records, confirmation, partial/full receipt to `WH/STOCK`, unbilled return from `WH/STOCK` to `SUPPLIERS`, AP bill generation after full net receipt, receipt/return evidence, idempotency, role gates, period-lock reuse, backup inclusion, RFQ creation, progression controls, vendor creation, vendor-price default costing, Vendor 360, price coverage, returned quantity, and receipt backlog.
-  - procurement expense allocation and landed-cost stub.
+  - Pre-receipt landed-cost allocation evidence for receipt valuation; post-receipt revaluation/accounting remains future scope.
 - Armenian localization:
   - Armenian supplier fields and ՀՎՀՀ.
   - Armenian PO and delivery-note templates.
@@ -521,7 +521,7 @@ Acceptance:
 
 1. Product catalog and localization kernel.
 2. Inventory core.
-3. Purchase/procurement first spine, sidebar workspace, vendor/pricelist defaults, partial receipts, supplier returns, billed-return credit notes, and Vendor 360 analytics (shipped incrementally from 2026-06-06); next: landed costs, tenders/blanket orders, and replenishment analytics.
+3. Purchase/procurement first spine, sidebar workspace, vendor/pricelist defaults, partial receipts, supplier returns, billed-return credit notes, pre-receipt landed-cost evidence, and Vendor 360 analytics (shipped incrementally from 2026-06-06); next: tenders/blanket-order depth, post-receipt landed-cost revaluation/accounting, and replenishment analytics.
 4. Sales orders and product-aware quotes.
 5. POS with Armenian fiscal evidence.
 6. Customer portal and eCommerce.
@@ -595,10 +595,11 @@ Implementation:
   - Added partial receipt status, receipt history, over-receipt guards, idempotent receipt references, and UI receive-quantity controls.
   - Added procurement analytics endpoint and Purchase workspace Vendor 360 panel with receipt progress, usable active-price coverage, active covered items, returned quantity, top vendor performance, and confirmed/partial receipt backlog.
   - Added unbilled supplier returns with `WH/STOCK -> SUPPLIERS` stock moves, return evidence, status rollback, idempotent references, backup inclusion, analytics returned quantity, and Purchase workspace Return controls.
+  - Added pre-receipt landed-cost allocation evidence with durable header/line rows, Purchase detail/read-model exposure, backup inclusion, and landed-inclusive receipt stock-move valuation.
   - Auditor read-only coverage, backup inclusion, period-lock blocking, sanitized malformed metadata/path guards, duplicate PO-number `409`, app-assignment role guards, and idempotent retries are covered by tests.
 - Remaining:
   - Advanced vendor lifecycle/pricelist rules.
-  - Landed costs, tenders/blanket orders, replenishment analytics, and purchase-to-sales demand suggestions.
+  - Tenders/blanket-order depth, post-receipt landed-cost revaluation/accounting, replenishment analytics, and purchase-to-sales demand suggestions.
 
 ## Localization Checklist
 

@@ -134,13 +134,123 @@ test("procurement/landed-costs allocates by value to PO lines", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
     await app.ready();
+    const orgId = "org-armosphera-demo";
     const { cookie, orderId } = await seedPurchaseFixtures(app);
     const res = await app.inject({ method: "POST", url: "/api/procurement/landed-costs", headers: { cookie },
       payload: { poId: orderId, kind: "freight", amount: 50000, currency: "AMD", allocationMethod: "value", idempotencyKey: "lc-1" } });
     assert.strictEqual(res.statusCode, 200, res.body);
     const body = res.json();
+    assert.ok(body.landed.id);
+    assert.strictEqual(body.landed.id, body.allocation.id);
+    assert.strictEqual(body.landed.poId, orderId);
+    assert.strictEqual(body.landed.totalAllocated, 50000);
+    assert.strictEqual(body.landed.allocated.reduce((sum, item) => sum + item.amount, 0), 50000);
     assert.ok(body.allocation.allocations.length >= 1);
     assert.ok(body.allocation.totalAllocated === 50000);
+    assert.strictEqual(body.allocation.allocations.reduce((sum, item) => sum + item.allocated, 0), 50000);
+    const stored = app.db.prepare("SELECT allocation_json FROM landed_cost_allocations WHERE org_id = ? AND po_id = ?").get(orgId, orderId);
+    assert.ok(stored);
+    assert.deepStrictEqual(JSON.parse(stored.allocation_json), body.landed.allocated);
+    const lineRows = app.db.prepare(`
+      SELECT *
+      FROM landed_cost_lines
+      WHERE org_id = ? AND po_id = ?
+      ORDER BY created_at, id
+    `).all(orgId, orderId);
+    assert.strictEqual(lineRows.length, body.landed.allocated.length);
+    assert.strictEqual(lineRows.reduce((sum, item) => sum + item.amount, 0), 50000);
+    assert.strictEqual(lineRows[0].landed_cost_allocation_id, body.landed.id);
+    assert.strictEqual(lineRows[0].purchase_order_line_id, body.landed.allocated[0].lineId);
+    assert.strictEqual(lineRows[0].unit_cost_delta, body.landed.allocated[0].unitCostAdjustment);
+
+    const orders = await app.inject({ method: "GET", url: "/api/purchase/orders", headers: { cookie } });
+    assert.strictEqual(orders.statusCode, 200, orders.body);
+    const order = orders.json().orders.find(item => item.id === orderId);
+    assert.strictEqual(order.landedCostCount, 1);
+    assert.strictEqual(order.landedCostAmount, 50000);
+    assert.strictEqual(order.landedCosts[0].id, body.landed.id);
+    assert.strictEqual(order.landedCosts[0].allocated[0].amount, body.landed.allocated[0].amount);
+    assert.strictEqual(order.landedCosts[0].allocated[0].landedCostId, body.landed.id);
+    assert.strictEqual(order.lines[0].landedCostAmount, 50000);
+    assert.strictEqual(order.lines[0].landedUnitCostDelta, 5000);
+    assert.strictEqual(order.lines[0].effectiveUnitCost, 105000);
+    assert.strictEqual(order.lines[0].landedCosts[0].landedCostId, body.landed.id);
+
+    const detail = await app.inject({ method: "GET", url: `/api/purchase/orders/${orderId}`, headers: { cookie } });
+    assert.strictEqual(detail.statusCode, 200, detail.body);
+    const detailOrder = detail.json();
+    assert.strictEqual(detailOrder.id, orderId);
+    assert.strictEqual(detailOrder.landedCostAmount, 50000);
+    assert.strictEqual(detailOrder.lines[0].effectiveUnitCost, 105000);
+
+    const confirmed = await app.inject({ method: "POST", url: `/api/purchase/orders/${orderId}/confirm`, headers: { cookie }, payload: {} });
+    assert.strictEqual(confirmed.statusCode, 200, confirmed.body);
+    const received = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${orderId}/receive`,
+      headers: { cookie },
+      payload: {
+        receivedAt: "2026-06-12",
+        reference: "LC-RECEIPT-1",
+        lines: [{ lineId: detailOrder.lines[0].id, quantity: 10 }]
+      }
+    });
+    assert.strictEqual(received.statusCode, 200, received.body);
+    assert.strictEqual(received.json().stockMoves[0].unitCost, 105000);
+    assert.strictEqual(received.json().stockMoves[0].totalCost, 1050000);
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${orderId}/landed-costs`,
+      headers: { cookie },
+      payload: { kind: "insurance", amount: 1000, currency: "AMD", allocationMethod: "value", idempotencyKey: "lc-after-receipt" }
+    });
+    assert.strictEqual(blocked.statusCode, 409, blocked.body);
+
+    const analytics = await app.inject({ method: "GET", url: "/api/purchase/analytics", headers: { cookie } });
+    assert.strictEqual(analytics.statusCode, 200, analytics.body);
+    assert.strictEqual(analytics.json().summary.landedCostAmount, 50000);
+    assert.strictEqual(analytics.json().summary.landedCostCount, 1);
+
+    const backup = await app.inject({ method: "POST", url: "/api/admin/backups", headers: { cookie }, payload: { note: "landed cost backup evidence" } });
+    assert.strictEqual(backup.statusCode, 200, backup.body);
+    assert.ok(backup.json().backup.payload.tables.landed_cost_allocations.some(item => item.id === body.landed.id && item.po_id === orderId));
+    assert.ok(backup.json().backup.payload.tables.landed_cost_lines.some(item => item.landed_cost_allocation_id === body.landed.id && item.po_id === orderId));
+  } finally { await app.close(); }
+});
+
+test("purchase/order landed-cost route returns updated purchase order evidence", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const { cookie, orderId } = await seedPurchaseFixtures(app);
+    const res = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${orderId}/landed-costs`,
+      headers: { cookie },
+      payload: { kind: "customs", amount: 25000, currency: "AMD", allocationMethod: "quantity", idempotencyKey: "po-lc-1" }
+    });
+    assert.strictEqual(res.statusCode, 200, res.body);
+    const body = res.json();
+    assert.strictEqual(body.ok, true);
+    assert.strictEqual(body.landed.id, body.allocation.id);
+    assert.strictEqual(body.order.id, orderId);
+    assert.strictEqual(body.order.landedCostCount, 1);
+    assert.strictEqual(body.order.landedCostAmount, 25000);
+    assert.strictEqual(body.order.lines[0].landedCostAmount, 25000);
+    assert.strictEqual(body.order.lines[0].landedUnitCostDelta, 2500);
+    assert.strictEqual(body.order.lines[0].effectiveUnitCost, 102500);
+    const replay = await app.inject({
+      method: "POST",
+      url: `/api/purchase/orders/${orderId}/landed-costs`,
+      headers: { cookie },
+      payload: { kind: "customs", amount: 25000, currency: "AMD", allocationMethod: "quantity", idempotencyKey: "po-lc-1" }
+    });
+    assert.strictEqual(replay.statusCode, 200, replay.body);
+    assert.deepStrictEqual(replay.json(), body);
+    const storedKey = app.db.prepare("SELECT key FROM idempotency_keys WHERE org_id = ? AND key = ?")
+      .get("org-armosphera-demo", `purchase-order-landed:${orderId}:po-lc-1`);
+    assert.ok(storedKey);
   } finally { await app.close(); }
 });
 

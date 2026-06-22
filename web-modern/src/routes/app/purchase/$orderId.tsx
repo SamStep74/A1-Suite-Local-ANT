@@ -14,6 +14,7 @@ import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
   ChevronLeft,
+  CircleDollarSign,
   CircleCheck,
   CircleX,
   Clock,
@@ -24,9 +25,16 @@ import { getJson } from "../../../lib/api/client";
 import {
   PurchaseOrderSchema,
   type PurchaseCreditNote,
+  type PurchaseLandedCost,
   type PurchaseOrder,
   type PurchaseOrderLine,
 } from "../../../lib/api/schemas";
+import {
+  allocationMethodLabelAm,
+  isAllocationMethod,
+  isLandedCostKind,
+  landedCostKindLabelAm,
+} from "../../../lib/procurement/status";
 import { cn } from "../../../lib/utils/cn";
 import {
   classifyOrderStatus,
@@ -132,6 +140,7 @@ function PurchaseOrderDetail() {
 
         <aside className="space-y-3 lg:sticky lg:top-4 lg:self-start">
           <PurchaseActionPanel order={order} />
+          <LandedCostsPanel order={order} />
           <ReturnCreditNotesPanel order={order} />
           <OrderMetadata order={order} />
         </aside>
@@ -458,6 +467,110 @@ function PurchaseActionPanel({ order }: { order: PurchaseOrder }) {
         ))}
       </ul>
     </section>
+  );
+}
+
+/* ────────── right rail: read-only landed cost evidence ────────── */
+
+function LandedCostsPanel({ order }: { order: PurchaseOrder }) {
+  const landedCosts = order.landedCosts ?? [];
+  const currency = landedCosts[0]?.currency || order.currency || "AMD";
+  const total = landedCosts.reduce((sum, cost) => sum + Number(cost.amount || 0), 0);
+
+  return (
+    <section
+      className="rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] p-3"
+      aria-labelledby="purchase-landed-costs-heading"
+      data-entity="purchase-landed-cost"
+      data-count={String(landedCosts.length)}
+    >
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <h2
+            id="purchase-landed-costs-heading"
+            className="inline-flex items-center gap-1 text-[var(--text-sm)] font-semibold text-[var(--color-ink)]"
+          >
+            <CircleDollarSign className="size-3.5" /> Landed costs
+          </h2>
+          <p className="mt-0.5 text-[11px] text-[var(--color-muted)]">
+            Receipt valuation evidence
+          </p>
+        </div>
+        <span className="font-mono text-[var(--text-xs)] font-semibold text-[var(--color-tag-green)]">
+          {formatCurrency(total, currency)}
+        </span>
+      </div>
+
+      {landedCosts.length === 0 ? (
+        <p className="mt-3 text-[11px] text-[var(--color-muted)]">
+          No landed costs allocated.
+        </p>
+      ) : (
+        <ul className="mt-3 space-y-2">
+          {landedCosts.map((cost) => (
+            <LandedCostItem key={cost.id} cost={cost} fallbackCurrency={currency} />
+          ))}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function LandedCostItem({
+  cost,
+  fallbackCurrency,
+}: {
+  cost: PurchaseLandedCost;
+  fallbackCurrency: string;
+}) {
+  const method = cost.allocationMethod ?? "";
+  const kindLabel = isLandedCostKind(cost.kind)
+    ? landedCostKindLabelAm(cost.kind)
+    : cost.kind;
+  const methodLabel = method && isAllocationMethod(method)
+    ? allocationMethodLabelAm(method)
+    : method || "method unknown";
+  const allocations = cost.allocated ?? cost.allocations ?? [];
+
+  return (
+    <li className="rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] p-2">
+      <div className="flex items-start justify-between gap-2">
+        <div>
+          <p className="font-mono text-[11px] font-semibold text-[var(--color-ink)]">
+            {cost.id}
+          </p>
+          <p className="mt-0.5 text-[10px] uppercase tracking-wide text-[var(--color-muted)]">
+            {kindLabel} · {methodLabel}
+            {cost.createdAt ? ` · ${cost.createdAt.slice(0, 10)}` : ""}
+          </p>
+        </div>
+        <span className="font-mono text-[var(--text-xs)] font-semibold text-[var(--color-ink)]">
+          {formatCurrency(cost.amount, cost.currency || fallbackCurrency)}
+        </span>
+      </div>
+
+      {allocations.length > 0 && (
+        <ul className="mt-2 space-y-1">
+          {allocations.map((allocation, index) => (
+            <li
+              key={allocation.id ?? `${allocation.lineId}-${index}`}
+              className="grid grid-cols-[minmax(0,1fr)_auto] gap-2 text-[11px]"
+            >
+              <span className="truncate font-mono text-[var(--color-muted)]">
+                {allocation.lineId}
+              </span>
+              <span className="font-mono text-[var(--color-ink)]">
+                {formatCurrency(Number(allocation.amount ?? allocation.allocated ?? 0), cost.currency || fallbackCurrency)}
+              </span>
+              <span className="col-span-2 text-[10px] text-[var(--color-muted)]">
+                qty {allocation.quantity ?? 0} · unit delta{" "}
+                {formatCurrency(Number(allocation.unitCostDelta ?? allocation.unitCostAdjustment ?? 0), cost.currency || fallbackCurrency)}
+              </span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </li>
   );
 }
 

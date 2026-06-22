@@ -1167,6 +1167,23 @@ export const PurchaseVendorsResponseSchema = z.object({
 });
 export type PurchaseVendorsResponse = z.infer<typeof PurchaseVendorsResponseSchema>;
 
+export const PurchaseLandedCostAllocationSchema = z.object({
+  id: z.string().nullable().optional(),
+  landedCostId: z.string().nullable().optional(),
+  purchaseOrderLineId: z.string().nullable().optional(),
+  lineId: z.string(),
+  amount: z.number().nullable().optional(),
+  allocated: z.number().nullable().optional(),
+  basis: z.number().nullable().optional(),
+  quantity: z.number().nullable().optional(),
+  subtotal: z.number().nullable().optional(),
+  unitCostDelta: z.number().nullable().optional(),
+  unitCostAdjustment: z.number().nullable().optional(),
+}).passthrough();
+export type PurchaseLandedCostAllocation = z.infer<
+  typeof PurchaseLandedCostAllocationSchema
+>;
+
 /** A purchase order line. Source: #formatPurchaseOrderLine. */
 export const PurchaseOrderLineSchema = z.object({
   id: z.string(),
@@ -1181,10 +1198,15 @@ export const PurchaseOrderLineSchema = z.object({
   receivedQuantity: z.number().nullable().optional(),
   returnedQuantity: z.number().nullable().optional(),
   remainingQuantity: z.number().nullable().optional(),
+  returnableQuantity: z.number().nullable().optional(),
   unitCost: z.number().nullable().optional(),
+  landedCostAmount: z.number().nullable().optional(),
+  landedUnitCostDelta: z.number().nullable().optional(),
+  effectiveUnitCost: z.number().nullable().optional(),
   subtotal: z.number().nullable().optional(),
   vat: z.number().nullable().optional(),
   total: z.number().nullable().optional(),
+  landedCosts: z.array(PurchaseLandedCostAllocationSchema).optional(),
 }).passthrough();
 export type PurchaseOrderLine = z.infer<typeof PurchaseOrderLineSchema>;
 
@@ -1203,6 +1225,23 @@ export const PurchaseCreditNoteSchema = z.object({
   createdAt: z.string().nullable().optional(),
 }).passthrough();
 export type PurchaseCreditNote = z.infer<typeof PurchaseCreditNoteSchema>;
+
+export const PurchaseLandedCostSchema = z.object({
+  id: z.string(),
+  poId: z.string(),
+  kind: z.string(),
+  amount: z.number(),
+  currency: z.string(),
+  fxRate: z.number().nullable().optional(),
+  allocationMethod: z.string().nullable().optional(),
+  baseTotal: z.number().nullable().optional(),
+  allocated: z.array(PurchaseLandedCostAllocationSchema).optional(),
+  allocations: z.array(PurchaseLandedCostAllocationSchema).optional(),
+  totalAllocated: z.number().nullable().optional(),
+  createdByName: z.string().nullable().optional(),
+  createdAt: z.string().nullable().optional(),
+}).passthrough();
+export type PurchaseLandedCost = z.infer<typeof PurchaseLandedCostSchema>;
 
 export const PurchaseOrderStatus = z.enum([
   "draft",
@@ -1240,6 +1279,7 @@ export const PurchaseOrderSchema = z.object({
   updatedAt: z.string().nullable().optional(),
   lines: z.array(PurchaseOrderLineSchema).optional(),
   creditNotes: z.array(PurchaseCreditNoteSchema).optional(),
+  landedCosts: z.array(PurchaseLandedCostSchema).optional(),
 }).passthrough();
 export type PurchaseOrder = z.infer<typeof PurchaseOrderSchema>;
 
@@ -1266,6 +1306,8 @@ export const PurchaseAnalyticsSummarySchema = z.object({
   stockableCatalogItemCount: z.number().nullable().optional(),
   returnCreditNoteCount: z.number().nullable().optional(),
   returnCreditNoteAmount: z.number().nullable().optional(),
+  landedCostCount: z.number().nullable().optional(),
+  landedCostAmount: z.number().nullable().optional(),
 }).passthrough();
 export type PurchaseAnalyticsSummary = z.infer<typeof PurchaseAnalyticsSummarySchema>;
 

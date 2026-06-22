@@ -190,6 +190,69 @@ const CREDITED_ORDER = {
   ],
 };
 
+const LANDED_COST_ORDER = {
+  ...DRAFT_ORDER,
+  id: "ord-5",
+  orderNumber: "PO-0005",
+  status: "confirmed",
+  landedCostCount: 1,
+  landedCostAmount: 50_000,
+  lines: [
+    {
+      ...DRAFT_ORDER.lines[0],
+      id: "line-5",
+      purchaseOrderId: "ord-5",
+      landedCostAmount: 50_000,
+      landedUnitCostDelta: 5_000,
+      effectiveUnitCost: 105_000,
+      landedCosts: [
+        {
+          id: "lcl-1",
+          landedCostId: "lca-1",
+          purchaseOrderLineId: "line-5",
+          lineId: "line-5",
+          amount: 50_000,
+          allocated: 50_000,
+          basis: 1_000_000,
+          quantity: 10,
+          subtotal: 1_000_000,
+          unitCostDelta: 5_000,
+          unitCostAdjustment: 5_000,
+        },
+      ],
+    },
+  ],
+  landedCosts: [
+    {
+      id: "lca-1",
+      poId: "ord-5",
+      kind: "freight",
+      amount: 50_000,
+      currency: "AMD",
+      fxRate: 1,
+      allocationMethod: "value",
+      baseTotal: 1_000_000,
+      totalAllocated: 50_000,
+      allocated: [
+        {
+          id: "lcl-1",
+          landedCostId: "lca-1",
+          purchaseOrderLineId: "line-5",
+          lineId: "line-5",
+          amount: 50_000,
+          allocated: 50_000,
+          basis: 1_000_000,
+          quantity: 10,
+          subtotal: 1_000_000,
+          unitCostDelta: 5_000,
+          unitCostAdjustment: 5_000,
+        },
+      ],
+      createdAt: "2026-06-22T09:40:00.000Z",
+    },
+  ],
+};
+
 /* ────────── per-test reset ────────── */
 
 beforeEach(() => {
@@ -340,6 +403,23 @@ describe("PurchaseOrderDetail — right rail", () => {
     expect(within(panel).getByText("bill-1")).toBeInTheDocument();
     expect(within(panel).getByText("ret-1")).toBeInTheDocument();
     expect(within(panel).getByText("le-1, le-2")).toBeInTheDocument();
+    expect(within(panel).queryByRole("button")).toBeNull();
+  });
+  it("renders read-only landed-cost allocation evidence", () => {
+    mocks.order = LANDED_COST_ORDER;
+    mocks.params = { orderId: "ord-5" };
+    renderRoute();
+
+    const marker = document.querySelector('[data-entity="purchase-landed-cost"]');
+    expect(marker).not.toBeNull();
+    expect(marker?.getAttribute("data-count")).toBe("1");
+
+    const heading = screen.getByRole("heading", { name: /Landed costs/i });
+    const panel = heading.closest("section") as HTMLElement;
+    expect(within(panel).getByText("lca-1")).toBeInTheDocument();
+    expect(within(panel).getAllByText(/50\s*000/).length).toBeGreaterThan(0);
+    expect(within(panel).getByText("line-5")).toBeInTheDocument();
+    expect(within(panel).getByText(/unit delta/)).toBeInTheDocument();
     expect(within(panel).queryByRole("button")).toBeNull();
   });
 });

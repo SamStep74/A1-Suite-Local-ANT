@@ -909,6 +909,15 @@ function registerApi(app, db, options = {}) {
     return { orders: getPurchaseOrders(db, user.org_id) };
   });
 
+  app.get("/api/purchase/orders/:id", async request => {
+    const user = await app.auth(request);
+    requirePurchaseReader(user);
+    const orderId = normalizePurchasePathId(request.params.id);
+    const order = getPurchaseOrder(db, user.org_id, orderId);
+    if (!order) throwPurchaseOrderNotFound();
+    return order;
+  });
+
   app.get("/api/purchase/vendors", async request => {
     const user = await app.auth(request);
     requirePurchaseReader(user);
@@ -952,6 +961,23 @@ function registerApi(app, db, options = {}) {
     requirePurchaseWriter(user);
     const orderId = normalizePurchasePathId(request.params.id);
     return returnPurchaseOrder(db, user, orderId, request.body === undefined ? {} : request.body);
+  });
+
+  app.post("/api/purchase/orders/:id/landed-costs", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    const orderId = normalizePurchasePathId(request.params.id);
+    const body = request.body || {};
+    const idem = String(body.idempotencyKey || "").trim();
+    if (!idem) { const err = new Error("idempotencyKey is required"); err.statusCode = 400; throw err; }
+    const idemStorageKey = `purchase-order-landed:${orderId}:${idem}`;
+    const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idemStorageKey);
+    if (existing) return JSON.parse(existing.response_json);
+    const allocation = procurement.allocateLandedCost(db, user, { ...body, poId: orderId });
+    const envelope = { ok: true, landed: allocation, allocation, order: getPurchaseOrder(db, user.org_id, orderId) };
+    db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idemStorageKey, JSON.stringify(envelope), new Date().toISOString());
+    audit(db, user.org_id, user.id, "purchase.order.landed_cost_allocated", { orderId, kind: body.kind, amount: body.amount, totalAllocated: allocation.totalAllocated, idempotencyKey: idem });
+    return envelope;
   });
 
   app.post("/api/purchase/orders/:id/bill", async request => {
@@ -1055,7 +1081,7 @@ function registerApi(app, db, options = {}) {
     const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
     if (existing) return JSON.parse(existing.response_json);
     const allocation = procurement.allocateLandedCost(db, user, body);
-    const envelope = { ok: true, allocation };
+    const envelope = { ok: true, allocation, landed: allocation };
     db.prepare("INSERT OR IGNORE INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
     audit(db, user.org_id, user.id, "procurement.landed_cost.allocated", { poId: body.poId, kind: body.kind, amount: body.amount, totalAllocated: allocation.totalAllocated, idempotencyKey: idem });
     return envelope;
@@ -46683,6 +46709,8 @@ const ORG_BACKUP_TABLES = [
   "purchase_receipts",
   "purchase_returns",
   "purchase_credit_notes",
+  "landed_cost_allocations",
+  "landed_cost_lines",
   "integration_connectors",
   "integration_connector_checks",
   "pilot_template_installs",
@@ -54562,7 +54590,7 @@ function getPurchaseOrders(db, orgId) {
     LEFT JOIN users ON users.id = purchase_orders.created_by_user_id
     WHERE purchase_orders.org_id = ?
     ORDER BY purchase_orders.order_date DESC, purchase_orders.created_at DESC
-  `).all(orgId).map(row => formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id), getPurchaseCreditNotesForOrder(db, orgId, row.id)));
+  `).all(orgId).map(row => formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id), getPurchaseCreditNotesForOrder(db, orgId, row.id), getPurchaseLandedCostsForOrder(db, orgId, row.id)));
 }
 
 function getPurchaseOrder(db, orgId, orderId) {
@@ -54576,7 +54604,7 @@ function getPurchaseOrder(db, orgId, orderId) {
     LEFT JOIN users ON users.id = purchase_orders.created_by_user_id
     WHERE purchase_orders.org_id = ? AND purchase_orders.id = ?
   `).get(orgId, orderId);
-  return row ? formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id), getPurchaseCreditNotesForOrder(db, orgId, row.id)) : null;
+  return row ? formatPurchaseOrder(row, getPurchaseOrderLines(db, orgId, row.id), getPurchaseCreditNotesForOrder(db, orgId, row.id), getPurchaseLandedCostsForOrder(db, orgId, row.id)) : null;
 }
 
 function getPurchaseAnalytics(db, orgId) {
@@ -54593,6 +54621,8 @@ function getPurchaseAnalytics(db, orgId) {
   const receivableStats = summarizePurchaseLines(receivableOrders);
   const creditNoteAmount = orders.reduce((total, order) => total + Number(order.creditNoteAmount || 0), 0);
   const creditNoteCount = orders.reduce((total, order) => total + Number(order.creditNoteCount || 0), 0);
+  const landedCostAmount = orders.reduce((total, order) => total + Number(order.landedCostAmount || 0), 0);
+  const landedCostCount = orders.reduce((total, order) => total + Number(order.landedCostCount || 0), 0);
   const summary = {
     orderCount: orders.length,
     vendorCount: vendors.length,
@@ -54601,6 +54631,8 @@ function getPurchaseAnalytics(db, orgId) {
     billedValue: orders.filter(order => order.status === "billed").reduce((total, order) => total + Number(order.total || 0), 0),
     returnCreditNoteAmount: creditNoteAmount,
     returnCreditNoteCount: creditNoteCount,
+    landedCostAmount,
+    landedCostCount,
     receiptProgressPercent: percent(receivableStats.receivedQuantity, receivableStats.orderedQuantity),
     returnedQuantity: lineStats.returnedQuantity,
     remainingQuantity: receivableStats.remainingQuantity,
@@ -54736,6 +54768,7 @@ function percent(numerator, denominator) {
 function getPurchaseOrderLines(db, orgId, orderId) {
   const receiptsByLine = getPurchaseReceiptsByLine(db, orgId, orderId);
   const returnsByLine = getPurchaseReturnsByLine(db, orgId, orderId);
+  const landedCostsByLine = getPurchaseLandedCostsByLine(db, orgId, orderId);
   return db.prepare(`
     SELECT purchase_order_lines.*, catalog_items.sku AS catalog_sku,
       catalog_items.name AS catalog_name, catalog_items.unit_of_measure AS unit_of_measure,
@@ -54747,7 +54780,7 @@ function getPurchaseOrderLines(db, orgId, orderId) {
       AND stock_moves.org_id = purchase_order_lines.org_id
     WHERE purchase_order_lines.org_id = ? AND purchase_order_lines.purchase_order_id = ?
     ORDER BY purchase_order_lines.created_at, purchase_order_lines.id
-  `).all(orgId, orderId).map(row => formatPurchaseOrderLine(row, receiptsByLine.get(row.id) || [], returnsByLine.get(row.id) || []));
+  `).all(orgId, orderId).map(row => formatPurchaseOrderLine(row, receiptsByLine.get(row.id) || [], returnsByLine.get(row.id) || [], landedCostsByLine.get(row.id) || []));
 }
 
 function getPurchaseReceiptsByLine(db, orgId, orderId) {
@@ -54792,6 +54825,27 @@ function getPurchaseReturnsByLine(db, orgId, orderId) {
   return byLine;
 }
 
+function getPurchaseLandedCostsByLine(db, orgId, orderId) {
+  const rows = db.prepare(`
+    SELECT landed_cost_lines.*, landed_cost_allocations.kind,
+      landed_cost_allocations.currency, landed_cost_allocations.allocation_method,
+      landed_cost_allocations.created_at AS allocation_created_at
+    FROM landed_cost_lines
+    JOIN landed_cost_allocations ON landed_cost_allocations.id = landed_cost_lines.landed_cost_allocation_id
+      AND landed_cost_allocations.org_id = landed_cost_lines.org_id
+    WHERE landed_cost_lines.org_id = ? AND landed_cost_lines.po_id = ?
+    ORDER BY landed_cost_lines.created_at, landed_cost_lines.id
+  `).all(orgId, orderId);
+  const byLine = new Map();
+  for (const row of rows) {
+    const evidence = formatPurchaseLandedCostLine(row);
+    const items = byLine.get(evidence.purchaseOrderLineId) || [];
+    items.push(evidence);
+    byLine.set(evidence.purchaseOrderLineId, items);
+  }
+  return byLine;
+}
+
 function getPurchaseCreditNotesForOrder(db, orgId, orderId) {
   return db.prepare(`
     SELECT purchase_credit_notes.*, users.name AS created_by_name,
@@ -54828,12 +54882,37 @@ function getPurchaseCreditNotesByReturnIds(db, orgId, returnIds) {
   `).all(orgId, ...ids).map(formatPurchaseCreditNote);
 }
 
-function formatPurchaseOrder(row, lines = [], creditNotes = []) {
+function getPurchaseLandedCostsForOrder(db, orgId, orderId) {
+  return db.prepare(`
+    SELECT landed_cost_allocations.*, users.name AS created_by_name
+    FROM landed_cost_allocations
+    LEFT JOIN users ON users.id = landed_cost_allocations.created_by_user_id
+      AND users.org_id = landed_cost_allocations.org_id
+    WHERE landed_cost_allocations.org_id = ? AND landed_cost_allocations.po_id = ?
+    ORDER BY landed_cost_allocations.created_at, landed_cost_allocations.id
+  `).all(orgId, orderId).map(row => formatPurchaseLandedCost(row, getPurchaseLandedCostLinesForAllocation(db, orgId, row.id)));
+}
+
+function getPurchaseLandedCostLinesForAllocation(db, orgId, allocationId) {
+  return db.prepare(`
+    SELECT landed_cost_lines.*, landed_cost_allocations.kind,
+      landed_cost_allocations.currency, landed_cost_allocations.allocation_method,
+      landed_cost_allocations.created_at AS allocation_created_at
+    FROM landed_cost_lines
+    JOIN landed_cost_allocations ON landed_cost_allocations.id = landed_cost_lines.landed_cost_allocation_id
+      AND landed_cost_allocations.org_id = landed_cost_lines.org_id
+    WHERE landed_cost_lines.org_id = ? AND landed_cost_lines.landed_cost_allocation_id = ?
+    ORDER BY landed_cost_lines.created_at, landed_cost_lines.id
+  `).all(orgId, allocationId).map(formatPurchaseLandedCostLine);
+}
+
+function formatPurchaseOrder(row, lines = [], creditNotes = [], landedCosts = []) {
   const orderedQuantity = lines.reduce((total, line) => total + Number(line.quantity || 0), 0);
   const receivedQuantity = lines.reduce((total, line) => total + Number(line.receivedQuantity || 0), 0);
   const returnedQuantity = lines.reduce((total, line) => total + Number(line.returnedQuantity || 0), 0);
   const remainingQuantity = Math.max(0, orderedQuantity - receivedQuantity);
   const creditNoteAmount = creditNotes.reduce((total, note) => total + Number(note.amount || 0), 0);
+  const landedCostAmount = landedCosts.reduce((total, cost) => total + Number(cost.amount || 0), 0);
   return {
     id: row.id,
     vendorId: row.vendor_id || "",
@@ -54861,19 +54940,24 @@ function formatPurchaseOrder(row, lines = [], creditNotes = []) {
     returnCount: lines.reduce((total, line) => total + (line.returns?.length || 0), 0),
     creditNoteCount: creditNotes.length,
     creditNoteAmount,
+    landedCostCount: landedCosts.length,
+    landedCostAmount,
     note: row.note || "",
     createdByUserId: row.created_by_user_id,
     createdByName: row.created_by_name || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
     lines,
-    creditNotes
+    creditNotes,
+    landedCosts
   };
 }
 
-function formatPurchaseOrderLine(row, receipts = [], returns = []) {
+function formatPurchaseOrderLine(row, receipts = [], returns = [], landedCosts = []) {
   const remainingQuantity = Math.max(0, row.quantity - row.received_quantity);
   const returnedQuantity = returns.reduce((total, item) => total + Number(item.quantity || 0), 0);
+  const landedCostAmount = landedCosts.reduce((total, item) => total + Number(item.amount || 0), 0);
+  const landedUnitCostDelta = landedCosts.reduce((total, item) => total + Number(item.unitCostDelta || 0), 0);
   return {
     id: row.id,
     purchaseOrderId: row.purchase_order_id,
@@ -54889,6 +54973,9 @@ function formatPurchaseOrderLine(row, receipts = [], returns = []) {
     remainingQuantity,
     returnableQuantity: row.received_quantity,
     unitCost: row.unit_cost,
+    landedCostAmount,
+    landedUnitCostDelta,
+    effectiveUnitCost: row.unit_cost + landedUnitCostDelta,
     subtotal: row.subtotal,
     vat: row.vat,
     total: row.total,
@@ -54896,6 +54983,7 @@ function formatPurchaseOrderLine(row, receipts = [], returns = []) {
     stockMoveReference: row.stock_move_reference || "",
     receipts,
     returns,
+    landedCosts,
     createdAt: row.created_at
   };
 }
@@ -54952,6 +55040,64 @@ function formatPurchaseCreditNote(row) {
     createdByName: row.created_by_name || "",
     createdAt: row.created_at
   };
+}
+
+function formatPurchaseLandedCostLine(row) {
+  return {
+    id: row.id,
+    landedCostId: row.landed_cost_allocation_id,
+    purchaseOrderLineId: row.purchase_order_line_id,
+    lineId: row.purchase_order_line_id,
+    amount: row.amount,
+    allocated: row.amount,
+    basis: row.basis,
+    quantity: row.quantity,
+    subtotal: row.subtotal,
+    unitCostDelta: row.unit_cost_delta,
+    unitCostAdjustment: row.unit_cost_delta,
+    kind: row.kind || "",
+    currency: row.currency || "",
+    allocationMethod: row.allocation_method || "",
+    createdAt: row.created_at || row.allocation_created_at || ""
+  };
+}
+
+function formatPurchaseLandedCost(row, allocatedRows = []) {
+  const allocated = allocatedRows.length > 0
+    ? allocatedRows
+    : normalizePurchaseLandedCostAllocations(row.allocation_json);
+  return {
+    id: row.id,
+    poId: row.po_id,
+    kind: row.kind,
+    amount: row.amount,
+    currency: row.currency,
+    fxRate: row.fx_rate,
+    allocationMethod: row.allocation_method,
+    baseTotal: row.base_total,
+    allocated,
+    allocations: allocated.map(item => ({ ...item, allocated: item.amount })),
+    totalAllocated: allocated.reduce((total, item) => total + Number(item.amount || 0), 0) || row.amount,
+    createdByUserId: row.created_by_user_id || "",
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at
+  };
+}
+
+function normalizePurchaseLandedCostAllocations(value) {
+  const rows = safeJson(value);
+  if (!Array.isArray(rows)) return [];
+  return rows
+    .filter(item => item && typeof item === "object" && item.lineId)
+    .map(item => ({
+      lineId: String(item.lineId),
+      amount: Number(item.amount ?? item.allocated ?? 0),
+      basis: Number(item.basis || 0),
+      quantity: Number(item.quantity || 0),
+      subtotal: Number(item.subtotal || 0),
+      unitCostDelta: Number(item.unitCostDelta ?? item.unitCostAdjustment ?? 0),
+      unitCostAdjustment: Number(item.unitCostAdjustment ?? item.unitCostDelta ?? 0)
+    }));
 }
 
 function createPurchaseOrder(db, user, body) {
@@ -55124,7 +55270,7 @@ function receivePurchaseOrder(db, user, orderId, body) {
         destinationLocationId: mainWarehouse.id,
         moveType: "receipt",
         quantity: line.receiptQuantity,
-        unitCost: line.unitCost,
+        unitCost: line.effectiveUnitCost || line.unitCost,
         reason: `Purchase receipt for ${order.orderNumber}`,
         reference
       });
@@ -55252,7 +55398,7 @@ function returnPurchaseOrder(db, user, orderId, body) {
         destinationLocationId: supplierLocation.id,
         moveType: "return",
         quantity: line.returnQuantity,
-        unitCost: line.unitCost,
+        unitCost: line.effectiveUnitCost || line.unitCost,
         reason: input.reason || `Purchase return for ${order.orderNumber}`,
         reference
       });

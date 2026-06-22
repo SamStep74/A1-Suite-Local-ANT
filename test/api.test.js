@@ -282,6 +282,49 @@ test("existing stock move tables receive service visit link before app startup i
   }
 });
 
+test("existing landed cost tables receive allocation JSON before procurement writes", async () => {
+  const root = fs.mkdtempSync(path.join(os.tmpdir(), "a1-suite-landed-cost-layer-"));
+  const dbPath = path.join(root, "suite.sqlite");
+  const legacyDb = new DatabaseSync(dbPath);
+  try {
+    legacyDb.exec(`
+      CREATE TABLE landed_cost_allocations (
+        id TEXT PRIMARY KEY,
+        org_id TEXT NOT NULL,
+        po_id TEXT NOT NULL,
+        kind TEXT NOT NULL,
+        amount INTEGER NOT NULL,
+        currency TEXT NOT NULL,
+        fx_rate REAL NOT NULL DEFAULT 1,
+        allocation_method TEXT NOT NULL,
+        base_total INTEGER NOT NULL,
+        created_by_user_id TEXT,
+        created_at TEXT NOT NULL
+      );
+    `);
+  } finally {
+    legacyDb.close();
+  }
+
+  const app = buildApp({ dbPath });
+  await app.ready();
+  try {
+    const columns = new Set(app.db.prepare("PRAGMA table_info(landed_cost_allocations)").all().map(column => column.name));
+    assert.equal(columns.has("allocation_json"), true);
+    const index = app.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get("idx_landed_cost_allocations_po");
+    assert.equal(index.name, "idx_landed_cost_allocations_po");
+    const lineColumns = new Set(app.db.prepare("PRAGMA table_info(landed_cost_lines)").all().map(column => column.name));
+    assert.equal(lineColumns.has("landed_cost_allocation_id"), true);
+    assert.equal(lineColumns.has("purchase_order_line_id"), true);
+    assert.equal(lineColumns.has("unit_cost_delta"), true);
+    const lineIndex = app.db.prepare("SELECT name FROM sqlite_master WHERE type = 'index' AND name = ?").get("idx_landed_cost_lines_po");
+    assert.equal(lineIndex.name, "idx_landed_cost_lines_po");
+  } finally {
+    await app.close();
+    fs.rmSync(root, { recursive: true, force: true });
+  }
+});
+
 test("global audit feed is limited to audit reader roles", async () => {
   await withApp(async app => {
     const unauthenticated = await app.inject({ method: "GET", url: "/api/audit" });

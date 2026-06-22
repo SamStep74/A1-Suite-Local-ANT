@@ -50,6 +50,7 @@ import {
   ProjectTemplatesResponseSchema,
   PurchaseAnalyticsSummarySchema,
   PurchaseCreditNoteSchema,
+  PurchaseLandedCostSchema,
   PurchaseOrderSchema,
   ServiceDispatchAlertAckResponseSchema,
   ServiceDispatchAlertsResponseSchema,
@@ -185,6 +186,34 @@ describe("Purchase credit-note schemas", () => {
     createdByName: "Anna Hovhannisyan",
     createdAt: "2026-06-22T09:29:00.000Z",
   };
+  const landedCost = {
+    id: "lca-1",
+    poId: "ord-1",
+    kind: "freight",
+    amount: 50_000,
+    currency: "AMD",
+    fxRate: 1,
+    allocationMethod: "value",
+    baseTotal: 1_000_000,
+    totalAllocated: 50_000,
+    allocated: [
+      {
+        id: "lcl-1",
+        landedCostId: "lca-1",
+        purchaseOrderLineId: "line-1",
+        lineId: "line-1",
+        amount: 50_000,
+        allocated: 50_000,
+        basis: 1_000_000,
+        quantity: 10,
+        subtotal: 1_000_000,
+        unitCostDelta: 5_000,
+        unitCostAdjustment: 5_000,
+      },
+    ],
+    createdByName: "Anna Hovhannisyan",
+    createdAt: "2026-06-22T09:40:00.000Z",
+  };
 
   it("accepts billed-return credit-note evidence", () => {
     const r = PurchaseCreditNoteSchema.safeParse(creditNote);
@@ -221,6 +250,60 @@ describe("Purchase credit-note schemas", () => {
     }
   });
 
+  it("accepts purchase landed-cost evidence", () => {
+    const r = PurchaseLandedCostSchema.safeParse(landedCost);
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.allocated?.[0]?.landedCostId).toBe("lca-1");
+      expect(r.data.allocated?.[0]?.unitCostDelta).toBe(5_000);
+    }
+  });
+
+  it("accepts purchase orders with landed costs on order and line payloads", () => {
+    const r = PurchaseOrderSchema.safeParse({
+      id: "ord-1",
+      vendorId: "ven-1",
+      vendorName: "Alpha Wholesale",
+      orderNumber: "PO-0001",
+      supplier: "Alpha Wholesale",
+      status: "confirmed",
+      subtotal: 1_000_000,
+      vat: 200_000,
+      total: 1_200_000,
+      currency: "AMD",
+      orderDate: "2026-06-01",
+      lines: [
+        {
+          id: "line-1",
+          purchaseOrderId: "ord-1",
+          catalogItemId: "ci-1",
+          quantity: 10,
+          receivedQuantity: 0,
+          returnedQuantity: 0,
+          remainingQuantity: 10,
+          unitCost: 100_000,
+          landedCostAmount: 50_000,
+          landedUnitCostDelta: 5_000,
+          effectiveUnitCost: 105_000,
+          subtotal: 1_000_000,
+          vat: 200_000,
+          total: 1_200_000,
+          landedCosts: landedCost.allocated,
+        },
+      ],
+      landedCostCount: 1,
+      landedCostAmount: 50_000,
+      landedCosts: [landedCost],
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.lines?.[0]?.effectiveUnitCost).toBe(105_000);
+      expect(r.data.landedCosts?.[0]?.totalAllocated).toBe(50_000);
+    }
+  });
+
   it("accepts analytics summary return-credit totals", () => {
     const r = PurchaseAnalyticsSummarySchema.safeParse({
       orderCount: 3,
@@ -230,12 +313,16 @@ describe("Purchase credit-note schemas", () => {
       billedValue: 36_000,
       returnCreditNoteCount: 2,
       returnCreditNoteAmount: 18_500,
+      landedCostCount: 1,
+      landedCostAmount: 50_000,
     });
 
     expect(r.success).toBe(true);
     if (r.success) {
       expect(r.data.returnCreditNoteCount).toBe(2);
       expect(r.data.returnCreditNoteAmount).toBe(18_500);
+      expect(r.data.landedCostCount).toBe(1);
+      expect(r.data.landedCostAmount).toBe(50_000);
     }
   });
 });

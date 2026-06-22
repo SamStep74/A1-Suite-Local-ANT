@@ -979,11 +979,28 @@ function initSchema(db) {
       fx_rate REAL NOT NULL DEFAULT 1,
       allocation_method TEXT NOT NULL,
       base_total INTEGER NOT NULL,
+      allocation_json TEXT NOT NULL DEFAULT '[]',
       created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       created_at TEXT NOT NULL
     );
     CREATE INDEX IF NOT EXISTS idx_landed_cost_allocations_po
       ON landed_cost_allocations(org_id, po_id);
+
+    CREATE TABLE IF NOT EXISTS landed_cost_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      landed_cost_allocation_id TEXT NOT NULL REFERENCES landed_cost_allocations(id) ON DELETE CASCADE,
+      po_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      purchase_order_line_id TEXT NOT NULL REFERENCES purchase_order_lines(id) ON DELETE CASCADE,
+      amount INTEGER NOT NULL,
+      basis INTEGER NOT NULL DEFAULT 0,
+      quantity INTEGER NOT NULL DEFAULT 0,
+      subtotal INTEGER NOT NULL DEFAULT 0,
+      unit_cost_delta INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_landed_cost_lines_po
+      ON landed_cost_lines(org_id, po_id, purchase_order_line_id);
 
     CREATE TABLE IF NOT EXISTS purchase_credit_notes (
       id TEXT PRIMARY KEY,
@@ -8692,6 +8709,27 @@ function ensurePurchaseLayer(db) {
   if (!purchaseOrderLineColumns.has("vendor_price_id")) db.exec("ALTER TABLE purchase_order_lines ADD COLUMN vendor_price_id TEXT REFERENCES purchase_vendor_prices(id) ON DELETE SET NULL");
   db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_order_lines_vendor_price ON purchase_order_lines(org_id, vendor_price_id)");
   db.exec("CREATE INDEX IF NOT EXISTS idx_purchase_vendor_prices_vendor ON purchase_vendor_prices(org_id, vendor_id, status, catalog_item_id)");
+
+  const landedCostColumns = new Set(db.prepare("PRAGMA table_info(landed_cost_allocations)").all().map(column => column.name));
+  if (!landedCostColumns.has("allocation_json")) db.exec("ALTER TABLE landed_cost_allocations ADD COLUMN allocation_json TEXT NOT NULL DEFAULT '[]'");
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS landed_cost_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      landed_cost_allocation_id TEXT NOT NULL REFERENCES landed_cost_allocations(id) ON DELETE CASCADE,
+      po_id TEXT NOT NULL REFERENCES purchase_orders(id) ON DELETE CASCADE,
+      purchase_order_line_id TEXT NOT NULL REFERENCES purchase_order_lines(id) ON DELETE CASCADE,
+      amount INTEGER NOT NULL,
+      basis INTEGER NOT NULL DEFAULT 0,
+      quantity INTEGER NOT NULL DEFAULT 0,
+      subtotal INTEGER NOT NULL DEFAULT 0,
+      unit_cost_delta INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL
+    );
+    CREATE INDEX IF NOT EXISTS idx_landed_cost_lines_po
+      ON landed_cost_lines(org_id, po_id, purchase_order_line_id);
+  `);
+
   db.exec(`
     CREATE TABLE IF NOT EXISTS purchase_receipts (
       id TEXT PRIMARY KEY,
