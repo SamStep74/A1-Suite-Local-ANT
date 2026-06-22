@@ -54692,8 +54692,13 @@ function assertStockMoveLocations(input, sourceLocation, destinationLocation) {
     return;
   }
   if (input.moveType === "return") {
-    if (!isInternalStockLocation(sourceLocation)) throwInvalidInventoryMetadata();
-    if (!destinationLocation || destinationLocation.locationType !== "supplier") throwInvalidInventoryMetadata();
+    const supplierReturn = isInternalStockLocation(sourceLocation)
+      && destinationLocation
+      && destinationLocation.locationType === "supplier";
+    const customerReturn = sourceLocation
+      && sourceLocation.locationType === "customer"
+      && isInternalStockLocation(destinationLocation);
+    if (!supplierReturn && !customerReturn) throwInvalidInventoryMetadata();
     return;
   }
   if (input.moveType === "adjustment") {
@@ -55353,6 +55358,8 @@ function createPosSaleRefund(db, user, saleId, body) {
     const cashAdjustment = input.refundMethod === "cash" && paidCash > 0
       ? Math.min(paidCash, refundedTotal)
       : 0;
+    const returnStockMoves = createPosRefundReturnStockMoves(db, user, source, input);
+    const inventoryPostingStatus = returnStockMoves.size > 0 ? "posted" : "not-posted";
 
     db.prepare(`
       INSERT INTO pos_sale_refunds (
@@ -55361,7 +55368,7 @@ function createPosSaleRefund(db, user, saleId, body) {
         status, inventory_posting_status, ledger_posting_status, refunded_at,
         created_by_user_id, created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted', 'not-posted', 'not-posted', ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?, 'not-posted', ?, ?, ?)
     `).run(
       refundId,
       user.org_id,
@@ -55373,6 +55380,7 @@ function createPosSaleRefund(db, user, saleId, body) {
       input.refundMethod,
       refundedTotal,
       cashAdjustment,
+      inventoryPostingStatus,
       refundedAt,
       user.id,
       now
@@ -55383,9 +55391,9 @@ function createPosSaleRefund(db, user, saleId, body) {
         id, org_id, refund_id, sale_id, sale_line_id, line_number,
         catalog_item_id, catalog_item_variant_id, sku, name, description,
         quantity, unit_price_amd, subtotal_amd, vat_amd, total_amd, vat_mode,
-        fiscal_receipt_required, source_stock_move_id, created_at
+        fiscal_receipt_required, source_stock_move_id, return_stock_move_id, created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
     `);
     for (const line of source.lines) {
       insertLine.run(
@@ -55408,6 +55416,7 @@ function createPosSaleRefund(db, user, saleId, body) {
         line.vat_mode,
         line.fiscal_receipt_required ? 1 : 0,
         line.stock_move_id || null,
+        returnStockMoves.get(line.id) || null,
         now
       );
     }
@@ -55450,7 +55459,7 @@ function createPosSaleRefund(db, user, saleId, body) {
         refundMethod: input.refundMethod,
         refundedTotal,
         cashAdjustment,
-        inventoryPostingStatus: "not-posted",
+        inventoryPostingStatus,
         ledgerPostingStatus: "not-posted"
       }
     });
@@ -55463,7 +55472,7 @@ function createPosSaleRefund(db, user, saleId, body) {
       refundedTotal,
       cashAdjustment,
       idempotencyKey: input.idempotencyKey,
-      inventoryPostingStatus: "not-posted",
+      inventoryPostingStatus,
       ledgerPostingStatus: "not-posted"
     });
     db.exec("COMMIT");
@@ -55481,6 +55490,36 @@ function createPosSaleRefund(db, user, saleId, body) {
     throw err;
   }
   return buildPosSaleRefundResponse(db, user.org_id, refundId, saleId, sourceForReplay.sale.cash_session_id, false);
+}
+
+function createPosRefundReturnStockMoves(db, user, source, input) {
+  const returnStockMoves = new Map();
+  for (const line of source.lines) {
+    if (!line.stock_move_id) continue;
+    const sourceMove = db.prepare(`
+      SELECT *
+      FROM stock_moves
+      WHERE org_id = ? AND id = ? AND catalog_item_id = ? AND status = 'posted'
+    `).get(user.org_id, line.stock_move_id, line.catalog_item_id);
+    if (!sourceMove || sourceMove.move_type !== "delivery") {
+      const err = new Error("POS refund source stock move is not restockable");
+      err.statusCode = 409;
+      throw err;
+    }
+    const move = createStockMoveFromInput(db, user, {
+      catalogItemId: line.catalog_item_id,
+      sourceLocationId: sourceMove.destination_location_id || "",
+      destinationLocationId: sourceMove.source_location_id || source.sale.stock_location_id,
+      serviceFieldVisitId: "",
+      moveType: "return",
+      quantity: line.quantity,
+      unitCost: sourceMove.unit_cost || 0,
+      reason: `POS refund stock return for ${source.sale.receipt_number}`,
+      reference: `POS refund ${input.refundReference} line ${line.line_number}`
+    });
+    returnStockMoves.set(line.id, move.id);
+  }
+  return returnStockMoves;
 }
 
 function createPosReceiptPacket(db, user, saleId, body) {
@@ -55818,6 +55857,7 @@ function formatPosSaleRefundLine(row) {
     vatMode: row.vat_mode,
     fiscalReceiptRequired: Boolean(row.fiscal_receipt_required),
     sourceStockMoveId: row.source_stock_move_id || null,
+    returnStockMoveId: row.return_stock_move_id || null,
     createdAt: row.created_at
   };
 }

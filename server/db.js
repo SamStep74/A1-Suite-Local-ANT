@@ -813,6 +813,7 @@ function initSchema(db) {
       vat_mode TEXT NOT NULL DEFAULT 'standard',
       fiscal_receipt_required INTEGER NOT NULL DEFAULT 0,
       source_stock_move_id TEXT REFERENCES stock_moves(id) ON DELETE SET NULL,
+      return_stock_move_id TEXT REFERENCES stock_moves(id) ON DELETE SET NULL,
       created_at TEXT NOT NULL,
       UNIQUE(org_id, refund_id, line_number),
       UNIQUE(org_id, refund_id, sale_line_id)
@@ -8878,6 +8879,10 @@ function ensureInventoryLayer(db) {
   const stockMoveColumns = new Set(db.prepare("PRAGMA table_info(stock_moves)").all().map(column => column.name));
   if (!stockMoveColumns.has("service_field_visit_id")) {
     db.exec("ALTER TABLE stock_moves ADD COLUMN service_field_visit_id TEXT REFERENCES service_field_visits(id) ON DELETE SET NULL");
+  }
+  const posRefundLineColumns = new Set(db.prepare("PRAGMA table_info(pos_sale_refund_lines)").all().map(column => column.name));
+  if (!posRefundLineColumns.has("return_stock_move_id")) {
+    db.exec("ALTER TABLE pos_sale_refund_lines ADD COLUMN return_stock_move_id TEXT REFERENCES stock_moves(id) ON DELETE SET NULL");
   }
   db.exec("CREATE INDEX IF NOT EXISTS idx_stock_moves_service_visit ON stock_moves(org_id, service_field_visit_id, created_at DESC)");
   const orgs = db.prepare("SELECT id FROM organizations").all();

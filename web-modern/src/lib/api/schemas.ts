@@ -1067,6 +1067,7 @@ export const PosRefundLineSchema = z
     vatMode: z.string().nullable().optional(),
     fiscalReceiptRequired: z.boolean().nullable().optional(),
     sourceStockMoveId: z.string().nullable().optional(),
+    returnStockMoveId: z.string().nullable().optional(),
     createdAt: z.string(),
   })
   .passthrough();

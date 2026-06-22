@@ -636,6 +636,14 @@ test("pos: cash full refund posts evidence, reduces expected cash, replays idemp
       idempotencyKey: "pos-refund-cash-sale-1"
     });
     assert.equal(session.expectedCash, 105000);
+    const itemId = "catitem-pos-barcode-scanner";
+    const stockLocationId = "stockloc-main-warehouse";
+    const quant = () => app.db.prepare(`
+      SELECT quantity
+      FROM stock_quants
+      WHERE org_id = ? AND catalog_item_id = ? AND location_id = ?
+    `).get(orgId, itemId, stockLocationId).quantity;
+    const afterSaleQuantity = quant();
 
     const stockMoveCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM stock_moves WHERE org_id = ?").get(orgId).count;
     const auditCount = () => app.db.prepare(`
@@ -686,7 +694,7 @@ test("pos: cash full refund posts evidence, reduces expected cash, replays idemp
     assert.equal(refund.refundedTotal, sale.total);
     assert.equal(refund.cashAdjustment, sale.paidCash);
     assert.equal(refund.status, "posted");
-    assert.equal(refund.inventoryPostingStatus, "not-posted");
+    assert.equal(refund.inventoryPostingStatus, "posted");
     assert.equal(refund.ledgerPostingStatus, "not-posted");
     assert.equal(refund.refundedAt, "2026-06-22T10:00:00.000Z");
     assert.equal(refund.lineCount, sale.lineCount);
@@ -694,7 +702,17 @@ test("pos: cash full refund posts evidence, reduces expected cash, replays idemp
     assert.equal(refund.lines[0].quantity, sale.lines[0].quantity);
     assert.equal(refund.lines[0].total, sale.lines[0].total);
     assert.equal(refund.lines[0].sourceStockMoveId, sale.lines[0].stockMoveId);
-    assert.equal(stockMoveCount(), beforeMoves);
+    assert.match(refund.lines[0].returnStockMoveId, /^stockmove-/);
+    assert.equal(stockMoveCount(), beforeMoves + 1);
+    assert.equal(quant(), afterSaleQuantity + sale.lines[0].quantity);
+    const returnStockMove = app.db.prepare("SELECT * FROM stock_moves WHERE org_id = ? AND id = ?")
+      .get(orgId, refund.lines[0].returnStockMoveId);
+    assert.equal(returnStockMove.move_type, "return");
+    assert.equal(returnStockMove.source_location_id, "stockloc-customer");
+    assert.equal(returnStockMove.destination_location_id, stockLocationId);
+    assert.equal(returnStockMove.quantity, sale.lines[0].quantity);
+    assert.equal(returnStockMove.reference, "POS refund RF-CASH-001 line 1");
+    assert.equal(returnStockMove.status, "posted");
     assert.equal(auditCount(), beforeAudit + 1);
     assert.equal(eventCount(), beforeEvents + 1);
 
@@ -709,7 +727,9 @@ test("pos: cash full refund posts evidence, reduces expected cash, replays idemp
     assert.equal(replayed.json().refund.id, refund.id);
     assert.equal(replayed.json().refund.reason, "Customer returned sealed scanner.");
     assert.equal(replayed.json().session.expectedCash, 20000);
-    assert.equal(stockMoveCount(), beforeMoves);
+    assert.equal(replayed.json().refund.lines[0].returnStockMoveId, refund.lines[0].returnStockMoveId);
+    assert.equal(stockMoveCount(), beforeMoves + 1);
+    assert.equal(quant(), afterSaleQuantity + sale.lines[0].quantity);
     assert.equal(auditCount(), beforeAudit + 1);
     assert.equal(eventCount(), beforeEvents + 1);
     assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_sale_refunds WHERE org_id = ? AND sale_id = ?").get(orgId, sale.id).count, 1);
@@ -738,7 +758,7 @@ test("pos: cash full refund posts evidence, reduces expected cash, replays idemp
       && row.source_key === "pos-refund-cash-1"
       && row.refunded_total_amd === sale.total
       && row.cash_adjustment_amd === sale.paidCash
-      && row.inventory_posting_status === "not-posted"
+      && row.inventory_posting_status === "posted"
       && row.ledger_posting_status === "not-posted"
     )));
     assert.ok(tables.pos_sale_refund_lines.some(row => (
@@ -746,6 +766,13 @@ test("pos: cash full refund posts evidence, reduces expected cash, replays idemp
       && row.sale_id === sale.id
       && row.sale_line_id === sale.lines[0].id
       && row.source_stock_move_id === sale.lines[0].stockMoveId
+      && row.return_stock_move_id === refund.lines[0].returnStockMoveId
+    )));
+    assert.ok(tables.stock_moves.some(row => (
+      row.id === refund.lines[0].returnStockMoveId
+      && row.move_type === "return"
+      && row.source_location_id === "stockloc-customer"
+      && row.destination_location_id === stockLocationId
     )));
   } finally {
     await app.close();
@@ -781,8 +808,9 @@ test("pos: card and bank full refunds record evidence without changing expected 
     assert.equal(cardRefund.statusCode, 200, cardRefund.body);
     assert.equal(cardRefund.json().refund.refundMethod, "card");
     assert.equal(cardRefund.json().refund.cashAdjustment, 0);
-    assert.equal(cardRefund.json().refund.inventoryPostingStatus, "not-posted");
+    assert.equal(cardRefund.json().refund.inventoryPostingStatus, "posted");
     assert.equal(cardRefund.json().refund.ledgerPostingStatus, "not-posted");
+    assert.match(cardRefund.json().refund.lines[0].returnStockMoveId, /^stockmove-/);
     assert.equal(cardRefund.json().session.expectedCash, 30000);
 
     const bank = await createPostedPosSale(app, operator, {
@@ -808,6 +836,8 @@ test("pos: card and bank full refunds record evidence without changing expected 
     assert.equal(bankRefund.statusCode, 200, bankRefund.body);
     assert.equal(bankRefund.json().refund.refundMethod, "bank-transfer");
     assert.equal(bankRefund.json().refund.cashAdjustment, 0);
+    assert.equal(bankRefund.json().refund.inventoryPostingStatus, "posted");
+    assert.match(bankRefund.json().refund.lines[0].returnStockMoveId, /^stockmove-/);
     assert.equal(bankRefund.json().session.expectedCash, 40000);
   } finally {
     await app.close();

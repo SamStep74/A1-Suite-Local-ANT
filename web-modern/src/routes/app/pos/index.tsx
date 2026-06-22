@@ -1,10 +1,10 @@
 /**
  * /app/pos — POS cash-session spine.
  *
- * Slice 424 frontend scope: open/close cash sessions, one-line sale
- * capture, receipt packet handoff, and full-sale refund evidence.
- * Terminal refunds, fiscal submission, stock restock, receipt printing,
- * offline replay, and ledger posting stay outside this surface.
+ * Slice 425 frontend scope: open/close cash sessions, one-line sale
+ * capture, receipt packet handoff, full-sale refund evidence, and tracked-line
+ * stock return evidence. Terminal refunds, fiscal submission, receipt
+ * printing, offline replay, and ledger posting stay outside this surface.
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -901,6 +901,7 @@ export function RefundEvidencePanel({
   const [refundMethod, setRefundMethod] = useState<PosRefundMethod>("cash");
   const [reason, setReason] = useState("");
   const alreadyRefunded = isRefundedSale(sale) || Boolean(refund);
+  const returnStockMoveCount = refund?.lines.filter((line) => line.returnStockMoveId).length ?? 0;
   const canSubmit =
     !alreadyRefunded &&
     refundReference.trim().length > 0 &&
@@ -920,7 +921,7 @@ export function RefundEvidencePanel({
             Refund evidence
           </h4>
           <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
-            Full-sale evidence only · no stock restock · no ledger posting
+            Full-sale evidence · stock return evidence · no ledger posting
           </p>
         </div>
       </div>
@@ -938,11 +939,12 @@ export function RefundEvidencePanel({
             <EvidenceRow label="Reference" value={refund.refundReference} />
             <EvidenceRow label="Cash adjustment" value={money(refund.cashAdjustment)} />
             <EvidenceRow label="Inventory" value={refund.inventoryPostingStatus} />
+            <EvidenceRow label="Return stock moves" value={String(returnStockMoveCount)} />
             <EvidenceRow label="Ledger" value={refund.ledgerPostingStatus} />
           </dl>
           <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
-            Evidence-only record. It does not restock inventory, post ledger journals,
-            submit fiscal refunds, or print receipts.
+            Return stock evidence is recorded for tracked lines. Ledger journals,
+            fiscal refunds, and receipt printing remain deferred.
           </p>
         </div>
       ) : alreadyRefunded ? (

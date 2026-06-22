@@ -267,11 +267,11 @@ const VALID_REFUND_RESPONSE = {
     refundedTotal: 50000,
     cashAdjustment: 50000,
     status: "posted",
-    inventoryPostingStatus: "not-posted",
+    inventoryPostingStatus: "posted",
     ledgerPostingStatus: "not-posted",
     postings: {
       refundPosting: "posted",
-      inventoryPosting: "not-posted",
+      inventoryPosting: "posted",
       ledgerPosting: "not-posted",
     },
     refundedAt: "2026-06-22T10:00:00.000Z",
@@ -293,6 +293,7 @@ const VALID_REFUND_RESPONSE = {
         vatMode: "exempt",
         fiscalReceiptRequired: true,
         sourceStockMoveId: "stock-move-1",
+        returnStockMoveId: "stock-move-return-1",
         createdAt: "2026-06-22T10:00:01.000Z",
       },
     ],
@@ -587,9 +588,12 @@ describe("POS route", () => {
       /status refunded_full/,
     );
     expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(/Cash/);
-    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(/not-posted/);
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(/posted/);
     expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
-      /does not restock inventory/,
+      /Return stock moves\s*1/,
+    );
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+      /Ledger journals, fiscal refunds, and receipt printing remain deferred/,
     );
     expect(screen.queryByTestId("pos-refund-form")).toBeNull();
     expect(screen.queryByTestId("pos-receipt-packet-form")).toBeNull();
