@@ -782,6 +782,197 @@ test("pos: receipt packet rejects malformed input, missing sales, unposted sales
   }
 });
 
+test("pos: cash sale void posts evidence, reduces expected cash, replays idempotently, and backs up", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const owner = await login(app);
+    const orgId = "org-armosphera-demo";
+    const { session, sale } = await createPostedPosSale(app, operator, {
+      registerCode: "POS-VOID-CASH",
+      openingCash: 20000,
+      fiscalDeviceId: "FISCAL-AM-VOID-CASH",
+      receiptNumber: "R-VOID-CASH-001",
+      idempotencyKey: "pos-void-cash-sale-1"
+    });
+    assert.equal(session.expectedCash, 105000);
+
+    const itemId = "catitem-pos-barcode-scanner";
+    const stockLocationId = "stockloc-main-warehouse";
+    const quant = () => app.db.prepare(`
+      SELECT quantity
+      FROM stock_quants
+      WHERE org_id = ? AND catalog_item_id = ? AND location_id = ?
+    `).get(orgId, itemId, stockLocationId).quantity;
+    const afterSaleQuantity = quant();
+    const stockMoveCount = () => app.db.prepare("SELECT COUNT(*) AS count FROM stock_moves WHERE org_id = ?").get(orgId).count;
+    const auditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE org_id = ? AND type = ?
+    `).get(orgId, "pos.sale.voided").count;
+    const eventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE org_id = ? AND event_type = ?
+    `).get(orgId, "pos.sale.voided").count;
+    const beforeMoves = stockMoveCount();
+    const beforeAudit = auditCount();
+    const beforeEvents = eventCount();
+    const vatAfterSale = ledger.vatReport(app.db, orgId, "2026-06");
+
+    const payload = {
+      idempotencyKey: "pos-void-cash-1",
+      voidReference: "void-cash-001",
+      reason: "Cashier caught the sale before fiscal receipt handoff.",
+      voidedAt: "2026-06-22T10:15:00.000Z"
+    };
+    const voided = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/void`,
+      headers: { cookie: operator },
+      payload
+    });
+    assert.equal(voided.statusCode, 200, voided.body);
+    const body = voided.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.idempotent, false);
+    assert.equal(body.session.id, session.id);
+    assert.equal(body.session.expectedCash, 20000);
+    assert.equal(body.sale.id, sale.id);
+    assert.equal(body.sale.status, "voided");
+    assert.equal(body.sale.postings.salePosting, "posted");
+    assert.equal(body.sale.postings.inventoryPosting, "posted");
+    assert.equal(body.sale.postings.ledgerPosting, "posted");
+    assert.equal(body.sale.postings.ledgerPostingCount, 2);
+
+    const saleVoid = body.void;
+    assert.match(saleVoid.id, /^pos-sale-void-/);
+    assert.equal(saleVoid.saleId, sale.id);
+    assert.equal(saleVoid.cashSessionId, session.id);
+    assert.equal(saleVoid.voidReference, "VOID-CASH-001");
+    assert.equal(saleVoid.sourceKey, "pos-void-cash-1");
+    assert.equal(saleVoid.reason, "Cashier caught the sale before fiscal receipt handoff.");
+    assert.equal(saleVoid.voidedTotal, sale.total);
+    assert.equal(saleVoid.cashAdjustment, sale.paidCash);
+    assert.equal(saleVoid.status, "posted");
+    assert.equal(saleVoid.inventoryPostingStatus, "posted");
+    assert.equal(saleVoid.ledgerPostingStatus, "posted");
+    assert.equal(saleVoid.postings.ledgerPosting, "posted");
+    assert.equal(saleVoid.postings.ledgerPostingCount, 2);
+    assert.equal(saleVoid.postings.ledgerPostingIds.length, 2);
+    assert.equal(saleVoid.voidedAt, "2026-06-22T10:15:00.000Z");
+    assert.equal(saleVoid.lineCount, sale.lineCount);
+    assert.equal(saleVoid.lines[0].saleLineId, sale.lines[0].id);
+    assert.equal(saleVoid.lines[0].quantity, sale.lines[0].quantity);
+    assert.equal(saleVoid.lines[0].total, sale.lines[0].total);
+    assert.equal(saleVoid.lines[0].sourceStockMoveId, sale.lines[0].stockMoveId);
+    assert.match(saleVoid.lines[0].returnStockMoveId, /^stockmove-/);
+    assert.equal(stockMoveCount(), beforeMoves + 1);
+    assert.equal(quant(), afterSaleQuantity + sale.lines[0].quantity);
+    const returnStockMove = app.db.prepare("SELECT * FROM stock_moves WHERE org_id = ? AND id = ?")
+      .get(orgId, saleVoid.lines[0].returnStockMoveId);
+    assert.equal(returnStockMove.move_type, "return");
+    assert.equal(returnStockMove.source_location_id, "stockloc-customer");
+    assert.equal(returnStockMove.destination_location_id, stockLocationId);
+    assert.equal(returnStockMove.quantity, sale.lines[0].quantity);
+    assert.equal(returnStockMove.reference, "POS void VOID-CASH-001 line 1");
+    assert.equal(returnStockMove.status, "posted");
+
+    const voidJournals = app.db.prepare(`
+      SELECT debit_code, credit_code, amount, source_type, source_id, period_key
+      FROM ledger_journal
+      WHERE org_id = ? AND source_type = ? AND source_id = ?
+      ORDER BY debit_code
+    `).all(orgId, "pos_sale_void", saleVoid.id).map(row => ({ ...row }));
+    assert.deepEqual(voidJournals, [
+      { debit_code: "524", credit_code: "251", amount: sale.vat, source_type: "pos_sale_void", source_id: saleVoid.id, period_key: "2026-06" },
+      { debit_code: "611", credit_code: "251", amount: sale.subtotal, source_type: "pos_sale_void", source_id: saleVoid.id, period_key: "2026-06" }
+    ]);
+    const voidVat = ledger.vatReport(app.db, orgId, "2026-06");
+    assert.equal(voidVat.outputVat, vatAfterSale.outputVat - sale.vat);
+    assert.equal(voidVat.netVatPayable, vatAfterSale.netVatPayable - sale.vat);
+    assert.equal(auditCount(), beforeAudit + 1);
+    assert.equal(eventCount(), beforeEvents + 1);
+
+    const replayed = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/void`,
+      headers: { cookie: operator },
+      payload: { ...payload, reason: "Replay should not alter the stored void." }
+    });
+    assert.equal(replayed.statusCode, 200, replayed.body);
+    assert.equal(replayed.json().idempotent, true);
+    assert.equal(replayed.json().void.id, saleVoid.id);
+    assert.equal(replayed.json().void.reason, "Cashier caught the sale before fiscal receipt handoff.");
+    assert.equal(replayed.json().session.expectedCash, 20000);
+    assert.equal(replayed.json().void.lines[0].returnStockMoveId, saleVoid.lines[0].returnStockMoveId);
+    assert.equal(stockMoveCount(), beforeMoves + 1);
+    assert.equal(quant(), afterSaleQuantity + sale.lines[0].quantity);
+    assert.equal(auditCount(), beforeAudit + 1);
+    assert.equal(eventCount(), beforeEvents + 1);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_sale_voids WHERE org_id = ? AND sale_id = ?").get(orgId, sale.id).count, 1);
+
+    const duplicate = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/void`,
+      headers: { cookie: operator },
+      payload: { ...payload, idempotencyKey: "pos-void-cash-2", voidReference: "VOID-CASH-002" }
+    });
+    assert.equal(duplicate.statusCode, 409, duplicate.body);
+
+    const backup = await app.inject({
+      method: "POST",
+      url: "/api/admin/backups",
+      headers: { cookie: owner },
+      payload: { note: "POS void evidence must be restorable." }
+    });
+    assert.equal(backup.statusCode, 200, backup.body);
+    const tables = backup.json().backup.payload.tables;
+    assert.ok(tables.pos_sale_voids.some(row => (
+      row.id === saleVoid.id
+      && row.sale_id === sale.id
+      && row.cash_session_id === session.id
+      && row.void_reference === "VOID-CASH-001"
+      && row.source_key === "pos-void-cash-1"
+      && row.voided_total_amd === sale.total
+      && row.cash_adjustment_amd === sale.paidCash
+      && row.inventory_posting_status === "posted"
+      && row.ledger_posting_status === "posted"
+    )));
+    assert.ok(tables.pos_sale_void_lines.some(row => (
+      row.void_id === saleVoid.id
+      && row.sale_id === sale.id
+      && row.sale_line_id === sale.lines[0].id
+      && row.source_stock_move_id === sale.lines[0].stockMoveId
+      && row.return_stock_move_id === saleVoid.lines[0].returnStockMoveId
+    )));
+    assert.ok(tables.stock_moves.some(row => (
+      row.id === saleVoid.lines[0].returnStockMoveId
+      && row.move_type === "return"
+      && row.source_location_id === "stockloc-customer"
+      && row.destination_location_id === stockLocationId
+    )));
+    assert.ok(tables.ledger_journal.some(row => (
+      row.source_type === "pos_sale_void"
+      && row.source_id === saleVoid.id
+      && row.debit_code === "611"
+      && row.credit_code === "251"
+      && row.amount === sale.subtotal
+    )));
+    assert.ok(tables.ledger_journal.some(row => (
+      row.source_type === "pos_sale_void"
+      && row.source_id === saleVoid.id
+      && row.debit_code === "524"
+      && row.credit_code === "251"
+      && row.amount === sale.vat
+    )));
+  } finally {
+    await app.close();
+  }
+});
+
 test("pos: cash full refund posts evidence, reduces expected cash, replays idempotently, and backs up", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
