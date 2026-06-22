@@ -1132,6 +1132,103 @@ export const PosRefundResponseSchema = z
   .passthrough();
 export type PosRefundResponse = z.infer<typeof PosRefundResponseSchema>;
 
+export const PosTerminalSettlementRequestSchema = z
+  .object({
+    idempotencyKey: z
+      .string()
+      .min(1)
+      .max(160)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/),
+    settlementReference: z
+      .string()
+      .min(1)
+      .max(120)
+      .regex(/^[A-Za-z0-9][A-Za-z0-9._/-]{0,119}$/),
+    provider: z
+      .string()
+      .min(1)
+      .max(120)
+      .refine((value) => !/[\x00-\x1f\x7f]/.test(value)),
+    settledTotal: z.number().int().min(1).max(100_000_000_000),
+    settledAt: z.string().min(1).optional(),
+    note: z.string().max(500).refine((value) => !/[\x00-\x1f\x7f]/.test(value)).optional(),
+  })
+  .strict();
+export type PosTerminalSettlementRequest = z.infer<typeof PosTerminalSettlementRequestSchema>;
+
+export const PosTerminalSettlementPostingsSchema = z
+  .object({
+    settlementPosting: z.string(),
+    ledgerPosting: z.string(),
+    ledgerPostingIds: z.array(z.string()).optional(),
+    ledgerPostingCount: z.number().int().min(0).optional(),
+  })
+  .passthrough();
+export type PosTerminalSettlementPostings = z.infer<
+  typeof PosTerminalSettlementPostingsSchema
+>;
+
+export const PosTerminalSettlementSchema = z
+  .object({
+    id: z.string(),
+    cashSessionId: z.string(),
+    settlementReference: z.string(),
+    sourceKey: z.string(),
+    provider: z.string(),
+    paymentMethod: z.literal("card"),
+    expectedTotal: z.number(),
+    settledTotal: z.number(),
+    difference: z.number(),
+    clearingAccountCode: z.string(),
+    bankAccountCode: z.string(),
+    status: z.string(),
+    ledgerPostingStatus: z.string(),
+    postings: PosTerminalSettlementPostingsSchema,
+    settledAt: z.string(),
+    note: z.string(),
+    createdByUserId: z.string().optional(),
+    createdByName: z.string().optional(),
+    createdAt: z.string(),
+  })
+  .passthrough();
+export type PosTerminalSettlement = z.infer<typeof PosTerminalSettlementSchema>;
+
+export const PosTerminalSettlementPreviewSchema = z
+  .object({
+    cashSessionId: z.string(),
+    sessionStatus: PosCashSessionStatusSchema,
+    paymentMethod: z.literal("card"),
+    clearingAccountCode: z.string(),
+    bankAccountCode: z.string(),
+    cardSalesTotal: z.number(),
+    cardSalesCount: z.number().int().min(0),
+    cardRefundsTotal: z.number(),
+    cardRefundsCount: z.number().int().min(0),
+    settledTotal: z.number(),
+    settlementCount: z.number().int().min(0),
+    netCardClearing: z.number(),
+    outstandingAmount: z.number(),
+    ready: z.boolean(),
+    recentSettlements: z.array(PosTerminalSettlementSchema),
+  })
+  .passthrough();
+export type PosTerminalSettlementPreview = z.infer<
+  typeof PosTerminalSettlementPreviewSchema
+>;
+
+export const PosTerminalSettlementResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    idempotent: z.boolean(),
+    settlement: PosTerminalSettlementSchema,
+    preview: PosTerminalSettlementPreviewSchema,
+    session: PosCashSessionSchema.optional(),
+  })
+  .passthrough();
+export type PosTerminalSettlementResponse = z.infer<
+  typeof PosTerminalSettlementResponseSchema
+>;
+
 /** Stock balance — a (catalogItemId, locationId) row.
  *  Source: /api/inventory/stock. */
 export const StockBalanceSchema = z.object({
@@ -1169,6 +1266,8 @@ export type PosFiscalCloseoutLabels = z.infer<typeof PosFiscalCloseoutLabelsSche
 export const PosWorkspaceResponseSchema = z.object({
   openSession: PosCashSessionSchema.nullable(),
   sessions: z.array(PosCashSessionSchema),
+  terminalSettlementPreviews: z.array(PosTerminalSettlementPreviewSchema).optional(),
+  terminalSettlement: PosTerminalSettlementPreviewSchema.nullable().optional(),
   catalogItems: z.array(CatalogItemSchema),
   stockLocations: z.array(StockLocationSchema),
   fiscalCloseoutLabels: PosFiscalCloseoutLabelsSchema,

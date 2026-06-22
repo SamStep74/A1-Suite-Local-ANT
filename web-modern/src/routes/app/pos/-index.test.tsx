@@ -7,6 +7,7 @@
  *   - posting a one-line sale via POST /api/pos/cash-sessions/:id/sales
  *   - recording full-sale refund evidence via POST /api/pos/sales/:id/refund
  *   - closing the current cash session via POST /api/pos/cash-sessions/:id/close
+ *   - posting closed-session terminal settlement evidence
  *   - app-tier 403 via UserAccessProvider
  */
 import {
@@ -74,7 +75,9 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
       onError?: (...args: unknown[]) => void;
     }) => {
       const fn = opts.mutationFn.toString();
-      const slot = fn.includes("/refund")
+      const slot = fn.includes("terminal-settlements")
+        ? 5
+        : fn.includes("/refund")
         ? 4
         : fn.includes("receipt-packet")
         ? 3
@@ -313,6 +316,63 @@ const VALID_REFUND_RESPONSE = {
     ...OPEN_SESSION,
     expectedCash: 50000,
   },
+};
+
+const VALID_TERMINAL_SETTLEMENT_PREVIEW = {
+  cashSessionId: CLOSED_SESSION.id,
+  sessionStatus: "closed",
+  paymentMethod: "card",
+  clearingAccountCode: "255",
+  bankAccountCode: "252",
+  cardSalesTotal: 60000,
+  cardSalesCount: 1,
+  cardRefundsTotal: 0,
+  cardRefundsCount: 0,
+  settledTotal: 0,
+  settlementCount: 0,
+  netCardClearing: 60000,
+  outstandingAmount: 60000,
+  ready: true,
+  recentSettlements: [],
+};
+
+const VALID_TERMINAL_SETTLEMENT_RESPONSE = {
+  ok: true,
+  idempotent: false,
+  settlement: {
+    id: "pos-terminal-settlement-1",
+    cashSessionId: CLOSED_SESSION.id,
+    settlementReference: "TERM-BATCH-001",
+    sourceKey: "pos-terminal-settlement-test-1",
+    provider: "Acba POS",
+    paymentMethod: "card",
+    expectedTotal: 60000,
+    settledTotal: 55000,
+    difference: -5000,
+    clearingAccountCode: "255",
+    bankAccountCode: "252",
+    status: "posted",
+    ledgerPostingStatus: "posted",
+    postings: {
+      settlementPosting: "posted",
+      ledgerPosting: "posted",
+      ledgerPostingIds: ["ledger-pos-terminal-settlement-1"],
+      ledgerPostingCount: 1,
+    },
+    settledAt: "2026-06-22T19:00:00.000Z",
+    note: "Settlement posted from Acba batch.",
+    createdByUserId: "user-1",
+    createdByName: "Ani Petrosyan",
+    createdAt: "2026-06-22T19:00:01.000Z",
+  },
+  preview: {
+    ...VALID_TERMINAL_SETTLEMENT_PREVIEW,
+    settledTotal: 55000,
+    settlementCount: 1,
+    outstandingAmount: 5000,
+    recentSettlements: [],
+  },
+  session: CLOSED_SESSION,
 };
 
 function renderRoute(opts?: { noPosAccess?: boolean }) {
@@ -659,6 +719,82 @@ describe("POS route", () => {
       receiptRangeStart: "10076",
       receiptRangeEnd: "10120",
       closeNote: "Count verified by shift lead.",
+    });
+  });
+
+  it("posts terminal settlement for a closed card-clearing preview and renders ledger evidence", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      terminalSettlementPreviews: [VALID_TERMINAL_SETTLEMENT_PREVIEW],
+      terminalSettlement: VALID_TERMINAL_SETTLEMENT_PREVIEW,
+    };
+    mocks.postJson.mockResolvedValueOnce(VALID_TERMINAL_SETTLEMENT_RESPONSE);
+
+    renderRoute();
+
+    expect(screen.getByTestId("pos-terminal-settlement-preview")).toHaveTextContent(
+      /Outstanding/,
+    );
+    expect(screen.getByTestId("pos-terminal-settlement-preview")).toHaveTextContent(
+      /255/,
+    );
+    fireEvent.change(screen.getByTestId("pos-terminal-settlement-reference"), {
+      target: { value: " term-batch-001 " },
+    });
+    fireEvent.change(screen.getByTestId("pos-terminal-settlement-provider"), {
+      target: { value: " Acba POS " },
+    });
+    fireEvent.change(screen.getByTestId("pos-terminal-settlement-settled-total"), {
+      target: { value: "55000" },
+    });
+    fireEvent.change(screen.getByTestId("pos-terminal-settlement-settled-at"), {
+      target: { value: "2026-06-22T19:00" },
+    });
+    fireEvent.change(screen.getByTestId("pos-terminal-settlement-note"), {
+      target: { value: " Settlement posted from Acba batch. " },
+    });
+    fireEvent.click(screen.getByTestId("pos-terminal-settlement-submit"));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(1);
+    });
+    const [path, body] = mocks.postJson.mock.calls[0]!;
+    expect(path).toBe("/api/pos/cash-sessions/pos-session-0/terminal-settlements");
+    expect(body).toEqual({
+      idempotencyKey: expect.stringMatching(
+        /^pos-terminal-settlement-ui-pos-session-0-\d+$/,
+      ),
+      settlementReference: "term-batch-001",
+      provider: "Acba POS",
+      settledTotal: 55000,
+      settledAt: "2026-06-22T19:00",
+      note: "Settlement posted from Acba batch.",
+    });
+    expect(mocks.mutateImpls[5]).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-terminal-settlement-success")).toHaveTextContent(
+        /TERM-BATCH-001/,
+      );
+    });
+    expect(screen.getByTestId("pos-terminal-settlement-success")).toHaveTextContent(
+      /Acba POS/,
+    );
+    expect(screen.getByTestId("pos-terminal-settlement-success")).toHaveTextContent(
+      /Clearing account\s*255/,
+    );
+    expect(screen.getByTestId("pos-terminal-settlement-success")).toHaveTextContent(
+      /Bank account\s*252/,
+    );
+    expect(screen.getByTestId("pos-terminal-settlement-success")).toHaveTextContent(
+      /Ledger journals\s*posted \(1 journal\)/,
+    );
+    expect(mocks.setQueryData).toHaveBeenCalledWith(
+      ["pos", "workspace"],
+      expect.any(Function),
+    );
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["pos", "workspace"],
     });
   });
 

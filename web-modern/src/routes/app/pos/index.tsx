@@ -1,10 +1,11 @@
 /**
  * /app/pos — POS cash-session spine.
  *
- * Slice 426 frontend scope: open/close cash sessions, one-line sale
+ * Slice 427 frontend scope: open/close cash sessions, one-line sale
  * capture, receipt packet handoff, full-sale refund evidence, and tracked-line
- * stock return evidence with POS ledger journal visibility. Terminal refunds,
- * fiscal submission, receipt printing, and offline replay stay outside this surface.
+ * stock return evidence with POS ledger journal visibility, plus closed-session
+ * card terminal settlement evidence. Terminal refunds, fiscal submission,
+ * receipt printing, and offline replay stay outside this surface.
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -13,6 +14,7 @@ import {
   BadgeDollarSign,
   ChevronLeft,
   ClipboardCheck,
+  CreditCard,
   Lock,
   ReceiptText,
   RotateCcw,
@@ -31,6 +33,8 @@ import {
   PosReceiptPacketResponseSchema,
   PosRefundRequestSchema,
   PosRefundResponseSchema,
+  PosTerminalSettlementRequestSchema,
+  PosTerminalSettlementResponseSchema,
   PosWorkspaceResponseSchema,
   type CatalogItem,
   type PosCashSession,
@@ -39,6 +43,8 @@ import {
   type PosReceiptPacketResponse,
   type PosRefund,
   type PosRefundMethod,
+  type PosTerminalSettlement,
+  type PosTerminalSettlementPreview,
   type PosWorkspaceResponse,
   type PosFiscalCloseoutLabels,
   type StockLocation,
@@ -70,6 +76,8 @@ function PosWorkspace() {
   const [lastReceiptPacket, setLastReceiptPacket] =
     useState<PosReceiptPacketResponse["receiptPacket"] | null>(null);
   const [lastRefund, setLastRefund] = useState<PosRefund | null>(null);
+  const [lastTerminalSettlement, setLastTerminalSettlement] =
+    useState<PosTerminalSettlement | null>(null);
 
   const workspaceQ = useQuery({
     queryKey: POS_WORKSPACE_QUERY_KEY,
@@ -233,6 +241,37 @@ function PosWorkspace() {
     },
   });
 
+  const terminalSettlementMutation = useMutation({
+    mutationFn: async (input: {
+      sessionId: string;
+      idempotencyKey: string;
+      settlementReference: string;
+      provider: string;
+      settledTotal: string;
+      settledAt: string;
+      note: string;
+    }) => {
+      const payload = PosTerminalSettlementRequestSchema.parse({
+        idempotencyKey: input.idempotencyKey.trim(),
+        settlementReference: input.settlementReference.trim(),
+        provider: input.provider.trim(),
+        settledTotal: toAmount(input.settledTotal),
+        settledAt: optionalText(input.settledAt),
+        note: optionalText(input.note),
+      });
+      return postJson(
+        `/api/pos/cash-sessions/${input.sessionId}/terminal-settlements`,
+        payload,
+        PosTerminalSettlementResponseSchema,
+      );
+    },
+    onSuccess: (response) => {
+      setLastTerminalSettlement(response.settlement);
+      updateWorkspaceSession(response.session);
+      refreshWorkspace();
+    },
+  });
+
   if (!hasAccess) {
     return (
       <div
@@ -253,6 +292,9 @@ function PosWorkspace() {
   const catalogItems = workspace?.catalogItems ?? [];
   const stockLocations = workspace?.stockLocations ?? [];
   const fiscalCloseoutLabels = workspace?.fiscalCloseoutLabels ?? {};
+  const terminalSettlementPreviews =
+    workspace?.terminalSettlementPreviews ??
+    (workspace?.terminalSettlement ? [workspace.terminalSettlement] : []);
 
   return (
     <div
@@ -365,10 +407,23 @@ function PosWorkspace() {
               </section>
             )}
 
-            <FiscalEvidencePanel
-              openSession={openSession}
-              labels={fiscalCloseoutLabels}
-            />
+            <div className="space-y-4">
+              <FiscalEvidencePanel
+                openSession={openSession}
+                labels={fiscalCloseoutLabels}
+              />
+              <TerminalSettlementPanel
+                previews={terminalSettlementPreviews}
+                postedSettlement={lastTerminalSettlement}
+                onSubmit={(input) => terminalSettlementMutation.mutate(input)}
+                isPending={terminalSettlementMutation.isPending}
+                error={
+                  terminalSettlementMutation.error
+                    ? (terminalSettlementMutation.error as Error).message
+                    : ""
+                }
+              />
+            </div>
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">
@@ -1280,6 +1335,266 @@ export function FiscalEvidencePanel({
           </ul>
         )}
       </div>
+    </section>
+  );
+}
+
+export function TerminalSettlementPanel({
+  previews,
+  postedSettlement,
+  onSubmit,
+  isPending,
+  error,
+}: {
+  previews: readonly PosTerminalSettlementPreview[];
+  postedSettlement: PosTerminalSettlement | null;
+  onSubmit: (input: {
+    sessionId: string;
+    idempotencyKey: string;
+    settlementReference: string;
+    provider: string;
+    settledTotal: string;
+    settledAt: string;
+    note: string;
+  }) => void;
+  isPending?: boolean;
+  error?: string;
+}) {
+  const defaultPreview = previews.find((preview) => preview.ready) ?? previews[0] ?? null;
+  const [cashSessionId, setCashSessionId] = useState(defaultPreview?.cashSessionId ?? "");
+  const [idempotencyKey, setIdempotencyKey] = useState(
+    () => `pos-terminal-settlement-ui-${defaultPreview?.cashSessionId ?? "session"}-${Date.now()}`,
+  );
+  const [settlementReference, setSettlementReference] = useState("");
+  const [provider, setProvider] = useState("Acba POS");
+  const [settledTotal, setSettledTotal] = useState(
+    defaultPreview ? String(defaultPreview.outstandingAmount) : "",
+  );
+  const [settledAt, setSettledAt] = useState("");
+  const [note, setNote] = useState("");
+
+  const selectedCashSessionId = cashSessionId || defaultPreview?.cashSessionId || "";
+  const selectedPreview =
+    previews.find((preview) => preview.cashSessionId === selectedCashSessionId) ??
+    defaultPreview;
+  const settledAmount = toAmount(settledTotal);
+  const postedLedgerCount =
+    postedSettlement?.postings.ledgerPostingCount ??
+    postedSettlement?.postings.ledgerPostingIds?.length;
+  const canSubmit =
+    Boolean(selectedPreview?.ready) &&
+    selectedCashSessionId.length > 0 &&
+    idempotencyKey.trim().length > 0 &&
+    settlementReference.trim().length > 0 &&
+    provider.trim().length > 0 &&
+    Number.isSafeInteger(settledAmount) &&
+    settledAmount > 0 &&
+    settledAmount <= (selectedPreview?.outstandingAmount ?? 0) &&
+    !isPending;
+
+  return (
+    <section
+      className="panel space-y-3"
+      data-testid="pos-terminal-settlement-panel"
+      data-entity="pos-terminal-settlement"
+    >
+      <div className="flex items-center gap-2">
+        <CreditCard className="size-4 text-[var(--color-brand)]" aria-hidden />
+        <h2 className="text-[var(--text-md)] font-semibold text-[var(--color-ink)]">
+          Terminal settlement
+        </h2>
+      </div>
+
+      {!selectedPreview ? (
+        <p className="text-[var(--text-sm)] text-[var(--color-muted)]">
+          No closed-session card clearing preview.
+        </p>
+      ) : (
+        <>
+          <dl
+            className="grid gap-2 text-[var(--text-sm)]"
+            data-testid="pos-terminal-settlement-preview"
+          >
+            <EvidenceRow label="Cash session" value={selectedPreview.cashSessionId} />
+            <EvidenceRow label="Status" value={selectedPreview.sessionStatus} />
+            <EvidenceRow label="Card sales" value={money(selectedPreview.cardSalesTotal)} />
+            <EvidenceRow label="Card refunds" value={money(selectedPreview.cardRefundsTotal)} />
+            <EvidenceRow label="Already settled" value={money(selectedPreview.settledTotal)} />
+            <EvidenceRow label="Outstanding" value={money(selectedPreview.outstandingAmount)} />
+            <EvidenceRow label="Clearing account" value={selectedPreview.clearingAccountCode} />
+            <EvidenceRow label="Bank account" value={selectedPreview.bankAccountCode} />
+          </dl>
+
+          {postedSettlement ? (
+            <div
+              className="grid gap-2 rounded-[var(--radius-sm)] border border-[color-mix(in_srgb,var(--color-tag-green)_35%,transparent)] bg-[color-mix(in_srgb,var(--color-tag-green)_8%,transparent)] p-2 text-[var(--text-sm)]"
+              data-testid="pos-terminal-settlement-success"
+            >
+              <p className="font-medium text-[var(--color-tag-green)]">
+                Terminal settlement {postedSettlement.status} ·{" "}
+                {postedSettlement.settlementReference} · {money(postedSettlement.settledTotal)}
+              </p>
+              <dl className="grid gap-1 sm:grid-cols-2">
+                <EvidenceRow label="Provider" value={postedSettlement.provider} />
+                <EvidenceRow label="Difference" value={money(postedSettlement.difference)} />
+                <EvidenceRow
+                  label="Clearing account"
+                  value={postedSettlement.clearingAccountCode}
+                />
+                <EvidenceRow label="Bank account" value={postedSettlement.bankAccountCode} />
+                <EvidenceRow
+                  label="Ledger journals"
+                  value={
+                    typeof postedLedgerCount === "number"
+                      ? `${postedSettlement.ledgerPostingStatus} (${journalCountLabel(postedLedgerCount)})`
+                      : postedSettlement.ledgerPostingStatus
+                  }
+                />
+                <EvidenceRow
+                  label="Settled at"
+                  value={formatDateTime(postedSettlement.settledAt)}
+                />
+              </dl>
+            </div>
+          ) : null}
+
+          {selectedPreview.ready ? (
+            <form
+              className="grid gap-2 sm:grid-cols-2"
+              data-testid="pos-terminal-settlement-form"
+              onSubmit={(event) => {
+                event.preventDefault();
+                if (!canSubmit) return;
+                onSubmit({
+                  sessionId: selectedCashSessionId,
+                  idempotencyKey,
+                  settlementReference,
+                  provider,
+                  settledTotal,
+                  settledAt,
+                  note,
+                });
+              }}
+            >
+              <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+                Session
+                <select
+                  value={selectedCashSessionId}
+                  onChange={(event) => {
+                    const nextSessionId = event.target.value;
+                    const nextPreview = previews.find(
+                      (preview) => preview.cashSessionId === nextSessionId,
+                    );
+                    setCashSessionId(nextSessionId);
+                    setIdempotencyKey(
+                      `pos-terminal-settlement-ui-${nextSessionId}-${Date.now()}`,
+                    );
+                    setSettledTotal(
+                      nextPreview ? String(nextPreview.outstandingAmount) : "",
+                    );
+                  }}
+                  className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+                  data-testid="pos-terminal-settlement-session"
+                >
+                  {previews.map((preview) => (
+                    <option key={preview.cashSessionId} value={preview.cashSessionId}>
+                      {preview.cashSessionId}
+                    </option>
+                  ))}
+                </select>
+              </label>
+
+              <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+                Reference
+                <input
+                  value={settlementReference}
+                  onChange={(event) => setSettlementReference(event.target.value)}
+                  className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+                  data-testid="pos-terminal-settlement-reference"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+                Provider
+                <input
+                  value={provider}
+                  onChange={(event) => setProvider(event.target.value)}
+                  className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+                  data-testid="pos-terminal-settlement-provider"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+                Settled total
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={settledTotal}
+                  onChange={(event) => setSettledTotal(event.target.value)}
+                  className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+                  data-testid="pos-terminal-settlement-settled-total"
+                />
+              </label>
+
+              <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+                Settled at
+                <input
+                  type="datetime-local"
+                  value={settledAt}
+                  onChange={(event) => setSettledAt(event.target.value)}
+                  className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+                  data-testid="pos-terminal-settlement-settled-at"
+                />
+              </label>
+
+              <label className="sm:col-span-2 flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+                Note
+                <textarea
+                  value={note}
+                  onChange={(event) => setNote(event.target.value)}
+                  rows={2}
+                  className="rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 py-1.5 text-[var(--text-sm)] text-[var(--color-ink)]"
+                  data-testid="pos-terminal-settlement-note"
+                />
+              </label>
+
+              <div className="sm:col-span-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+                <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+                  Posts card clearing from account {selectedPreview.clearingAccountCode} to{" "}
+                  {selectedPreview.bankAccountCode}.
+                </p>
+                <button
+                  type="submit"
+                  disabled={!canSubmit}
+                  className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-3 text-[var(--text-sm)] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                  data-testid="pos-terminal-settlement-submit"
+                >
+                  <CreditCard className="size-4" aria-hidden />
+                  {isPending ? "Posting..." : "Post settlement"}
+                </button>
+              </div>
+            </form>
+          ) : (
+            <p
+              className="text-[var(--text-sm)] text-[var(--color-muted)]"
+              data-testid="pos-terminal-settlement-not-ready"
+            >
+              No outstanding card clearing amount for this closed session.
+            </p>
+          )}
+        </>
+      )}
+
+      {error ? (
+        <p
+          role="alert"
+          className="text-[var(--text-sm)] text-[var(--color-ruby)]"
+          data-testid="pos-terminal-settlement-error"
+        >
+          {error}
+        </p>
+      ) : null}
     </section>
   );
 }

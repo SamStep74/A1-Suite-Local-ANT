@@ -46,6 +46,8 @@ import {
   PosReceiptPacketResponseSchema,
   PosRefundRequestSchema,
   PosRefundResponseSchema,
+  PosTerminalSettlementRequestSchema,
+  PosTerminalSettlementResponseSchema,
   PosPricePreviewSchema,
   StockBalanceSchema,
   StockLocationSchema,
@@ -1682,6 +1684,51 @@ const VALID_POS_CASH_SESSION = {
   updatedAt: "2026-06-22T08:00:00.000Z",
 };
 
+const VALID_POS_TERMINAL_SETTLEMENT = {
+  id: "pos-terminal-settlement-1",
+  cashSessionId: "pos-session-closed",
+  settlementReference: "TERM-BATCH-001",
+  sourceKey: "pos-terminal-settlement-ui-pos-session-closed-1782154800000",
+  provider: "Acba POS",
+  paymentMethod: "card",
+  expectedTotal: 60000,
+  settledTotal: 55000,
+  difference: -5000,
+  clearingAccountCode: "255",
+  bankAccountCode: "252",
+  status: "posted",
+  ledgerPostingStatus: "posted",
+  postings: {
+    settlementPosting: "posted",
+    ledgerPosting: "posted",
+    ledgerPostingIds: ["ledger-pos-terminal-settlement-1"],
+    ledgerPostingCount: 1,
+  },
+  settledAt: "2026-06-22T19:00:00.000Z",
+  note: "Card batch settled with provider fee difference.",
+  createdByUserId: "user-1",
+  createdByName: "Ani Petrosyan",
+  createdAt: "2026-06-22T19:00:01.000Z",
+};
+
+const VALID_POS_TERMINAL_SETTLEMENT_PREVIEW = {
+  cashSessionId: "pos-session-closed",
+  sessionStatus: "closed",
+  paymentMethod: "card",
+  clearingAccountCode: "255",
+  bankAccountCode: "252",
+  cardSalesTotal: 60000,
+  cardSalesCount: 1,
+  cardRefundsTotal: 0,
+  cardRefundsCount: 0,
+  settledTotal: 0,
+  settlementCount: 0,
+  netCardClearing: 60000,
+  outstandingAmount: 60000,
+  ready: true,
+  recentSettlements: [],
+};
+
 describe("POS cash-session schemas", () => {
   it("accepts an open POS cash session with empty closeout evidence", () => {
     const r = PosCashSessionSchema.safeParse(VALID_POS_CASH_SESSION);
@@ -1752,6 +1799,8 @@ describe("POS cash-session schemas", () => {
         zReportNumber: "Z-report number",
         receiptRange: "Receipt range",
       },
+      terminalSettlementPreviews: [VALID_POS_TERMINAL_SETTLEMENT_PREVIEW],
+      terminalSettlement: VALID_POS_TERMINAL_SETTLEMENT_PREVIEW,
     });
 
     expect(r.success).toBe(true);
@@ -1759,6 +1808,8 @@ describe("POS cash-session schemas", () => {
       expect(r.data.sessions).toHaveLength(2);
       expect(r.data.catalogItems[0]?.fiscalReceiptRequired).toBe(true);
       expect(r.data.stockLocations[0]?.name).toBe("Retail counter");
+      expect(r.data.terminalSettlementPreviews?.[0]?.outstandingAmount).toBe(60000);
+      expect(r.data.terminalSettlement?.ready).toBe(true);
     }
   });
 
@@ -2132,6 +2183,87 @@ describe("POS cash-session schemas", () => {
       expect(r.data.refund.lines[0]?.sourceStockMoveId).toBe("stock-move-1");
       expect(r.data.refund.lines[0]?.returnStockMoveId).toBe("stock-move-return-1");
       expect(r.data.session?.expectedCash).toBe(-10000);
+    }
+  });
+
+  it("validates the terminal settlement POST body", () => {
+    const r = PosTerminalSettlementRequestSchema.safeParse({
+      idempotencyKey: "pos-terminal-settlement-ui-pos-session-closed-1782154800000",
+      settlementReference: "TERM-BATCH-001",
+      provider: "Acba POS",
+      settledTotal: 55000,
+      settledAt: "2026-06-22T19:00",
+      note: "Card batch settled with provider fee difference.",
+    });
+
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects terminal settlement metadata that the backend safeguards reject", () => {
+    expect(
+      PosTerminalSettlementRequestSchema.safeParse({
+        idempotencyKey: "not safe",
+        settlementReference: "TERM-BATCH-001",
+        provider: "Acba POS",
+        settledTotal: 55000,
+      }).success,
+    ).toBe(false);
+    expect(
+      PosTerminalSettlementRequestSchema.safeParse({
+        idempotencyKey: "pos-terminal-settlement-ui-pos-session-closed-1782154800000",
+        settlementReference: " TERM-BATCH-001 ",
+        provider: "Acba POS",
+        settledTotal: 55000,
+      }).success,
+    ).toBe(false);
+    expect(
+      PosTerminalSettlementRequestSchema.safeParse({
+        idempotencyKey: "pos-terminal-settlement-ui-pos-session-closed-1782154800000",
+        settlementReference: "TERM-BATCH-001",
+        provider: "Acba\u0000POS",
+        settledTotal: 55000,
+      }).success,
+    ).toBe(false);
+    expect(
+      PosTerminalSettlementRequestSchema.safeParse({
+        idempotencyKey: "pos-terminal-settlement-ui-pos-session-closed-1782154800000",
+        settlementReference: "TERM-BATCH-001",
+        provider: "Acba POS",
+        settledTotal: 0,
+      }).success,
+    ).toBe(false);
+  });
+
+  it("accepts the terminal settlement response envelope with ledger evidence", () => {
+    const r = PosTerminalSettlementResponseSchema.safeParse({
+      ok: true,
+      idempotent: false,
+      settlement: VALID_POS_TERMINAL_SETTLEMENT,
+      preview: {
+        ...VALID_POS_TERMINAL_SETTLEMENT_PREVIEW,
+        settledTotal: 55000,
+        settlementCount: 1,
+        outstandingAmount: 5000,
+        ready: true,
+        recentSettlements: [VALID_POS_TERMINAL_SETTLEMENT],
+      },
+      session: {
+        ...VALID_POS_CASH_SESSION,
+        id: "pos-session-closed",
+        status: "closed",
+        closedAt: "2026-06-22T18:00:00.000Z",
+        countedCash: 50000,
+        cashDifference: 0,
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.settlement.settlementReference).toBe("TERM-BATCH-001");
+      expect(r.data.settlement.clearingAccountCode).toBe("255");
+      expect(r.data.settlement.bankAccountCode).toBe("252");
+      expect(r.data.settlement.postings.ledgerPostingCount).toBe(1);
+      expect(r.data.preview.recentSettlements[0]?.id).toBe("pos-terminal-settlement-1");
     }
   });
 });
