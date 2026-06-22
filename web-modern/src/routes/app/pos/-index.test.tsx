@@ -1449,6 +1449,13 @@ describe("POS route", () => {
       /Durable evidence rejected/,
     );
     expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
+      /create a fresh sale draft after review/i,
+    );
+    expect(screen.getByTestId("pos-local-sale-draft-retry")).toBeDisabled();
+    expect(screen.getByTestId("pos-local-sale-draft-retry")).toHaveTextContent(
+      /Replay closed/,
+    );
+    expect(screen.getByTestId("pos-local-sale-drafts")).toHaveTextContent(
       /Closed cash session/,
     );
     expect(screen.getByTestId("pos-local-sale-draft-last-error")).toHaveTextContent(

@@ -97,6 +97,8 @@ export const Route = createFileRoute("/app/pos/")({
 
 const POS_WORKSPACE_QUERY_KEY = ["pos", "workspace"] as const;
 const POS_OFFLINE_REPLAY_QUERY_KEY = ["pos", "offline-replay-items"] as const;
+const POS_REJECTED_DRAFT_RETRY_MESSAGE =
+  "Durable replay evidence is rejected; create a fresh sale draft after review.";
 const POS_PAYMENT_METHODS: Array<{ value: PosPaymentMethod; label: string }> = [
   { value: "cash", label: "Cash" },
   { value: "card", label: "Card" },
@@ -468,6 +470,12 @@ function PosWorkspace() {
   const saleMutation = useMutation({
     mutationFn: async (input: PosSaleMutationInput): Promise<PosSaleMutationResponse> => {
       if (input.mode === "retry-draft" || input.mode === "auto-replay-draft") {
+        if (input.draft.offlineReplayStatus === "rejected") {
+          throw new PosSaleDraftReplayStageError(
+            "sale-post",
+            new Error(POS_REJECTED_DRAFT_RETRY_MESSAGE),
+          );
+        }
         return replayLocalSaleDraftWithOfflineEvidence(input.draft);
       }
       const payload = createSalePayload(input.input);
@@ -2872,15 +2880,24 @@ export function OfflineReplayReadinessPanel({
                     </p>
                   ) : null}
                   <div>
+                    {draft.offlineReplayStatus === "rejected" ? (
+                      <p className="mb-2 text-[var(--text-xs)] text-[var(--color-muted)]">
+                        {POS_REJECTED_DRAFT_RETRY_MESSAGE}
+                      </p>
+                    ) : null}
                     <button
                       type="button"
-                      disabled={isRetryingSaleDraft}
+                      disabled={isRetryingSaleDraft || draft.offlineReplayStatus === "rejected"}
                       className="inline-flex h-8 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] px-2 text-[var(--text-xs)] font-semibold text-[var(--color-ink)] disabled:cursor-not-allowed disabled:opacity-50"
                       data-testid="pos-local-sale-draft-retry"
                       onClick={() => onRetrySaleDraft(draft)}
                     >
                       <RotateCcw className="size-3.5" aria-hidden />
-                      {isRetryingSaleDraft ? "Retrying..." : "Retry sale"}
+                      {draft.offlineReplayStatus === "rejected"
+                        ? "Replay closed"
+                        : isRetryingSaleDraft
+                          ? "Retrying..."
+                          : "Retry sale"}
                     </button>
                   </div>
                 </div>
