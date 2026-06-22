@@ -78,6 +78,8 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
       const fn = opts.mutationFn.toString();
       const slot = fn.includes("terminal-settlements")
         ? 5
+        : fn.includes("/void")
+        ? 6
         : fn.includes("/refund")
         ? 4
         : fn.includes("receipt-packet")
