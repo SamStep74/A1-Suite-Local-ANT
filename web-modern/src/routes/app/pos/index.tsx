@@ -17,6 +17,7 @@ import {
   ClipboardCheck,
   CreditCard,
   Lock,
+  Printer,
   ReceiptText,
   RotateCcw,
   ShoppingCart,
@@ -32,6 +33,8 @@ import {
   PosOpenCashSessionResponseSchema,
   PosReceiptPacketRequestSchema,
   PosReceiptPacketResponseSchema,
+  PosReceiptPrintRequestSchema,
+  PosReceiptPrintResponseSchema,
   PosRefundRequestSchema,
   PosRefundResponseSchema,
   PosTerminalSettlementRequestSchema,
@@ -45,6 +48,8 @@ import {
   type PosPaymentMethod,
   type PosSalePaymentRequest,
   type PosReceiptPacketResponse,
+  type PosReceiptPrint,
+  type PosReceiptPrintResponse,
   type PosRefund,
   type PosRefundMethod,
   type PosRefundRequest,
@@ -81,6 +86,8 @@ function PosWorkspace() {
   const [lastSale, setLastSale] = useState<PosCreateSaleResponse["sale"] | null>(null);
   const [lastReceiptPacket, setLastReceiptPacket] =
     useState<PosReceiptPacketResponse["receiptPacket"] | null>(null);
+  const [lastReceiptPrint, setLastReceiptPrint] =
+    useState<PosReceiptPrintResponse["receiptPrint"] | null>(null);
   const [lastRefund, setLastRefund] = useState<PosRefund | null>(null);
   const [lastVoid, setLastVoid] = useState<PosVoid | null>(null);
   const [lastTerminalSettlement, setLastTerminalSettlement] =
@@ -196,6 +203,7 @@ function PosWorkspace() {
     onSuccess: (response) => {
       setLastSale(response.sale);
       setLastReceiptPacket(null);
+      setLastReceiptPrint(null);
       setLastRefund(null);
       setLastVoid(null);
       refreshWorkspace();
@@ -219,6 +227,30 @@ function PosWorkspace() {
     onSuccess: (response) => {
       setLastSale(response.sale);
       setLastReceiptPacket(response.receiptPacket);
+      setLastReceiptPrint(response.receiptPacket.receiptPrint ?? null);
+      refreshWorkspace();
+    },
+  });
+
+  const receiptPrintMutation = useMutation({
+    mutationFn: async (input: {
+      saleId: string;
+    }) => {
+      const payload = PosReceiptPrintRequestSchema.parse({
+        copyCount: 1,
+        printMode: "local-preview",
+        printFormat: "receipt-preview-json-v1",
+      });
+      return postJson(
+        `/api/pos/sales/${input.saleId}/receipt-print`,
+        payload,
+        PosReceiptPrintResponseSchema,
+      );
+    },
+    onSuccess: (response) => {
+      setLastSale(response.sale);
+      setLastReceiptPacket(response.receiptPacket);
+      setLastReceiptPrint(response.receiptPrint);
       refreshWorkspace();
     },
   });
@@ -410,6 +442,14 @@ function PosWorkspace() {
                   receiptPacketError={
                     receiptPacketMutation.error
                       ? (receiptPacketMutation.error as Error).message
+                      : ""
+                  }
+                  receiptPrint={lastReceiptPrint}
+                  onPrepareReceiptPrint={(input) => receiptPrintMutation.mutate(input)}
+                  isPreparingReceiptPrint={receiptPrintMutation.isPending}
+                  receiptPrintError={
+                    receiptPrintMutation.error
+                      ? (receiptPrintMutation.error as Error).message
                       : ""
                   }
                   lastRefund={lastRefund}
@@ -679,6 +719,10 @@ export function SaleCapturePanel({
   onPrepareReceiptPacket,
   isPreparingReceiptPacket,
   receiptPacketError,
+  receiptPrint,
+  onPrepareReceiptPrint,
+  isPreparingReceiptPrint,
+  receiptPrintError,
   lastRefund,
   onRefund,
   isRefunding,
@@ -709,6 +753,12 @@ export function SaleCapturePanel({
   }) => void;
   isPreparingReceiptPacket?: boolean;
   receiptPacketError?: string;
+  receiptPrint?: PosReceiptPrint | null;
+  onPrepareReceiptPrint: (input: {
+    saleId: string;
+  }) => void;
+  isPreparingReceiptPrint?: boolean;
+  receiptPrintError?: string;
   lastRefund?: PosRefund | null;
   onRefund: (input: {
     saleId: string;
@@ -1020,6 +1070,10 @@ export function SaleCapturePanel({
               onSubmit={onPrepareReceiptPacket}
               isPending={isPreparingReceiptPacket}
               error={receiptPacketError}
+              receiptPrint={receiptPrint ?? null}
+              onPrepareReceiptPrint={onPrepareReceiptPrint}
+              isPreparingReceiptPrint={isPreparingReceiptPrint}
+              receiptPrintError={receiptPrintError}
             />
           ) : null}
           <RefundEvidencePanel
@@ -1081,6 +1135,10 @@ export function ReceiptPacketHandoff({
   onSubmit,
   isPending,
   error,
+  receiptPrint,
+  onPrepareReceiptPrint,
+  isPreparingReceiptPrint,
+  receiptPrintError,
 }: {
   sale: PosCreateSaleResponse["sale"];
   defaultFiscalDeviceId: string;
@@ -1091,9 +1149,17 @@ export function ReceiptPacketHandoff({
   }) => void;
   isPending?: boolean;
   error?: string;
+  receiptPrint: PosReceiptPrint | null;
+  onPrepareReceiptPrint: (input: {
+    saleId: string;
+  }) => void;
+  isPreparingReceiptPrint?: boolean;
+  receiptPrintError?: string;
 }) {
   const [fiscalDeviceId, setFiscalDeviceId] = useState(defaultFiscalDeviceId);
   const canSubmit = fiscalDeviceId.trim().length > 0 && !isPending;
+  const canPreparePrint = Boolean(packet) && !isPreparingReceiptPrint;
+  const previewLines = receiptPrint ? receiptPrintPreviewLines(receiptPrint) : [];
 
   return (
     <form
@@ -1135,12 +1201,105 @@ export function ReceiptPacketHandoff({
       </p>
 
       {packet ? (
-        <p
-          className="text-[var(--text-sm)] font-medium text-[var(--color-tag-green)] sm:col-span-2"
-          data-testid="pos-receipt-packet-success"
-        >
-          Receipt evidence {packet.status} · checksum {packet.checksum}
-        </p>
+        <>
+          <p
+            className="text-[var(--text-sm)] font-medium text-[var(--color-tag-green)] sm:col-span-2"
+            data-testid="pos-receipt-packet-success"
+          >
+            Receipt evidence {packet.status} · checksum {packet.checksum}
+          </p>
+          <section
+            className="grid gap-2 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] p-2 sm:col-span-2"
+            data-testid="pos-receipt-print-panel"
+            data-entity="pos-receipt-print-evidence"
+          >
+            <div className="flex items-start gap-2">
+              <Printer className="mt-0.5 size-4 text-[var(--color-brand)]" aria-hidden />
+              <div>
+                <h4 className="text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+                  Local print evidence
+                </h4>
+                <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+                  Local print preview only · no fiscal device submission
+                </p>
+              </div>
+            </div>
+
+            {receiptPrint ? (
+              <div
+                className="grid gap-2 text-[var(--text-sm)]"
+                data-testid="pos-receipt-print-success"
+              >
+                <p className="font-medium text-[var(--color-tag-green)]">
+                  Local print evidence {receiptPrint.status}
+                  {receiptPrint.checksum ? ` · checksum ${receiptPrint.checksum}` : ""}
+                </p>
+                <dl className="grid gap-1 sm:grid-cols-2">
+                  <EvidenceRow
+                    label="Mode"
+                    value={receiptPrint.printMode ?? "local-preview"}
+                  />
+                  <EvidenceRow
+                    label="Device submission"
+                    value={
+                      receiptPrint.deviceSubmissionStatus ??
+                      (receiptPrint.submittedToDevice ? "submitted" : "not-submitted")
+                    }
+                  />
+                  <EvidenceRow
+                    label="Receipt"
+                    value={receiptPrint.receiptNumber ?? packet.receiptNumber ?? sale.receiptNumber}
+                  />
+                  <EvidenceRow
+                    label="Prepared"
+                    value={formatDateTime(
+                      receiptPrint.preparedAt ?? receiptPrint.printedAt ?? receiptPrint.createdAt,
+                    )}
+                  />
+                </dl>
+                {previewLines.length > 0 ? (
+                  <pre
+                    className="max-h-40 overflow-auto rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface-soft)] p-2 font-mono text-[var(--text-xs)] text-[var(--color-ink)]"
+                    data-testid="pos-receipt-print-preview"
+                  >
+                    {previewLines.join("\n")}
+                  </pre>
+                ) : null}
+                <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+                  Local print evidence only; no printer or fiscal device submission is triggered.
+                </p>
+              </div>
+            ) : (
+              <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+                Prepare a local receipt print preview from the prepared packet. This records
+                local print evidence only; it does not submit to a fiscal device.
+              </p>
+            )}
+
+            <div>
+              <button
+                type="button"
+                disabled={!canPreparePrint}
+                onClick={() => onPrepareReceiptPrint({ saleId: sale.id })}
+                className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-3 text-[var(--text-sm)] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+                data-testid="pos-receipt-print-submit"
+              >
+                <Printer className="size-4" aria-hidden />
+                {isPreparingReceiptPrint ? "Preparing…" : "Prepare local preview"}
+              </button>
+            </div>
+
+            {receiptPrintError ? (
+              <p
+                role="alert"
+                className="text-[var(--text-sm)] text-[var(--color-ruby)]"
+                data-testid="pos-receipt-print-error"
+              >
+                {receiptPrintError}
+              </p>
+            ) : null}
+          </section>
+        </>
       ) : null}
 
       {error ? (
@@ -2523,6 +2682,16 @@ function journalCountLabel(count: number): string {
 function postingEvidenceLabel(status: string | undefined, count: number | undefined): string {
   if (typeof count === "number") return `${status ?? "posted"} (${journalCountLabel(count)})`;
   return status ?? "—";
+}
+
+function receiptPrintPreviewLines(receiptPrint: PosReceiptPrint): string[] {
+  if (Array.isArray(receiptPrint.previewLines) && receiptPrint.previewLines.length > 0) {
+    return receiptPrint.previewLines.filter((line) => line.trim().length > 0);
+  }
+  if (typeof receiptPrint.previewText === "string" && receiptPrint.previewText.trim().length > 0) {
+    return receiptPrint.previewText.split(/\r?\n/).filter((line) => line.trim().length > 0);
+  }
+  return [];
 }
 
 function moneyOrDash(value: number): string {

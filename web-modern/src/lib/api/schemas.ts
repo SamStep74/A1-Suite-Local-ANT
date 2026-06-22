@@ -1048,6 +1048,43 @@ export const PosReceiptPacketRequestSchema = z
   .strict();
 export type PosReceiptPacketRequest = z.infer<typeof PosReceiptPacketRequestSchema>;
 
+export const PosReceiptPrintRequestSchema = z
+  .object({
+    copyCount: z.number().int().min(1).max(10).optional(),
+    printMode: z.literal("local-preview").optional(),
+    printFormat: z.literal("receipt-preview-json-v1").optional(),
+  })
+  .strict();
+export type PosReceiptPrintRequest = z.infer<typeof PosReceiptPrintRequestSchema>;
+
+export const PosReceiptPrintSchema = z
+  .object({
+    id: z.string().optional(),
+    receiptPacketId: z.string().optional(),
+    saleId: z.string().optional(),
+    cashSessionId: z.string().optional(),
+    receiptNumber: z.string().optional(),
+    status: z.string().min(1),
+    printStatus: z.string().optional(),
+    printMode: z.string().optional(),
+    printFormat: z.string().optional(),
+    copyCount: z.number().int().optional(),
+    checksum: z.string().min(1),
+    payload: z.unknown().optional(),
+    previewLines: z.array(z.string()).optional(),
+    previewText: z.string().optional(),
+    evidenceMode: z.string().optional(),
+    liveFiscalSubmission: z.boolean().optional(),
+    physicalPrinterCommand: z.boolean().optional(),
+    deviceSubmissionStatus: z.string().optional(),
+    submittedToDevice: z.boolean().optional(),
+    printedAt: z.string().optional(),
+    preparedAt: z.string().optional(),
+    createdAt: z.string().optional(),
+  })
+  .passthrough();
+export type PosReceiptPrint = z.infer<typeof PosReceiptPrintSchema>;
+
 export const PosReceiptPacketSchema = z
   .object({
     id: z.string().optional(),
@@ -1057,6 +1094,7 @@ export const PosReceiptPacketSchema = z
     fiscalDeviceId: z.string().min(1),
     status: z.string().min(1),
     checksum: z.string().min(1),
+    receiptPrint: PosReceiptPrintSchema.optional(),
     payload: z.unknown().optional(),
     createdAt: z.string().optional(),
     preparedAt: z.string().optional(),
@@ -1072,6 +1110,16 @@ export const PosReceiptPacketResponseSchema = z
   })
   .passthrough();
 export type PosReceiptPacketResponse = z.infer<typeof PosReceiptPacketResponseSchema>;
+
+export const PosReceiptPrintResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    receiptPrint: PosReceiptPrintSchema,
+    receiptPacket: PosReceiptPacketSchema,
+    sale: PosSaleSchema,
+  })
+  .passthrough();
+export type PosReceiptPrintResponse = z.infer<typeof PosReceiptPrintResponseSchema>;
 
 export const PosRefundRequestSchema = z
   .object({

@@ -756,6 +756,14 @@ function registerApi(app, db, options = {}) {
     return createPosReceiptPacket(db, user, saleId, request.body === undefined ? {} : request.body);
   });
 
+  app.post("/api/pos/sales/:id/receipt-print", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosWriter(user);
+    const saleId = normalizePosSalePathId(request.params.id);
+    return createPosReceiptPrint(db, user, saleId, request.body === undefined ? {} : request.body);
+  });
+
   app.post("/api/pos/sales/:id/refund", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "pos");
@@ -54916,7 +54924,7 @@ function getPosWorkspace(db, user) {
       salePosting: "available",
       refunds: "available",
       offlineReplay: "not-implemented",
-      receiptPrinting: "not-implemented",
+      receiptPrinting: "local-preview",
       inventoryPosting: "available",
       ledgerPosting: "available",
       terminalSettlement: "available"
@@ -56413,6 +56421,119 @@ function createPosReceiptPacket(db, user, saleId, body) {
   };
 }
 
+function createPosReceiptPrint(db, user, saleId, body) {
+  const input = normalizePosReceiptPrintBody(body);
+  const sale = getPosSale(db, user.org_id, saleId);
+  if (!sale) throwPosSaleNotFound();
+
+  const existingPacket = getPosReceiptPacketBySale(db, user.org_id, saleId, true);
+  if (!existingPacket) {
+    const err = new Error("POS receipt packet must be prepared before receipt print evidence can be recorded");
+    err.statusCode = 409;
+    throw err;
+  }
+  if (existingPacket.packetStatus !== "prepared") {
+    const err = new Error("POS receipt packet must be prepared before receipt print evidence can be recorded");
+    err.statusCode = 409;
+    throw err;
+  }
+  if (existingPacket.receiptPrint) {
+    return {
+      ok: true,
+      idempotent: true,
+      receiptPrint: existingPacket.receiptPrint,
+      receiptPacket: existingPacket,
+      sale
+    };
+  }
+
+  const now = new Date().toISOString();
+  const payload = buildPosReceiptPrintPayload(existingPacket, sale, input, user, now);
+  const checksum = sha256Json(payload);
+
+  db.exec("BEGIN");
+  try {
+    const info = db.prepare(`
+      UPDATE pos_receipt_packets
+      SET receipt_print_status = 'previewed',
+        receipt_print_checksum = ?,
+        receipt_print_payload_json = ?,
+        receipt_print_copy_count = ?,
+        receipt_printed_by_user_id = ?,
+        receipt_printed_at = ?
+      WHERE org_id = ? AND sale_id = ? AND packet_status = 'prepared'
+        AND receipt_print_checksum = ''
+    `).run(
+      checksum,
+      JSON.stringify(payload),
+      input.copyCount,
+      user.id,
+      now,
+      user.org_id,
+      saleId
+    );
+    if (info.changes === 0) {
+      db.exec("COMMIT");
+      const replay = getPosReceiptPacketBySale(db, user.org_id, saleId, true);
+      if (replay?.receiptPrint) {
+        return {
+          ok: true,
+          idempotent: true,
+          receiptPrint: replay.receiptPrint,
+          receiptPacket: replay,
+          sale: getPosSale(db, user.org_id, saleId)
+        };
+      }
+      const err = new Error("POS receipt packet must be prepared before receipt print evidence can be recorded");
+      err.statusCode = 409;
+      throw err;
+    }
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "pos.receipt_print.previewed",
+      subjectType: "pos_receipt_packet",
+      subjectId: existingPacket.id,
+      status: "previewed",
+      payload: {
+        packetId: existingPacket.id,
+        saleId,
+        cashSessionId: existingPacket.cashSessionId,
+        receiptNumber: existingPacket.receiptNumber,
+        copyCount: input.copyCount,
+        checksum,
+        evidenceMode: "local-preview-only",
+        liveFiscalSubmission: false,
+        physicalPrinterCommand: false
+      }
+    });
+    audit(db, user.org_id, user.id, "pos.receipt_print.previewed", {
+      packetId: existingPacket.id,
+      saleId,
+      cashSessionId: existingPacket.cashSessionId,
+      receiptNumber: existingPacket.receiptNumber,
+      copyCount: input.copyCount,
+      checksum,
+      evidenceMode: "local-preview-only",
+      liveFiscalSubmission: false,
+      physicalPrinterCommand: false
+    });
+    db.exec("COMMIT");
+  } catch (err) {
+    try { db.exec("ROLLBACK"); } catch {}
+    throw err;
+  }
+
+  const receiptPacket = getPosReceiptPacketBySale(db, user.org_id, saleId, true);
+  return {
+    ok: true,
+    idempotent: false,
+    receiptPrint: receiptPacket.receiptPrint,
+    receiptPacket,
+    sale: getPosSale(db, user.org_id, saleId)
+  };
+}
+
 function getPosReceiptPacketSource(db, orgId, saleId) {
   const sale = db.prepare(`
     SELECT
@@ -56565,12 +56686,99 @@ function buildPosReceiptPacketPayload(source, input, fiscalDeviceId, user, prepa
   };
 }
 
+function buildPosReceiptPrintPayload(receiptPacket, sale, input, user, printedAt) {
+  const packetPayload = receiptPacket.payload || {};
+  const packetSale = packetPayload.sale || {};
+  const packetSession = packetPayload.session || {};
+  const lines = Array.isArray(packetPayload.lines) ? packetPayload.lines : [];
+  return {
+    kind: "armosphera-one-pos-receipt-print-preview",
+    product: "Armosphera One",
+    schemaVersion: 1,
+    generatedAt: printedAt,
+    print: {
+      id: `${receiptPacket.id}:receipt-print`,
+      status: "previewed",
+      mode: input.printMode,
+      format: input.printFormat,
+      copyCount: input.copyCount,
+      printedAt,
+      printedByUserId: user.id,
+      evidenceMode: "local-preview-only",
+      liveFiscalSubmission: false,
+      physicalPrinterCommand: false
+    },
+    receiptPacket: {
+      id: receiptPacket.id,
+      saleId: receiptPacket.saleId,
+      cashSessionId: receiptPacket.cashSessionId,
+      receiptNumber: receiptPacket.receiptNumber,
+      fiscalDeviceId: receiptPacket.fiscalDeviceId,
+      status: receiptPacket.packetStatus,
+      packetKind: receiptPacket.packetKind,
+      packetFormat: receiptPacket.packetFormat,
+      checksum: receiptPacket.checksum,
+      preparedAt: receiptPacket.preparedAt
+    },
+    sale: packetSale,
+    session: packetSession,
+    lines,
+    preview: {
+      title: "Armosphera One POS receipt preview",
+      receiptNumber: receiptPacket.receiptNumber,
+      registerCode: sale.registerCode || packetSale.registerCode || packetSession.registerCode || "",
+      soldAt: sale.soldAt || packetSale.soldAt || "",
+      currency: sale.currency || packetSale.currency || "AMD",
+      copyCount: input.copyCount,
+      lineCount: lines.length,
+      totals: packetSale.totals || {
+        subtotal: sale.subtotal,
+        vat: sale.vat,
+        total: sale.total,
+        paidCash: sale.paidCash,
+        paymentTotals: sale.paymentTotals || {}
+      },
+      lines: lines.map(line => ({
+        lineNumber: line.lineNumber,
+        sku: line.sku,
+        name: line.name,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        subtotal: line.subtotal,
+        vat: line.vat,
+        total: line.total
+      }))
+    },
+    fiscal: {
+      deviceId: receiptPacket.fiscalDeviceId,
+      receiptNumber: receiptPacket.receiptNumber,
+      packetStatus: receiptPacket.packetStatus,
+      liveSubmission: false,
+      submissionStatus: "not-submitted",
+      physicalPrinterCommand: false,
+      previewOnly: true
+    },
+    controls: [
+      "prepared-receipt-packet-required",
+      "tenant-scoped-replay-by-sale",
+      "checksum-covers-receipt-packet-and-print-preview",
+      "local-receipt-print-preview-evidence-only",
+      "no-live-fiscal-device-submission",
+      "no-physical-printer-command"
+    ]
+  };
+}
+
 function getPosReceiptPacketBySale(db, orgId, saleId, includePayload = false) {
   const row = db.prepare(`
-    SELECT pos_receipt_packets.*, users.name AS prepared_by_name
+    SELECT pos_receipt_packets.*,
+      prepared_users.name AS prepared_by_name,
+      receipt_print_users.name AS receipt_printed_by_name
     FROM pos_receipt_packets
-    LEFT JOIN users ON users.id = pos_receipt_packets.prepared_by_user_id
-      AND users.org_id = pos_receipt_packets.org_id
+    LEFT JOIN users AS prepared_users ON prepared_users.id = pos_receipt_packets.prepared_by_user_id
+      AND prepared_users.org_id = pos_receipt_packets.org_id
+    LEFT JOIN users AS receipt_print_users ON receipt_print_users.id = pos_receipt_packets.receipt_printed_by_user_id
+      AND receipt_print_users.org_id = pos_receipt_packets.org_id
     WHERE pos_receipt_packets.org_id = ? AND pos_receipt_packets.sale_id = ?
   `).get(orgId, saleId);
   return row ? formatPosReceiptPacket(row, includePayload) : null;
@@ -56594,7 +56802,64 @@ function formatPosReceiptPacket(row, includePayload = false) {
     createdAt: row.created_at
   };
   if (includePayload) packet.payload = safeJson(row.payload_json);
+  const receiptPrint = formatPosReceiptPrint(row, includePayload);
+  if (receiptPrint) packet.receiptPrint = receiptPrint;
   return packet;
+}
+
+function formatPosReceiptPrint(row, includePayload = false) {
+  if (!row.receipt_print_checksum) return null;
+  const receiptPrint = {
+    id: `${row.id}:receipt-print`,
+    receiptPacketId: row.id,
+    saleId: row.sale_id,
+    cashSessionId: row.cash_session_id,
+    receiptNumber: row.receipt_number,
+    status: row.receipt_print_status || "previewed",
+    printStatus: row.receipt_print_status || "previewed",
+    printMode: "local-preview",
+    printFormat: "receipt-preview-json-v1",
+    copyCount: row.receipt_print_copy_count || 0,
+    checksum: row.receipt_print_checksum,
+    printedByUserId: row.receipt_printed_by_user_id || "",
+    printedByName: row.receipt_printed_by_name || "",
+    printedAt: row.receipt_printed_at || "",
+    preparedAt: row.receipt_printed_at || "",
+    evidenceMode: "local-preview-only",
+    liveFiscalSubmission: false,
+    physicalPrinterCommand: false,
+    deviceSubmissionStatus: "not-submitted",
+    submittedToDevice: false
+  };
+  if (includePayload) {
+    const payload = safeJson(row.receipt_print_payload_json);
+    receiptPrint.payload = payload;
+    receiptPrint.previewLines = buildPosReceiptPrintPreviewLines(payload);
+    receiptPrint.previewText = receiptPrint.previewLines.join("\n");
+  }
+  return receiptPrint;
+}
+
+function buildPosReceiptPrintPreviewLines(payload) {
+  if (!payload || !isPlainObject(payload)) return [];
+  const preview = payload.preview && isPlainObject(payload.preview) ? payload.preview : {};
+  const totals = preview.totals && isPlainObject(preview.totals) ? preview.totals : {};
+  const lines = Array.isArray(preview.lines) ? preview.lines : [];
+  const receiptNumber = String(preview.receiptNumber || payload.receiptPacket?.receiptNumber || "");
+  const output = [
+    preview.title || "Armosphera One POS receipt preview",
+    receiptNumber ? `Receipt ${receiptNumber}` : "",
+    preview.soldAt ? `Sold ${preview.soldAt}` : "",
+    ...lines.map(line => {
+      const name = String(line.name || line.sku || "Line");
+      const quantity = Number.isFinite(line.quantity) ? line.quantity : 0;
+      const total = Number.isFinite(line.total) ? line.total : 0;
+      return `${quantity} x ${name} = ${total} AMD`;
+    }),
+    Number.isFinite(totals.total) ? `Total ${totals.total} AMD` : "",
+    "Local preview only - no printer or fiscal device command"
+  ];
+  return output.filter(Boolean);
 }
 
 function getPosSaleRefundById(db, orgId, refundId, includeLines = false) {
@@ -57152,6 +57417,15 @@ function normalizePosReceiptPacketBody(body) {
     fiscalDeviceId: normalizePosText(body, "fiscalDeviceId", { fallback: "", maxLength: 120 }),
     packetKind: normalizePosChoice(body, "packetKind", ["pos-fiscal-receipt-handoff"], "pos-fiscal-receipt-handoff"),
     packetFormat: normalizePosChoice(body, "packetFormat", ["json-v1"], "json-v1")
+  };
+}
+
+function normalizePosReceiptPrintBody(body) {
+  if (!isPlainObject(body)) throwInvalidPosMetadata();
+  return {
+    copyCount: normalizePosInteger(body, "copyCount", { fallback: 1, min: 1, max: 10 }),
+    printMode: normalizePosChoice(body, "printMode", ["local-preview"], "local-preview"),
+    printFormat: normalizePosChoice(body, "printFormat", ["receipt-preview-json-v1"], "receipt-preview-json-v1")
   };
 }
 

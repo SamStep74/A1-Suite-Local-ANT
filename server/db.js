@@ -248,6 +248,7 @@ function openDatabase(dbPath) {
   db.exec("PRAGMA journal_mode = WAL");
   initSchema(db);
   ensurePosSalePaymentLayer(db);
+  ensurePosReceiptPrintLayer(db);
   ensurePosVoidLayer(db);
   ensurePosTerminalSettlementLayer(db);
   ensureCrmTubeSchema(db);
@@ -775,6 +776,12 @@ function initSchema(db) {
       packet_format TEXT NOT NULL DEFAULT 'json-v1',
       checksum TEXT NOT NULL,
       payload_json TEXT NOT NULL,
+      receipt_print_status TEXT NOT NULL DEFAULT 'not-printed',
+      receipt_print_checksum TEXT NOT NULL DEFAULT '',
+      receipt_print_payload_json TEXT NOT NULL DEFAULT '',
+      receipt_print_copy_count INTEGER NOT NULL DEFAULT 0,
+      receipt_printed_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      receipt_printed_at TEXT NOT NULL DEFAULT '',
       prepared_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
       prepared_at TEXT NOT NULL,
       created_at TEXT NOT NULL,
@@ -786,6 +793,9 @@ function initSchema(db) {
 
     CREATE INDEX IF NOT EXISTS idx_pos_receipt_packets_status
       ON pos_receipt_packets(org_id, packet_status, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_receipt_packets_print_status
+      ON pos_receipt_packets(org_id, receipt_print_status, receipt_printed_at DESC);
 
     CREATE TABLE IF NOT EXISTS pos_sale_refunds (
       id TEXT PRIMARY KEY,
@@ -9024,6 +9034,25 @@ function ensurePosSalePaymentLayer(db) {
       ON pos_sale_payments(org_id, sale_id, line_number);
     CREATE INDEX IF NOT EXISTS idx_pos_sale_payments_session_method
       ON pos_sale_payments(org_id, cash_session_id, payment_method);
+  `);
+}
+
+function ensurePosReceiptPrintLayer(db) {
+  const columns = new Set(db.prepare("PRAGMA table_info(pos_receipt_packets)").all().map(column => column.name));
+  const additions = {
+    receipt_print_status: "TEXT NOT NULL DEFAULT 'not-printed'",
+    receipt_print_checksum: "TEXT NOT NULL DEFAULT ''",
+    receipt_print_payload_json: "TEXT NOT NULL DEFAULT ''",
+    receipt_print_copy_count: "INTEGER NOT NULL DEFAULT 0",
+    receipt_printed_by_user_id: "TEXT",
+    receipt_printed_at: "TEXT NOT NULL DEFAULT ''"
+  };
+  for (const [name, definition] of Object.entries(additions)) {
+    if (!columns.has(name)) db.exec(`ALTER TABLE pos_receipt_packets ADD COLUMN ${name} ${definition}`);
+  }
+  db.exec(`
+    CREATE INDEX IF NOT EXISTS idx_pos_receipt_packets_print_status
+      ON pos_receipt_packets(org_id, receipt_print_status, receipt_printed_at DESC);
   `);
 }
 

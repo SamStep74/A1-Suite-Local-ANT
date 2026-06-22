@@ -79,7 +79,7 @@ test("pos: workspace is auth-gated, app-gated, and launcher-assigned", async () 
     assert.equal(workspace.statusCode, 200, workspace.body);
     assert.equal(workspace.json().capabilityStatus.salePosting, "available");
     assert.equal(workspace.json().capabilityStatus.refunds, "available");
-    assert.equal(workspace.json().capabilityStatus.receiptPrinting, "not-implemented");
+    assert.equal(workspace.json().capabilityStatus.receiptPrinting, "local-preview");
 
     const support = await login(app, "support@armosphera.local");
     const supportDenied = await app.inject({ method: "GET", url: "/api/pos/workspace", headers: { cookie: support } });
@@ -702,6 +702,153 @@ test("pos: receipt packet prepares local fiscal handoff evidence for a posted sa
       && row.cash_session_id === session.id
       && row.packet_status === "prepared"
       && row.checksum === packet.checksum
+    )));
+  } finally {
+    await app.close();
+  }
+});
+
+test("pos: receipt print records local preview evidence after packet preparation", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const owner = await login(app);
+    const orgId = "org-armosphera-demo";
+    const { session, sale } = await createPostedPosSale(app, operator, {
+      registerCode: "POS-PRINT",
+      fiscalDeviceId: "FISCAL-AM-PRINT",
+      receiptNumber: "R-PRINT-001",
+      idempotencyKey: "pos-receipt-print-sale-1"
+    });
+
+    const badId = await app.inject({
+      method: "POST",
+      url: "/api/pos/sales/POS-SALE-BAD/receipt-print",
+      headers: { cookie: operator },
+      payload: {}
+    });
+    assert.equal(badId.statusCode, 400, badId.body);
+
+    const badBody = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/receipt-print`,
+      headers: { cookie: operator },
+      payload: []
+    });
+    assert.equal(badBody.statusCode, 400, badBody.body);
+
+    const missingSale = await app.inject({
+      method: "POST",
+      url: "/api/pos/sales/pos-sale-missing/receipt-print",
+      headers: { cookie: operator },
+      payload: {}
+    });
+    assert.equal(missingSale.statusCode, 404, missingSale.body);
+
+    const missingPacket = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/receipt-print`,
+      headers: { cookie: operator },
+      payload: {}
+    });
+    assert.equal(missingPacket.statusCode, 409, missingPacket.body);
+
+    const prepared = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/receipt-packet`,
+      headers: { cookie: operator },
+      payload: {}
+    });
+    assert.equal(prepared.statusCode, 200, prepared.body);
+    const packet = prepared.json().receiptPacket;
+
+    const auditCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM audit_events
+      WHERE org_id = ? AND type = ?
+    `).get(orgId, "pos.receipt_print.previewed").count;
+    const eventCount = () => app.db.prepare(`
+      SELECT COUNT(*) AS count
+      FROM suite_events
+      WHERE org_id = ? AND event_type = ?
+    `).get(orgId, "pos.receipt_print.previewed").count;
+    const beforeAudit = auditCount();
+    const beforeEvents = eventCount();
+
+    const printed = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/receipt-print`,
+      headers: { cookie: operator },
+      payload: {
+        copyCount: 2,
+        printMode: "local-preview",
+        printFormat: "receipt-preview-json-v1"
+      }
+    });
+    assert.equal(printed.statusCode, 200, printed.body);
+    const body = printed.json();
+    assert.equal(body.ok, true);
+    assert.equal(body.idempotent, false);
+    assert.equal(body.sale.id, sale.id);
+    assert.equal(body.receiptPacket.id, packet.id);
+    assert.equal(body.receiptPacket.receiptPrint.checksum, body.receiptPrint.checksum);
+
+    const receiptPrint = body.receiptPrint;
+    assert.equal(receiptPrint.receiptPacketId, packet.id);
+    assert.equal(receiptPrint.saleId, sale.id);
+    assert.equal(receiptPrint.cashSessionId, session.id);
+    assert.equal(receiptPrint.receiptNumber, "R-PRINT-001");
+    assert.equal(receiptPrint.status, "previewed");
+    assert.equal(receiptPrint.printMode, "local-preview");
+    assert.equal(receiptPrint.printFormat, "receipt-preview-json-v1");
+    assert.equal(receiptPrint.copyCount, 2);
+    assert.equal(receiptPrint.liveFiscalSubmission, false);
+    assert.equal(receiptPrint.physicalPrinterCommand, false);
+    assert.equal(receiptPrint.deviceSubmissionStatus, "not-submitted");
+    assert.match(receiptPrint.checksum, /^[a-f0-9]{64}$/);
+    assert.ok(receiptPrint.previewLines.some(line => line.includes("R-PRINT-001")));
+    assert.ok(receiptPrint.previewText.includes("no printer or fiscal device command"));
+
+    assert.equal(receiptPrint.payload.kind, "armosphera-one-pos-receipt-print-preview");
+    assert.equal(receiptPrint.payload.print.status, "previewed");
+    assert.equal(receiptPrint.payload.print.copyCount, 2);
+    assert.equal(receiptPrint.payload.print.liveFiscalSubmission, false);
+    assert.equal(receiptPrint.payload.print.physicalPrinterCommand, false);
+    assert.equal(receiptPrint.payload.receiptPacket.checksum, packet.checksum);
+    assert.equal(receiptPrint.payload.fiscal.liveSubmission, false);
+    assert.equal(receiptPrint.payload.fiscal.physicalPrinterCommand, false);
+    assert.ok(receiptPrint.payload.controls.includes("no-live-fiscal-device-submission"));
+    assert.ok(receiptPrint.payload.controls.includes("no-physical-printer-command"));
+    assert.equal(receiptPrint.checksum, sha256Json(receiptPrint.payload));
+
+    const replayed = await app.inject({
+      method: "POST",
+      url: `/api/pos/sales/${sale.id}/receipt-print`,
+      headers: { cookie: operator },
+      payload: { copyCount: 5 }
+    });
+    assert.equal(replayed.statusCode, 200, replayed.body);
+    assert.equal(replayed.json().idempotent, true);
+    assert.equal(replayed.json().receiptPrint.checksum, receiptPrint.checksum);
+    assert.equal(replayed.json().receiptPrint.copyCount, 2);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_receipt_packets WHERE org_id = ? AND sale_id = ?").get(orgId, sale.id).count, 1);
+    assert.equal(auditCount(), beforeAudit + 1);
+    assert.equal(eventCount(), beforeEvents + 1);
+
+    const backup = await app.inject({
+      method: "POST",
+      url: "/api/admin/backups",
+      headers: { cookie: owner },
+      payload: { note: "POS receipt print preview evidence must be restorable." }
+    });
+    assert.equal(backup.statusCode, 200, backup.body);
+    assert.ok(backup.json().backup.payload.tables.pos_receipt_packets.some(row => (
+      row.id === packet.id
+      && row.sale_id === sale.id
+      && row.receipt_print_status === "previewed"
+      && row.receipt_print_checksum === receiptPrint.checksum
+      && row.receipt_print_copy_count === 2
     )));
   } finally {
     await app.close();

@@ -6,6 +6,7 @@
  *   - opening a cash session via POST /api/pos/cash-sessions
  *   - posting a one-line sale via POST /api/pos/cash-sessions/:id/sales
  *   - posting split-payment sale evidence through the sale capture surface
+ *   - preparing local receipt packet and print-preview evidence
  *   - recording full-sale refund evidence via POST /api/pos/sales/:id/refund
  *   - closing the current cash session via POST /api/pos/cash-sessions/:id/close
  *   - posting closed-session terminal settlement evidence
@@ -82,6 +83,8 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
         ? 6
         : fn.includes("/refund")
         ? 4
+        : fn.includes("receipt-print")
+        ? 7
         : fn.includes("receipt-packet")
         ? 3
         : fn.includes("/sales")
@@ -280,6 +283,44 @@ const VALID_RECEIPT_PACKET_RESPONSE = {
     status: "prepared",
     checksum: "fiscal-packet-checksum-123",
     createdAt: "2026-06-22T09:31:00.000Z",
+  },
+  sale: VALID_SALE_RESPONSE.sale,
+};
+
+const VALID_RECEIPT_PRINT = {
+  id: "pos-receipt-packet-1:receipt-print",
+  receiptPacketId: "pos-receipt-packet-1",
+  saleId: "pos-sale-1",
+  cashSessionId: "pos-session-1",
+  receiptNumber: "R-2026-0002",
+  status: "previewed",
+  printStatus: "previewed",
+  printMode: "local-preview",
+  printFormat: "receipt-preview-json-v1",
+  copyCount: 1,
+  checksum: "receipt-print-checksum-456",
+  previewLines: [
+    "Armosphera One POS receipt preview",
+    "Receipt R-2026-0002",
+    "2 x POS barcode scanner = 50000 AMD",
+    "Total 50000 AMD",
+    "Local preview only - no printer or fiscal device command",
+  ],
+  evidenceMode: "local-preview-only",
+  liveFiscalSubmission: false,
+  physicalPrinterCommand: false,
+  deviceSubmissionStatus: "not-submitted",
+  submittedToDevice: false,
+  printedAt: "2026-06-22T09:32:00.000Z",
+};
+
+const VALID_RECEIPT_PRINT_RESPONSE = {
+  ok: true,
+  idempotent: false,
+  receiptPrint: VALID_RECEIPT_PRINT,
+  receiptPacket: {
+    ...VALID_RECEIPT_PACKET_RESPONSE.receiptPacket,
+    receiptPrint: VALID_RECEIPT_PRINT,
   },
   sale: VALID_SALE_RESPONSE.sale,
 };
@@ -761,7 +802,7 @@ describe("POS route", () => {
     expect(evidence).toHaveTextContent(/Paid cash\s*20[,\s]000 ֏/);
   });
 
-  it("prepares fiscal receipt evidence for the last posted sale", async () => {
+  it("prepares fiscal receipt and local print-preview evidence for the last posted sale", async () => {
     const openSessionWithDevice = {
       ...OPEN_SESSION,
       fiscalDeviceId: "FISCAL-OPEN-01",
@@ -773,7 +814,8 @@ describe("POS route", () => {
     };
     mocks.postJson
       .mockResolvedValueOnce(VALID_SALE_RESPONSE)
-      .mockResolvedValueOnce(VALID_RECEIPT_PACKET_RESPONSE);
+      .mockResolvedValueOnce(VALID_RECEIPT_PACKET_RESPONSE)
+      .mockResolvedValueOnce(VALID_RECEIPT_PRINT_RESPONSE);
 
     renderRoute();
 
@@ -814,6 +856,38 @@ describe("POS route", () => {
     });
     expect(screen.getByTestId("pos-receipt-packet-success")).toHaveTextContent(
       /fiscal-packet-checksum-123/,
+    );
+    expect(screen.getByTestId("pos-receipt-print-panel")).toHaveTextContent(
+      /Local print preview only/,
+    );
+
+    fireEvent.click(screen.getByTestId("pos-receipt-print-submit"));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(3);
+    });
+    const [printPath, printBody] = mocks.postJson.mock.calls[2]!;
+    expect(printPath).toBe("/api/pos/sales/pos-sale-1/receipt-print");
+    expect(printBody).toEqual({
+      copyCount: 1,
+      printMode: "local-preview",
+      printFormat: "receipt-preview-json-v1",
+    });
+    expect(mocks.mutateImpls[7]).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-receipt-print-success")).toHaveTextContent(
+        /previewed/,
+      );
+    });
+    expect(screen.getByTestId("pos-receipt-print-success")).toHaveTextContent(
+      /receipt-print-checksum-456/,
+    );
+    expect(screen.getByTestId("pos-receipt-print-success")).toHaveTextContent(
+      /not-submitted/,
+    );
+    expect(screen.getByTestId("pos-receipt-print-preview")).toHaveTextContent(
+      /Receipt R-2026-0002/,
     );
   });
 
