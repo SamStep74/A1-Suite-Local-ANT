@@ -1,16 +1,25 @@
 import { defineConfig } from "vite";
-import { tanstackStart } from "@tanstack/react-start/plugin/vite";
 import react from "@vitejs/plugin-react";
 import tailwindcss from "@tailwindcss/vite";
 import tsConfigPaths from "vite-tsconfig-paths";
 
 /**
- * TanStack Start 1.0 + React 19 + Tailwind v4.
+ * SPA-mode Vite config (Phase 10.0, Decision D1).
+ *
+ * Previously this file used the `tanstackStart` plugin to produce a
+ * bundled `.output/server/index.mjs` SSR runtime. The audit (plan
+ * §3.2 D1) verified that the app authenticates via `Authorization:
+ * Bearer <sid>` and renders all data client-side — no per-request
+ * router state, no per-request HTML, no server data loaders. So we
+ * can ship a static SPA to `web-modern/dist/` and serve it via
+ * `scripts/serve-spa.mjs` (a tiny Fastify + sirv wrapper).
+ *
+ * Date of flip: 2026-06-12.
  *
  * The new app lives at web-modern/ alongside the legacy Vite app at web/.
  * Dev server: http://localhost:4173 (Fastify on :4100, legacy Vite on :5173).
  *
- * ── API proxy strategy (two-track architecture) ──────────────────────
+ * ── API proxy strategy (single-track after D1) ────────────────────────
  * DEV   : custom Vite plugin `apiProxy` (this file) — Node `fetch` →
  *         Fastify. We use a hand-written Connect middleware instead
  *         of Vite's `server.proxy` because http-proxy (the lib behind
@@ -26,8 +35,10 @@ import tsConfigPaths from "vite-tsconfig-paths";
  *         still relies on cookies and benefits from the verbatim
  *         Set-Cookie forwarding.
  *
- * PROD  : TanStack Start server route at `src/routes/api/$.ts`.
- *         Lives in the `.output/server/index.mjs` bundle.
+ * PROD  : the SPA is served by `scripts/serve-spa.mjs`, which
+ *         forwards /api/* to the Fastify backend on :4100 directly.
+ *         The old `src/routes/api/$.ts` SSR proxy was deleted as
+ *         part of this flip.
  * ──────────────────────────────────────────────────────────────────────
  */
 import type { Plugin, Connect } from "vite";
@@ -135,10 +146,11 @@ export default defineConfig({
   plugins: [
     // Tailwind v4 — CSS-first config; tokens live in src/styles/tokens.css.
     tailwindcss(),
-    // The API proxy MUST be registered before TanStack Start so it
-    // runs before the dev-server-plugin's catch-all middleware.
+    // The API proxy MUST be registered before any other server-touching
+    // plugin so it runs before Vite's catch-all middleware. In SPA mode
+    // the dev server's catch-all hands off to index.html (Vite default),
+    // and we want /api/* to short-circuit that.
     apiProxy(),
-    tanstackStart(),
     react(),
     tsConfigPaths(),
   ],

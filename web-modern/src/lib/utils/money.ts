@@ -3,12 +3,6 @@
  * Source: web/src/finance.jsx uses `Intl.NumberFormat("hy-AM", { style: "currency", currency: "AMD" })`.
  * AMD is a no-decimal currency; we drop the trailing .00 to match the legacy UX.
  */
-const amd = new Intl.NumberFormat("hy-AM", {
-  style: "currency",
-  currency: "AMD",
-  maximumFractionDigits: 0,
-});
-
 const amdCompact = new Intl.NumberFormat("hy-AM", {
   style: "currency",
   currency: "AMD",
@@ -16,9 +10,15 @@ const amdCompact = new Intl.NumberFormat("hy-AM", {
   maximumFractionDigits: 1,
 });
 
+const NBSP = "\u00A0";
+
 export function money(amount: number | null | undefined, opts?: { compact?: boolean }): string {
   if (amount == null || Number.isNaN(amount)) return "—";
-  return opts?.compact ? amdCompact.format(amount) : amd.format(amount);
+  if (opts?.compact) return amdCompact.format(amount);
+  const rounded = Math.round(amount);
+  const sign = rounded < 0 ? "-" : "";
+  const value = Math.abs(rounded).toString().replace(/\B(?=(\d{3})+(?!\d))/g, NBSP);
+  return `${sign}${value}${NBSP}֏`;
 }
 
 /**

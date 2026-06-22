@@ -96,6 +96,11 @@ describe("fleetTabToHash / fleetTabFromHash", () => {
     expect(fleetTabFromHash("#fuel")).toBe<FleetTab>("fuel");
   });
 
+  it("fleetTabFromHash accepts nested route fragments", () => {
+    expect(fleetTabFromHash("#fleet/coldchain")).toBe<FleetTab>("coldchain");
+    expect(fleetTabFromHash("fleet/fuel")).toBe<FleetTab>("fuel");
+  });
+
   it("fleetTabFromHash trims whitespace before lookup", () => {
     expect(fleetTabFromHash("  trips  ")).toBe<FleetTab>("trips");
   });
@@ -141,12 +146,12 @@ describe("fleetTripStatusActionLabelAm", () => {
 /* ────────── coldChainCategoryLabelAm ────────── */
 
 describe("coldChainCategoryLabelAm", () => {
-  it("returns the Armenian label for each of the five categories", () => {
-    expect(coldChainCategoryLabelAm("dairy")).toBe("Կաթնամթերք");
-    expect(coldChainCategoryLabelAm("frozen")).toBe("Սառեցված");
-    expect(coldChainCategoryLabelAm("produce")).toBe("Մրգեր / Բանջարեղեն");
-    expect(coldChainCategoryLabelAm("meat")).toBe("Միս");
-    expect(coldChainCategoryLabelAm("default")).toBe("Ընդհանուր");
+  it("returns an Armenian-first label with an English gloss for each category", () => {
+    expect(coldChainCategoryLabelAm("dairy")).toBe("Կաթնամթերք (Dairy)");
+    expect(coldChainCategoryLabelAm("frozen")).toBe("Սառեցված (Frozen)");
+    expect(coldChainCategoryLabelAm("produce")).toBe("Մրգեր / Բանջարեղեն (Produce)");
+    expect(coldChainCategoryLabelAm("meat")).toBe("Միս (Meat)");
+    expect(coldChainCategoryLabelAm("default")).toBe("Ընդհանուր (Default)");
   });
 
   it("returns the raw key for an unknown category (forward-compat fallback)", () => {
@@ -263,6 +268,15 @@ describe("formatFleetIdShort", () => {
     expect(formatFleetIdShort("abc123")).toBe("abc123");
   });
 
+  it("does not truncate ids ending in a dash", () => {
+    expect(formatFleetIdShort("trailing-")).toBe("trailing-");
+  });
+
+  it("renders an em-dash for nullish ids", () => {
+    expect(formatFleetIdShort(null)).toBe("—");
+    expect(formatFleetIdShort(undefined)).toBe("—");
+  });
+
   it("preserves Armenian / unicode characters in the tail", () => {
     expect(formatFleetIdShort("prefix-ավտո-123")).toBe("ավտո-123".slice(-6));
   });
@@ -273,20 +287,20 @@ describe("formatFleetIdShort", () => {
 describe("formatFleetFuelEfficiency", () => {
   it("formats L/100km and km/L to 2 decimal places, joined by ' · '", () => {
     expect(formatFleetFuelEfficiency(12.345, 8.0987)).toBe(
-      "12.35 L/100 · 8.10 km/L",
+      "12.35L/100km · 8.10km/L",
     );
   });
 
-  it("renders '—' for the km/L portion when kmPerL is null (zero-km edge)", () => {
-    expect(formatFleetFuelEfficiency(0, null)).toBe("0.00 L/100 · —");
+  it("omits the km/L portion when kmPerL is null (zero-km edge)", () => {
+    expect(formatFleetFuelEfficiency(0, null)).toBe("0.00L/100km");
   });
 
   it("renders correctly for integer values (no fractional part)", () => {
-    expect(formatFleetFuelEfficiency(10, 10)).toBe("10.00 L/100 · 10.00 km/L");
+    expect(formatFleetFuelEfficiency(10, 10)).toBe("10.00L/100km · 10.00km/L");
   });
 
   it("renders correctly for very small fractions (3+ decimals clamp to 2)", () => {
-    expect(formatFleetFuelEfficiency(0.001, 0.001)).toBe("0.00 L/100 · 0.00 km/L");
+    expect(formatFleetFuelEfficiency(0.001, 0.001)).toBe("0.00L/100km · 0.00km/L");
   });
 });
 

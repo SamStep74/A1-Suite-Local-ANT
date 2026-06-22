@@ -166,7 +166,7 @@ function CfoWorkspace() {
     <div className="mx-auto max-w-6xl space-y-4 p-6 [data-density=compact]:p-4 [data-density=spacious]:p-8">
       <PageHeader />
 
-      <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+      <div data-testid="cfo-toolbar" className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <ViewSwitcher options={VIEW_OPTIONS} value={view} onChange={setView} />
         <div className="flex items-center gap-3">
           <Link

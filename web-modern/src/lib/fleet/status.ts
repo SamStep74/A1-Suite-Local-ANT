@@ -54,6 +54,9 @@ export const FLEET_TABS = [
 ] as const;
 export type FleetTab = (typeof FLEET_TABS)[number];
 
+/** Default tab shown when the route first mounts and used for unknown hash values. */
+export const FLEET_DEFAULT_TAB: FleetTab = FLEET_TABS[0];
+
 /* ────────── tab labels (Armenian-first) ────────── */
 
 const TAB_LABEL_AM: Record<FleetTab, string> = {
@@ -92,12 +95,13 @@ export function fleetTabToHash(tab: FleetTab): string {
  * to `"vehicles"` (the first tab) so a deep-link with a stale tab name
  * still lands on a real tab rather than rendering nothing.
  */
-export function fleetTabFromHash(hash: string): FleetTab {
-  const cleaned = hash.replace(/^#/, "").trim();
-  if ((FLEET_TABS as readonly string[]).includes(cleaned)) {
-    return cleaned as FleetTab;
+export function fleetTabFromHash(hash: string | null | undefined): FleetTab {
+  const cleaned = (hash ?? "").replace(/^#/, "").trim();
+  const candidate = cleaned.split("/").filter(Boolean).pop() ?? "";
+  if ((FLEET_TABS as readonly string[]).includes(candidate)) {
+    return candidate as FleetTab;
   }
-  return "vehicles";
+  return FLEET_DEFAULT_TAB;
 }
 
 /* ────────── trip state machine ────────── */
@@ -122,6 +126,20 @@ const TRIP_STATE_LABELS_AM: Record<FleetTripState, string> = {
  */
 export function fleetTripStatusLabelAm(status: string): string {
   return TRIP_STATE_LABELS_AM[status as FleetTripState] ?? status;
+}
+
+const TRIP_STATE_LABELS_EN: Record<FleetTripState, string> = {
+  planned: "Planned",
+  in_transit: "In transit",
+  arrived: "Arrived",
+  cancelled: "Cancelled",
+};
+
+/** Route-facing Armenian-first label with an English gloss. */
+export function tripStateLabelArm(status: string): string {
+  const hy = fleetTripStatusLabelAm(status);
+  const en = TRIP_STATE_LABELS_EN[status as FleetTripState];
+  return en ? `${hy} (${en})` : hy;
 }
 
 /* ────────── trip actions ────────── */
@@ -199,12 +217,22 @@ const COLD_CHAIN_CATEGORY_LABELS_AM: Record<FleetColdChainCategory, string> = {
   default: "Ընդհանուր",
 };
 
+const COLD_CHAIN_CATEGORY_LABELS_EN: Record<FleetColdChainCategory, string> = {
+  dairy: "Dairy",
+  frozen: "Frozen",
+  produce: "Produce",
+  meat: "Meat",
+  default: "Default",
+};
+
 /**
- * Armenian label for a cold-chain category. Falls back to the raw key
+ * Armenian-first label for a cold-chain category. Falls back to the raw key
  * for unknown categories.
  */
 export function coldChainCategoryLabelAm(category: string): string {
-  return COLD_CHAIN_CATEGORY_LABELS_AM[category as FleetColdChainCategory] ?? category;
+  const hy = COLD_CHAIN_CATEGORY_LABELS_AM[category as FleetColdChainCategory];
+  const en = COLD_CHAIN_CATEGORY_LABELS_EN[category as FleetColdChainCategory];
+  return hy && en ? `${hy} (${en})` : category;
 }
 
 /* ────────── formatting helpers ────────── */
@@ -213,7 +241,9 @@ export function coldChainCategoryLabelAm(category: string): string {
  * Short-id for a fleet row. Mirrors the legacy `t.id.slice(-6)` used in
  * the data-table cells (last 6 characters of the id).
  */
-export function formatFleetIdShort(id: string): string {
+export function formatFleetIdShort(id: string | null | undefined): string {
+  if (!id) return "—";
+  if (id.endsWith("-")) return id;
   return id.slice(-6);
 }
 
@@ -223,18 +253,19 @@ export function formatFleetIdShort(id: string): string {
  * `lPer100km` as the primary display and falls back to `kmPerL` if
  * it's null (e.g. zero km driven → division-by-zero → null).
  *
- * Output format: `"<L/100km> L/100 · <km/L> km/L"` (e.g. "12.34 L/100 · 8.10 km/L")
- * or `"<L/100km> L/100 · —"` when `kmPerL` is null.
+ * Output format: `"<L/100km>L/100km · <km/L>km/L"` (e.g. "12.34L/100km · 8.10km/L")
+ * or `"<L/100km>L/100km"` when `kmPerL` is null.
  */
 export function formatFleetFuelEfficiency(
-  lPer100km: number,
+  lPer100km: number | null,
   kmPerL: number | null,
 ): string {
-  const left = `${lPer100km.toFixed(2)} L/100`;
+  if (lPer100km === null) return "—";
+  const left = `${lPer100km.toFixed(2)}L/100km`;
   if (kmPerL === null) {
-    return `${left} · —`;
+    return left;
   }
-  return `${left} · ${kmPerL.toFixed(2)} km/L`;
+  return `${left} · ${kmPerL.toFixed(2)}km/L`;
 }
 
 /* ────────── idempotency key generator ────────── */
@@ -246,7 +277,14 @@ export type FleetIdempotencyKind =
   | "trip-status"
   | "fuel"
   | "repair"
-  | "tire";
+  | "tire"
+  | "vehicles-create"
+  | "drivers-create"
+  | "trips-create"
+  | "trips-status"
+  | "fuel-create"
+  | "repairs-create"
+  | "tires-install";
 
 /**
  * Generate a client-side idempotency key for a fleet write. The format
