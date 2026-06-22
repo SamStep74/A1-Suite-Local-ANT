@@ -1836,6 +1836,9 @@ export const ProjectTaskSchema = z
     assigneeEmployeeId: z.string().nullable().optional(),
     dueDate: z.string().nullable().optional(),
     updatedAt: z.string().optional(),
+    parentTaskId: z.string().nullable().optional(),
+    parentTask: ProjectTaskDependencyRefSchema.nullable().optional(),
+    subtasks: z.array(ProjectTaskDependencyRefSchema).optional(),
     blockedBy: z.array(ProjectTaskDependencyRefSchema).optional(),
     blocking: z.array(ProjectTaskDependencyRefSchema).optional(),
   })

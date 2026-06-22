@@ -684,12 +684,18 @@ describe("Project task dependency schemas", () => {
       assigneeEmployeeId: null,
       dueDate: "2026-06-30",
       updatedAt: "2026-06-20T10:00:00.000Z",
+      parentTaskId: "t-1",
+      parentTask: { id: "t-1", title: "Approve scope", status: "done" },
+      subtasks: [{ id: "t-4", title: "QA checklist", status: "todo" }],
       blockedBy: [{ id: "t-1", title: "Approve scope", status: "done" }],
       blocking: [{ id: "t-3", title: "Deploy handoff", status: "todo" }],
     });
 
     expect(r.success).toBe(true);
     if (r.success) {
+      expect(r.data.parentTask?.title).toBe("Approve scope");
+      expect(r.data.parentTaskId).toBe("t-1");
+      expect(r.data.subtasks?.[0]?.title).toBe("QA checklist");
       expect(r.data.blockedBy?.[0]?.title).toBe("Approve scope");
       expect(r.data.blocking?.[0]?.status).toBe("todo");
     }
@@ -716,6 +722,9 @@ describe("Project task dependency schemas", () => {
             id: "t-2",
             title: "Finalize implementation",
             status: "in-progress",
+            parentTaskId: "t-1",
+            parentTask: { id: "t-1", title: "Approve scope", status: "done" },
+            subtasks: [{ id: "t-3", title: "Deploy handoff", status: "todo" }],
             blockedBy: [{ id: "t-1", title: "Approve scope", status: "done" }],
             blocking: [],
           },
@@ -726,6 +735,8 @@ describe("Project task dependency schemas", () => {
 
     expect(r.success).toBe(true);
     if (r.success) {
+      expect(r.data.project.tasks?.[0]?.parentTask?.id).toBe("t-1");
+      expect(r.data.project.tasks?.[0]?.subtasks?.[0]?.status).toBe("todo");
       expect(r.data.project.tasks?.[0]?.blockedBy?.[0]?.id).toBe("t-1");
     }
   });

@@ -235,6 +235,178 @@ test("projects: task dependencies serialize, dedupe, delete, and reject invalid 
   } finally { await app.close(); }
 });
 
+test("projects: task parent subtasks serialize, clear, and reject invalid parent graphs", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const owner = await login(app);
+    const orgId = "org-armosphera-demo";
+
+    const created = await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie: owner },
+      payload: { name: "Subtask graph project", status: "active" }
+    });
+    assert.strictEqual(created.statusCode, 200, created.body);
+    const projectId = created.json().project.id;
+    const otherProject = (await app.inject({
+      method: "POST",
+      url: "/api/projects",
+      headers: { cookie: owner },
+      payload: { name: "Other subtask project" }
+    })).json().project.id;
+
+    const createTask = async (parentProjectId, title, payload = {}) => {
+      const response = await app.inject({
+        method: "POST",
+        url: `/api/projects/${parentProjectId}/tasks`,
+        headers: { cookie: owner },
+        payload: { title, ...payload }
+      });
+      assert.strictEqual(response.statusCode, 200, response.body);
+      return response.json().project.tasks.find(task => task.title === title).id;
+    };
+    const taskRows = () => app.db.prepare(`
+      SELECT id, title, status, parent_task_id AS parentTaskId
+      FROM project_tasks
+      WHERE org_id = ? AND project_id = ?
+      ORDER BY id
+    `).all(orgId, projectId);
+    const snapshot = () => ({
+      rows: taskRows(),
+      tasks: app.db.prepare("SELECT COUNT(*) AS count FROM project_tasks WHERE org_id = ? AND project_id = ?").get(orgId, projectId).count,
+      audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type LIKE ?").get(orgId, "projects.%").count
+    });
+    const expectNoSideEffect = async ({ method, url, payload, statusCode, message, leakPattern = /secret-projects-parent-/ }) => {
+      const before = snapshot();
+      const request = { method, url, headers: { cookie: owner } };
+      if (payload !== undefined) request.payload = payload;
+      const response = await app.inject(request);
+      assert.strictEqual(response.statusCode, statusCode, response.body);
+      if (message) assert.match(response.body, message);
+      assert.doesNotMatch(response.body, leakPattern);
+      assert.deepStrictEqual(snapshot(), before);
+      return response;
+    };
+
+    const parentTaskId = await createTask(projectId, "Parent implementation task");
+    const childTaskId = await createTask(projectId, "Child implementation task", { parentTaskId });
+    let detail = await app.inject({ method: "GET", url: `/api/projects/${projectId}`, headers: { cookie: owner } });
+    assert.strictEqual(detail.statusCode, 200, detail.body);
+    let tasks = detail.json().project.tasks;
+    let parentTask = tasks.find(task => task.id === parentTaskId);
+    let childTask = tasks.find(task => task.id === childTaskId);
+    assert.strictEqual(childTask.parentTaskId, parentTaskId);
+    assert.deepStrictEqual(childTask.parentTask, { id: parentTaskId, title: "Parent implementation task", status: "todo" });
+    assert.deepStrictEqual(childTask.subtasks, []);
+    assert.deepStrictEqual(parentTask.parentTask, null);
+    assert.deepStrictEqual(parentTask.subtasks, [{ id: childTaskId, title: "Child implementation task", status: "todo" }]);
+
+    const cleared = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${projectId}/tasks/${childTaskId}`,
+      headers: { cookie: owner },
+      payload: { parentTaskId: "" }
+    });
+    assert.strictEqual(cleared.statusCode, 200, cleared.body);
+    tasks = cleared.json().project.tasks;
+    parentTask = tasks.find(task => task.id === parentTaskId);
+    childTask = tasks.find(task => task.id === childTaskId);
+    assert.strictEqual(childTask.parentTaskId, null);
+    assert.deepStrictEqual(childTask.parentTask, null);
+    assert.deepStrictEqual(parentTask.subtasks, []);
+
+    const restored = await app.inject({
+      method: "PATCH",
+      url: `/api/projects/${projectId}/tasks/${childTaskId}`,
+      headers: { cookie: owner },
+      payload: { parentTaskId }
+    });
+    assert.strictEqual(restored.statusCode, 200, restored.body);
+    const grandchildTaskId = await createTask(projectId, "Grandchild implementation task", { parentTaskId: childTaskId });
+    assert.ok(grandchildTaskId);
+
+    await expectNoSideEffect({
+      method: "PATCH",
+      url: `/api/projects/${projectId}/tasks/${parentTaskId}`,
+      payload: { parentTaskId },
+      statusCode: 400,
+      message: /own parent/
+    });
+    await expectNoSideEffect({
+      method: "PATCH",
+      url: `/api/projects/${projectId}/tasks/${parentTaskId}`,
+      payload: { parentTaskId: grandchildTaskId },
+      statusCode: 400,
+      message: /cycle/i
+    });
+
+    for (const request of [
+      {
+        method: "POST",
+        url: `/api/projects/${projectId}/tasks`,
+        payload: { title: "Malformed subtask parent", parentTaskId: "badAsecret-projects-parent-case-token" }
+      },
+      {
+        method: "PATCH",
+        url: `/api/projects/${projectId}/tasks/${childTaskId}`,
+        payload: { parentTaskId: { value: parentTaskId, token: "secret-projects-parent-object-token" } }
+      },
+      {
+        method: "PATCH",
+        url: `/api/projects/${projectId}/tasks/${childTaskId}`,
+        payload: { parentTaskId: `bad_secret-projects-parent-underscore-token` }
+      },
+      {
+        method: "PATCH",
+        url: `/api/projects/${projectId}/tasks/${childTaskId}`,
+        payload: { parentTaskId: `${"a".repeat(161)}secret-projects-parent-long-token` }
+      }
+    ]) {
+      await expectNoSideEffect({ ...request, statusCode: 400, message: /Invalid parent task id/ });
+    }
+
+    const otherTaskId = await createTask(otherProject, "Other project parent task");
+    await expectNoSideEffect({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks`,
+      payload: { title: "Cross project child", parentTaskId: otherTaskId },
+      statusCode: 404
+    });
+    await expectNoSideEffect({
+      method: "PATCH",
+      url: `/api/projects/${projectId}/tasks/${childTaskId}`,
+      payload: { parentTaskId: otherTaskId },
+      statusCode: 404
+    });
+
+    const now = new Date().toISOString();
+    const otherOrgId = "org-other-parent";
+    const foreignProjectId = "proj-foreign-parent";
+    const foreignTaskId = "ptask-foreign-secret-projects-parent-cross-org-token";
+    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, currency, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run(otherOrgId, "Other Parent LLC", "Other Parent LLC", "77777777", "AMD", now);
+    app.db.prepare(`INSERT INTO projects (id, org_id, name, description, status, customer_id, deal_id, start_date, due_date, created_at, updated_at)
+      VALUES (?, ?, ?, '', 'active', NULL, NULL, '', '', ?, ?)`).run(foreignProjectId, otherOrgId, "Foreign parent project", now, now);
+    app.db.prepare(`INSERT INTO project_tasks (id, org_id, project_id, title, status, assignee_employee_id, due_date, created_at, updated_at)
+      VALUES (?, ?, ?, ?, 'todo', NULL, '', ?, ?)`).run(foreignTaskId, otherOrgId, foreignProjectId, "Foreign parent task", now, now);
+
+    await expectNoSideEffect({
+      method: "POST",
+      url: `/api/projects/${projectId}/tasks`,
+      payload: { title: "Cross org child", parentTaskId: foreignTaskId },
+      statusCode: 404
+    });
+    await expectNoSideEffect({
+      method: "PATCH",
+      url: `/api/projects/${projectId}/tasks/${childTaskId}`,
+      payload: { parentTaskId: foreignTaskId },
+      statusCode: 404
+    });
+  } finally { await app.close(); }
+});
+
 test("projects: rejects malformed metadata before persistence", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {

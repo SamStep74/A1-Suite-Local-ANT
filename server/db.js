@@ -255,6 +255,7 @@ function openDatabase(dbPath) {
   ensureSmbCrmAutomationSchema(db);
   ensurePilotPacketLayer(db);
   ensureSessionGovernanceLayer(db);
+  ensureProjectsLayer(db);
   seedIfEmpty(db);
   ensureSmbCrmAppAssignments(db);
   ensureSuiteAppLayer(db);
@@ -1668,6 +1669,7 @@ function initSchema(db) {
       project_id TEXT NOT NULL REFERENCES projects(id) ON DELETE CASCADE,
       title TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'todo',
+      parent_task_id TEXT REFERENCES project_tasks(id) ON DELETE SET NULL,
       assignee_employee_id TEXT REFERENCES people_employees(id) ON DELETE SET NULL,
       due_date TEXT NOT NULL DEFAULT '',
       created_at TEXT NOT NULL,
@@ -1675,6 +1677,7 @@ function initSchema(db) {
     );
 
     CREATE INDEX IF NOT EXISTS idx_project_tasks_project ON project_tasks(org_id, project_id, status);
+    CREATE INDEX IF NOT EXISTS idx_project_tasks_parent ON project_tasks(org_id, project_id, parent_task_id);
 
     CREATE TABLE IF NOT EXISTS project_task_dependencies (
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -8074,6 +8077,14 @@ function ensurePilotPacketLayer(db) {
   for (const [name, definition] of Object.entries(additions)) {
     if (!columns.has(name)) db.exec(`ALTER TABLE pilot_quote_acceptance_handoff_packets ADD COLUMN ${name} ${definition}`);
   }
+}
+
+function ensureProjectsLayer(db) {
+  const taskColumns = new Set(db.prepare("PRAGMA table_info(project_tasks)").all().map(column => column.name));
+  if (!taskColumns.has("parent_task_id")) {
+    db.exec("ALTER TABLE project_tasks ADD COLUMN parent_task_id TEXT REFERENCES project_tasks(id) ON DELETE SET NULL");
+  }
+  db.exec("CREATE INDEX IF NOT EXISTS idx_project_tasks_parent ON project_tasks(org_id, project_id, parent_task_id)");
 }
 
 function ensureProfileLayer(db) {

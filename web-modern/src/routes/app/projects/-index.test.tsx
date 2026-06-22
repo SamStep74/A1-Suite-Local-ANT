@@ -178,9 +178,9 @@ const DETAIL = {
     totalMinutes: 240,
     timeEntryCount: 4,
     tasks: [
-      { id: "t-1", title: "Do A", status: "done", assigneeEmployeeId: null, dueDate: null, updatedAt: "2026-06-01", blocking: [{ id: "t-3", title: "Do C", status: "in-progress" }] },
+      { id: "t-1", title: "Do A", status: "done", assigneeEmployeeId: null, dueDate: null, updatedAt: "2026-06-01", subtasks: [{ id: "t-3", title: "Do C", status: "in-progress" }], blocking: [{ id: "t-3", title: "Do C", status: "in-progress" }] },
       { id: "t-2", title: "Do B", status: "todo", assigneeEmployeeId: null, dueDate: null, updatedAt: "2026-06-01" },
-      { id: "t-3", title: "Do C", status: "in-progress", assigneeEmployeeId: null, dueDate: null, updatedAt: "2026-06-01", blockedBy: [{ id: "t-1", title: "Scope approval", status: "done" }] },
+      { id: "t-3", title: "Do C", status: "in-progress", assigneeEmployeeId: null, dueDate: null, updatedAt: "2026-06-01", parentTaskId: "t-1", parentTask: { id: "t-1", title: "Do A", status: "done" }, blockedBy: [{ id: "t-1", title: "Scope approval", status: "done" }] },
     ],
     milestones: [
       { id: "m-1", title: "Kickoff", dueDate: "2026-06-15", reached: 1, updatedAt: "2026-06-01" },
@@ -375,6 +375,15 @@ describe("Projects — Tasks view", () => {
     const rows = within(table as HTMLElement).getAllByRole("row").slice(1);
     expect(rows[0].textContent).toMatch(/Do C/);
     expect(rows[0].textContent).toMatch(/Scope approval/);
+  });
+  it("renders parent and subtask hierarchy evidence", () => {
+    mocks.detail = DETAIL;
+    renderRoute();
+    const marker = document.querySelector('[data-entity="projects-task"]');
+    const table = marker?.querySelector("table");
+    const rows = within(table as HTMLElement).getAllByRole("row").slice(1);
+    expect(rows[0].textContent).toMatch(/Parent: Do A/);
+    expect(rows[2].textContent).toMatch(/Subtask: Do C/);
   });
 });
 

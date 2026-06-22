@@ -108,6 +108,37 @@ function blockedByTitle(task: ProjectTask) {
   return blockers.map((b) => `${b.title} (${b.status})`).join(", ");
 }
 
+function taskHierarchyLabel(task: ProjectTask) {
+  const parts: string[] = [];
+  const parentLabel = task.parentTask?.title ?? task.parentTaskId ?? null;
+  const subtasks = task.subtasks ?? [];
+
+  if (parentLabel) parts.push(`Parent: ${parentLabel}`);
+  if (subtasks.length === 1) parts.push(`Subtask: ${subtasks[0].title}`);
+  if (subtasks.length > 1) parts.push(`Subtasks: ${subtasks[0].title} +${subtasks.length - 1}`);
+
+  return parts.length > 0 ? parts.join(" | ") : null;
+}
+
+function taskHierarchyTitle(task: ProjectTask) {
+  const parts: string[] = [];
+  const parent = task.parentTask;
+  const subtasks = task.subtasks ?? [];
+
+  if (parent) {
+    parts.push(`Parent: ${parent.title} (${parent.status})`);
+  } else if (task.parentTaskId) {
+    parts.push(`Parent: ${task.parentTaskId}`);
+  }
+  if (subtasks.length > 0) {
+    parts.push(
+      `Subtasks: ${subtasks.map((subtask) => `${subtask.title} (${subtask.status})`).join(", ")}`,
+    );
+  }
+
+  return parts.join(" | ");
+}
+
 /* ────────── root component ────────── */
 
 function ProjectDetailRoute() {
@@ -219,9 +250,25 @@ function ProjectDetailRoute() {
             ) : (
               tasks.map((t) => {
                 const ttone = TASK_TONE[classifyTaskStatus(t)];
+                const hierarchyLabel = taskHierarchyLabel(t);
+                const hierarchyTitle = taskHierarchyTitle(t);
                 return (
                   <tr key={t.id} className="hover:bg-[var(--color-surface-soft)]">
-                    <td className="px-3 py-2 text-[var(--color-ink)]">{t.title}</td>
+                    <td className="px-3 py-2 text-[var(--color-ink)]">
+                      <div className="min-w-0">
+                        <span className="block truncate" title={t.title}>
+                          {t.title}
+                        </span>
+                        {hierarchyLabel && (
+                          <span
+                            className="mt-0.5 block truncate text-[11px] text-[var(--color-muted)]"
+                            title={hierarchyTitle || undefined}
+                          >
+                            {hierarchyLabel}
+                          </span>
+                        )}
+                      </div>
+                    </td>
                     <td className="px-3 py-2">
                       <span
                         className={cn(

@@ -5408,11 +5408,12 @@ function registerApi(app, db, options = {}) {
     }
     const status = normalizeProjectEnum(body, "status", TASK_STATUSES, "todo", "Invalid task status");
     const dueDate = normalizeProjectDate(body, "dueDate", "");
+    const parentTaskId = resolveProjectTaskParentId(db, user.org_id, project.id, normalizeProjectParentTaskBodyId(body));
     const id = randomId("ptask");
     const now = new Date().toISOString();
-    db.prepare(`INSERT INTO project_tasks (id, org_id, project_id, title, status, assignee_employee_id, due_date, created_at, updated_at)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(id, user.org_id, project.id, title, status, assigneeEmployeeId, dueDate, now, now);
+    db.prepare(`INSERT INTO project_tasks (id, org_id, project_id, title, status, parent_task_id, assignee_employee_id, due_date, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(id, user.org_id, project.id, title, status, parentTaskId, assigneeEmployeeId, dueDate, now, now);
     audit(db, user.org_id, user.id, "projects.task.created", { projectId: project.id, taskId: id });
     return { ok: true, project: getProject(db, user.org_id, project.id) };
   });
@@ -5482,6 +5483,10 @@ function registerApi(app, db, options = {}) {
         assigneeEmployeeId = emp.id;
       }
       sets.push("assignee_employee_id = ?"); values.push(assigneeEmployeeId);
+    }
+    if (body.parentTaskId !== undefined) {
+      const parentTaskId = resolveProjectTaskParentId(db, user.org_id, project.id, normalizeProjectParentTaskBodyId(body), task.id);
+      sets.push("parent_task_id = ?"); values.push(parentTaskId);
     }
     if (body.dueDate !== undefined) { sets.push("due_date = ?"); values.push(normalizeProjectDate(body, "dueDate", "")); }
     if (sets.length === 0) { const e = new Error("No updatable fields provided"); e.statusCode = 400; throw e; }
@@ -5791,10 +5796,33 @@ function registerApi(app, db, options = {}) {
     return text;
   }
 
+  function normalizeProjectParentTaskBodyId(body) {
+    const value = Object.prototype.hasOwnProperty.call(body, "parentTaskId") ? body.parentTaskId : undefined;
+    if (value === undefined || value === "") return null;
+    return normalizeProjectRouteId(value, "Invalid parent task id");
+  }
+
   function throwInvalidProjectPathId(message) {
     const err = new Error(message);
     err.statusCode = 400;
     throw err;
+  }
+
+  function resolveProjectTaskParentId(db, orgId, projectId, parentTaskId, taskId = "") {
+    if (!parentTaskId) return null;
+    if (taskId && taskId === parentTaskId) {
+      const e = new Error("Task cannot be its own parent");
+      e.statusCode = 400;
+      throw e;
+    }
+    const parentTask = db.prepare("SELECT id FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(orgId, projectId, parentTaskId);
+    if (!parentTask) { const e = new Error("Parent task not found"); e.statusCode = 404; throw e; }
+    if (taskId && wouldCreateProjectTaskParentCycle(db, orgId, projectId, taskId, parentTask.id)) {
+      const e = new Error("Task parent cycle detected");
+      e.statusCode = 400;
+      throw e;
+    }
+    return parentTask.id;
   }
 
   function resolveProjectTaskDependencyContext(db, orgId, request, dependencySource) {
@@ -5819,6 +5847,25 @@ function registerApi(app, db, options = {}) {
     const dependsOnTask = db.prepare("SELECT id, title, status FROM project_tasks WHERE org_id = ? AND project_id = ? AND id = ?").get(orgId, project.id, dependsOnTaskId);
     if (!dependsOnTask) { const e = new Error("Dependency task not found"); e.statusCode = 404; throw e; }
     return { project, task, dependsOnTask };
+  }
+
+  function wouldCreateProjectTaskParentCycle(db, orgId, projectId, taskId, parentTaskId) {
+    const rows = db.prepare(`
+      SELECT id, parent_task_id AS parentTaskId
+      FROM project_tasks
+      WHERE org_id = ? AND project_id = ?
+    `).all(orgId, projectId);
+    const parentByTaskId = new Map(rows.map(row => [row.id, row.parentTaskId]));
+    parentByTaskId.set(taskId, parentTaskId);
+    const seen = new Set();
+    let current = parentTaskId;
+    while (current) {
+      if (current === taskId) return true;
+      if (seen.has(current)) return false;
+      seen.add(current);
+      current = parentByTaskId.get(current);
+    }
+    return false;
   }
 
   function wouldCreateProjectTaskDependencyCycle(db, orgId, projectId, taskId, dependsOnTaskId) {
@@ -10222,14 +10269,23 @@ function getForm(db, orgId, id) {
 function getProject(db, orgId, id) {
   const project = db.prepare("SELECT id, name, description, status, customer_id AS customerId, deal_id AS dealId, start_date AS startDate, due_date AS dueDate, created_at AS createdAt, updated_at AS updatedAt FROM projects WHERE org_id = ? AND id = ?").get(orgId, String(id || ""));
   if (!project) return null;
-  project.tasks = db.prepare("SELECT id, title, status, assignee_employee_id AS assigneeEmployeeId, due_date AS dueDate, updated_at AS updatedAt FROM project_tasks WHERE org_id = ? AND project_id = ? ORDER BY created_at").all(orgId, project.id);
+  project.tasks = db.prepare("SELECT id, title, status, parent_task_id AS parentTaskId, assignee_employee_id AS assigneeEmployeeId, due_date AS dueDate, updated_at AS updatedAt FROM project_tasks WHERE org_id = ? AND project_id = ? ORDER BY created_at").all(orgId, project.id);
   const tasksById = new Map();
   for (const task of project.tasks) {
+    task.parentTask = null;
+    task.subtasks = [];
     task.blockedBy = [];
     task.blocking = [];
     task.dependsOnTaskIds = [];
     task.blockingTaskIds = [];
     tasksById.set(task.id, task);
+  }
+  for (const task of project.tasks) {
+    if (!task.parentTaskId) continue;
+    const parentTask = tasksById.get(task.parentTaskId);
+    if (!parentTask) continue;
+    task.parentTask = { id: parentTask.id, title: parentTask.title, status: parentTask.status };
+    parentTask.subtasks.push({ id: task.id, title: task.title, status: task.status });
   }
   const dependencies = db.prepare(`
     SELECT
