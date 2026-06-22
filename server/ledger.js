@@ -301,12 +301,12 @@ function posSettlementAccountCode(paymentMethod) {
 function posTerminalSettlementAccounts(paymentMethod = "card") {
   const C = postingCodesFor(locale.activeLocale());
   if (locale.activeLocale() === "am" && paymentMethod === "card") {
-    return { clearingCode: "255", bankCode: "252" };
+    return { clearingCode: "255", bankCode: "252", feeExpenseCode: C.expense };
   }
   if (locale.activeLocale() === "ru" && paymentMethod === "card") {
-    return { clearingCode: "57", bankCode: C.cash };
+    return { clearingCode: "57", bankCode: C.cash, feeExpenseCode: C.expense };
   }
-  return { clearingCode: posSettlementAccountCode(paymentMethod), bankCode: C.cash };
+  return { clearingCode: posSettlementAccountCode(paymentMethod), bankCode: C.cash, feeExpenseCode: C.expense };
 }
 
 function postPosSale(db, orgId, sale) {
@@ -377,21 +377,42 @@ function postPosRefund(db, orgId, refund) {
 
 function postPosTerminalSettlement(db, orgId, settlement) {
   const amount = assertMinorUnitInteger(settlement.amount ?? settlement.settledTotal ?? settlement.settled_total_amd);
+  const processorFee = assertMinorUnitInteger(settlement.processorFee ?? settlement.processor_fee_amd ?? 0);
+  if (processorFee < 0) {
+    const err = new Error("Ledger processor fee must be non-negative");
+    err.code = "INVALID_LEDGER_AMOUNT";
+    err.statusCode = 400;
+    throw err;
+  }
   const date = settlement.date || settlement.settled_at || new Date().toISOString().slice(0, 10);
   const periodKey = settlement.period_key || String(date).slice(0, 7);
   const accounts = posTerminalSettlementAccounts(settlement.paymentMethod || settlement.payment_method || "card");
   const clearingCode = settlement.clearingAccountCode || settlement.clearing_account_code || accounts.clearingCode;
   const bankCode = settlement.bankAccountCode || settlement.bank_account_code || accounts.bankCode;
-  return [postEntry(db, orgId, {
+  const feeExpenseCode = settlement.feeAccountCode || settlement.fee_account_code || accounts.feeExpenseCode;
+  const reference = settlement.settlementReference || settlement.settlement_reference || settlement.id;
+  const ids = [];
+  ids.push(postEntry(db, orgId, {
     date,
     debitCode: bankCode,
     creditCode: clearingCode,
     amount,
-    memo: `POS terminal settlement ${settlement.settlementReference || settlement.settlement_reference || settlement.id}`,
+    memo: `POS terminal settlement ${reference}`,
     sourceType: "pos_terminal_settlement",
     sourceId: settlement.id,
     periodKey
-  })].filter(Boolean);
+  }));
+  if (processorFee > 0) ids.push(postEntry(db, orgId, {
+    date,
+    debitCode: feeExpenseCode,
+    creditCode: clearingCode,
+    amount: processorFee,
+    memo: `POS terminal processor fee ${reference}`,
+    sourceType: "pos_terminal_settlement",
+    sourceId: settlement.id,
+    periodKey
+  }));
+  return ids.filter(Boolean);
 }
 
 function buildLedgerModel(db, orgId) {
@@ -532,4 +553,4 @@ function payablesReport(db, orgId, asOf) {
   return accounting.calculatePayables(buildPayablesModel(db, orgId), { asOf: asOf || new Date().toISOString().slice(0, 10) });
 }
 
-module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, OPENING_BALANCE_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postPosSale, postPosRefund, postPosTerminalSettlement, postExpensePosted, postPayrollRun, postBillPosted, postBillCreditNote, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, openingBalanceAccountByCode, openingBalanceSideForCode, postOpeningBalance, postOpeningBalances, openingBalances };
+module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, OPENING_BALANCE_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postPosSale, postPosRefund, postPosTerminalSettlement, posTerminalSettlementAccounts, postExpensePosted, postPayrollRun, postBillPosted, postBillCreditNote, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, openingBalanceAccountByCode, openingBalanceSideForCode, postOpeningBalance, postOpeningBalances, openingBalances };

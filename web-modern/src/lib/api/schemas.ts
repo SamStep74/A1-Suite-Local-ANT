@@ -1149,11 +1149,21 @@ export const PosTerminalSettlementRequestSchema = z
       .min(1)
       .max(120)
       .refine((value) => !/[\x00-\x1f\x7f]/.test(value)),
-    settledTotal: z.number().int().min(1).max(100_000_000_000),
+    settledTotal: z.number().int().min(0).max(100_000_000_000),
+    processorFee: z.number().int().min(0).max(100_000_000_000).optional(),
+    processorFeeAccountCode: z
+      .string()
+      .min(1)
+      .max(80)
+      .refine((value) => !/[\x00-\x1f\x7f]/.test(value))
+      .optional(),
     settledAt: z.string().min(1).optional(),
     note: z.string().max(500).refine((value) => !/[\x00-\x1f\x7f]/.test(value)).optional(),
   })
-  .strict();
+  .strict()
+  .refine((value) => value.settledTotal + (value.processorFee ?? 0) > 0, {
+    path: ["settledTotal"],
+  });
 export type PosTerminalSettlementRequest = z.infer<typeof PosTerminalSettlementRequestSchema>;
 
 export const PosTerminalSettlementPostingsSchema = z
@@ -1162,6 +1172,15 @@ export const PosTerminalSettlementPostingsSchema = z
     ledgerPosting: z.string(),
     ledgerPostingIds: z.array(z.string()).optional(),
     ledgerPostingCount: z.number().int().min(0).optional(),
+    feePosting: z.string().optional(),
+    feeLedgerPosting: z.string().optional(),
+    feeLedgerPostingIds: z.array(z.string()).optional(),
+    feeLedgerPostingCount: z.number().int().min(0).optional(),
+    processorFeePosting: z.string().optional(),
+    processorFeeLedgerPosting: z.string().optional(),
+    processorFeeLedgerPostingIds: z.array(z.string()).optional(),
+    processorFeeLedgerPostingCount: z.number().int().min(0).optional(),
+    totalLedgerPostingCount: z.number().int().min(0).optional(),
   })
   .passthrough();
 export type PosTerminalSettlementPostings = z.infer<
@@ -1178,7 +1197,16 @@ export const PosTerminalSettlementSchema = z
     paymentMethod: z.literal("card"),
     expectedTotal: z.number(),
     settledTotal: z.number(),
+    processorFee: z.number().min(0).optional(),
+    processorFeeAccountCode: z.string().optional(),
+    feeAccountCode: z.string().optional(),
+    clearingReduction: z.number().optional(),
+    clearingReductionTotal: z.number().optional(),
+    clearedTotal: z.number().optional(),
     difference: z.number(),
+    outstandingAmount: z.number().optional(),
+    outstandingAfterSettlement: z.number().optional(),
+    outstandingAfterSettledAndFee: z.number().optional(),
     clearingAccountCode: z.string(),
     bankAccountCode: z.string(),
     status: z.string(),
@@ -1205,9 +1233,19 @@ export const PosTerminalSettlementPreviewSchema = z
     cardRefundsTotal: z.number(),
     cardRefundsCount: z.number().int().min(0),
     settledTotal: z.number(),
+    processorFeeTotal: z.number().optional(),
+    processorFeeAccountCode: z.string().optional(),
+    feeAccountCode: z.string().optional(),
+    clearingReductionTotal: z.number().optional(),
+    clearedTotal: z.number().optional(),
     settlementCount: z.number().int().min(0),
     netCardClearing: z.number(),
     outstandingAmount: z.number(),
+    outstandingAfterSettlement: z.number().optional(),
+    outstandingAfterSettledAndFee: z.number().optional(),
+    ledgerPostingCount: z.number().int().min(0).optional(),
+    feeLedgerPostingCount: z.number().int().min(0).optional(),
+    totalLedgerPostingCount: z.number().int().min(0).optional(),
     ready: z.boolean(),
     recentSettlements: z.array(PosTerminalSettlementSchema),
   })

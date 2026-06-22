@@ -329,6 +329,9 @@ const VALID_TERMINAL_SETTLEMENT_PREVIEW = {
   cardRefundsTotal: 0,
   cardRefundsCount: 0,
   settledTotal: 0,
+  processorFeeTotal: 0,
+  processorFeeAccountCode: "711",
+  clearedTotal: 0,
   settlementCount: 0,
   netCardClearing: 60000,
   outstandingAmount: 60000,
@@ -348,7 +351,11 @@ const VALID_TERMINAL_SETTLEMENT_RESPONSE = {
     paymentMethod: "card",
     expectedTotal: 60000,
     settledTotal: 55000,
-    difference: -5000,
+    processorFee: 5000,
+    processorFeeAccountCode: "711",
+    clearedTotal: 60000,
+    outstandingAfterSettledAndFee: 0,
+    difference: 0,
     clearingAccountCode: "255",
     bankAccountCode: "252",
     status: "posted",
@@ -356,8 +363,11 @@ const VALID_TERMINAL_SETTLEMENT_RESPONSE = {
     postings: {
       settlementPosting: "posted",
       ledgerPosting: "posted",
-      ledgerPostingIds: ["ledger-pos-terminal-settlement-1"],
-      ledgerPostingCount: 1,
+      ledgerPostingIds: ["ledger-pos-terminal-settlement-1", "ledger-pos-terminal-settlement-fee-1"],
+      ledgerPostingCount: 2,
+      totalLedgerPostingCount: 2,
+      processorFeeLedgerPosting: "posted",
+      processorFeeLedgerPostingCount: 1,
     },
     settledAt: "2026-06-22T19:00:00.000Z",
     note: "Settlement posted from Acba batch.",
@@ -368,8 +378,11 @@ const VALID_TERMINAL_SETTLEMENT_RESPONSE = {
   preview: {
     ...VALID_TERMINAL_SETTLEMENT_PREVIEW,
     settledTotal: 55000,
+    processorFeeTotal: 5000,
+    clearedTotal: 60000,
     settlementCount: 1,
-    outstandingAmount: 5000,
+    outstandingAmount: 0,
+    ready: false,
     recentSettlements: [],
   },
   session: CLOSED_SESSION,
@@ -747,6 +760,15 @@ describe("POS route", () => {
     fireEvent.change(screen.getByTestId("pos-terminal-settlement-settled-total"), {
       target: { value: "55000" },
     });
+    fireEvent.change(screen.getByTestId("pos-terminal-settlement-processor-fee"), {
+      target: { value: "5000" },
+    });
+    expect(screen.getByTestId("pos-terminal-settlement-calculation")).toHaveTextContent(
+      /Cleared total/,
+    );
+    expect(screen.getByTestId("pos-terminal-settlement-calculation")).toHaveTextContent(
+      /Outstanding after\s*0/,
+    );
     fireEvent.change(screen.getByTestId("pos-terminal-settlement-settled-at"), {
       target: { value: "2026-06-22T19:00" },
     });
@@ -767,6 +789,8 @@ describe("POS route", () => {
       settlementReference: "term-batch-001",
       provider: "Acba POS",
       settledTotal: 55000,
+      processorFee: 5000,
+      processorFeeAccountCode: "711",
       settledAt: "2026-06-22T19:00",
       note: "Settlement posted from Acba batch.",
     });
@@ -781,13 +805,25 @@ describe("POS route", () => {
       /Acba POS/,
     );
     expect(screen.getByTestId("pos-terminal-settlement-success")).toHaveTextContent(
+      /Processor fee\s*5[,\s]000 ֏ · 711/,
+    );
+    expect(screen.getByTestId("pos-terminal-settlement-success")).toHaveTextContent(
+      /Cleared total\s*60[,\s]000 ֏/,
+    );
+    expect(screen.getByTestId("pos-terminal-settlement-success")).toHaveTextContent(
+      /Outstanding after\s*0/,
+    );
+    expect(screen.getByTestId("pos-terminal-settlement-success")).toHaveTextContent(
       /Clearing account\s*255/,
     );
     expect(screen.getByTestId("pos-terminal-settlement-success")).toHaveTextContent(
       /Bank account\s*252/,
     );
     expect(screen.getByTestId("pos-terminal-settlement-success")).toHaveTextContent(
-      /Ledger journals\s*posted \(1 journal\)/,
+      /Ledger journals\s*posted \(2 journals\)/,
+    );
+    expect(screen.getByTestId("pos-terminal-settlement-success")).toHaveTextContent(
+      /Fee journals\s*posted \(1 journal\)/,
     );
     expect(mocks.setQueryData).toHaveBeenCalledWith(
       ["pos", "workspace"],

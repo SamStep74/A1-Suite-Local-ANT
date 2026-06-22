@@ -248,14 +248,22 @@ function PosWorkspace() {
       settlementReference: string;
       provider: string;
       settledTotal: string;
+      processorFee: string;
+      processorFeeAccountCode?: string;
       settledAt: string;
       note: string;
     }) => {
+      const processorFee = optionalAmount(input.processorFee);
+      const processorFeeAccountCode = optionalText(input.processorFeeAccountCode ?? "");
       const payload = PosTerminalSettlementRequestSchema.parse({
         idempotencyKey: input.idempotencyKey.trim(),
         settlementReference: input.settlementReference.trim(),
         provider: input.provider.trim(),
         settledTotal: toAmount(input.settledTotal),
+        ...(processorFee !== undefined ? { processorFee } : {}),
+        ...(processorFee !== undefined && processorFeeAccountCode
+          ? { processorFeeAccountCode }
+          : {}),
         settledAt: optionalText(input.settledAt),
         note: optionalText(input.note),
       });
@@ -1354,6 +1362,8 @@ export function TerminalSettlementPanel({
     settlementReference: string;
     provider: string;
     settledTotal: string;
+    processorFee: string;
+    processorFeeAccountCode?: string;
     settledAt: string;
     note: string;
   }) => void;
@@ -1370,6 +1380,7 @@ export function TerminalSettlementPanel({
   const [settledTotal, setSettledTotal] = useState(
     defaultPreview ? String(defaultPreview.outstandingAmount) : "",
   );
+  const [processorFee, setProcessorFee] = useState("");
   const [settledAt, setSettledAt] = useState("");
   const [note, setNote] = useState("");
 
@@ -1378,9 +1389,53 @@ export function TerminalSettlementPanel({
     previews.find((preview) => preview.cashSessionId === selectedCashSessionId) ??
     defaultPreview;
   const settledAmount = toAmount(settledTotal);
+  const processorFeeAmount = optionalAmount(processorFee) ?? 0;
+  const processorFeeProvided = processorFee.trim().length > 0;
+  const processorFeeValid =
+    !processorFeeProvided ||
+    (Number.isSafeInteger(processorFeeAmount) && processorFeeAmount >= 0);
+  const clearedAmount =
+    Number.isSafeInteger(settledAmount) && processorFeeValid
+      ? settledAmount + processorFeeAmount
+      : Number.NaN;
+  const clearedDifference =
+    selectedPreview && Number.isFinite(clearedAmount)
+      ? clearedAmount - selectedPreview.outstandingAmount
+      : Number.NaN;
+  const outstandingAfterCleared =
+    selectedPreview && Number.isFinite(clearedAmount)
+      ? selectedPreview.outstandingAmount - clearedAmount
+      : Number.NaN;
+  const previewProcessorFees = selectedPreview?.processorFeeTotal ?? 0;
+  const previewClearedTotal =
+    selectedPreview?.clearedTotal ?? (selectedPreview?.settledTotal ?? 0) + previewProcessorFees;
+  const previewFeeAccountCode =
+    selectedPreview?.processorFeeAccountCode ?? selectedPreview?.feeAccountCode;
   const postedLedgerCount =
+    postedSettlement?.postings.totalLedgerPostingCount ??
     postedSettlement?.postings.ledgerPostingCount ??
     postedSettlement?.postings.ledgerPostingIds?.length;
+  const postedProcessorFee = postedSettlement
+    ? settlementProcessorFee(postedSettlement)
+    : 0;
+  const postedProcessorFeeAccountCode =
+    postedSettlement?.processorFeeAccountCode ?? postedSettlement?.feeAccountCode;
+  const postedClearedTotal = postedSettlement
+    ? settlementClearedTotal(postedSettlement)
+    : 0;
+  const postedOutstandingAfter = postedSettlement
+    ? settlementOutstandingAfter(postedSettlement)
+    : 0;
+  const postedFeeLedgerCount =
+    postedSettlement?.postings.processorFeeLedgerPostingCount ??
+    postedSettlement?.postings.feeLedgerPostingCount ??
+    postedSettlement?.postings.processorFeeLedgerPostingIds?.length ??
+    postedSettlement?.postings.feeLedgerPostingIds?.length;
+  const postedFeeLedgerStatus =
+    postedSettlement?.postings.processorFeeLedgerPosting ??
+    postedSettlement?.postings.feeLedgerPosting ??
+    postedSettlement?.postings.processorFeePosting ??
+    postedSettlement?.postings.feePosting;
   const canSubmit =
     Boolean(selectedPreview?.ready) &&
     selectedCashSessionId.length > 0 &&
@@ -1388,8 +1443,10 @@ export function TerminalSettlementPanel({
     settlementReference.trim().length > 0 &&
     provider.trim().length > 0 &&
     Number.isSafeInteger(settledAmount) &&
-    settledAmount > 0 &&
-    settledAmount <= (selectedPreview?.outstandingAmount ?? 0) &&
+    processorFeeValid &&
+    Number.isSafeInteger(clearedAmount) &&
+    clearedAmount > 0 &&
+    clearedAmount <= (selectedPreview?.outstandingAmount ?? 0) &&
     !isPending;
 
   return (
@@ -1420,9 +1477,17 @@ export function TerminalSettlementPanel({
             <EvidenceRow label="Card sales" value={money(selectedPreview.cardSalesTotal)} />
             <EvidenceRow label="Card refunds" value={money(selectedPreview.cardRefundsTotal)} />
             <EvidenceRow label="Already settled" value={money(selectedPreview.settledTotal)} />
+            <EvidenceRow label="Posted processor fees" value={money(previewProcessorFees)} />
+            <EvidenceRow label="Cleared to date" value={money(previewClearedTotal)} />
             <EvidenceRow label="Outstanding" value={money(selectedPreview.outstandingAmount)} />
             <EvidenceRow label="Clearing account" value={selectedPreview.clearingAccountCode} />
             <EvidenceRow label="Bank account" value={selectedPreview.bankAccountCode} />
+            {previewFeeAccountCode ? (
+              <EvidenceRow
+                label="Fee account"
+                value={previewFeeAccountCode}
+              />
+            ) : null}
           </dl>
 
           {postedSettlement ? (
@@ -1432,11 +1497,25 @@ export function TerminalSettlementPanel({
             >
               <p className="font-medium text-[var(--color-tag-green)]">
                 Terminal settlement {postedSettlement.status} ·{" "}
-                {postedSettlement.settlementReference} · {money(postedSettlement.settledTotal)}
+                {postedSettlement.settlementReference} · cleared {money(postedClearedTotal)}
               </p>
               <dl className="grid gap-1 sm:grid-cols-2">
                 <EvidenceRow label="Provider" value={postedSettlement.provider} />
+                <EvidenceRow label="Bank deposit" value={money(postedSettlement.settledTotal)} />
+                <EvidenceRow
+                  label="Processor fee"
+                  value={
+                    postedProcessorFeeAccountCode
+                      ? `${money(postedProcessorFee)} · ${postedProcessorFeeAccountCode}`
+                      : money(postedProcessorFee)
+                  }
+                />
+                <EvidenceRow label="Cleared total" value={money(postedClearedTotal)} />
                 <EvidenceRow label="Difference" value={money(postedSettlement.difference)} />
+                <EvidenceRow
+                  label="Outstanding after"
+                  value={money(postedOutstandingAfter)}
+                />
                 <EvidenceRow
                   label="Clearing account"
                   value={postedSettlement.clearingAccountCode}
@@ -1450,6 +1529,12 @@ export function TerminalSettlementPanel({
                       : postedSettlement.ledgerPostingStatus
                   }
                 />
+                {postedProcessorFee > 0 || postedFeeLedgerStatus ? (
+                  <EvidenceRow
+                    label="Fee journals"
+                    value={postingEvidenceLabel(postedFeeLedgerStatus, postedFeeLedgerCount)}
+                  />
+                ) : null}
                 <EvidenceRow
                   label="Settled at"
                   value={formatDateTime(postedSettlement.settledAt)}
@@ -1471,6 +1556,8 @@ export function TerminalSettlementPanel({
                   settlementReference,
                   provider,
                   settledTotal,
+                  processorFee,
+                  processorFeeAccountCode: previewFeeAccountCode,
                   settledAt,
                   note,
                 });
@@ -1492,6 +1579,7 @@ export function TerminalSettlementPanel({
                     setSettledTotal(
                       nextPreview ? String(nextPreview.outstandingAmount) : "",
                     );
+                    setProcessorFee("");
                   }}
                   className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
                   data-testid="pos-terminal-settlement-session"
@@ -1525,10 +1613,10 @@ export function TerminalSettlementPanel({
               </label>
 
               <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
-                Settled total
+                Settled bank deposit
                 <input
                   type="number"
-                  min="1"
+                  min="0"
                   step="1"
                   value={settledTotal}
                   onChange={(event) => setSettledTotal(event.target.value)}
@@ -1536,6 +1624,34 @@ export function TerminalSettlementPanel({
                   data-testid="pos-terminal-settlement-settled-total"
                 />
               </label>
+
+              <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+                Processor fee
+                <input
+                  type="number"
+                  min="0"
+                  step="1"
+                  value={processorFee}
+                  onChange={(event) => setProcessorFee(event.target.value)}
+                  className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+                  data-testid="pos-terminal-settlement-processor-fee"
+                />
+              </label>
+
+              <div
+                className="sm:col-span-2 grid gap-2 sm:grid-cols-3"
+                data-testid="pos-terminal-settlement-calculation"
+              >
+                <EvidenceRow label="Cleared total" value={moneyOrDash(clearedAmount)} />
+                <EvidenceRow
+                  label="Cleared difference"
+                  value={moneyOrDash(clearedDifference)}
+                />
+                <EvidenceRow
+                  label="Outstanding after"
+                  value={moneyOrDash(outstandingAfterCleared)}
+                />
+              </div>
 
               <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
                 Settled at
@@ -1562,7 +1678,10 @@ export function TerminalSettlementPanel({
               <div className="sm:col-span-2 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
                   Posts card clearing from account {selectedPreview.clearingAccountCode} to{" "}
-                  {selectedPreview.bankAccountCode}.
+                  {selectedPreview.bankAccountCode}
+                  {processorFeeProvided && previewFeeAccountCode
+                    ? ` with fee evidence in ${previewFeeAccountCode}.`
+                    : "."}
                 </p>
                 <button
                   type="submit"
@@ -1766,6 +1885,11 @@ function toAmount(value: string): number {
   return Number.isFinite(amount) ? amount : Number.NaN;
 }
 
+function optionalAmount(value: string): number | undefined {
+  const text = value.trim();
+  return text.length > 0 ? toAmount(text) : undefined;
+}
+
 function toPositiveInteger(value: string): number {
   const amount = Number(value);
   return Number.isFinite(amount) && Number.isInteger(amount) ? amount : Number.NaN;
@@ -1786,6 +1910,37 @@ function refundMethodLabel(method: PosRefundMethod): string {
 
 function journalCountLabel(count: number): string {
   return `${count} journal${count === 1 ? "" : "s"}`;
+}
+
+function postingEvidenceLabel(status: string | undefined, count: number | undefined): string {
+  if (typeof count === "number") return `${status ?? "posted"} (${journalCountLabel(count)})`;
+  return status ?? "—";
+}
+
+function moneyOrDash(value: number): string {
+  return Number.isFinite(value) ? money(value) : "—";
+}
+
+function settlementProcessorFee(settlement: PosTerminalSettlement): number {
+  return settlement.processorFee ?? 0;
+}
+
+function settlementClearedTotal(settlement: PosTerminalSettlement): number {
+  return (
+    settlement.clearedTotal ??
+    settlement.clearingReductionTotal ??
+    settlement.clearingReduction ??
+    settlement.settledTotal + settlementProcessorFee(settlement)
+  );
+}
+
+function settlementOutstandingAfter(settlement: PosTerminalSettlement): number {
+  return (
+    settlement.outstandingAfterSettledAndFee ??
+    settlement.outstandingAfterSettlement ??
+    settlement.outstandingAmount ??
+    settlement.expectedTotal - settlementClearedTotal(settlement)
+  );
 }
 
 function sessionCashierName(session: PosCashSession): string {

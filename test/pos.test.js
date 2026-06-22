@@ -989,6 +989,24 @@ test("pos: closed card session records terminal settlement evidence and ledger c
     assert.equal(preview.json().preview.cardSalesTotal, sale.total);
     assert.equal(preview.json().preview.cardSalesCount, 1);
     assert.equal(preview.json().preview.outstandingAmount, sale.total);
+    assert.equal(preview.json().preview.processorFeeTotal, 0);
+    assert.equal(preview.json().preview.clearedTotal, 0);
+    assert.equal(preview.json().preview.processorFeeAccountCode, "711");
+
+    const overCleared = await app.inject({
+      method: "POST",
+      url: `/api/pos/cash-sessions/${session.id}/terminal-settlements`,
+      headers: { cookie: operator },
+      payload: {
+        idempotencyKey: "pos-terminal-settlement-over-clear",
+        settlementReference: "TERM-OVER-001",
+        provider: "Acba POS",
+        settledTotal: sale.total,
+        processorFee: 1
+      }
+    });
+    assert.equal(overCleared.statusCode, 400, overCleared.body);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_terminal_settlements WHERE org_id = ? AND cash_session_id = ?").get(orgId, session.id).count, 0);
 
     const beforeAudit = app.db.prepare(`
       SELECT COUNT(*) AS count
@@ -1005,25 +1023,34 @@ test("pos: closed card session records terminal settlement evidence and ledger c
         settlementReference: "term-batch-001",
         provider: "Acba POS",
         settledTotal: settledAmount,
+        processorFee: 5000,
         settledAt: "2026-06-22T19:00:00.000Z",
-        note: "Terminal deposit excludes processor fee holdback."
+        note: "Terminal deposit includes processor fee evidence."
       }
     });
     assert.equal(settled.statusCode, 200, settled.body);
     const body = settled.json();
     assert.equal(body.ok, true);
     assert.equal(body.idempotent, false);
-    assert.equal(body.preview.outstandingAmount, 5000);
+    assert.equal(body.preview.outstandingAmount, 0);
+    assert.equal(body.preview.processorFeeTotal, 5000);
+    assert.equal(body.preview.clearedTotal, sale.total);
+    assert.equal(body.preview.ready, false);
     assert.equal(body.settlement.cashSessionId, session.id);
     assert.equal(body.settlement.settlementReference, "TERM-BATCH-001");
     assert.equal(body.settlement.provider, "Acba POS");
     assert.equal(body.settlement.expectedTotal, sale.total);
     assert.equal(body.settlement.settledTotal, settledAmount);
-    assert.equal(body.settlement.difference, -5000);
+    assert.equal(body.settlement.processorFee, 5000);
+    assert.equal(body.settlement.processorFeeAccountCode, "711");
+    assert.equal(body.settlement.clearedTotal, sale.total);
+    assert.equal(body.settlement.outstandingAfterSettledAndFee, 0);
+    assert.equal(body.settlement.difference, 0);
     assert.equal(body.settlement.clearingAccountCode, "255");
     assert.equal(body.settlement.bankAccountCode, "252");
     assert.equal(body.settlement.ledgerPostingStatus, "posted");
-    assert.equal(body.settlement.postings.ledgerPostingCount, 1);
+    assert.equal(body.settlement.postings.ledgerPostingCount, 2);
+    assert.equal(body.settlement.postings.processorFeeLedgerPostingCount, 1);
     assert.equal(body.settlement.settledAt, "2026-06-22T19:00:00.000Z");
     assert.equal(app.db.prepare(`
       SELECT COUNT(*) AS count
@@ -1035,13 +1062,21 @@ test("pos: closed card session records terminal settlement evidence and ledger c
       SELECT debit_code, credit_code, amount, source_type, source_id, period_key
       FROM ledger_journal
       WHERE org_id = ? AND source_type = ? AND source_id = ?
-      ORDER BY id
+      ORDER BY debit_code
     `).all(orgId, "pos_terminal_settlement", body.settlement.id).map(row => ({ ...row }));
     assert.deepEqual(settlementJournals, [
       {
         debit_code: "252",
         credit_code: "255",
         amount: settledAmount,
+        source_type: "pos_terminal_settlement",
+        source_id: body.settlement.id,
+        period_key: "2026-06"
+      },
+      {
+        debit_code: "711",
+        credit_code: "255",
+        amount: 5000,
         source_type: "pos_terminal_settlement",
         source_id: body.settlement.id,
         period_key: "2026-06"
@@ -1064,7 +1099,7 @@ test("pos: closed card session records terminal settlement evidence and ledger c
     assert.equal(replayed.json().settlement.id, body.settlement.id);
     assert.equal(replayed.json().settlement.provider, "Acba POS");
     assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM pos_terminal_settlements WHERE org_id = ? AND cash_session_id = ?").get(orgId, session.id).count, 1);
-    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM ledger_journal WHERE org_id = ? AND source_type = ? AND source_id = ?").get(orgId, "pos_terminal_settlement", body.settlement.id).count, 1);
+    assert.equal(app.db.prepare("SELECT COUNT(*) AS count FROM ledger_journal WHERE org_id = ? AND source_type = ? AND source_id = ?").get(orgId, "pos_terminal_settlement", body.settlement.id).count, 2);
 
     const backup = await app.inject({
       method: "POST",
@@ -1080,7 +1115,9 @@ test("pos: closed card session records terminal settlement evidence and ledger c
       && row.settlement_reference === "TERM-BATCH-001"
       && row.expected_total_amd === sale.total
       && row.settled_total_amd === settledAmount
-      && row.difference_amd === -5000
+      && row.processor_fee_amd === 5000
+      && row.difference_amd === 0
+      && row.fee_account_code === "711"
       && row.ledger_posting_status === "posted"
     )));
     assert.ok(tables.ledger_journal.some(row => (
@@ -1089,6 +1126,13 @@ test("pos: closed card session records terminal settlement evidence and ledger c
       && row.debit_code === "252"
       && row.credit_code === "255"
       && row.amount === settledAmount
+    )));
+    assert.ok(tables.ledger_journal.some(row => (
+      row.source_type === "pos_terminal_settlement"
+      && row.source_id === body.settlement.id
+      && row.debit_code === "711"
+      && row.credit_code === "255"
+      && row.amount === 5000
     )));
   } finally {
     await app.close();

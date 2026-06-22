@@ -55015,6 +55015,7 @@ function getPosTerminalSettlementSourceRow(db, orgId, sourceKey) {
 function getPosTerminalSettlementPreview(db, orgId, sessionId) {
   const session = getPosCashSessionRow(db, orgId, sessionId);
   if (!session) throwPosCashSessionNotFound();
+  const accounts = ledger.posTerminalSettlementAccounts("card");
   const cardSales = db.prepare(`
     SELECT COALESCE(SUM(total_amd), 0) AS total, COUNT(*) AS count
     FROM pos_sales
@@ -55027,26 +55028,37 @@ function getPosTerminalSettlementPreview(db, orgId, sessionId) {
     WHERE org_id = ? AND cash_session_id = ? AND refund_method = 'card' AND status = 'posted'
   `).get(orgId, sessionId);
   const postedSettlements = db.prepare(`
-    SELECT COALESCE(SUM(settled_total_amd), 0) AS total, COUNT(*) AS count
+    SELECT COALESCE(SUM(settled_total_amd), 0) AS total,
+      COALESCE(SUM(processor_fee_amd), 0) AS processor_fee_total,
+      COUNT(*) AS count
     FROM pos_terminal_settlements
     WHERE org_id = ? AND cash_session_id = ? AND payment_method = 'card' AND status = 'posted'
   `).get(orgId, sessionId);
   const netCardClearing = Number(cardSales.total || 0) - Number(cardRefunds.total || 0);
-  const outstandingAmount = netCardClearing - Number(postedSettlements.total || 0);
+  const settledTotal = Number(postedSettlements.total || 0);
+  const processorFeeTotal = Number(postedSettlements.processor_fee_total || 0);
+  const clearingReductionTotal = settledTotal + processorFeeTotal;
+  const outstandingAmount = netCardClearing - clearingReductionTotal;
   return {
     cashSessionId: sessionId,
     sessionStatus: session.status,
     paymentMethod: "card",
-    clearingAccountCode: "255",
-    bankAccountCode: "252",
+    clearingAccountCode: accounts.clearingCode,
+    bankAccountCode: accounts.bankCode,
+    feeAccountCode: accounts.feeExpenseCode,
+    processorFeeAccountCode: accounts.feeExpenseCode,
     cardSalesTotal: Number(cardSales.total || 0),
     cardSalesCount: Number(cardSales.count || 0),
     cardRefundsTotal: Number(cardRefunds.total || 0),
     cardRefundsCount: Number(cardRefunds.count || 0),
-    settledTotal: Number(postedSettlements.total || 0),
+    settledTotal,
+    processorFeeTotal,
+    clearingReductionTotal,
+    clearedTotal: clearingReductionTotal,
     settlementCount: Number(postedSettlements.count || 0),
     netCardClearing,
     outstandingAmount,
+    outstandingAfterSettledAndFee: outstandingAmount,
     ready: session.status === "closed" && outstandingAmount > 0,
     recentSettlements: getPosTerminalSettlements(db, orgId, sessionId, 5)
   };
@@ -55653,21 +55665,25 @@ function createPosTerminalSettlement(db, user, sessionId, body) {
       err.statusCode = 409;
       throw err;
     }
-    const settledTotal = input.settledTotal === null ? preview.outstandingAmount : input.settledTotal;
-    if (settledTotal <= 0 || settledTotal > preview.outstandingAmount) throwInvalidPosMetadata();
+    const settledTotal = input.settledTotal === null
+      ? preview.outstandingAmount - input.processorFee
+      : input.settledTotal;
+    const clearingReduction = settledTotal + input.processorFee;
+    if (settledTotal < 0 || clearingReduction <= 0 || clearingReduction > preview.outstandingAmount) throwInvalidPosMetadata();
     const now = new Date().toISOString();
     const settledAt = input.settledAt || now;
-    const difference = settledTotal - preview.outstandingAmount;
+    const difference = clearingReduction - preview.outstandingAmount;
     const ledgerPostingStatus = "posted";
 
     db.prepare(`
       INSERT INTO pos_terminal_settlements (
         id, org_id, cash_session_id, settlement_reference, source_key,
         provider, payment_method, expected_total_amd, settled_total_amd,
-        difference_amd, clearing_account_code, bank_account_code, status,
+        processor_fee_amd, difference_amd, clearing_account_code, bank_account_code,
+        fee_account_code, status,
         ledger_posting_status, settled_at, note, created_by_user_id, created_at
       )
-      VALUES (?, ?, ?, ?, ?, ?, 'card', ?, ?, ?, '255', '252', 'posted', ?, ?, ?, ?, ?)
+      VALUES (?, ?, ?, ?, ?, ?, 'card', ?, ?, ?, ?, ?, ?, ?, 'posted', ?, ?, ?, ?, ?)
     `).run(
       settlementId,
       user.org_id,
@@ -55677,7 +55693,11 @@ function createPosTerminalSettlement(db, user, sessionId, body) {
       input.provider,
       preview.outstandingAmount,
       settledTotal,
+      input.processorFee,
       difference,
+      preview.clearingAccountCode,
+      preview.bankAccountCode,
+      preview.feeAccountCode,
       ledgerPostingStatus,
       settledAt,
       input.note,
@@ -55690,6 +55710,10 @@ function createPosTerminalSettlement(db, user, sessionId, body) {
       settlementReference: input.settlementReference,
       paymentMethod: "card",
       amount: settledTotal,
+      processorFee: input.processorFee,
+      clearingAccountCode: preview.clearingAccountCode,
+      bankAccountCode: preview.bankAccountCode,
+      feeAccountCode: preview.feeAccountCode,
       date: settledAt,
       period_key: settledAt.slice(0, 7)
     });
@@ -55707,7 +55731,10 @@ function createPosTerminalSettlement(db, user, sessionId, body) {
         provider: input.provider,
         expectedTotal: preview.outstandingAmount,
         settledTotal,
+        processorFee: input.processorFee,
+        clearingReduction,
         difference,
+        feeAccountCode: preview.feeAccountCode,
         ledgerPostingStatus
       }
     });
@@ -55718,7 +55745,10 @@ function createPosTerminalSettlement(db, user, sessionId, body) {
       provider: input.provider,
       expectedTotal: preview.outstandingAmount,
       settledTotal,
+      processorFee: input.processorFee,
+      clearingReduction,
       difference,
+      feeAccountCode: preview.feeAccountCode,
       idempotencyKey: input.idempotencyKey,
       ledgerPostingStatus
     });
@@ -56105,6 +56135,11 @@ function formatPosTerminalSettlement(row) {
   const ledgerPostingIds = row.ledger_posting_ids
     ? String(row.ledger_posting_ids).split(",").filter(Boolean)
     : [];
+  const accountDefaults = ledger.posTerminalSettlementAccounts(row.payment_method || "card");
+  const processorFee = row.processor_fee_amd || 0;
+  const clearedTotal = (row.settled_total_amd || 0) + processorFee;
+  const processorFeeLedgerPostingCount = processorFee > 0 ? 1 : 0;
+  const feeAccountCode = row.fee_account_code || accountDefaults.feeExpenseCode;
   return {
     id: row.id,
     cashSessionId: row.cash_session_id,
@@ -56114,16 +56149,35 @@ function formatPosTerminalSettlement(row) {
     paymentMethod: row.payment_method,
     expectedTotal: row.expected_total_amd,
     settledTotal: row.settled_total_amd,
+    processorFee,
+    processorFeeAccountCode: feeAccountCode,
+    clearingReduction: clearedTotal,
+    clearingReductionTotal: clearedTotal,
+    clearedTotal,
+    outstandingAfterSettlement: row.expected_total_amd - clearedTotal,
+    outstandingAfterSettledAndFee: row.expected_total_amd - clearedTotal,
     difference: row.difference_amd,
     clearingAccountCode: row.clearing_account_code,
     bankAccountCode: row.bank_account_code,
+    feeAccountCode,
     status: row.status,
     ledgerPostingStatus: row.ledger_posting_status || "not-posted",
     postings: {
       settlementPosting: row.status,
       ledgerPosting: row.ledger_posting_status || "not-posted",
       ledgerPostingIds,
-      ledgerPostingCount: ledgerPostingIds.length
+      ledgerPostingCount: ledgerPostingIds.length,
+      totalLedgerPostingCount: ledgerPostingIds.length,
+      processorFeePosting: processorFee > 0 ? row.status : "not-posted",
+      processorFeeLedgerPosting: processorFee > 0
+        ? (row.ledger_posting_status || "not-posted")
+        : "not-posted",
+      processorFeeLedgerPostingCount,
+      feePosting: processorFee > 0 ? row.status : "not-posted",
+      feeLedgerPosting: processorFee > 0
+        ? (row.ledger_posting_status || "not-posted")
+        : "not-posted",
+      feeLedgerPostingCount: processorFeeLedgerPostingCount
     },
     settledAt: row.settled_at,
     note: row.note || "",
@@ -56439,13 +56493,21 @@ function normalizePosTerminalSettlementBody(body) {
   const hasSettledTotal = Object.prototype.hasOwnProperty.call(body, "settledTotal")
     && body.settledTotal !== undefined
     && body.settledTotal !== "";
+  const processorFeeField = ["processorFee", "processorFeeAmount", "processorFeeAmd"].find(field => (
+    Object.prototype.hasOwnProperty.call(body, field)
+    && body[field] !== undefined
+    && body[field] !== ""
+  ));
   return {
     idempotencyKey: normalizePosSourceKey(body, "idempotencyKey"),
     settlementReference: normalizePosReceiptNumber(body, "settlementReference"),
     provider: normalizePosText(body, "provider", { fallback: "manual", maxLength: 120 }) || "manual",
     settledTotal: hasSettledTotal
-      ? normalizePosMoney(body, "settledTotal", { required: true, min: 1, max: 100000000000 })
+      ? normalizePosMoney(body, "settledTotal", { required: true, min: 0, max: 100000000000 })
       : null,
+    processorFee: processorFeeField
+      ? normalizePosMoney(body, processorFeeField, { required: true, min: 0, max: 100000000000 })
+      : 0,
     settledAt: normalizePosTimestamp(body, "settledAt", ""),
     note: normalizePosText(body, "note", { fallback: "", maxLength: 500 })
   };
