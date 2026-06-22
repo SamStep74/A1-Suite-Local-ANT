@@ -40,6 +40,8 @@ import {
   PosCloseCashSessionRequestSchema,
   PosOpenCashSessionResponseSchema,
   PosCloseCashSessionResponseSchema,
+  PosCreateSaleRequestSchema,
+  PosCreateSaleResponseSchema,
   PosPricePreviewSchema,
   StockBalanceSchema,
   StockLocationSchema,
@@ -1807,6 +1809,95 @@ describe("POS cash-session schemas", () => {
     expect(closed.success).toBe(true);
     if (closed.success) {
       expect(closed.data.session.status).toBe("closed");
+    }
+  });
+
+  it("validates the sale POST body", () => {
+    const r = PosCreateSaleRequestSchema.safeParse({
+      receiptNumber: "R-2026-0001",
+      paymentMethod: "card",
+      soldAt: "2026-06-22T09:30",
+      idempotencyKey: "pos-sale-ui-1782113400000",
+      lines: [
+        {
+          catalogItemId: "catitem-pos-scanner",
+          catalogItemVariantId: null,
+          quantity: 2,
+        },
+      ],
+    });
+
+    expect(r.success).toBe(true);
+  });
+
+  it("rejects a non-positive sale quantity", () => {
+    const r = PosCreateSaleRequestSchema.safeParse({
+      receiptNumber: "R-2026-0001",
+      paymentMethod: "cash",
+      idempotencyKey: "pos-sale-ui-1782113400000",
+      lines: [
+        {
+          catalogItemId: "catitem-pos-scanner",
+          quantity: 0,
+        },
+      ],
+    });
+
+    expect(r.success).toBe(false);
+  });
+
+  it("accepts the sale POST response envelope", () => {
+    const r = PosCreateSaleResponseSchema.safeParse({
+      ok: true,
+      sale: {
+        id: "pos-sale-1",
+        cashSessionId: "pos-session-1",
+        receiptNumber: "R-2026-0001",
+        status: "posted",
+        paymentMethod: "card",
+        currency: "AMD",
+        subtotal: 50000,
+        vat: 10000,
+        total: 60000,
+        lineCount: 1,
+        soldAt: "2026-06-22T09:30:00.000Z",
+        cashierUserId: "user-1",
+        stockLocationId: "loc-pos-1",
+        postings: {
+          salePosting: "posted",
+          inventoryPosting: "posted",
+          ledgerPosting: "not-posted",
+        },
+        lines: [
+          {
+            id: "pos-sale-line-1",
+            catalogItemId: "catitem-pos-scanner",
+            catalogItemVariantId: null,
+            sku: "POS-SCANNER",
+            name: "POS barcode scanner",
+            quantity: 2,
+            unitPrice: 25000,
+            subtotal: 50000,
+            vat: 10000,
+            total: 60000,
+            vatMode: "standard",
+            fiscalReceiptRequired: true,
+            stockMoveId: "stock-move-1",
+          },
+        ],
+        createdAt: "2026-06-22T09:30:01.000Z",
+      },
+      session: {
+        ...VALID_POS_CASH_SESSION,
+        expectedCash: 110000,
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.sale.status).toBe("posted");
+      expect(r.data.sale.lines[0]?.catalogItemVariantId).toBeNull();
+      expect(r.data.session.expectedCash).toBe(110000);
     }
   });
 });

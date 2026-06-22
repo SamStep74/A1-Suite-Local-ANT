@@ -100,8 +100,8 @@ Source: [the reference ERP Point of Sale](https://www.the reference ERP.com/docu
 
 Comparison to A1:
 
-- A1 now has a first POS cash-session spine: POS app entry, role-gated workspace, tenant-scoped cash sessions, register opening, Z-report-like closeout evidence, receipt range fields, audit events, and backup coverage.
-- A1 still does not have full retail sale posting, offline replay, refunds, receipt printing, cash/card split, inventory decrement, or revenue/VAT/cash ledger posting.
+- A1 now has a first POS cash-session and sale-posting spine: POS app entry, role-gated workspace, tenant-scoped cash sessions, register opening, Z-report-like closeout evidence, receipt range fields, durable sale/line rows, cash expected-cash updates, source-key replay, stock delivery moves for stock-tracked fiscal items, audit events, and backup coverage.
+- A1 still does not have full retail operations: offline replay, refunds/voids, receipt printing/fiscal-device submission, cash/card split accounting, revenue/VAT/cash/bank ledger posting, lots/serials, payment terminals, loyalty, or deep barcode operations.
 - For Armenia, POS must not be generic: it must continue toward fiscal receipt/ՀԴՄ handoff, cash session closeout, Z-report-like evidence, AMD cash rounding, offline mode, cashier roles, and stock/finance posting.
 
 ### Website, eCommerce, And Online Storefront
@@ -225,7 +225,7 @@ Major A1 gaps relative to the reference ERP:
 | Product catalog | Products, variants, UoM, pricelists, discounts, margins | Shipped core product master + quote-line integration + Catalog & Inventory UI + governed UoM catalog + seeded variant spine + margin evidence + first sales pricelist spine + first sales discount evidence + first margin-rule evidence + read-only price resolution + quote-line resolver consumption + variant-aware quote lines + quote-line pricing evidence + quote-line pricing evidence UI + first quantity-break discount evidence + first category-scoped margin-rule evidence + quote-line margin-rule provenance; advanced configurable discount and margin-rule management still missing | P0 |
 | Inventory/WMS | Warehouses, locations, stock moves, lots/serials, replenishment, valuation | Shipped core locations/quants/moves + sidebar workspace + first purchase replenishment suggestions; advanced WMS, lots/serials, and valuation still missing | P0 |
 | Purchase/procurement | RFQ, PO, vendor pricelists, tender/blanket orders, vendor bills | Shipped RFQ/PO -> partial/full receipt -> supplier return -> AP bill spine plus billed-return credit-note/AP reversal evidence, pre-receipt landed-cost allocation evidence for receipt valuation, first Purchase sidebar workspace, vendor/pricelist defaults, vendor lifecycle/pricelist risk evidence, receipt/return evidence, procurement analytics, Vendor 360, purchase-to-sales replenishment suggestions, blanket agreement coverage evidence, and RFQ tender contract alignment; advanced tender packages/portal/bid intake/comparative award matrices and post-receipt landed-cost revaluation/accounting still missing | P0 |
-| POS | Browser POS, offline mode, cash sessions, stock sync, receipts | First cash-session/fiscal closeout spine shipped; sale posting, offline replay, refunds, receipt printing, payment split, stock sync, and ledger posting still missing | P1 |
+| POS | Browser POS, offline mode, cash sessions, stock sync, receipts | First cash-session/fiscal closeout spine and cash sale posting shipped with stock decrement for tracked fiscal items; offline replay, refunds/voids, receipt printing/fiscal-device submission, payment split accounting, lots/serials/barcode depth, and revenue/VAT/cash/bank ledger posting still missing | P1 |
 | eCommerce/portal | Storefront, checkout, B2B/B2C, customer accounts | Public forms/quotes only | P1 |
 | Manufacturing/MRP | BoM, work orders, shop floor, MPS, quality, maintenance | Missing | P2 |
 | HR depth | contracts, leave, attendance, recruitment, equipment, fleet | Payroll registry only | P2 |
@@ -318,20 +318,22 @@ Acceptance:
 
 Goal: Build Armenian retail flow with the reference ERP-like browser POS but A1-specific fiscal evidence.
 
-Shipped first slice:
+Shipped slices:
 
 - POS app entry, app-assignment guards, and modern `/app/pos` workspace.
 - Tenant-scoped `pos_cash_sessions` for cashier/register opening, expected/count cash, difference evidence, fiscal device, Z-report number, receipt range, audit events, and backup coverage.
-- POS workspace endpoint with current session, recent sessions, fiscal catalog preview, stock location preview, closeout labels, and explicit capability flags for not-yet-implemented sale/refund/offline/stock/ledger posting.
+- POS workspace endpoint with current session, recent sessions, fiscal catalog preview, stock location preview, closeout labels, and explicit capability flags for sale, inventory, refund, offline, receipt-printing, and ledger status.
+- Durable `pos_sales` and `pos_sale_lines` with `POST /api/pos/cash-sessions/:id/sales`, same-session source-key replay, duplicate receipt protection, VAT-inclusive totals, cash expected-cash updates, and stock delivery moves for tracked fiscal items.
+- Modern POS sale capture panel for one-line fiscal catalog sales while keeping revenue/VAT/cash/bank ledger posting, fiscal-device submission, refunds, and offline replay deferred.
 
 Deliverables:
 
 - Browser POS:
-  - POS sessions, cashier assignment, opening/closing cash control. First cash-session spine shipped; sale controls remain.
+  - POS sessions, cashier assignment, opening/closing cash control. First cash-session spine and one-line sale capture shipped; richer sale controls remain.
   - temporary offline queue in browser storage with replay checks.
   - customer selection, discounts, returns/refunds.
   - barcode input.
-  - stock reservation/decrement on close.
+  - stock decrement for tracked sale lines shipped; reservations, lots/serials, and return inventory flows remain.
 - Fiscal layer:
   - ՀԴՄ handoff packet model.
   - receipt number evidence. First receipt-range closeout evidence shipped.
@@ -339,12 +341,12 @@ Deliverables:
   - Z-report-like session close evidence. First closeout evidence shipped.
   - integration placeholder for local fiscal device/provider.
 - Finance integration:
-  - POS sale -> revenue/VAT/cash/bank journal.
+  - POS sale -> revenue/VAT/cash/bank journal. Cash-session expected-cash updates shipped; balanced ledger posting remains.
   - returns -> credit/refund journal.
 - Tests:
   - offline queued sale replays idempotently.
   - session cannot close with unsafe cash discrepancy metadata.
-  - POS sale updates stock and posts balanced ledger.
+  - POS sale replays idempotently, updates stock for tracked items, and later posts balanced ledger.
 
 Acceptance:
 
@@ -530,7 +532,7 @@ Acceptance:
 2. Inventory core.
 3. Purchase/procurement first spine, sidebar workspace, vendor/pricelist defaults, vendor lifecycle/pricelist risk evidence, partial receipts, supplier returns, billed-return credit notes, pre-receipt landed-cost evidence, Vendor 360 analytics, purchase-to-sales replenishment suggestions, blanket agreement coverage evidence, and RFQ tender contract alignment (shipped incrementally from 2026-06-06); next: advanced tender packages/portal/bid intake/comparative award matrices and post-receipt landed-cost revaluation/accounting.
 4. Sales orders and product-aware quotes.
-5. POS with Armenian fiscal evidence.
+5. POS with Armenian fiscal evidence; first cash-session closeout and cash sale posting shipped, next focus is refund/offline/fiscal-device/ledger depth.
 6. Customer portal and eCommerce.
 7. Light MRP/repair.
 8. HR depth.

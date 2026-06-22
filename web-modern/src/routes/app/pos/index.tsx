@@ -1,9 +1,9 @@
 /**
  * /app/pos — POS cash-session spine.
  *
- * Slice 420 frontend scope: open/close cash sessions and capture
- * fiscal closeout evidence. Sale posting, refunds, receipt printing,
- * stock movement, and ledger posting stay outside this surface.
+ * Slice 422 frontend scope: open/close cash sessions plus minimal
+ * one-line POS sale capture. Refunds, offline replay, receipt printing,
+ * and full ledger browsing stay outside this surface.
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
@@ -14,17 +14,22 @@ import {
   ClipboardCheck,
   Lock,
   ReceiptText,
+  ShoppingCart,
   Store,
 } from "lucide-react";
 import { getJson, postJson } from "../../../lib/api/client";
 import {
   PosCloseCashSessionRequestSchema,
   PosCloseCashSessionResponseSchema,
+  PosCreateSaleRequestSchema,
+  PosCreateSaleResponseSchema,
   PosOpenCashSessionRequestSchema,
   PosOpenCashSessionResponseSchema,
   PosWorkspaceResponseSchema,
   type CatalogItem,
   type PosCashSession,
+  type PosCreateSaleResponse,
+  type PosPaymentMethod,
   type PosFiscalCloseoutLabels,
   type StockLocation,
 } from "../../../lib/api/schemas";
@@ -37,10 +42,16 @@ export const Route = createFileRoute("/app/pos/")({
 });
 
 const POS_WORKSPACE_QUERY_KEY = ["pos", "workspace"] as const;
+const POS_PAYMENT_METHODS: Array<{ value: PosPaymentMethod; label: string }> = [
+  { value: "cash", label: "Cash" },
+  { value: "card", label: "Card" },
+  { value: "bank-transfer", label: "Bank transfer" },
+];
 
 function PosWorkspace() {
   const hasAccess = useUserAccess("pos");
   const queryClient = useQueryClient();
+  const [lastSale, setLastSale] = useState<PosCreateSaleResponse["sale"] | null>(null);
 
   const workspaceQ = useQuery({
     queryKey: POS_WORKSPACE_QUERY_KEY,
@@ -100,6 +111,39 @@ function PosWorkspace() {
       );
     },
     onSuccess: refreshWorkspace,
+  });
+
+  const saleMutation = useMutation({
+    mutationFn: async (input: {
+      sessionId: string;
+      catalogItemId: string;
+      quantity: string;
+      receiptNumber: string;
+      paymentMethod: PosPaymentMethod;
+      soldAt: string;
+    }) => {
+      const payload = PosCreateSaleRequestSchema.parse({
+        receiptNumber: input.receiptNumber.trim(),
+        paymentMethod: input.paymentMethod,
+        soldAt: optionalText(input.soldAt),
+        idempotencyKey: `pos-sale-ui-${Date.now()}`,
+        lines: [
+          {
+            catalogItemId: input.catalogItemId,
+            quantity: toPositiveInteger(input.quantity),
+          },
+        ],
+      });
+      return postJson(
+        `/api/pos/cash-sessions/${input.sessionId}/sales`,
+        payload,
+        PosCreateSaleResponseSchema,
+      );
+    },
+    onSuccess: (response) => {
+      setLastSale(response.sale);
+      refreshWorkspace();
+    },
   });
 
   if (!hasAccess) {
@@ -170,13 +214,32 @@ function PosWorkspace() {
                   <StatusPill status={openSession.status} />
                 </div>
                 <SessionMetrics session={openSession} />
-                <CloseSessionForm
-                  key={openSession.id}
+                <SaleCapturePanel
+                  key={`sale-${openSession.id}`}
                   session={openSession}
-                  onSubmit={(input) => closeMutation.mutate(input)}
-                  isPending={closeMutation.isPending}
-                  error={closeMutation.error ? (closeMutation.error as Error).message : ""}
+                  catalogItems={catalogItems}
+                  onSubmit={(input) => saleMutation.mutate(input)}
+                  isPending={saleMutation.isPending}
+                  error={saleMutation.error ? (saleMutation.error as Error).message : ""}
+                  lastSale={lastSale}
                 />
+                <div className="space-y-3 border-t border-[var(--color-line)] pt-4 opacity-90">
+                  <div>
+                    <h3 className="text-[var(--text-md)] font-semibold text-[var(--color-ink)]">
+                      Closeout
+                    </h3>
+                    <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+                      Fiscal evidence for ending the cash session.
+                    </p>
+                  </div>
+                  <CloseSessionForm
+                    key={openSession.id}
+                    session={openSession}
+                    onSubmit={(input) => closeMutation.mutate(input)}
+                    isPending={closeMutation.isPending}
+                    error={closeMutation.error ? (closeMutation.error as Error).message : ""}
+                  />
+                </div>
               </section>
             ) : (
               <section
@@ -389,6 +452,196 @@ export function OpenSessionForm({
         </p>
       ) : null}
     </form>
+  );
+}
+
+export function SaleCapturePanel({
+  session,
+  catalogItems,
+  onSubmit,
+  isPending,
+  error,
+  lastSale,
+}: {
+  session: PosCashSession;
+  catalogItems: readonly CatalogItem[];
+  onSubmit: (input: {
+    sessionId: string;
+    catalogItemId: string;
+    quantity: string;
+    receiptNumber: string;
+    paymentMethod: PosPaymentMethod;
+    soldAt: string;
+  }) => void;
+  isPending?: boolean;
+  error?: string;
+  lastSale?: PosCreateSaleResponse["sale"] | null;
+}) {
+  const [catalogItemId, setCatalogItemId] = useState("");
+  const [quantity, setQuantity] = useState("1");
+  const [receiptNumber, setReceiptNumber] = useState("");
+  const [paymentMethod, setPaymentMethod] = useState<PosPaymentMethod>("cash");
+  const [soldAt, setSoldAt] = useState("");
+
+  const selectedCatalogItemId = catalogItemId || catalogItems[0]?.id || "";
+  const selectedItem = catalogItems.find((item) => item.id === selectedCatalogItemId);
+  const quantityNumber = toPositiveInteger(quantity);
+  const unitPrice = typeof selectedItem?.listPrice === "number" ? selectedItem.listPrice : 0;
+  const totalPreview =
+    Number.isInteger(quantityNumber) && quantityNumber > 0 ? unitPrice * quantityNumber : Number.NaN;
+  const canSubmit =
+    Boolean(selectedItem) &&
+    receiptNumber.trim().length > 0 &&
+    Number.isInteger(quantityNumber) &&
+    quantityNumber > 0 &&
+    !isPending;
+
+  return (
+    <div
+      className="space-y-3 border-b border-[var(--color-line)] pb-4"
+      data-testid="pos-sale-panel"
+      data-entity="pos-sale-capture"
+    >
+      <div className="flex items-center gap-2">
+        <ShoppingCart className="size-4 text-[var(--color-brand)]" aria-hidden />
+        <h3 className="text-[var(--text-md)] font-semibold text-[var(--color-ink)]">
+          Sale capture
+        </h3>
+      </div>
+
+      <form
+        className="grid gap-3 md:grid-cols-[minmax(0,1.2fr)_100px_150px_160px_minmax(180px,1fr)_auto]"
+        data-testid="pos-sale-form"
+        onSubmit={(event) => {
+          event.preventDefault();
+          if (!canSubmit) return;
+          onSubmit({
+            sessionId: session.id,
+            catalogItemId: selectedCatalogItemId,
+            quantity,
+            receiptNumber,
+            paymentMethod,
+            soldAt,
+          });
+        }}
+      >
+        <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+          Item
+          <select
+            value={selectedCatalogItemId}
+            onChange={(event) => setCatalogItemId(event.target.value)}
+            className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+            data-testid="pos-sale-item"
+          >
+            {catalogItems.length === 0 ? (
+              <option value="">No fiscal items</option>
+            ) : (
+              catalogItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.sku} · {item.name}
+                </option>
+              ))
+            )}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+          Qty
+          <input
+            type="number"
+            min="1"
+            step="1"
+            value={quantity}
+            onChange={(event) => setQuantity(event.target.value)}
+            className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+            data-testid="pos-sale-quantity"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+          Receipt
+          <input
+            value={receiptNumber}
+            onChange={(event) => setReceiptNumber(event.target.value)}
+            className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+            data-testid="pos-sale-receipt-number"
+          />
+        </label>
+
+        <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+          Payment
+          <select
+            value={paymentMethod}
+            onChange={(event) => setPaymentMethod(event.target.value as PosPaymentMethod)}
+            className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+            data-testid="pos-sale-payment-method"
+          >
+            {POS_PAYMENT_METHODS.map((method) => (
+              <option key={method.value} value={method.value}>
+                {method.label}
+              </option>
+            ))}
+          </select>
+        </label>
+
+        <label className="flex flex-col gap-1 text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+          Sold at
+          <input
+            type="datetime-local"
+            value={soldAt}
+            onChange={(event) => setSoldAt(event.target.value)}
+            className="h-9 rounded-[var(--radius-sm)] border border-[var(--color-line)] bg-[var(--color-surface)] px-2 text-[var(--text-sm)] text-[var(--color-ink)]"
+            data-testid="pos-sale-sold-at"
+          />
+        </label>
+
+        <div className="flex flex-col justify-end gap-1">
+          <span className="text-[10px] uppercase tracking-wider text-[var(--color-muted)]">
+            Total
+          </span>
+          <span
+            className="h-9 whitespace-nowrap text-[var(--text-sm)] font-semibold leading-9 text-[var(--color-ink)]"
+            data-testid="pos-sale-total-preview"
+          >
+            {money(totalPreview)}
+          </span>
+        </div>
+
+        <div className="md:col-span-6 flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+          <p className="text-[var(--text-xs)] text-[var(--color-muted)]">
+            Unit price: {money(unitPrice)}
+          </p>
+          <button
+            type="submit"
+            disabled={!canSubmit}
+            className="inline-flex h-9 items-center justify-center gap-1.5 rounded-[var(--radius-sm)] bg-[var(--color-brand)] px-3 text-[var(--text-sm)] font-semibold text-white disabled:cursor-not-allowed disabled:opacity-50"
+            data-testid="pos-sale-submit"
+          >
+            <ReceiptText className="size-4" aria-hidden />
+            {isPending ? "Posting…" : "Post sale"}
+          </button>
+        </div>
+
+        {error ? (
+          <p
+            role="alert"
+            className="md:col-span-6 text-[var(--text-sm)] text-[var(--color-ruby)]"
+            data-testid="pos-sale-error"
+          >
+            {error}
+          </p>
+        ) : null}
+      </form>
+
+      {lastSale ? (
+        <p
+          className="text-[var(--text-sm)] font-medium text-[var(--color-tag-green)]"
+          data-testid="pos-sale-success"
+        >
+          Posted sale {lastSale.id} · receipt {lastSale.receiptNumber} · {money(lastSale.total)}
+        </p>
+      ) : null}
+    </div>
   );
 }
 
@@ -787,6 +1040,11 @@ function StatusPill({ status }: { status: PosCashSession["status"] }) {
 function toAmount(value: string): number {
   const amount = Number(value);
   return Number.isFinite(amount) ? amount : Number.NaN;
+}
+
+function toPositiveInteger(value: string): number {
+  const amount = Number(value);
+  return Number.isFinite(amount) && Number.isInteger(amount) ? amount : Number.NaN;
 }
 
 function optionalText(value: string): string | undefined {

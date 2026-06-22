@@ -676,6 +676,14 @@ function registerApi(app, db, options = {}) {
     return { ok: true, session };
   });
 
+  app.post("/api/pos/cash-sessions/:id/sales", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosWriter(user);
+    const sessionId = normalizePosCashSessionPathId(request.params.id);
+    return createPosCashSale(db, user, sessionId, request.body === undefined ? {} : request.body);
+  });
+
   app.post("/api/pos/cash-sessions/:id/close", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "pos");
@@ -46758,6 +46766,8 @@ const ORG_BACKUP_TABLES = [
   "catalog_price_list_items",
   "catalog_margin_rules",
   "pos_cash_sessions",
+  "pos_sales",
+  "pos_sale_lines",
   "stock_locations",
   "stock_quants",
   "stock_moves",
@@ -54528,15 +54538,15 @@ function getPosWorkspace(db, user) {
       requiresFiscalDeviceId: true,
       requiresZReportNumber: true,
       requiresReceiptRange: true,
-      expectedCashBasis: "opening-cash-only",
+      expectedCashBasis: "opening-cash-plus-cash-sales",
       currency: "AMD"
     },
     capabilityStatus: {
-      salePosting: "not-implemented",
+      salePosting: "available",
       refunds: "not-implemented",
       offlineReplay: "not-implemented",
       receiptPrinting: "not-implemented",
-      inventoryPosting: "not-implemented",
+      inventoryPosting: "available",
       ledgerPosting: "not-implemented"
     }
   };
@@ -54567,6 +54577,109 @@ function getPosCashSessionRow(db, orgId, sessionId) {
   return selectPosCashSessionRows(db, orgId, "pos_cash_sessions.id = ?", [sessionId], 1)[0] || null;
 }
 
+function getPosSale(db, orgId, saleId) {
+  const row = db.prepare(`
+    SELECT pos_sales.*,
+      cashier.name AS cashier_name,
+      stock_locations.code AS stock_location_code,
+      stock_locations.name AS stock_location_name,
+      created_by.name AS created_by_name
+    FROM pos_sales
+    JOIN users AS cashier ON cashier.id = pos_sales.cashier_user_id
+      AND cashier.org_id = pos_sales.org_id
+    JOIN stock_locations ON stock_locations.id = pos_sales.stock_location_id
+      AND stock_locations.org_id = pos_sales.org_id
+    LEFT JOIN users AS created_by ON created_by.id = pos_sales.created_by_user_id
+    WHERE pos_sales.org_id = ? AND pos_sales.id = ?
+  `).get(orgId, saleId);
+  if (!row) return null;
+  const lines = db.prepare(`
+    SELECT *
+    FROM pos_sale_lines
+    WHERE org_id = ? AND sale_id = ?
+    ORDER BY line_number, id
+  `).all(orgId, saleId);
+  return formatPosSale(row, lines);
+}
+
+function getPosSaleSourceRow(db, orgId, sourceKey) {
+  return db.prepare(`
+    SELECT id, cash_session_id
+    FROM pos_sales
+    WHERE org_id = ? AND source_key = ?
+  `).get(orgId, sourceKey) || null;
+}
+
+function buildPosSaleResponse(db, orgId, saleId, sessionId) {
+  return {
+    ok: true,
+    sale: getPosSale(db, orgId, saleId),
+    session: getPosCashSession(db, orgId, sessionId)
+  };
+}
+
+function buildPosSaleLines(db, orgId, lines) {
+  return lines.map((line, index) => {
+    const item = getCatalogItem(db, orgId, line.catalogItemId);
+    if (!item) {
+      const err = new Error("POS catalog item not found");
+      err.statusCode = 404;
+      throw err;
+    }
+    if (item.status !== "active" || !item.fiscalReceiptRequired || item.currency !== "AMD") {
+      const err = new Error("Active fiscal AMD catalog item required");
+      err.statusCode = 422;
+      throw err;
+    }
+    if (line.catalogItemVariantId) {
+      const variant = getCatalogItemVariant(db, orgId, line.catalogItemVariantId);
+      if (!variant) {
+        const err = new Error("POS catalog item variant not found");
+        err.statusCode = 404;
+        throw err;
+      }
+      if (variant.status !== "active" || variant.catalogItemId !== item.id) {
+        const err = new Error("Active catalog item variant required");
+        err.statusCode = 422;
+        throw err;
+      }
+    }
+    const total = item.listPrice * line.quantity;
+    if (!Number.isSafeInteger(total)) throwInvalidPosMetadata();
+    const split = item.vatMode === "standard"
+      ? splitStoredVatInclusive(total, 0.2)
+      : { subtotal: total, vat: 0, total };
+    return {
+      id: randomId("pos-sale-line"),
+      lineNumber: index + 1,
+      catalogItemId: item.id,
+      catalogItemVariantId: line.catalogItemVariantId || null,
+      sku: item.sku,
+      name: item.name,
+      description: item.description || "",
+      quantity: line.quantity,
+      unitPrice: item.listPrice,
+      subtotal: split.subtotal,
+      vat: split.vat,
+      total: split.total,
+      vatMode: item.vatMode,
+      fiscalReceiptRequired: item.fiscalReceiptRequired,
+      trackStock: item.trackStock,
+      stockMoveId: null
+    };
+  });
+}
+
+function assertPosSaleUniqueness(db, orgId, sessionId, input) {
+  const existingReceipt = db.prepare("SELECT id FROM pos_sales WHERE org_id = ? AND cash_session_id = ? AND receipt_number = ?")
+    .get(orgId, sessionId, input.receiptNumber);
+  if (existingReceipt) {
+    const err = new Error("POS sale receipt already exists");
+    err.statusCode = 409;
+    throw err;
+  }
+}
+
 function selectPosCashSessionRows(db, orgId, extraWhere = "", extraParams = [], limit = 50) {
   const where = ["pos_cash_sessions.org_id = ?"];
   const params = [orgId];
@@ -54582,7 +54695,22 @@ function selectPosCashSessionRows(db, orgId, extraWhere = "", extraParams = [], 
       stock_locations.name AS stock_location_name,
       stock_locations.location_type AS stock_location_type,
       created_by.name AS created_by_name,
-      updated_by.name AS updated_by_name
+      updated_by.name AS updated_by_name,
+      (
+        SELECT COUNT(*)
+        FROM pos_sales
+        WHERE pos_sales.org_id = pos_cash_sessions.org_id
+          AND pos_sales.cash_session_id = pos_cash_sessions.id
+      ) AS sale_count,
+      (
+        SELECT COUNT(*)
+        FROM pos_sale_lines
+        JOIN pos_sales AS line_sales ON line_sales.id = pos_sale_lines.sale_id
+          AND line_sales.org_id = pos_sale_lines.org_id
+        WHERE line_sales.org_id = pos_cash_sessions.org_id
+          AND line_sales.cash_session_id = pos_cash_sessions.id
+          AND pos_sale_lines.stock_move_id IS NOT NULL
+      ) AS inventory_posted_line_count
     FROM pos_cash_sessions
     JOIN users AS cashier ON cashier.id = pos_cash_sessions.cashier_user_id
       AND cashier.org_id = pos_cash_sessions.org_id
@@ -54659,7 +54787,7 @@ function createPosCashSession(db, user, body) {
       cashierUserId: cashier.id,
       stockLocationId: stockLocation.id,
       registerCode: input.registerCode,
-      expectedCashBasis: "opening-cash-only"
+      expectedCashBasis: "opening-cash-plus-cash-sales"
     }
   });
   audit(db, user.org_id, user.id, "pos.cash_session.opened", {
@@ -54671,6 +54799,177 @@ function createPosCashSession(db, user, body) {
   return getPosCashSession(db, user.org_id, sessionId);
 }
 
+function createPosCashSale(db, user, sessionId, body) {
+  const input = normalizePosCashSaleBody(body);
+  const saleId = randomId("pos-sale");
+  db.exec("BEGIN");
+  try {
+    const session = getPosCashSessionRow(db, user.org_id, sessionId);
+    if (!session) throwPosCashSessionNotFound();
+    const existingSource = getPosSaleSourceRow(db, user.org_id, input.idempotencyKey);
+    if (existingSource) {
+      if (existingSource.cash_session_id !== session.id) {
+        const err = new Error("POS sale source key already exists");
+        err.statusCode = 409;
+        throw err;
+      }
+      db.exec("COMMIT");
+      return buildPosSaleResponse(db, user.org_id, existingSource.id, session.id);
+    }
+    if (session.status !== "open") {
+      const err = new Error("POS cash session is closed");
+      err.statusCode = 409;
+      throw err;
+    }
+    assertPosSaleUniqueness(db, user.org_id, session.id, input);
+    const lines = buildPosSaleLines(db, user.org_id, input.lines);
+    const totals = lines.reduce((sum, line) => ({
+      subtotal: sum.subtotal + line.subtotal,
+      vat: sum.vat + line.vat,
+      total: sum.total + line.total
+    }), { subtotal: 0, vat: 0, total: 0 });
+    if (!Number.isSafeInteger(totals.subtotal) || !Number.isSafeInteger(totals.vat) || !Number.isSafeInteger(totals.total)) {
+      throwInvalidPosMetadata();
+    }
+    const paidCash = input.paymentMethod === "cash" ? totals.total : 0;
+    const now = new Date().toISOString();
+    const soldAt = input.soldAt || now;
+
+    db.prepare(`
+      INSERT INTO pos_sales (
+        id, org_id, cash_session_id, cashier_user_id, stock_location_id, register_code,
+        receipt_number, source_key, status, sold_at, currency, subtotal_amd, vat_amd,
+        total_amd, paid_cash_amd, payment_method, inventory_posting_status,
+        ledger_posting_status, created_by_user_id, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'posted', ?, 'AMD', ?, ?, ?, ?, ?, 'not-posted', 'not-posted', ?, ?, ?)
+    `).run(
+      saleId,
+      user.org_id,
+      session.id,
+      session.cashier_user_id,
+      session.stock_location_id,
+      session.register_code,
+      input.receiptNumber,
+      input.idempotencyKey,
+      soldAt,
+      totals.subtotal,
+      totals.vat,
+      totals.total,
+      paidCash,
+      input.paymentMethod,
+      user.id,
+      now,
+      now
+    );
+
+    const insertLine = db.prepare(`
+      INSERT INTO pos_sale_lines (
+        id, org_id, sale_id, line_number, catalog_item_id, catalog_item_variant_id,
+        sku, name, description, quantity, unit_price_amd, subtotal_amd, vat_amd,
+        total_amd, vat_mode, fiscal_receipt_required, stock_move_id, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, ?)
+    `);
+    const updateLineStockMove = db.prepare(`
+      UPDATE pos_sale_lines
+      SET stock_move_id = ?
+      WHERE org_id = ? AND id = ?
+    `);
+    let postedStockMoveCount = 0;
+    for (const line of lines) {
+      insertLine.run(
+        line.id,
+        user.org_id,
+        saleId,
+        line.lineNumber,
+        line.catalogItemId,
+        line.catalogItemVariantId || null,
+        line.sku,
+        line.name,
+        line.description,
+        line.quantity,
+        line.unitPrice,
+        line.subtotal,
+        line.vat,
+        line.total,
+        line.vatMode,
+        line.fiscalReceiptRequired ? 1 : 0,
+        now
+      );
+      if (!line.trackStock) continue;
+      const move = createStockMoveFromInput(db, user, {
+        catalogItemId: line.catalogItemId,
+        sourceLocationId: session.stock_location_id,
+        destinationLocationId: "",
+        serviceFieldVisitId: "",
+        moveType: "delivery",
+        quantity: line.quantity,
+        unitCost: 0,
+        reason: "POS cash sale delivery",
+        reference: `POS sale ${input.receiptNumber}`
+      });
+      line.stockMoveId = move.id;
+      updateLineStockMove.run(move.id, user.org_id, line.id);
+      postedStockMoveCount += 1;
+    }
+
+    const inventoryPostingStatus = postedStockMoveCount > 0 ? "posted" : "not-posted";
+    db.prepare(`
+      UPDATE pos_sales
+      SET inventory_posting_status = ?, updated_at = ?
+      WHERE org_id = ? AND id = ?
+    `).run(inventoryPostingStatus, now, user.org_id, saleId);
+    if (paidCash > 0) {
+      db.prepare(`
+        UPDATE pos_cash_sessions
+        SET expected_cash_amd = expected_cash_amd + ?, updated_by_user_id = ?, updated_at = ?
+        WHERE org_id = ? AND id = ? AND status = 'open'
+      `).run(paidCash, user.id, now, user.org_id, session.id);
+    }
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "pos.sale.posted",
+      subjectType: "pos_sale",
+      subjectId: saleId,
+      status: "posted",
+      payload: {
+        cashSessionId: session.id,
+        receiptNumber: input.receiptNumber,
+        paymentMethod: input.paymentMethod,
+        total: totals.total,
+        paidCash,
+        lineCount: lines.length,
+        inventoryPostingStatus,
+        ledgerPostingStatus: "not-posted"
+      }
+    });
+    audit(db, user.org_id, user.id, "pos.sale.posted", {
+      saleId,
+      cashSessionId: session.id,
+      receiptNumber: input.receiptNumber,
+      paymentMethod: input.paymentMethod,
+      total: totals.total,
+      idempotencyKey: input.idempotencyKey
+    });
+    db.exec("COMMIT");
+  } catch (err) {
+    try { db.exec("ROLLBACK"); } catch {}
+    if (isPosSaleUniqueConstraint(err)) {
+      const existingSource = getPosSaleSourceRow(db, user.org_id, input.idempotencyKey);
+      if (existingSource && existingSource.cash_session_id === sessionId) {
+        return buildPosSaleResponse(db, user.org_id, existingSource.id, sessionId);
+      }
+      const conflict = new Error("POS sale receipt or source key already exists");
+      conflict.statusCode = 409;
+      throw conflict;
+    }
+    throw err;
+  }
+  return buildPosSaleResponse(db, user.org_id, saleId, sessionId);
+}
+
 function closePosCashSession(db, user, sessionId, body) {
   const session = getPosCashSessionRow(db, user.org_id, sessionId);
   if (!session) throwPosCashSessionNotFound();
@@ -54680,7 +54979,7 @@ function closePosCashSession(db, user, sessionId, body) {
     throw err;
   }
   const input = normalizePosCashSessionCloseBody(body, session);
-  const expectedCash = Number(session.opening_cash_amd || 0);
+  const expectedCash = Number(session.expected_cash_amd || session.opening_cash_amd || 0);
   const cashDifference = input.countedCash - expectedCash;
   const now = new Date().toISOString();
   const info = db.prepare(`
@@ -54730,7 +55029,7 @@ function closePosCashSession(db, user, sessionId, body) {
       stockLocationId: session.stock_location_id,
       registerCode: session.register_code,
       zReportNumber: input.zReportNumber,
-      expectedCashBasis: "opening-cash-only"
+      expectedCashBasis: "opening-cash-plus-cash-sales"
     }
   });
   audit(db, user.org_id, user.id, "pos.cash_session.closed", {
@@ -54768,10 +55067,10 @@ function formatPosCashSession(row) {
     receiptRangeStart: row.receipt_number_start || "",
     receiptRangeEnd: row.receipt_number_end || "",
     closeNote: row.close_note || "",
-    expectedCashBasis: "opening-cash-only",
+    expectedCashBasis: "opening-cash-plus-cash-sales",
     postings: {
-      salePosting: "not-posted",
-      inventoryPosting: "not-posted",
+      salePosting: Number(row.sale_count || 0) > 0 ? "posted" : "not-posted",
+      inventoryPosting: Number(row.inventory_posted_line_count || 0) > 0 ? "posted" : "not-posted",
       ledgerPosting: "not-posted"
     },
     createdByUserId: row.created_by_user_id || "",
@@ -54780,6 +55079,59 @@ function formatPosCashSession(row) {
     updatedByName: row.updated_by_name || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at
+  };
+}
+
+function formatPosSale(row, lines) {
+  return {
+    id: row.id,
+    cashSessionId: row.cash_session_id,
+    receiptNumber: row.receipt_number,
+    status: row.status,
+    paymentMethod: row.payment_method,
+    currency: row.currency,
+    subtotal: row.subtotal_amd,
+    vat: row.vat_amd,
+    total: row.total_amd,
+    paidCash: row.paid_cash_amd,
+    lineCount: lines.length,
+    soldAt: row.sold_at,
+    cashierUserId: row.cashier_user_id,
+    cashierName: row.cashier_name || "",
+    stockLocationId: row.stock_location_id,
+    stockLocationCode: row.stock_location_code || "",
+    stockLocationName: row.stock_location_name || "",
+    registerCode: row.register_code,
+    postings: {
+      salePosting: row.status === "posted" ? "posted" : "not-posted",
+      inventoryPosting: row.inventory_posting_status || "not-posted",
+      ledgerPosting: row.ledger_posting_status || "not-posted"
+    },
+    lines: lines.map(formatPosSaleLine),
+    createdByUserId: row.created_by_user_id || "",
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function formatPosSaleLine(row) {
+  return {
+    id: row.id,
+    catalogItemId: row.catalog_item_id,
+    catalogItemVariantId: row.catalog_item_variant_id || null,
+    sku: row.sku,
+    name: row.name,
+    description: row.description || "",
+    quantity: row.quantity,
+    unitPrice: row.unit_price_amd,
+    subtotal: row.subtotal_amd,
+    vat: row.vat_amd,
+    total: row.total_amd,
+    vatMode: row.vat_mode,
+    fiscalReceiptRequired: Boolean(row.fiscal_receipt_required),
+    stockMoveId: row.stock_move_id || null,
+    createdAt: row.created_at
   };
 }
 
@@ -54819,6 +55171,36 @@ function normalizePosCashSessionCloseBody(body, session) {
   };
 }
 
+function normalizePosCashSaleBody(body) {
+  if (!isPlainObject(body)) throwInvalidPosMetadata();
+  if (!Array.isArray(body.lines) || body.lines.length === 0 || body.lines.length > 100) throwInvalidPosMetadata();
+  return {
+    receiptNumber: normalizePosReceiptNumber(body, "receiptNumber"),
+    paymentMethod: normalizePosChoice(body, "paymentMethod", ["cash", "card", "bank-transfer"], "", true),
+    soldAt: normalizePosTimestamp(body, "soldAt", ""),
+    idempotencyKey: normalizePosSourceKey(body, "idempotencyKey"),
+    lines: body.lines.map(normalizePosCashSaleLine)
+  };
+}
+
+function normalizePosCashSaleLine(line) {
+  if (!isPlainObject(line)) throwInvalidPosMetadata();
+  let catalogItemVariantId = "";
+  if (
+    Object.prototype.hasOwnProperty.call(line, "catalogItemVariantId")
+    && line.catalogItemVariantId !== undefined
+    && line.catalogItemVariantId !== null
+    && line.catalogItemVariantId !== ""
+  ) {
+    catalogItemVariantId = normalizePosText(line, "catalogItemVariantId", { idLike: true, maxLength: 160 });
+  }
+  return {
+    catalogItemId: normalizePosText(line, "catalogItemId", { required: true, idLike: true, maxLength: 160 }),
+    catalogItemVariantId,
+    quantity: normalizePosInteger(line, "quantity", { required: true, min: 1, max: 1000000 })
+  };
+}
+
 function normalizePosTextAlias(body, fields, options = {}) {
   for (const field of fields) {
     const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
@@ -54848,10 +55230,35 @@ function normalizePosRegisterCode(body, field) {
   return code;
 }
 
+function normalizePosReceiptNumber(body, field) {
+  const value = normalizePosText(body, field, { required: true, minLength: 1, maxLength: 120 });
+  const receiptNumber = value.toUpperCase();
+  if (!/^[A-Z0-9][A-Z0-9._/-]{0,119}$/.test(receiptNumber)) throwInvalidPosMetadata();
+  return receiptNumber;
+}
+
+function normalizePosSourceKey(body, field) {
+  const value = normalizePosText(body, field, { required: true, minLength: 1, maxLength: 160 });
+  if (!/^[A-Za-z0-9][A-Za-z0-9._:-]{0,159}$/.test(value)) throwInvalidPosMetadata();
+  return value;
+}
+
 function normalizePosCurrency(body, field, fallback) {
   const value = normalizePosText(body, field, { fallback, maxLength: 3 }).toUpperCase();
   if (value !== "AMD") throwInvalidPosMetadata();
   return value;
+}
+
+function normalizePosChoice(body, field, allowed, fallback, required = false) {
+  const value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidPosMetadata();
+    return fallback;
+  }
+  if (value === null || typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
+  const text = value.trim();
+  if (!allowed.includes(text)) throwInvalidPosMetadata();
+  return text;
 }
 
 function normalizePosMoney(body, field, options = {}) {
@@ -54862,6 +55269,28 @@ function normalizePosMoney(body, field, options = {}) {
     return 0;
   }
   return toStoredMoneyInput(value, throwInvalidPosMetadata, { min, max, positive: min > 0, zeroSubunitFraction: "none" });
+}
+
+function normalizePosInteger(body, field, options = {}) {
+  const { required = false, fallback = 0, min = 0, max = 1000000000 } = options;
+  let value = Object.prototype.hasOwnProperty.call(body, field) ? body[field] : undefined;
+  if (value === undefined || value === "") {
+    if (required) throwInvalidPosMetadata();
+    value = fallback;
+  }
+  if (value === null || Array.isArray(value) || typeof value === "object" || typeof value === "boolean") throwInvalidPosMetadata();
+  let number;
+  if (typeof value === "number") {
+    number = value;
+  } else if (typeof value === "string") {
+    if (/[\x00-\x1f\x7f]/.test(value)) throwInvalidPosMetadata();
+    if (!/^\d+$/.test(value.trim())) throwInvalidPosMetadata();
+    number = Number(value.trim());
+  } else {
+    throwInvalidPosMetadata();
+  }
+  if (!Number.isSafeInteger(number) || number < min || number > max) throwInvalidPosMetadata();
+  return number;
 }
 
 function normalizePosTimestamp(body, field, fallback) {
@@ -54931,6 +55360,10 @@ function throwInvalidPosMetadata() {
   const err = new Error("POS request requires safe metadata");
   err.statusCode = 400;
   throw err;
+}
+
+function isPosSaleUniqueConstraint(err) {
+  return Boolean(err && /UNIQUE constraint failed: pos_sales\./.test(String(err.message || "")));
 }
 
 function getPurchaseVendors(db, orgId, asOfDate = armeniaDateString()) {

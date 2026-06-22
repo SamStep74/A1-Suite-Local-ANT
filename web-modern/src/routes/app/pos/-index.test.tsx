@@ -1,9 +1,10 @@
 /**
  * /app/pos — route-level tests for the POS cash-session spine.
  *
- * Covers Slice 420 frontend behavior:
+ * Covers POS frontend behavior:
  *   - loading and error states for /api/pos/workspace
  *   - opening a cash session via POST /api/pos/cash-sessions
+ *   - posting a one-line sale via POST /api/pos/cash-sessions/:id/sales
  *   - closing the current cash session via POST /api/pos/cash-sessions/:id/close
  *   - app-tier 403 via UserAccessProvider
  */
@@ -32,6 +33,7 @@ const mocks = vi.hoisted(() => ({
   postJson: vi.fn(),
   mutateImpls: [] as Array<ReturnType<typeof vi.fn>>,
   pendingFlags: [] as boolean[],
+  invalidateQueries: vi.fn(),
 }));
 
 vi.mock("@tanstack/react-router", () => ({
@@ -70,9 +72,11 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
       onError?: (...args: unknown[]) => void;
     }) => {
       const fn = opts.mutationFn.toString();
-      const slot = fn.includes("/:id/close") || fn.includes("${input.sessionId}/close")
-        ? 1
-        : 0;
+      const slot = fn.includes("/sales")
+        ? 2
+        : fn.includes("/:id/close") || fn.includes("${input.sessionId}/close")
+          ? 1
+          : 0;
 
       if (!mocks.mutateImpls[slot]) {
         mocks.mutateImpls[slot] = vi.fn();
@@ -94,7 +98,7 @@ vi.mock("@tanstack/react-query", async (importOriginal) => {
         error: null,
       };
     },
-    useQueryClient: () => ({ invalidateQueries: vi.fn() }),
+    useQueryClient: () => ({ invalidateQueries: mocks.invalidateQueries }),
   };
 });
 
@@ -179,6 +183,52 @@ const WORKSPACE_NO_OPEN = {
   },
 };
 
+const VALID_SALE_RESPONSE = {
+  ok: true,
+  sale: {
+    id: "pos-sale-1",
+    cashSessionId: "pos-session-1",
+    receiptNumber: "R-2026-0002",
+    status: "posted",
+    paymentMethod: "card",
+    currency: "AMD",
+    subtotal: 50000,
+    vat: 0,
+    total: 50000,
+    lineCount: 1,
+    soldAt: "2026-06-22T09:30:00.000Z",
+    cashierUserId: "user-1",
+    stockLocationId: "loc-pos-1",
+    postings: {
+      salePosting: "posted",
+      inventoryPosting: "posted",
+      ledgerPosting: "not-posted",
+    },
+    lines: [
+      {
+        id: "pos-sale-line-1",
+        catalogItemId: "catitem-pos-scanner",
+        catalogItemVariantId: null,
+        sku: "POS-SCANNER",
+        name: "POS barcode scanner",
+        quantity: 2,
+        unitPrice: 25000,
+        subtotal: 50000,
+        vat: 0,
+        total: 50000,
+        vatMode: "exempt",
+        fiscalReceiptRequired: true,
+        stockMoveId: "stock-move-1",
+      },
+    ],
+    createdAt: "2026-06-22T09:30:01.000Z",
+  },
+  session: {
+    ...OPEN_SESSION,
+    expectedCash: 100000,
+  },
+};
+
 function renderRoute(opts?: { noPosAccess?: boolean }) {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false } },
@@ -202,6 +252,7 @@ beforeEach(() => {
   mocks.postJson.mockResolvedValue({ session: OPEN_SESSION });
   mocks.mutateImpls = [];
   mocks.pendingFlags = [];
+  mocks.invalidateQueries.mockReset();
 });
 
 afterEach(() => {
@@ -226,6 +277,13 @@ describe("POS route", () => {
 
     expect(screen.getByRole("alert")).toHaveTextContent(/Could not load POS workspace/);
     expect(screen.getByTestId("pos-error")).toHaveTextContent(/server 503/);
+  });
+
+  it("keeps sale capture unavailable until a cash session is open", () => {
+    renderRoute();
+
+    expect(screen.getByTestId("pos-open-form")).toBeInTheDocument();
+    expect(screen.queryByTestId("pos-sale-form")).toBeNull();
   });
 
   it("opens a cash session with stock location, opening cash, and optional openedAt", async () => {
@@ -255,6 +313,60 @@ describe("POS route", () => {
       registerCode: "POS-RETAIL-1",
       openingCash: 60000,
       openedAt: "2026-06-22T08:15",
+    });
+  });
+
+  it("posts a one-line sale to the open cash session and renders success", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+    mocks.postJson.mockResolvedValueOnce(VALID_SALE_RESPONSE);
+
+    renderRoute();
+
+    expect(screen.getByTestId("pos-sale-form")).toBeInTheDocument();
+    fireEvent.change(screen.getByTestId("pos-sale-quantity"), {
+      target: { value: "2" },
+    });
+    expect(screen.getByTestId("pos-sale-total-preview")).toHaveTextContent(/50/);
+    fireEvent.change(screen.getByTestId("pos-sale-receipt-number"), {
+      target: { value: "R-2026-0002" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-payment-method"), {
+      target: { value: "card" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-sold-at"), {
+      target: { value: "2026-06-22T09:30" },
+    });
+    fireEvent.click(screen.getByTestId("pos-sale-submit"));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(1);
+    });
+    const [path, body] = mocks.postJson.mock.calls[0]!;
+    expect(path).toBe("/api/pos/cash-sessions/pos-session-1/sales");
+    expect(body).toEqual({
+      receiptNumber: "R-2026-0002",
+      paymentMethod: "card",
+      soldAt: "2026-06-22T09:30",
+      idempotencyKey: expect.stringMatching(/^pos-sale-ui-\d+$/),
+      lines: [
+        {
+          catalogItemId: "catitem-pos-scanner",
+          quantity: 2,
+        },
+      ],
+    });
+    expect(mocks.mutateImpls[2]).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(/pos-sale-1/);
+    });
+    expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(/R-2026-0002/);
+    expect(mocks.invalidateQueries).toHaveBeenCalledWith({
+      queryKey: ["pos", "workspace"],
     });
   });
 

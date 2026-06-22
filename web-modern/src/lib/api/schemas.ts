@@ -910,6 +910,89 @@ export type PosOpenCashSessionResponse = z.infer<typeof PosOpenCashSessionRespon
 export const PosCloseCashSessionResponseSchema = PosCashSessionWriteResponseSchema;
 export type PosCloseCashSessionResponse = z.infer<typeof PosCloseCashSessionResponseSchema>;
 
+export const PosPaymentMethodSchema = z.enum(["cash", "card", "bank-transfer"]);
+export type PosPaymentMethod = z.infer<typeof PosPaymentMethodSchema>;
+
+export const PosSaleLineRequestSchema = z
+  .object({
+    catalogItemId: z.string().min(1),
+    catalogItemVariantId: z.string().min(1).nullable().optional(),
+    quantity: z.number().int().positive(),
+  })
+  .strict();
+export type PosSaleLineRequest = z.infer<typeof PosSaleLineRequestSchema>;
+
+export const PosCreateSaleRequestSchema = z
+  .object({
+    receiptNumber: z.string().min(1),
+    paymentMethod: PosPaymentMethodSchema,
+    soldAt: z.string().min(1).optional(),
+    idempotencyKey: z.string().min(1).max(200),
+    lines: z.array(PosSaleLineRequestSchema).min(1),
+  })
+  .strict();
+export type PosCreateSaleRequest = z.infer<typeof PosCreateSaleRequestSchema>;
+
+export const PosSalePostingsSchema = z
+  .object({
+    salePosting: z.string(),
+    inventoryPosting: z.string(),
+    ledgerPosting: z.string(),
+  })
+  .passthrough();
+export type PosSalePostings = z.infer<typeof PosSalePostingsSchema>;
+
+export const PosSaleLineSchema = z
+  .object({
+    id: z.string(),
+    catalogItemId: z.string(),
+    catalogItemVariantId: z.string().nullable().optional(),
+    sku: z.string(),
+    name: z.string(),
+    quantity: z.number().int().positive(),
+    unitPrice: z.number(),
+    subtotal: z.number(),
+    vat: z.number(),
+    total: z.number(),
+    vatMode: z.string().nullable().optional(),
+    fiscalReceiptRequired: z.boolean().nullable().optional(),
+    stockMoveId: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type PosSaleLine = z.infer<typeof PosSaleLineSchema>;
+
+export const PosSaleSchema = z
+  .object({
+    id: z.string(),
+    cashSessionId: z.string(),
+    receiptNumber: z.string(),
+    status: z.literal("posted"),
+    paymentMethod: PosPaymentMethodSchema,
+    currency: PosCurrencySchema,
+    subtotal: z.number(),
+    vat: z.number(),
+    total: z.number(),
+    paidCash: z.number().nullable().optional(),
+    lineCount: z.number().int().min(0),
+    soldAt: z.string(),
+    cashierUserId: z.string(),
+    stockLocationId: z.string(),
+    postings: PosSalePostingsSchema,
+    lines: z.array(PosSaleLineSchema),
+    createdAt: z.string(),
+  })
+  .passthrough();
+export type PosSale = z.infer<typeof PosSaleSchema>;
+
+export const PosCreateSaleResponseSchema = z
+  .object({
+    ok: z.literal(true),
+    sale: PosSaleSchema,
+    session: PosCashSessionSchema,
+  })
+  .passthrough();
+export type PosCreateSaleResponse = z.infer<typeof PosCreateSaleResponseSchema>;
+
 /** Stock balance — a (catalogItemId, locationId) row.
  *  Source: /api/inventory/stock. */
 export const StockBalanceSchema = z.object({

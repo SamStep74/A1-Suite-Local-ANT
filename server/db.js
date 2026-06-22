@@ -679,6 +679,69 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_pos_cash_sessions_z_report
       ON pos_cash_sessions(org_id, z_report_number);
 
+    CREATE TABLE IF NOT EXISTS pos_sales (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      cash_session_id TEXT NOT NULL REFERENCES pos_cash_sessions(id) ON DELETE CASCADE,
+      cashier_user_id TEXT NOT NULL REFERENCES users(id) ON DELETE RESTRICT,
+      stock_location_id TEXT NOT NULL REFERENCES stock_locations(id) ON DELETE RESTRICT,
+      register_code TEXT NOT NULL,
+      receipt_number TEXT NOT NULL,
+      source_key TEXT NOT NULL,
+      status TEXT NOT NULL DEFAULT 'posted',
+      sold_at TEXT NOT NULL,
+      currency TEXT NOT NULL DEFAULT 'AMD',
+      subtotal_amd INTEGER NOT NULL DEFAULT 0,
+      vat_amd INTEGER NOT NULL DEFAULT 0,
+      total_amd INTEGER NOT NULL DEFAULT 0,
+      paid_cash_amd INTEGER NOT NULL DEFAULT 0,
+      payment_method TEXT NOT NULL,
+      inventory_posting_status TEXT NOT NULL DEFAULT 'not-posted',
+      ledger_posting_status TEXT NOT NULL DEFAULT 'not-posted',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      UNIQUE(org_id, source_key),
+      UNIQUE(org_id, cash_session_id, receipt_number)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sales_session
+      ON pos_sales(org_id, cash_session_id, sold_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sales_status
+      ON pos_sales(org_id, status, sold_at DESC);
+
+    CREATE TABLE IF NOT EXISTS pos_sale_lines (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      sale_id TEXT NOT NULL REFERENCES pos_sales(id) ON DELETE CASCADE,
+      line_number INTEGER NOT NULL,
+      catalog_item_id TEXT NOT NULL REFERENCES catalog_items(id) ON DELETE RESTRICT,
+      catalog_item_variant_id TEXT REFERENCES catalog_item_variants(id) ON DELETE SET NULL,
+      sku TEXT NOT NULL,
+      name TEXT NOT NULL,
+      description TEXT NOT NULL DEFAULT '',
+      quantity INTEGER NOT NULL,
+      unit_price_amd INTEGER NOT NULL,
+      subtotal_amd INTEGER NOT NULL DEFAULT 0,
+      vat_amd INTEGER NOT NULL DEFAULT 0,
+      total_amd INTEGER NOT NULL DEFAULT 0,
+      vat_mode TEXT NOT NULL DEFAULT 'standard',
+      fiscal_receipt_required INTEGER NOT NULL DEFAULT 0,
+      stock_move_id TEXT REFERENCES stock_moves(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, sale_id, line_number)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_lines_sale
+      ON pos_sale_lines(org_id, sale_id, line_number);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_lines_item
+      ON pos_sale_lines(org_id, catalog_item_id, created_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_sale_lines_stock_move
+      ON pos_sale_lines(org_id, stock_move_id);
+
     CREATE TABLE IF NOT EXISTS stock_quants (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
