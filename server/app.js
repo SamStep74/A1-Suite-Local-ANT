@@ -24,6 +24,7 @@ const SERVICE_FIELD_VISIT_STATUSES = ["scheduled", "en-route", "in-progress", "c
 const SERVICE_FIELD_VISIT_TECHNICIAN_STATUSES = ["en-route", "in-progress", "completed"];
 const SERVICE_FIELD_VISIT_LOCATION_SOURCES = ["browser-geolocation", "gps", "browser", "mobile", "manual", "device"];
 const SERVICE_DISPATCH_ALERT_KINDS = ["overdue-window", "active-route", "due-soon", "gps-missing"];
+const PURCHASE_PRICE_EXPIRING_SOON_DAYS = 14;
 const APP_ASSIGNMENT_ROLE_GUARDS = {
   inventory: new Set(["Owner", "Admin", "Operator", "Accountant"]),
   purchase: new Set(["Owner", "Admin", "Operator", "Accountant"])
@@ -934,6 +935,13 @@ function registerApi(app, db, options = {}) {
     const user = await app.auth(request);
     requirePurchaseWriter(user);
     return createPurchaseVendor(db, user, request.body === undefined ? {} : request.body);
+  });
+
+  app.patch("/api/purchase/vendors/:id/status", async request => {
+    const user = await app.auth(request);
+    requirePurchaseWriter(user);
+    const vendorId = normalizePurchasePathId(request.params.id);
+    return updatePurchaseVendorStatus(db, user, vendorId, request.body === undefined ? {} : request.body);
   });
 
   app.post("/api/purchase/orders", async request => {
@@ -54442,18 +54450,18 @@ function throwInvalidInventoryMetadata() {
   throw err;
 }
 
-function getPurchaseVendors(db, orgId) {
+function getPurchaseVendors(db, orgId, asOfDate = armeniaDateString()) {
   return db.prepare(`
     SELECT *
     FROM purchase_vendors
     WHERE org_id = ?
     ORDER BY status = 'active' DESC, name
-  `).all(orgId).map(row => formatPurchaseVendor(row, getPurchaseVendorPrices(db, orgId, row.id)));
+  `).all(orgId).map(row => formatPurchaseVendor(row, getPurchaseVendorPrices(db, orgId, row.id), asOfDate));
 }
 
-function getPurchaseVendor(db, orgId, vendorId) {
+function getPurchaseVendor(db, orgId, vendorId, asOfDate = armeniaDateString()) {
   const row = db.prepare("SELECT * FROM purchase_vendors WHERE org_id = ? AND id = ?").get(orgId, vendorId);
-  return row ? formatPurchaseVendor(row, getPurchaseVendorPrices(db, orgId, row.id)) : null;
+  return row ? formatPurchaseVendor(row, getPurchaseVendorPrices(db, orgId, row.id), asOfDate) : null;
 }
 
 function getPurchaseVendorPrices(db, orgId, vendorId) {
@@ -54469,7 +54477,7 @@ function getPurchaseVendorPrices(db, orgId, vendorId) {
   `).all(orgId, vendorId).map(formatPurchaseVendorPrice);
 }
 
-function formatPurchaseVendor(row, prices = []) {
+function formatPurchaseVendor(row, prices = [], asOfDate = armeniaDateString()) {
   return {
     id: row.id,
     name: row.name,
@@ -54483,8 +54491,57 @@ function formatPurchaseVendor(row, prices = []) {
     createdByUserId: row.created_by_user_id || "",
     createdAt: row.created_at,
     updatedAt: row.updated_at,
-    prices
+    prices,
+    priceLifecycle: summarizePurchaseVendorPriceLifecycle(row, prices, asOfDate)
   };
+}
+
+function summarizePurchaseVendorPriceLifecycle(vendor, prices = [], asOfDate = armeniaDateString()) {
+  const soonThrough = addDays(asOfDate, PURCHASE_PRICE_EXPIRING_SOON_DAYS);
+  const lifecycle = {
+    totalPrices: prices.length,
+    usablePriceCount: 0,
+    expiredPriceCount: 0,
+    futurePriceCount: 0,
+    archivedPriceCount: 0,
+    expiringSoonCount: 0,
+    nextExpiryDate: "",
+    daysToNextExpiry: null,
+    riskLevel: "ok",
+    riskReasons: []
+  };
+
+  for (const price of prices) {
+    const activePrice = price.status === "active";
+    if (price.status === "archived") lifecycle.archivedPriceCount += 1;
+    if (activePrice && price.validFrom > asOfDate) lifecycle.futurePriceCount += 1;
+    if (activePrice && price.validTo && price.validTo < asOfDate) lifecycle.expiredPriceCount += 1;
+    if (activePrice && price.validFrom <= asOfDate && (!price.validTo || price.validTo >= asOfDate) && vendor.status === "active") {
+      lifecycle.usablePriceCount += 1;
+    }
+    if (activePrice && price.validFrom <= asOfDate && price.validTo && price.validTo >= asOfDate) {
+      if (!lifecycle.nextExpiryDate || price.validTo < lifecycle.nextExpiryDate) lifecycle.nextExpiryDate = price.validTo;
+      if (price.validTo <= soonThrough) lifecycle.expiringSoonCount += 1;
+    }
+  }
+
+  if (lifecycle.nextExpiryDate) {
+    lifecycle.daysToNextExpiry = daysBetween(asOfDate, lifecycle.nextExpiryDate);
+  }
+  if (vendor.status === "blocked") lifecycle.riskReasons.push("vendor blocked");
+  else if (vendor.status !== "active") lifecycle.riskReasons.push("vendor inactive");
+  if (lifecycle.totalPrices === 0) lifecycle.riskReasons.push("no prices");
+  if (lifecycle.usablePriceCount === 0 && lifecycle.totalPrices > 0) lifecycle.riskReasons.push("no usable active prices");
+  if (lifecycle.expiredPriceCount > 0) lifecycle.riskReasons.push("expired prices");
+  if (lifecycle.futurePriceCount > 0) lifecycle.riskReasons.push("future prices");
+  if (lifecycle.archivedPriceCount > 0) lifecycle.riskReasons.push("archived prices");
+  if (lifecycle.expiringSoonCount > 0) lifecycle.riskReasons.push(`prices expiring within ${PURCHASE_PRICE_EXPIRING_SOON_DAYS} days`);
+
+  if (lifecycle.totalPrices === 0) lifecycle.riskLevel = "empty";
+  else if (vendor.status !== "active" || lifecycle.usablePriceCount === 0) lifecycle.riskLevel = "blocked";
+  else if (lifecycle.expiredPriceCount > 0 || lifecycle.futurePriceCount > 0 || lifecycle.archivedPriceCount > 0 || lifecycle.expiringSoonCount > 0) lifecycle.riskLevel = "watch";
+
+  return lifecycle;
 }
 
 function formatPurchaseVendorPrice(row) {
@@ -54580,6 +54637,53 @@ function createPurchaseVendor(db, user, body) {
   return { ok: true, vendor: getPurchaseVendor(db, user.org_id, vendorId) };
 }
 
+function updatePurchaseVendorStatus(db, user, vendorId, body) {
+  const input = normalizePurchaseVendorStatusBody(body);
+  const current = db.prepare("SELECT * FROM purchase_vendors WHERE org_id = ? AND id = ?").get(user.org_id, vendorId);
+  if (!current) {
+    const err = new Error("Purchase vendor not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const now = new Date().toISOString();
+  let vendor;
+  db.exec("BEGIN");
+  try {
+    db.prepare(`
+      UPDATE purchase_vendors
+      SET status = ?, note = ?, updated_at = ?
+      WHERE org_id = ? AND id = ?
+    `).run(input.status, input.noteChanged ? input.note : current.note, now, user.org_id, vendorId);
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "purchase.vendor.status.updated",
+      subjectType: "purchase_vendor",
+      subjectId: vendorId,
+      status: input.status,
+      payload: {
+        name: current.name,
+        previousStatus: current.status,
+        status: input.status,
+        noteChanged: input.noteChanged
+      }
+    });
+    audit(db, user.org_id, user.id, "purchase.vendor.status.updated", {
+      vendorId,
+      name: current.name,
+      previousStatus: current.status,
+      status: input.status,
+      noteChanged: input.noteChanged
+    });
+    vendor = getPurchaseVendor(db, user.org_id, vendorId);
+    db.exec("COMMIT");
+  } catch (err) {
+    db.exec("ROLLBACK");
+    throw err;
+  }
+  return { ok: true, vendor };
+}
+
 function getPurchaseOrders(db, orgId) {
   return db.prepare(`
     SELECT purchase_orders.*, purchase_vendors.name AS vendor_name,
@@ -54610,8 +54714,10 @@ function getPurchaseOrder(db, orgId, orderId) {
 
 function getPurchaseAnalytics(db, orgId) {
   const orders = getPurchaseOrders(db, orgId);
-  const vendors = getPurchaseVendors(db, orgId);
-  const priceCoverage = getPurchasePriceCoverage(db, orgId, armeniaDateString());
+  const asOfDate = armeniaDateString();
+  const vendors = getPurchaseVendors(db, orgId, asOfDate);
+  const priceCoverage = getPurchasePriceCoverage(db, orgId, asOfDate);
+  const vendorLifecycle = summarizePurchaseVendorLifecycle(vendors);
   const receivableOrders = orders.filter(order => ["confirmed", "partial", "received", "billed"].includes(order.status));
   const stockableCatalogItemCount = db.prepare(`
     SELECT COUNT(*) AS count
@@ -54653,6 +54759,7 @@ function getPurchaseAnalytics(db, orgId) {
     summary,
     receiptBacklog: getPurchaseReceiptBacklog(orders),
     vendorPerformance: getPurchaseVendorPerformance(orders, vendors),
+    vendorLifecycle,
     priceCoverage: {
       activePriceCount: priceCoverage.activePriceCount,
       stockableCatalogItemCount,
@@ -54665,6 +54772,52 @@ function getPurchaseAnalytics(db, orgId) {
       suggestions: replenishmentSuggestions
     }
   };
+}
+
+function summarizePurchaseVendorLifecycle(vendors) {
+  const rows = Array.isArray(vendors) ? vendors : [];
+  const atRiskVendors = rows
+    .filter(vendor => vendor.priceLifecycle && vendor.priceLifecycle.riskLevel !== "ok")
+    .map(vendor => ({
+      vendorId: vendor.id,
+      name: vendor.name,
+      taxId: vendor.taxId,
+      status: vendor.status,
+      totalPrices: vendor.priceLifecycle.totalPrices,
+      usablePriceCount: vendor.priceLifecycle.usablePriceCount,
+      expiredPriceCount: vendor.priceLifecycle.expiredPriceCount,
+      futurePriceCount: vendor.priceLifecycle.futurePriceCount,
+      archivedPriceCount: vendor.priceLifecycle.archivedPriceCount,
+      expiringSoonCount: vendor.priceLifecycle.expiringSoonCount,
+      nextExpiryDate: vendor.priceLifecycle.nextExpiryDate,
+      daysToNextExpiry: vendor.priceLifecycle.daysToNextExpiry,
+      riskLevel: vendor.priceLifecycle.riskLevel,
+      riskReasons: vendor.priceLifecycle.riskReasons
+    }))
+    .sort((a, b) => purchaseVendorRiskRank(b.riskLevel) - purchaseVendorRiskRank(a.riskLevel)
+      || (a.daysToNextExpiry ?? 1000000) - (b.daysToNextExpiry ?? 1000000)
+      || b.expiredPriceCount - a.expiredPriceCount
+      || a.name.localeCompare(b.name))
+    .slice(0, 8);
+  return {
+    totalVendorCount: rows.length,
+    activeVendorCount: rows.filter(vendor => vendor.status === "active").length,
+    blockedVendorCount: rows.filter(vendor => vendor.status === "blocked").length,
+    inactiveVendorCount: rows.filter(vendor => vendor.status !== "active" && vendor.status !== "blocked").length,
+    vendorRiskCount: rows.filter(vendor => vendor.priceLifecycle?.riskLevel !== "ok").length,
+    expiringSoonPriceCount: rows.reduce((total, vendor) => total + Number(vendor.priceLifecycle?.expiringSoonCount || 0), 0),
+    expiredPriceCount: rows.reduce((total, vendor) => total + Number(vendor.priceLifecycle?.expiredPriceCount || 0), 0),
+    futurePriceCount: rows.reduce((total, vendor) => total + Number(vendor.priceLifecycle?.futurePriceCount || 0), 0),
+    archivedPriceCount: rows.reduce((total, vendor) => total + Number(vendor.priceLifecycle?.archivedPriceCount || 0), 0),
+    atRiskVendors
+  };
+}
+
+function purchaseVendorRiskRank(level) {
+  if (level === "blocked") return 3;
+  if (level === "empty") return 2;
+  if (level === "watch") return 1;
+  return 0;
 }
 
 function summarizePurchaseLines(orders) {
@@ -55607,16 +55760,21 @@ function buildPurchaseOrderLine(db, orgId, line, orderDate, vatRate, vendorId = 
 
 function getBestPurchaseVendorPrice(db, orgId, vendorId, catalogItemId, quantity, orderDate) {
   const rows = db.prepare(`
-    SELECT *
+    SELECT purchase_vendor_prices.*
     FROM purchase_vendor_prices
-    WHERE org_id = ?
-      AND vendor_id = ?
-      AND catalog_item_id = ?
-      AND status = 'active'
-      AND min_quantity <= ?
-      AND valid_from <= ?
-      AND (valid_to = '' OR valid_to >= ?)
-    ORDER BY min_quantity DESC, valid_from DESC, unit_cost ASC
+    JOIN purchase_vendors ON purchase_vendors.org_id = purchase_vendor_prices.org_id
+      AND purchase_vendors.id = purchase_vendor_prices.vendor_id
+      AND purchase_vendors.status = 'active'
+    WHERE purchase_vendor_prices.org_id = ?
+      AND purchase_vendor_prices.vendor_id = ?
+      AND purchase_vendor_prices.catalog_item_id = ?
+      AND purchase_vendor_prices.status = 'active'
+      AND purchase_vendor_prices.min_quantity <= ?
+      AND purchase_vendor_prices.valid_from <= ?
+      AND (purchase_vendor_prices.valid_to = '' OR purchase_vendor_prices.valid_to >= ?)
+    ORDER BY purchase_vendor_prices.min_quantity DESC,
+      purchase_vendor_prices.valid_from DESC,
+      purchase_vendor_prices.unit_cost ASC
     LIMIT 1
   `).all(orgId, vendorId, catalogItemId, quantity, orderDate, orderDate);
   return rows[0] ? formatPurchaseVendorPrice({
@@ -55819,6 +55977,18 @@ function normalizePurchaseVendorBody(body) {
     leadTimeDays: normalizePurchaseInteger(body, "leadTimeDays", { fallback: 0, min: 0, max: 365 }),
     note: normalizePurchaseText(body, "note", { fallback: "", maxLength: 500 }),
     prices: normalizePurchaseVendorPrices(body)
+  };
+}
+
+function normalizePurchaseVendorStatusBody(body) {
+  if (!isPlainObject(body)) throwInvalidPurchaseMetadata();
+  const status = normalizePurchaseChoice(body, "status", ["active", "inactive", "blocked"], undefined);
+  if (!status) throwInvalidPurchaseMetadata();
+  const noteChanged = Object.prototype.hasOwnProperty.call(body, "note");
+  return {
+    status,
+    noteChanged,
+    note: noteChanged ? normalizePurchaseText(body, "note", { fallback: "", maxLength: 500 }) : ""
   };
 }
 

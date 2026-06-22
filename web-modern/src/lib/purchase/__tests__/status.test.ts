@@ -7,20 +7,25 @@
 import { describe, it, expect } from "vitest";
 import {
   classifyVendor,
+  classifyPriceLifecycleRisk,
   classifyOrderStatus,
   compareOrdersByStatusThenDate,
   compareVendorsByName,
+  formatPriceLifecycleRiskLabel,
   orderTotals,
   orderProgress,
   lineRemainingQuantity,
+  primaryPriceLifecycleReason,
   sumAllValue,
   sumOpenValue,
   sumBilledValue,
+  summarizePriceLifecycle,
   vendorPerformanceScore,
   priceCoverage,
   formatCurrency,
   formatPercent,
   AM_SHORT_MONTHS,
+  type PriceLifecycleRiskTone,
   type VendorTone,
   type OrderTone,
 } from "../status";
@@ -30,6 +35,7 @@ import {
 const VENDORS = {
   active: { status: "active" },
   inactive: { status: "inactive" },
+  suspended: { status: "suspended" },
   blocked: { status: "blocked" },
   unknown: { status: "garbage" },
   missing: { status: undefined as unknown as string },
@@ -51,6 +57,7 @@ describe("classifyVendor", () => {
   it("maps known statuses", () => {
     expect(classifyVendor(VENDORS.active)).toBe<VendorTone>("active");
     expect(classifyVendor(VENDORS.inactive)).toBe<VendorTone>("inactive");
+    expect(classifyVendor(VENDORS.suspended)).toBe<VendorTone>("inactive");
     expect(classifyVendor(VENDORS.blocked)).toBe<VendorTone>("blocked");
   });
   it("falls back to unknown for unrecognized values", () => {
@@ -121,6 +128,80 @@ describe("compareVendorsByName", () => {
       .sort(compareVendorsByName)
       .map((v) => v.name);
     expect(out).toEqual(["alpha", "Beta", "Gamma"]);
+  });
+});
+
+/* ────────── price lifecycle risk ────────── */
+
+describe("price lifecycle risk helpers", () => {
+  it("maps known lifecycle risk levels", () => {
+    expect(classifyPriceLifecycleRisk({ riskLevel: "ok" })).toBe<PriceLifecycleRiskTone>("ok");
+    expect(classifyPriceLifecycleRisk({ riskLevel: "watch" })).toBe<PriceLifecycleRiskTone>("watch");
+    expect(classifyPriceLifecycleRisk({ riskLevel: "blocked" })).toBe<PriceLifecycleRiskTone>("blocked");
+    expect(classifyPriceLifecycleRisk({ riskLevel: "empty" })).toBe<PriceLifecycleRiskTone>("empty");
+  });
+
+  it("falls back to unknown for missing or unrecognized risk", () => {
+    expect(classifyPriceLifecycleRisk({ riskLevel: "stale" })).toBe("unknown");
+    expect(classifyPriceLifecycleRisk(null)).toBe("unknown");
+  });
+
+  it("formats compact risk labels", () => {
+    expect(formatPriceLifecycleRiskLabel({ riskLevel: "ok" })).toBe("OK");
+    expect(formatPriceLifecycleRiskLabel({ riskLevel: "watch" })).toBe("Watch");
+    expect(formatPriceLifecycleRiskLabel({ riskLevel: "blocked" })).toBe("Blocked");
+    expect(formatPriceLifecycleRiskLabel({ riskLevel: "empty" })).toBe("Empty");
+    expect(formatPriceLifecycleRiskLabel(undefined)).toBe("Unknown");
+  });
+
+  it("summarizes expired and expiring-soon lifecycle counts first", () => {
+    expect(
+      summarizePriceLifecycle({
+        riskLevel: "blocked",
+        totalPrices: 5,
+        usablePriceCount: 2,
+        expiredPriceCount: 3,
+      }),
+    ).toBe("3 expired · 2 usable");
+    expect(
+      summarizePriceLifecycle({
+        riskLevel: "watch",
+        totalPrices: 5,
+        usablePriceCount: 5,
+        expiringSoonCount: 2,
+        daysToNextExpiry: 8,
+      }),
+    ).toBe("2 expiring soon · next in 8d");
+  });
+
+  it("summarizes empty, usable, future, and missing lifecycle states", () => {
+    expect(summarizePriceLifecycle({ riskLevel: "empty", totalPrices: 0 })).toBe("No prices on file");
+    expect(
+      summarizePriceLifecycle({
+        riskLevel: "ok",
+        totalPrices: 4,
+        usablePriceCount: 4,
+      }),
+    ).toBe("4 usable of 4");
+    expect(
+      summarizePriceLifecycle({
+        riskLevel: "blocked",
+        totalPrices: 2,
+        usablePriceCount: 0,
+        futurePriceCount: 2,
+      }),
+    ).toBe("2 future-dated");
+    expect(summarizePriceLifecycle(null)).toBe("Lifecycle unavailable");
+  });
+
+  it("prefers explicit lifecycle reasons", () => {
+    expect(
+      primaryPriceLifecycleReason({
+        riskLevel: "watch",
+        riskReasons: ["2 prices expire soon"],
+      }),
+    ).toBe("2 prices expire soon");
+    expect(primaryPriceLifecycleReason({ riskLevel: "blocked" })).toBe("No usable current price");
   });
 });
 

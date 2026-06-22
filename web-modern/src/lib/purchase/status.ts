@@ -16,11 +16,13 @@
  *  - sumOpenValue / sumBilledValue / sumAllValue
  *  - vendorPerformanceScore → aggregated 0..1 score
  *  - priceCoverage         → priced lines / total lines
+ *  - classifyPriceLifecycleRisk / summarizePriceLifecycle
  *  - formatCurrency         → "1 250 000 ֏" via Intl
  *  - AM_SHORT_MONTHS
  */
 import type {
   PurchaseVendor,
+  PurchaseVendorPriceLifecycle,
   PurchaseOrder,
   PurchaseOrderLine,
   PurchaseOrderStatus,
@@ -29,6 +31,7 @@ import type {
 /* ────────── types ────────── */
 
 export type VendorTone = "active" | "inactive" | "blocked" | "unknown";
+export type PriceLifecycleRiskTone = "ok" | "watch" | "blocked" | "empty" | "unknown";
 export type OrderTone =
   | "draft"
   | "confirmed"
@@ -45,6 +48,8 @@ export interface VendorScoreInput {
   onTimeReceiptPercent: number | null;
 }
 
+type PriceLifecycleInput = Partial<PurchaseVendorPriceLifecycle> | null | undefined;
+
 export const AM_SHORT_MONTHS = [
   "Հնվ", "Փտվ", "Մար", "Ապր", "Մյս", "Հնս",
   "Հլս", "Օգս", "Սպտ", "Հոկ", "Նոյ", "Դեկ",
@@ -55,7 +60,7 @@ export const AM_SHORT_MONTHS = [
 export function classifyVendor(vendor: Pick<PurchaseVendor, "status">): VendorTone {
   const s = (vendor.status ?? "").toString().toLowerCase();
   if (s === "active") return "active";
-  if (s === "inactive") return "inactive";
+  if (s === "inactive" || s === "suspended") return "inactive";
   if (s === "blocked") return "blocked";
   return "unknown";
 }
@@ -65,6 +70,86 @@ export function compareVendorsByName(
   b: Pick<PurchaseVendor, "name">,
 ): number {
   return (a.name ?? "").localeCompare(b.name ?? "", "en", { sensitivity: "base" });
+}
+
+/* ────────── price lifecycle classification ────────── */
+
+export function classifyPriceLifecycleRisk(
+  lifecycle: PriceLifecycleInput,
+): PriceLifecycleRiskTone {
+  const risk = (lifecycle?.riskLevel ?? "").toString().toLowerCase();
+  if (risk === "ok") return "ok";
+  if (risk === "watch") return "watch";
+  if (risk === "blocked") return "blocked";
+  if (risk === "empty") return "empty";
+  return "unknown";
+}
+
+export function formatPriceLifecycleRiskLabel(
+  lifecycle: PriceLifecycleInput,
+): string {
+  switch (classifyPriceLifecycleRisk(lifecycle)) {
+    case "ok":
+      return "OK";
+    case "watch":
+      return "Watch";
+    case "blocked":
+      return "Blocked";
+    case "empty":
+      return "Empty";
+    default:
+      return "Unknown";
+  }
+}
+
+export function summarizePriceLifecycle(lifecycle: PriceLifecycleInput): string {
+  if (!lifecycle) return "Lifecycle unavailable";
+
+  const total = lifecycle.totalPrices ?? 0;
+  const usable = lifecycle.usablePriceCount ?? 0;
+  const expired = lifecycle.expiredPriceCount ?? 0;
+  const future = lifecycle.futurePriceCount ?? 0;
+  const archived = lifecycle.archivedPriceCount ?? 0;
+  const expiringSoon = lifecycle.expiringSoonCount ?? 0;
+  const days = lifecycle.daysToNextExpiry;
+
+  if (classifyPriceLifecycleRisk(lifecycle) === "empty" || total <= 0) {
+    return "No prices on file";
+  }
+  if (expired > 0) {
+    return `${expired} expired · ${usable} usable`;
+  }
+  if (expiringSoon > 0) {
+    const suffix =
+      typeof days === "number" && Number.isFinite(days)
+        ? ` · next in ${days}d`
+        : "";
+    return `${expiringSoon} expiring soon${suffix}`;
+  }
+  if (usable > 0) {
+    return `${usable} usable of ${total}`;
+  }
+  if (future > 0) return `${future} future-dated`;
+  if (archived > 0) return `${archived} archived`;
+  return "No usable prices";
+}
+
+export function primaryPriceLifecycleReason(lifecycle: PriceLifecycleInput): string {
+  const explicit = lifecycle?.riskReasons?.find((reason) => reason.trim().length > 0);
+  if (explicit) return explicit;
+
+  switch (classifyPriceLifecycleRisk(lifecycle)) {
+    case "ok":
+      return "Prices are usable";
+    case "watch":
+      return "Price review needed";
+    case "blocked":
+      return "No usable current price";
+    case "empty":
+      return "No prices on file";
+    default:
+      return "No lifecycle data";
+  }
 }
 
 /* ────────── order classification ────────── */

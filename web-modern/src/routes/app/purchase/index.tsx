@@ -26,6 +26,7 @@
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useQuery } from "@tanstack/react-query";
 import {
+  AlertTriangle,
   Building2,
   ChevronLeft,
   CircleCheck,
@@ -44,23 +45,30 @@ import {
   PurchaseVendorsResponseSchema,
   type PurchaseOrder,
   type PurchaseVendor,
+  type PurchaseVendorLifecycleRiskVendor,
+  type PurchaseVendorLifecycleSummary,
 } from "../../../lib/api/schemas";
 import { ViewSwitcher } from "../../../components/view-switcher/ViewSwitcher";
 import { money } from "../../../lib/utils/money";
 import { cn } from "../../../lib/utils/cn";
 import {
   classifyOrderStatus,
+  classifyPriceLifecycleRisk,
   classifyVendor,
   compareOrdersByStatusThenDate,
   compareVendorsByName,
   formatCurrency,
+  formatPriceLifecycleRiskLabel,
   orderProgress,
   orderTotals,
+  primaryPriceLifecycleReason,
   priceCoverage,
+  summarizePriceLifecycle,
   sumAllValue,
   sumBilledValue,
   sumOpenValue,
   type OrderTone,
+  type PriceLifecycleRiskTone,
   type VendorTone,
 } from "../../../lib/purchase/status";
 
@@ -143,6 +151,29 @@ const ORDER_TONE: Record<OrderTone, { bg: string; fg: string; label: string }> =
     bg: "bg-[color-mix(in_srgb,var(--color-muted)_15%,transparent)]",
     fg: "text-[var(--color-muted)]",
     label: "—",
+  },
+};
+
+const PRICE_RISK_TONE: Record<PriceLifecycleRiskTone, { bg: string; fg: string }> = {
+  ok: {
+    bg: "bg-[color-mix(in_srgb,var(--color-tag-green)_15%,transparent)]",
+    fg: "text-[var(--color-tag-green)]",
+  },
+  watch: {
+    bg: "bg-[color-mix(in_srgb,var(--color-tag-orange)_15%,transparent)]",
+    fg: "text-[var(--color-tag-orange)]",
+  },
+  blocked: {
+    bg: "bg-[color-mix(in_srgb,var(--color-tag-red)_15%,transparent)]",
+    fg: "text-[var(--color-tag-red)]",
+  },
+  empty: {
+    bg: "bg-[color-mix(in_srgb,var(--color-muted)_15%,transparent)]",
+    fg: "text-[var(--color-muted)]",
+  },
+  unknown: {
+    bg: "bg-[color-mix(in_srgb,var(--color-muted)_15%,transparent)]",
+    fg: "text-[var(--color-muted)]",
   },
 };
 
@@ -306,6 +337,9 @@ function VendorsView({
                     Terms
                   </th>
                   <th scope="col" className="px-3 py-2 text-left font-semibold">
+                    Price risk
+                  </th>
+                  <th scope="col" className="px-3 py-2 text-left font-semibold">
                     Status
                   </th>
                 </tr>
@@ -352,6 +386,9 @@ function VendorRow({ vendor }: { vendor: PurchaseVendor }) {
         )}
       </td>
       <td className="px-3 py-2">
+        <PriceRiskBadge lifecycle={vendor.priceLifecycle} />
+      </td>
+      <td className="px-3 py-2">
         <span
           className={cn(
             "inline-flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
@@ -368,6 +405,39 @@ function VendorRow({ vendor }: { vendor: PurchaseVendor }) {
         </span>
       </td>
     </tr>
+  );
+}
+
+function PriceRiskBadge({
+  lifecycle,
+}: {
+  lifecycle: PurchaseVendor["priceLifecycle"];
+}) {
+  const risk = classifyPriceLifecycleRisk(lifecycle);
+  const tone = PRICE_RISK_TONE[risk];
+  const label = formatPriceLifecycleRiskLabel(lifecycle);
+  const summary = summarizePriceLifecycle(lifecycle);
+  const reason = primaryPriceLifecycleReason(lifecycle);
+  return (
+    <div className="min-w-[8rem] space-y-1" title={reason}>
+      <span
+        className={cn(
+          "inline-flex items-center gap-1 rounded-[var(--radius-sm)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
+          tone.bg,
+          tone.fg,
+        )}
+      >
+        {risk === "ok" ? (
+          <CircleCheck className="size-3" />
+        ) : risk === "watch" ? (
+          <AlertTriangle className="size-3" />
+        ) : risk === "blocked" ? (
+          <CircleX className="size-3" />
+        ) : null}
+        {label}
+      </span>
+      <p className="text-[11px] text-[var(--color-muted)]">{summary}</p>
+    </div>
   );
 }
 
@@ -685,6 +755,10 @@ function AnalyticsView({
         subtitle={`${replenishmentSuggestedQty} units suggested`}
         tone="orange"
       />
+      <VendorLifecyclePreview
+        lifecycle={data.vendorLifecycle}
+        vendors={vendors}
+      />
       <section className="lg:col-span-2 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] p-4 text-[var(--text-sm)] text-[var(--color-muted)]">
         <h2 className="inline-flex items-center gap-1 text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
           <Package className="size-3.5" /> Procurement health
@@ -762,6 +836,135 @@ function AnalyticsView({
       </section>
     </div>
   );
+}
+
+function VendorLifecyclePreview({
+  lifecycle,
+  vendors,
+}: {
+  lifecycle: PurchaseVendorLifecycleSummary | undefined;
+  vendors: PurchaseVendor[];
+}) {
+  const fallbackAtRisk: PurchaseVendorLifecycleRiskVendor[] = vendors
+    .filter((vendor) => {
+      const risk = classifyPriceLifecycleRisk(vendor.priceLifecycle);
+      return risk === "watch" || risk === "blocked" || risk === "empty";
+    })
+    .map((vendor) => ({
+      id: vendor.id,
+      name: vendor.name,
+      priceLifecycle: vendor.priceLifecycle,
+    }));
+  const atRiskVendors = lifecycle?.atRiskVendors ?? fallbackAtRisk;
+  const vendorRiskCount = lifecycle?.vendorRiskCount ?? atRiskVendors.length;
+  const expiringSoonPriceCount =
+    lifecycle?.expiringSoonPriceCount ??
+    vendors.reduce((sum, vendor) => sum + (vendor.priceLifecycle?.expiringSoonCount ?? 0), 0);
+  const expiredPriceCount =
+    lifecycle?.expiredPriceCount ??
+    vendors.reduce((sum, vendor) => sum + (vendor.priceLifecycle?.expiredPriceCount ?? 0), 0);
+  const futurePriceCount =
+    lifecycle?.futurePriceCount ??
+    vendors.reduce((sum, vendor) => sum + (vendor.priceLifecycle?.futurePriceCount ?? 0), 0);
+  const archivedPriceCount =
+    lifecycle?.archivedPriceCount ??
+    vendors.reduce((sum, vendor) => sum + (vendor.priceLifecycle?.archivedPriceCount ?? 0), 0);
+
+  return (
+    <section
+      className="lg:col-span-2 rounded-[var(--radius-md)] border border-[var(--color-line)] bg-[var(--color-surface)] p-4 text-[var(--text-sm)]"
+      data-testid="purchase-vendor-lifecycle-preview"
+      data-entity="purchase-vendor-lifecycle"
+      data-count={String(atRiskVendors.length)}
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div>
+          <h2 className="inline-flex items-center gap-1 text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+            <AlertTriangle className="size-3.5" /> Vendor price lifecycle
+          </h2>
+          <p className="mt-1 text-[11px] text-[var(--color-muted)]">
+            {vendorRiskCount} vendor{vendorRiskCount === 1 ? "" : "s"} at risk ·{" "}
+            {expiringSoonPriceCount} prices expiring soon
+          </p>
+        </div>
+        <dl className="grid grid-cols-2 gap-x-4 gap-y-1 text-[11px] sm:grid-cols-4">
+          <div>
+            <dt className="text-[var(--color-muted)]">Expired</dt>
+            <dd className="font-mono text-[var(--color-tag-red)]">{expiredPriceCount}</dd>
+          </div>
+          <div>
+            <dt className="text-[var(--color-muted)]">Future</dt>
+            <dd className="font-mono text-[var(--color-tag-blue)]">{futurePriceCount}</dd>
+          </div>
+          <div>
+            <dt className="text-[var(--color-muted)]">Archived</dt>
+            <dd className="font-mono text-[var(--color-muted)]">{archivedPriceCount}</dd>
+          </div>
+          <div>
+            <dt className="text-[var(--color-muted)]">Risk</dt>
+            <dd className="font-mono text-[var(--color-tag-orange)]">{vendorRiskCount}</dd>
+          </div>
+        </dl>
+      </div>
+      {atRiskVendors.length === 0 ? (
+        <p className="mt-3 rounded-[var(--radius-sm)] border border-dashed border-[var(--color-line)] bg-[var(--color-surface-soft)] p-3 text-[var(--color-muted)]">
+          No vendor price lifecycle risks reported.
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-[var(--color-line)] rounded-[var(--radius-sm)] border border-[var(--color-line)]">
+          {atRiskVendors.slice(0, 3).map((vendor, index) => {
+            const lifecycleForVendor = lifecycleFromRiskVendor(vendor);
+            const risk = classifyPriceLifecycleRisk(lifecycleForVendor);
+            const tone = PRICE_RISK_TONE[risk];
+            return (
+              <li
+                key={vendor.vendorId ?? vendor.id ?? `${vendor.vendorName ?? vendor.name ?? "vendor"}-${index}`}
+                className="flex flex-col gap-1 px-3 py-2 sm:flex-row sm:items-center sm:justify-between"
+              >
+                <div>
+                  <p className="font-medium text-[var(--color-ink)]">
+                    {vendor.vendorName ?? vendor.name ?? vendor.vendorId ?? vendor.id ?? "Vendor"}
+                  </p>
+                  <p className="text-[11px] text-[var(--color-muted)]">
+                    {summarizePriceLifecycle(lifecycleForVendor)}
+                  </p>
+                </div>
+                <span
+                  className={cn(
+                    "inline-flex w-fit items-center gap-1 rounded-[var(--radius-sm)] px-2 py-0.5 text-[11px] font-semibold uppercase tracking-wide",
+                    tone.bg,
+                    tone.fg,
+                  )}
+                  title={primaryPriceLifecycleReason(lifecycleForVendor)}
+                >
+                  {formatPriceLifecycleRiskLabel(lifecycleForVendor)}
+                </span>
+              </li>
+            );
+          })}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function lifecycleFromRiskVendor(
+  vendor: PurchaseVendorLifecycleRiskVendor,
+): Partial<NonNullable<PurchaseVendor["priceLifecycle"]>> | undefined {
+  if (vendor.priceLifecycle) return vendor.priceLifecycle;
+  if (!vendor.riskLevel) return undefined;
+  return {
+    riskLevel: vendor.riskLevel,
+    riskReasons: vendor.riskReasons,
+    totalPrices: vendor.totalPrices ?? undefined,
+    usablePriceCount: vendor.usablePriceCount ?? undefined,
+    expiredPriceCount: vendor.expiredPriceCount ?? undefined,
+    futurePriceCount: vendor.futurePriceCount ?? undefined,
+    archivedPriceCount: vendor.archivedPriceCount ?? undefined,
+    expiringSoonCount: vendor.expiringSoonCount ?? undefined,
+    nextExpiryDate: vendor.nextExpiryDate ?? undefined,
+    daysToNextExpiry: vendor.daysToNextExpiry ?? undefined,
+  };
 }
 
 function KpiCard({

@@ -1145,6 +1145,27 @@ export const PurchaseVendorPriceSchema = z.object({
 }).passthrough();
 export type PurchaseVendorPrice = z.infer<typeof PurchaseVendorPriceSchema>;
 
+export const PurchasePriceLifecycleRiskLevel = z.enum(["ok", "watch", "blocked", "empty"]);
+export type PurchasePriceLifecycleRiskLevel = z.infer<
+  typeof PurchasePriceLifecycleRiskLevel
+>;
+
+export const PurchaseVendorPriceLifecycleSchema = z.object({
+  totalPrices: z.number(),
+  usablePriceCount: z.number(),
+  expiredPriceCount: z.number(),
+  futurePriceCount: z.number(),
+  archivedPriceCount: z.number(),
+  expiringSoonCount: z.number(),
+  nextExpiryDate: z.string().nullable().optional(),
+  daysToNextExpiry: z.number().nullable().optional(),
+  riskLevel: PurchasePriceLifecycleRiskLevel.or(z.string()),
+  riskReasons: z.array(z.string()).optional(),
+}).passthrough();
+export type PurchaseVendorPriceLifecycle = z.infer<
+  typeof PurchaseVendorPriceLifecycleSchema
+>;
+
 export const PurchaseVendorSchema = z.object({
   id: z.string(),
   name: z.string(),
@@ -1159,6 +1180,7 @@ export const PurchaseVendorSchema = z.object({
   createdAt: z.string().nullable().optional(),
   updatedAt: z.string().nullable().optional(),
   prices: z.array(PurchaseVendorPriceSchema).optional(),
+  priceLifecycle: PurchaseVendorPriceLifecycleSchema.optional(),
 }).passthrough();
 export type PurchaseVendor = z.infer<typeof PurchaseVendorSchema>;
 
@@ -1378,12 +1400,49 @@ export type PurchaseReplenishmentAnalytics = z.infer<
   typeof PurchaseReplenishmentAnalyticsSchema
 >;
 
+export const PurchaseVendorLifecycleRiskVendorSchema = z.object({
+  id: z.string().optional(),
+  vendorId: z.string().optional(),
+  name: z.string().nullable().optional(),
+  vendorName: z.string().nullable().optional(),
+  riskLevel: PurchasePriceLifecycleRiskLevel.or(z.string()).optional(),
+  riskReasons: z.array(z.string()).optional(),
+  nextExpiryDate: z.string().nullable().optional(),
+  daysToNextExpiry: z.number().nullable().optional(),
+  totalPrices: z.number().nullable().optional(),
+  usablePriceCount: z.number().nullable().optional(),
+  expiredPriceCount: z.number().nullable().optional(),
+  futurePriceCount: z.number().nullable().optional(),
+  archivedPriceCount: z.number().nullable().optional(),
+  expiringSoonCount: z.number().nullable().optional(),
+  priceLifecycle: PurchaseVendorPriceLifecycleSchema.optional(),
+}).passthrough();
+export type PurchaseVendorLifecycleRiskVendor = z.infer<
+  typeof PurchaseVendorLifecycleRiskVendorSchema
+>;
+
+export const PurchaseVendorLifecycleSummarySchema = z.object({
+  activeVendorCount: z.number(),
+  blockedVendorCount: z.number(),
+  inactiveVendorCount: z.number(),
+  vendorRiskCount: z.number(),
+  expiringSoonPriceCount: z.number(),
+  expiredPriceCount: z.number(),
+  futurePriceCount: z.number(),
+  archivedPriceCount: z.number(),
+  atRiskVendors: z.array(PurchaseVendorLifecycleRiskVendorSchema),
+}).passthrough();
+export type PurchaseVendorLifecycleSummary = z.infer<
+  typeof PurchaseVendorLifecycleSummarySchema
+>;
+
 export const PurchaseAnalyticsResponseSchema = z.object({
   summary: PurchaseAnalyticsSummarySchema,
   receiptBacklog: z.array(z.unknown()),
   vendorPerformance: z.array(z.unknown()),
   priceCoverage: z.unknown(),
   replenishment: PurchaseReplenishmentAnalyticsSchema.optional(),
+  vendorLifecycle: PurchaseVendorLifecycleSummarySchema.optional(),
 }).passthrough();
 export type PurchaseAnalyticsResponse = z.infer<typeof PurchaseAnalyticsResponseSchema>;
 

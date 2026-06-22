@@ -22,6 +22,17 @@ async function seedPurchaseFixtures(app) {
   return { cookie, vendorId, itemId, orderId: orderRes.json().order.id };
 }
 
+async function createPricedVendor(app, cookie, payload) {
+  const res = await app.inject({
+    method: "POST",
+    url: "/api/purchase/vendors",
+    headers: { cookie },
+    payload
+  });
+  assert.strictEqual(res.statusCode, 200, res.body);
+  return res.json().vendor;
+}
+
 test("procurement/requisitions is auth-gated (401)", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -373,6 +384,86 @@ test("procurement/ai/select-vendor returns deterministic local score", async () 
   } finally { await app.close(); }
 });
 
+test("procurement vendor selection excludes inactive vendors and unusable price windows", async () => {
+  test.mock.timers.enable({ apis: ["Date"], now: new Date("2026-06-05T21:30:00.000Z") });
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const cookie = await login(app);
+    const orgId = "org-armosphera-demo";
+    const itemId = "catitem-pos-barcode-scanner";
+    const invalidVendorIds = [];
+
+    const suspended = await createPricedVendor(app, cookie, {
+      name: "Selector Suspended Cheap Supplier",
+      status: "suspended",
+      prices: [{ catalogItemId: itemId, unitCost: 1000, minQuantity: 1, validFrom: "2026-06-01", validTo: "2026-06-30" }]
+    });
+    invalidVendorIds.push(suspended.id);
+
+    const inactive = await createPricedVendor(app, cookie, {
+      name: "Selector Inactive Cheap Supplier",
+      prices: [{ catalogItemId: itemId, unitCost: 1100, minQuantity: 1, validFrom: "2026-06-01", validTo: "2026-06-30" }]
+    });
+    app.db.prepare("UPDATE purchase_vendors SET status = 'inactive' WHERE org_id = ? AND id = ?").run(orgId, inactive.id);
+    invalidVendorIds.push(inactive.id);
+
+    const expired = await createPricedVendor(app, cookie, {
+      name: "Selector Expired Cheap Supplier",
+      prices: [{ catalogItemId: itemId, unitCost: 1200, minQuantity: 1, validFrom: "2026-01-01", validTo: "2026-06-05" }]
+    });
+    invalidVendorIds.push(expired.id);
+
+    const future = await createPricedVendor(app, cookie, {
+      name: "Selector Future Cheap Supplier",
+      prices: [{ catalogItemId: itemId, unitCost: 1300, minQuantity: 1, validFrom: "2026-06-07", validTo: "2026-06-30" }]
+    });
+    invalidVendorIds.push(future.id);
+
+    const highMinimum = await createPricedVendor(app, cookie, {
+      name: "Selector High Minimum Cheap Supplier",
+      prices: [{ catalogItemId: itemId, unitCost: 1400, minQuantity: 25, validFrom: "2026-06-01", validTo: "2026-06-30" }]
+    });
+    invalidVendorIds.push(highMinimum.id);
+
+    const selected = await app.inject({
+      method: "POST",
+      url: "/api/procurement/ai/select-vendor",
+      headers: { cookie },
+      payload: { catalogItemId: itemId, quantity: 10 }
+    });
+    assert.strictEqual(selected.statusCode, 200, selected.body);
+    const selectedVendorIds = selected.json().candidates.map(item => item.vendorId);
+    assert.deepStrictEqual(selectedVendorIds, ["vendor-yerevan-hardware-supply"]);
+    for (const vendorId of invalidVendorIds) {
+      assert.equal(selectedVendorIds.includes(vendorId), false, `${vendorId} should not be selectable`);
+    }
+
+    const prRes = await app.inject({
+      method: "POST",
+      url: "/api/procurement/requisitions",
+      headers: { cookie },
+      payload: {
+        neededBy: "2026-06-15",
+        idempotencyKey: "selector-pr-1",
+        lines: [{ catalogItemId: itemId, quantity: 10, estUnitPrice: 60000 }]
+      }
+    });
+    assert.strictEqual(prRes.statusCode, 200, prRes.body);
+    const rfqRes = await app.inject({
+      method: "POST",
+      url: `/api/procurement/requisitions/${prRes.json().requisition.id}/convert-to-rfq`,
+      headers: { cookie },
+      payload: { dueAt: "2026-06-12", idempotencyKey: "selector-rfq-1" }
+    });
+    assert.strictEqual(rfqRes.statusCode, 200, rfqRes.body);
+    assert.deepStrictEqual(rfqRes.json().rfq.shortlistedVendors.map(item => item.vendorId), ["vendor-yerevan-hardware-supply"]);
+  } finally {
+    await app.close();
+    test.mock.timers.reset();
+  }
+});
+
 test("procurement/ai/price-anomaly flags vendor price above history", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -440,6 +531,31 @@ test("procurement/analytics/replenishment returns suggestions", async () => {
       4000000,
       1
     );
+
+    const suspended = await createPricedVendor(app, cookie, {
+      name: "Replenishment Suspended Cheap Supplier",
+      status: "suspended",
+      prices: [{ catalogItemId: itemId, unitCost: 1000, minQuantity: 1, validFrom: "2020-01-01" }]
+    });
+    const inactive = await createPricedVendor(app, cookie, {
+      name: "Replenishment Inactive Cheap Supplier",
+      prices: [{ catalogItemId: itemId, unitCost: 1100, minQuantity: 1, validFrom: "2020-01-01" }]
+    });
+    app.db.prepare("UPDATE purchase_vendors SET status = 'inactive' WHERE org_id = ? AND id = ?").run(orgId, inactive.id);
+    await createPricedVendor(app, cookie, {
+      name: "Replenishment Expired Cheap Supplier",
+      prices: [{ catalogItemId: itemId, unitCost: 1200, minQuantity: 1, validFrom: "2020-01-01", validTo: "2020-12-31" }]
+    });
+    await createPricedVendor(app, cookie, {
+      name: "Replenishment Future Cheap Supplier",
+      prices: [{ catalogItemId: itemId, unitCost: 1300, minQuantity: 1, validFrom: "2099-01-01" }]
+    });
+    await createPricedVendor(app, cookie, {
+      name: "Replenishment High Minimum Cheap Supplier",
+      prices: [{ catalogItemId: itemId, unitCost: 1400, minQuantity: 999, validFrom: "2020-01-01" }]
+    });
+    assert.ok(suspended.id);
+
     const res = await app.inject({ method: "GET", url: "/api/procurement/analytics/replenishment", headers: { cookie } });
     assert.strictEqual(res.statusCode, 200, res.body);
     const body = res.json();

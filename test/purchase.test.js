@@ -1146,6 +1146,157 @@ test("purchase: vendor master prices seed, create, and back RFQ default costing"
   }
 });
 
+test("purchase: vendor lifecycle risk evidence and status changes gate blocked pricelists", async () => {
+  test.mock.timers.enable({ apis: ["Date"], now: new Date("2026-06-05T21:30:00.000Z") });
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const operator = await login(app, "operator@armosphera.local");
+    const auditor = await login(app, "auditor@armosphera.local");
+    const support = await login(app, "support@armosphera.local");
+    const orgId = "org-armosphera-demo";
+    const itemId = "catitem-pos-barcode-scanner";
+    const statusCounts = () => ({
+      events: app.db.prepare("SELECT COUNT(*) AS count FROM suite_events WHERE org_id = ? AND event_type = ?").get(orgId, "purchase.vendor.status.updated").count,
+      audits: app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE org_id = ? AND type = ?").get(orgId, "purchase.vendor.status.updated").count,
+      orders: rowCount(app, "purchase_orders", orgId)
+    });
+
+    const watchVendor = await app.inject({
+      method: "POST",
+      url: "/api/purchase/vendors",
+      headers: { cookie: operator },
+      payload: {
+        name: "Lifecycle Watch Supplier",
+        prices: [
+          { catalogItemId: itemId, unitCost: 61000, validFrom: "2026-06-01", validTo: "2026-06-10" },
+          { catalogItemId: itemId, unitCost: 62000, validFrom: "2026-01-01", validTo: "2026-06-05" },
+          { catalogItemId: itemId, unitCost: 63000, validFrom: "2026-06-07", validTo: "2026-06-20" },
+          { catalogItemId: itemId, unitCost: 64000, validFrom: "2026-05-01", validTo: "2026-12-31", status: "archived" }
+        ]
+      }
+    });
+    assert.equal(watchVendor.statusCode, 200, watchVendor.body);
+
+    const emptyVendor = await app.inject({
+      method: "POST",
+      url: "/api/purchase/vendors",
+      headers: { cookie: operator },
+      payload: { name: "Lifecycle Empty Supplier" }
+    });
+    assert.equal(emptyVendor.statusCode, 200, emptyVendor.body);
+
+    const blockedCandidate = await app.inject({
+      method: "POST",
+      url: "/api/purchase/vendors",
+      headers: { cookie: operator },
+      payload: {
+        name: "Lifecycle Blocked Supplier",
+        taxId: "22223333",
+        prices: [{ catalogItemId: itemId, unitCost: 59000, validFrom: "2026-06-01", validTo: "2026-06-30" }]
+      }
+    });
+    assert.equal(blockedCandidate.statusCode, 200, blockedCandidate.body);
+    const blockedVendorId = blockedCandidate.json().vendor.id;
+
+    const beforeDenied = statusCounts();
+    const unauthenticated = await app.inject({
+      method: "PATCH",
+      url: `/api/purchase/vendors/${blockedVendorId}/status`,
+      payload: { status: "blocked" }
+    });
+    assert.equal(unauthenticated.statusCode, 401);
+    const supportDenied = await app.inject({
+      method: "PATCH",
+      url: `/api/purchase/vendors/${blockedVendorId}/status`,
+      headers: { cookie: support },
+      payload: { status: "blocked" }
+    });
+    assert.equal(supportDenied.statusCode, 403, supportDenied.body);
+    const invalidStatus = await app.inject({
+      method: "PATCH",
+      url: `/api/purchase/vendors/${blockedVendorId}/status`,
+      headers: { cookie: operator },
+      payload: { status: "suspended" }
+    });
+    assert.equal(invalidStatus.statusCode, 400, invalidStatus.body);
+    const invalidNote = await app.inject({
+      method: "PATCH",
+      url: `/api/purchase/vendors/${blockedVendorId}/status`,
+      headers: { cookie: operator },
+      payload: { status: "blocked", note: { text: "unsafe" } }
+    });
+    assert.equal(invalidNote.statusCode, 400, invalidNote.body);
+    assert.deepEqual(statusCounts(), beforeDenied);
+
+    const blocked = await app.inject({
+      method: "PATCH",
+      url: `/api/purchase/vendors/${blockedVendorId}/status`,
+      headers: { cookie: operator },
+      payload: { status: "blocked", note: "Risk hold while documents are refreshed." }
+    });
+    assert.equal(blocked.statusCode, 200, blocked.body);
+    assert.equal(blocked.json().vendor.status, "blocked");
+    assert.equal(blocked.json().vendor.note, "Risk hold while documents are refreshed.");
+    assert.equal(statusCounts().events, beforeDenied.events + 1);
+    assert.equal(statusCounts().audits, beforeDenied.audits + 1);
+
+    const vendors = await app.inject({ method: "GET", url: "/api/purchase/vendors", headers: { cookie: auditor } });
+    assert.equal(vendors.statusCode, 200, vendors.body);
+    const watch = vendors.json().vendors.find(vendor => vendor.name === "Lifecycle Watch Supplier");
+    assert.equal(watch.priceLifecycle.totalPrices, 4);
+    assert.equal(watch.priceLifecycle.usablePriceCount, 1);
+    assert.equal(watch.priceLifecycle.expiredPriceCount, 1);
+    assert.equal(watch.priceLifecycle.futurePriceCount, 1);
+    assert.equal(watch.priceLifecycle.archivedPriceCount, 1);
+    assert.equal(watch.priceLifecycle.expiringSoonCount, 1);
+    assert.equal(watch.priceLifecycle.nextExpiryDate, "2026-06-10");
+    assert.equal(watch.priceLifecycle.daysToNextExpiry, 4);
+    assert.equal(watch.priceLifecycle.riskLevel, "watch");
+    assert.ok(watch.priceLifecycle.riskReasons.includes("expired prices"));
+    assert.ok(watch.priceLifecycle.riskReasons.includes("future prices"));
+    const empty = vendors.json().vendors.find(vendor => vendor.name === "Lifecycle Empty Supplier");
+    assert.equal(empty.priceLifecycle.riskLevel, "empty");
+    assert.equal(empty.priceLifecycle.totalPrices, 0);
+    const blockedRead = vendors.json().vendors.find(vendor => vendor.id === blockedVendorId);
+    assert.equal(blockedRead.priceLifecycle.riskLevel, "blocked");
+    assert.equal(blockedRead.priceLifecycle.usablePriceCount, 0);
+    assert.ok(blockedRead.priceLifecycle.riskReasons.includes("vendor blocked"));
+
+    const analytics = await app.inject({ method: "GET", url: "/api/purchase/analytics", headers: { cookie: auditor } });
+    assert.equal(analytics.statusCode, 200, analytics.body);
+    assert.equal(analytics.json().vendorLifecycle.activeVendorCount, 3);
+    assert.equal(analytics.json().vendorLifecycle.blockedVendorCount, 1);
+    assert.equal(analytics.json().vendorLifecycle.inactiveVendorCount, 0);
+    assert.equal(analytics.json().vendorLifecycle.vendorRiskCount, 3);
+    assert.equal(analytics.json().vendorLifecycle.expiringSoonPriceCount, 1);
+    assert.equal(analytics.json().vendorLifecycle.expiredPriceCount, 1);
+    assert.equal(analytics.json().vendorLifecycle.futurePriceCount, 1);
+    assert.equal(analytics.json().vendorLifecycle.archivedPriceCount, 1);
+    assert.ok(analytics.json().vendorLifecycle.atRiskVendors.some(vendor => vendor.vendorId === blockedVendorId && vendor.riskLevel === "blocked"));
+    assert.ok(analytics.json().vendorLifecycle.atRiskVendors.some(vendor => vendor.name === "Lifecycle Watch Supplier" && vendor.riskLevel === "watch"));
+
+    const beforeBlockedOrder = statusCounts();
+    const blockedOrder = await app.inject({
+      method: "POST",
+      url: "/api/purchase/orders",
+      headers: { cookie: operator },
+      payload: {
+        vendorId: blockedVendorId,
+        orderNumber: "PO-BLOCKED-VENDOR",
+        orderDate: "2026-06-06",
+        expectedDate: "2026-06-09",
+        lines: [{ catalogItemId: itemId, quantity: 1 }]
+      }
+    });
+    assert.equal(blockedOrder.statusCode, 404, blockedOrder.body);
+    assert.equal(statusCounts().orders, beforeBlockedOrder.orders);
+  } finally {
+    await app.close();
+    test.mock.timers.reset();
+  }
+});
+
 test("purchase: analytics summarize vendor performance, price coverage, and receipt backlog", async () => {
   test.mock.timers.enable({ apis: ["Date"], now: new Date("2026-06-05T21:30:00.000Z") });
   const app = buildApp({ dbPath: ":memory:" });

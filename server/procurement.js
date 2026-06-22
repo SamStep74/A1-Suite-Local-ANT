@@ -2,8 +2,23 @@
 
 const crypto = require("node:crypto");
 
+const ARMENIA_TIME_ZONE = "Asia/Yerevan";
+
 function newId(prefix) {
   return `${prefix}-${crypto.randomBytes(8).toString("hex")}`;
+}
+
+function armeniaDateString(date = new Date()) {
+  const parts = new Intl.DateTimeFormat("en-US", {
+    timeZone: ARMENIA_TIME_ZONE,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit"
+  }).formatToParts(date).reduce((memo, part) => {
+    memo[part.type] = part.value;
+    return memo;
+  }, {});
+  return `${parts.year}-${parts.month}-${parts.day}`;
 }
 
 function required(value, name) {
@@ -80,18 +95,31 @@ function scoreVendors(db, orgId, requisitionId) {
   }
   const lines = db.prepare("SELECT * FROM purchase_requisition_lines WHERE org_id = ? AND requisition_id = ?").all(orgId, requisitionId);
   const vendors = db.prepare("SELECT * FROM purchase_vendors WHERE org_id = ? AND status = 'active'").all(orgId);
+  const today = armeniaDateString();
+  const selectPrice = db.prepare(`
+    SELECT *
+    FROM purchase_vendor_prices
+    WHERE org_id = ?
+      AND vendor_id = ?
+      AND catalog_item_id = ?
+      AND status = 'active'
+      AND min_quantity <= ?
+      AND valid_from <= ?
+      AND (valid_to = '' OR valid_to >= ?)
+    ORDER BY min_quantity DESC, unit_cost ASC, valid_from DESC
+    LIMIT 1
+  `);
   const scored = vendors.map(vendor => {
     let total = 0; let count = 0;
     for (const line of lines) {
-      const price = db.prepare("SELECT * FROM purchase_vendor_prices WHERE org_id = ? AND vendor_id = ? AND catalog_item_id = ? AND status = 'active' ORDER BY min_quantity DESC LIMIT 1")
-        .get(orgId, vendor.id, line.catalog_item_id);
+      const price = selectPrice.get(orgId, vendor.id, line.catalog_item_id, line.quantity, today, today);
       if (price) { total += price.unit_cost; count += 1; }
     }
     const avgPrice = count > 0 ? Math.round(total / count) : Number.MAX_SAFE_INTEGER;
     return { vendorId: vendor.id, name: vendor.name, score: count, avgPrice, leadTimeDays: 0 };
   });
   scored.sort((a, b) => b.score - a.score || a.avgPrice - b.avgPrice);
-  return scored.slice(0, 5);
+  return scored.filter(vendor => vendor.score > 0).slice(0, 5);
 }
 
 function convertRequisitionToRfq(db, user, requisitionId, body) {
@@ -465,7 +493,7 @@ function issueCreditNote(db, user, body) {
 }
 
 function computeReplenishment(db, orgId) {
-  const today = new Date().toISOString().slice(0, 10);
+  const today = armeniaDateString();
   const items = db.prepare(`
     SELECT id, sku, name, unit_of_measure
     FROM catalog_items
@@ -633,21 +661,31 @@ function detectPriceAnomaly(db, orgId, catalogItemId, proposedUnitPrice) {
 }
 
 function selectVendor(db, orgId, catalogItemId, quantity) {
+  const requestedQuantity = positiveInt(quantity, "quantity");
+  const today = armeniaDateString();
   const candidates = db.prepare(`
     SELECT pv.id AS vendorPriceId, pv.vendor_id AS vendorId, pvd.name AS vendorName,
            pv.unit_cost AS unitCost, pv.currency, pv.lead_time_days AS leadTimeDays,
-           pv.min_quantity AS minQuantity
+           pv.min_quantity AS minQuantity, pv.valid_from AS validFrom,
+           pv.valid_to AS validTo
     FROM purchase_vendor_prices pv
     JOIN purchase_vendors pvd ON pvd.id = pv.vendor_id
-    WHERE pv.org_id = ? AND pv.catalog_item_id = ? AND pv.status = 'active' AND pv.min_quantity <= ?
-  `).all(orgId, catalogItemId, quantity);
+      AND pvd.org_id = pv.org_id
+      AND pvd.status = 'active'
+    WHERE pv.org_id = ?
+      AND pv.catalog_item_id = ?
+      AND pv.status = 'active'
+      AND pv.min_quantity <= ?
+      AND pv.valid_from <= ?
+      AND (pv.valid_to = '' OR pv.valid_to >= ?)
+  `).all(orgId, catalogItemId, requestedQuantity, today, today);
   const scored = candidates.map(c => {
     const priceScore = 100 - Math.min(100, Math.round(c.unitCost / 1000));
     const leadScore = 100 - Math.min(100, c.leadTimeDays);
     const score = Math.round(priceScore * 0.6 + leadScore * 0.4);
-    return { ...c, score, eligible: c.minQuantity <= quantity };
+    return { ...c, score, eligible: c.minQuantity <= requestedQuantity };
   });
-  scored.sort((a, b) => b.score - a.score);
+  scored.sort((a, b) => b.score - a.score || a.unitCost - b.unitCost || a.vendorName.localeCompare(b.vendorName));
   return scored;
 }
 

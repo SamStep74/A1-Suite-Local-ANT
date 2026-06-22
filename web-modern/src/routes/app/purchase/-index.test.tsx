@@ -134,6 +134,18 @@ const VALID_VENDORS = {
       paymentTermsDays: 30,
       leadTimeDays: 5,
       note: null,
+      priceLifecycle: {
+        totalPrices: 4,
+        usablePriceCount: 3,
+        expiredPriceCount: 0,
+        futurePriceCount: 0,
+        archivedPriceCount: 0,
+        expiringSoonCount: 2,
+        nextExpiryDate: "2026-06-30",
+        daysToNextExpiry: 8,
+        riskLevel: "watch",
+        riskReasons: ["2 prices expire soon"],
+      },
     },
     {
       id: "ven-2",
@@ -145,6 +157,18 @@ const VALID_VENDORS = {
       paymentTermsDays: 14,
       leadTimeDays: null,
       note: null,
+      priceLifecycle: {
+        totalPrices: 2,
+        usablePriceCount: 2,
+        expiredPriceCount: 0,
+        futurePriceCount: 0,
+        archivedPriceCount: 0,
+        expiringSoonCount: 0,
+        nextExpiryDate: "2026-09-30",
+        daysToNextExpiry: 100,
+        riskLevel: "ok",
+        riskReasons: [],
+      },
     },
     {
       id: "ven-3",
@@ -156,6 +180,18 @@ const VALID_VENDORS = {
       paymentTermsDays: null,
       leadTimeDays: null,
       note: "credit hold",
+      priceLifecycle: {
+        totalPrices: 3,
+        usablePriceCount: 0,
+        expiredPriceCount: 3,
+        futurePriceCount: 0,
+        archivedPriceCount: 0,
+        expiringSoonCount: 0,
+        nextExpiryDate: null,
+        daysToNextExpiry: null,
+        riskLevel: "blocked",
+        riskReasons: ["No usable current price"],
+      },
     },
   ],
 };
@@ -256,6 +292,44 @@ const VALID_ANALYTICS = {
       },
     ],
   },
+  vendorLifecycle: {
+    activeVendorCount: 1,
+    blockedVendorCount: 1,
+    inactiveVendorCount: 1,
+    vendorRiskCount: 2,
+    expiringSoonPriceCount: 2,
+    expiredPriceCount: 3,
+    futurePriceCount: 0,
+    archivedPriceCount: 0,
+    atRiskVendors: [
+      {
+        vendorId: "ven-1",
+        vendorName: "Alpha Wholesale",
+        riskLevel: "watch",
+        riskReasons: ["2 prices expire soon"],
+        totalPrices: 4,
+        usablePriceCount: 3,
+        expiredPriceCount: 0,
+        futurePriceCount: 0,
+        archivedPriceCount: 0,
+        expiringSoonCount: 2,
+        nextExpiryDate: "2026-06-30",
+        daysToNextExpiry: 8,
+      },
+      {
+        vendorId: "ven-3",
+        vendorName: "Gamma Suppliers",
+        riskLevel: "blocked",
+        riskReasons: ["No usable current price"],
+        totalPrices: 3,
+        usablePriceCount: 0,
+        expiredPriceCount: 3,
+        futurePriceCount: 0,
+        archivedPriceCount: 0,
+        expiringSoonCount: 0,
+      },
+    ],
+  },
 };
 
 /* ────────── per-test reset ────────── */
@@ -348,6 +422,15 @@ describe("PurchaseWorkspace — vendors view", () => {
     expect(within(aside).getByText(/Active/)).toBeInTheDocument();
     expect(within(aside).getByText(/Blocked/)).toBeInTheDocument();
   });
+  it("renders vendor price-risk status and lifecycle summary", () => {
+    renderRoute();
+    const table = screen.getByRole("table");
+    expect(within(table).getByText(/Price risk/i)).toBeInTheDocument();
+    expect(within(table).getByText("Watch")).toBeInTheDocument();
+    expect(within(table).getByText(/2 expiring soon · next in 8d/)).toBeInTheDocument();
+    expect(within(table).getAllByText("Blocked").length).toBeGreaterThan(0);
+    expect(within(table).getByText(/3 expired · 0 usable/)).toBeInTheDocument();
+  });
   it("shows the empty-state copy when there are no vendors", () => {
     mocks.vendors = { vendors: [] };
     renderRoute();
@@ -437,6 +520,17 @@ describe("PurchaseWorkspace — analytics view", () => {
   it("renders the procurement health footer", () => {
     renderRoute();
     expect(screen.getByText(/Procurement health/i)).toBeInTheDocument();
+  });
+  it("renders vendor lifecycle risk preview", () => {
+    renderRoute();
+    const preview = screen.getByTestId("purchase-vendor-lifecycle-preview");
+    expect(preview.getAttribute("data-count")).toBe("2");
+    expect(within(preview).getByText(/Vendor price lifecycle/i)).toBeInTheDocument();
+    expect(within(preview).getByText(/2 vendors at risk/)).toBeInTheDocument();
+    expect(within(preview).getByText(/2 prices expiring soon/)).toBeInTheDocument();
+    expect(within(preview).getByText(/Alpha Wholesale/)).toBeInTheDocument();
+    expect(within(preview).getByText(/Gamma Suppliers/)).toBeInTheDocument();
+    expect(within(preview).getByText(/3 expired · 0 usable/)).toBeInTheDocument();
   });
   it("renders replenishment demand preview rows", () => {
     renderRoute();

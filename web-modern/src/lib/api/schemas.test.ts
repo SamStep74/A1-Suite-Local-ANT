@@ -56,6 +56,7 @@ import {
   PurchaseCreditNoteSchema,
   PurchaseLandedCostSchema,
   PurchaseOrderSchema,
+  PurchaseVendorSchema,
   ServiceDispatchAlertAckResponseSchema,
   ServiceDispatchAlertsResponseSchema,
   ServiceDispatchAlertSchema,
@@ -327,6 +328,77 @@ describe("Purchase credit-note schemas", () => {
       expect(r.data.returnCreditNoteAmount).toBe(18_500);
       expect(r.data.landedCostCount).toBe(1);
       expect(r.data.landedCostAmount).toBe(50_000);
+    }
+  });
+});
+
+describe("Purchase vendor lifecycle schemas", () => {
+  it("accepts vendor price lifecycle risk details", () => {
+    const r = PurchaseVendorSchema.safeParse({
+      id: "ven-1",
+      name: "Alpha Wholesale",
+      status: "active",
+      priceLifecycle: {
+        totalPrices: 6,
+        usablePriceCount: 3,
+        expiredPriceCount: 1,
+        futurePriceCount: 1,
+        archivedPriceCount: 1,
+        expiringSoonCount: 2,
+        nextExpiryDate: "2026-06-30",
+        daysToNextExpiry: 8,
+        riskLevel: "watch",
+        riskReasons: ["2 prices expire soon", "1 expired price"],
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.priceLifecycle?.riskLevel).toBe("watch");
+      expect(r.data.priceLifecycle?.expiringSoonCount).toBe(2);
+    }
+  });
+
+  it("accepts purchase analytics vendor lifecycle summary", () => {
+    const r = PurchaseAnalyticsResponseSchema.safeParse({
+      summary: {
+        orderCount: 3,
+        vendorCount: 2,
+        activeVendorCount: 1,
+        openValue: 120_000,
+        billedValue: 36_000,
+      },
+      receiptBacklog: [],
+      vendorPerformance: [],
+      priceCoverage: null,
+      vendorLifecycle: {
+        activeVendorCount: 1,
+        blockedVendorCount: 1,
+        inactiveVendorCount: 0,
+        vendorRiskCount: 1,
+        expiringSoonPriceCount: 2,
+        expiredPriceCount: 1,
+        futurePriceCount: 1,
+        archivedPriceCount: 0,
+        atRiskVendors: [
+          {
+            vendorId: "ven-1",
+            vendorName: "Alpha Wholesale",
+            riskLevel: "blocked",
+            riskReasons: ["No usable prices"],
+            expiredPriceCount: 3,
+            expiringSoonCount: 0,
+          },
+        ],
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.vendorLifecycle?.vendorRiskCount).toBe(1);
+      expect(r.data.vendorLifecycle?.atRiskVendors[0]?.vendorName).toBe(
+        "Alpha Wholesale",
+      );
     }
   });
 });
