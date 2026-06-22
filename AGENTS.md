@@ -1,50 +1,92 @@
-# AGENTS.md — A1-portfolio (cross-repo documentation)
+# AGENTS.md — A1 Suite Local ANT
 
-This file applies to every agent (human or AI) that touches the `armosphera/A1-portfolio`
-repository. It extends, and never weakens, the global rules in this same repo's
-`LICENSING.md`, `ARCHITECTURE.md`, and `SECURITY.md`.
+This file applies to every agent (human or AI) that touches the `armosphera/A1-Suite-Local-ANT`
+repository. It extends, and never weakens, the global rules in
+`https://github.com/Armosphera/A1-portfolio/blob/main/LICENSING.md`.
 
-## 1. What this repo is — and isn't
+## 1. What this repo is — and how it relates to MAX
 
-`A1-portfolio` is the **cross-repo documentation source of truth** for the entire A1
-product family. It contains:
+`A1-Suite-Local-ANT` is the **productionized, live** A1 Suite — sovereign, self-hostable
+Armenian business operating system with phased Zoho One parity.
 
-- `README.md` — repo index grouped by layer (Engine / Application / Reference)
-- `LICENSING.md` — license matrix across all 9 repos
-- `ARCHITECTURE.md` — layer cake, data flow, open portfolio questions
-- `SECURITY.md` — vulnerability reporting, severity SLAs
+- **Backend:** Fastify, @fastify/cookie, @fastify/static, zero external runtime deps.
+- **SPA:** web-modern (Vite) on port 3000, legacy build on port 4100 (rollback path).
+- **AI:** vendored `@a1/ai` from `armosphera/A1-AI-Core`. OpenRouter opt-in only.
+- **DB:** SQLite stored outside repo (e.g. `~/Library/Application Support/ArmospheraOneClaude/`).
 
-**This repo has no code, no tests, no CI.** It's documentation. Edits here are edits
-to the *portfolio* — they ripple by being read by humans and agents in every other repo.
+**Sibling: [`A1-Suite-Local-MAX`](../A1-Suite-Local-MAX) is the next-gen Turbo
+monorepo migration target.** ANT freezes when MAX reaches parity. New work on the
+app shell should target MAX. Patches and sovereignty hardening stay on ANT.
 
-## 2. When to edit this repo
+## 2. ⚠️ This is the LIVE deploy — be careful
 
-Touch this repo whenever:
+Customer data may be on disk in production SQLite databases. Breaking changes here are
+production incidents, not unit test failures.
 
-1. You add a new A1 repo → update the **Repo index** in `README.md` and the layer cake
-   in `ARCHITECTURE.md`.
-2. You change a license in any repo → update the matrix in `LICENSING.md`. (Per the
-   file's preamble: "If a repo's `LICENSE` file disagrees with this document, the
-   `LICENSE` file wins — but please open an issue so we can resolve the drift.")
-3. You introduce a new cross-repo invariant (e.g. a new pinned SHA, a new eval lane
-   contract, a new sovereignty constraint) → document it in `ARCHITECTURE.md` and link
-   from `SECURITY.md` if it touches security posture.
-4. You change release / tagging convention → update `docs/RELEASE-PROCESS.md` (TODO —
-   does not exist yet).
-5. You change which repo is canonical for a domain → update `docs/PRODUCTS.md` (TODO).
+- Sovereignty contracts (egress, RBAC, audit chain) are locked via **Karpathy eval
+  lanes** in `evals/karpathy/`. Run them before opening a PR.
+- The DB is at `ARMOSPHERA_ONE_DB` (default `~/Library/Application Support/...`) —
+  **never** under the repo.
+- Migrations are forward-only. Backwards-compat shims are forbidden.
 
-## 3. The 4 files you must keep coherent
+## 3. Sovereignty Posture — read this first
 
-These are the load-bearing docs. **All four must agree on the canonical repo list.**
+Outbound network is **OFF** by default. To allow specific outbound calls:
 
-- `README.md` — repo index
-- `LICENSING.md` — license matrix table
-- `ARCHITECTURE.md` — layer cake (must show the same repos)
-- `SECURITY.md` — supported versions table
+```bash
+ARMOSPHERA_ONE_ALLOW_EGRESS=1
+ARMOSPHERA_ONE_EGRESS_ALLOWLIST="api.openrouter.ai,api.open-notebook.local"
+```
 
-If you add a repo, edit all 4. If you deprecate a repo, edit all 4 + open an issue.
+Loopback is always allowed. The AI core (`@a1/ai`) is wired through this gate.
 
-## 4. Conventional Commits
+**You may not:**
+- Bypass the egress gate from app code.
+- Add a SaaS dependency that requires persistent outbound.
+- Add auto-update or telemetry calls.
+
+## 4. Workflow — Test-Driven Development (TDD)
+
+**Mandatory for every non-trivial change.**
+
+1. Write the test first (RED). Tests live in `test/` (`node --test`) or `web-modern/`
+   (`vitest run`).
+2. Run the focused test:
+   - Backend: `npm test -- --test-name-pattern="<name>"`
+   - SPA: `cd web-modern && npm test -- --run <name>`
+3. Run the full gate: `npm run check` (lint + typecheck + test + boundary-check).
+4. Confirm it fails for the right reason. Write the impl (GREEN).
+5. Re-run the focused test, then `npm run check`.
+6. Coverage stays at **80% per touched module**.
+
+## 5. The two deploy paths
+
+ANT has **two canonical deploy paths**. Pick the right one for the customer.
+
+### Path A — `deploy/install.sh` (bare-metal, default for sovereign single-host)
+
+```
+bash deploy/install.sh              # default: DEPLOY_DEFAULT=spa
+bash deploy/install.sh rollback     # env: DEPLOY_DEFAULT=legacy
+```
+
+This is the canonical single-host path. Installs systemd unit (Linux) or launchd plist
+(macOS), runs healthcheck, sets up daily backup via `deploy/backup.sh`.
+
+### Path B — `Dockerfile` (container)
+
+```
+docker build -t a1-suite-ant .
+docker run -d --network=none -p 4100:4100 -p 3000:3000 \
+  -v /var/lib/a1-suite:/var/lib/a1-suite \
+  -e ARMOSPHERA_ONE_ALLOW_EGRESS=0 \
+  a1-suite-ant
+```
+
+For sovereign single-host: `--network=none` is the right call. The image never makes
+outbound calls at runtime.
+
+## 6. Conventional Commits
 
 ```
 <type>(<scope>): <description>
@@ -52,65 +94,73 @@ If you add a repo, edit all 4. If you deprecate a repo, edit all 4 + open an iss
 <optional body>
 ```
 
-Allowed types: `docs`, `chore`, `feat` (for new docs sections), `fix` (typos /
-wrong claims), `refactor` (restructuring existing docs).
-
+Allowed types: `feat`, `fix`, `refactor`, `docs`, `test`, `chore`, `perf`, `ci`, `build`.
 - Subject line ≤72 chars, imperative mood, no trailing period.
-- Body explains **why**, not **what** (the diff shows the what).
 
-## 5. No Code, No Secrets
+## 7. No Hardcoded Secrets
 
-- This repo has no source code, no tests, no CI. **Don't add any.**
-- No secrets, no API keys, no customer data. If you find one in a PR, reject and rotate.
+- API keys, OAuth secrets, JWT signing keys come through env vars.
+- `install.sh` reads `$INSTALL_ROOT/.env` (never from a flag).
+- Per `scripts/deploy.sh` CLAUDE.md constraint: no hardcoded secrets.
 
-## 6. Markdown Discipline
+## 8. Files, Functions, Nesting
 
-- One H1 per file. Use H2 for sections, H3 for subsections.
-- Code blocks must specify language: ` ```bash `, ` ```js `, ` ```python `, etc.
-- Tables use GitHub-flavored markdown alignment (left for text, right for numbers).
-- Internal links use relative paths (`./LICENSING.md`), external links use full URLs.
-- Line length ≤120 chars (Markdown doesn't hard-wrap but keep readable in raw view).
+- One concept per file. Aim for 200–400 lines, 800 hard cap.
+- Functions: <50 lines, single responsibility.
+- No nesting deeper than 4 levels.
 
-## 7. Drift Detection (TODO)
+## 9. JavaScript Discipline
 
-This repo should grow a CI check that:
+- Backend: CommonJS, Node ≥ 22.5.
+- SPA: ESM, Vite, TypeScript where useful.
+- Test runner flags (16 GB Mac safety):
+  ```
+  node --test --test-concurrency=4 --test-timeout=60000
+  ```
+  Bare `node --test` is unsafe on memory-constrained hardware.
 
-- Compares the repo index in `README.md` against the actual list of repos in the
-  `armosphera` org.
-- Compares the license matrix in `LICENSING.md` against each repo's `LICENSE` file.
-- Compares the architecture layer cake in `ARCHITECTURE.md` against the actual repo
-  descriptions.
+## 10. No Debug Noise in Shipped Code
 
-Add as a Karpathy eval lane: `portfolio-drift-contract`.
+- `console.log` is for development only. Use the structured logger.
+- No commented-out code, no `// FIXME` left behind, no `debugger` in PRs.
 
-## 8. Day-One Checklist
+## 11. Karpathy Eval Lanes
+
+`evals/karpathy/` contains product-research eval lanes driven by `@a1/ai`. The
+`egress-policy-contract` lane locks the sovereignty boundary.
+
+- Adding a new eval lane = adding a new product-research assertion.
+- The list lane `npm run karpathy:list` should always succeed.
+
+## 12. Claude Code Config (`.claude/`)
+
+`.claude/launch.json` defines a debug config for the `aoc` (Armosphera One Claude)
+runtime. `.claude/settings.json` runs a `reap-orphan-workers.sh` SessionStart hook to
+clean up worker tmux panes from previous sessions.
+
+## 13. UI / Design
+
+Default design source: `https://styles.refero.design/`. Trilingual (hy/en/ru) — every
+UI string goes through the i18n layer.
+
+## 14. Day-One Checklist
 
 ```
-1. cat AGENTS.md             # this file
-2. cat README.md             # current repo index
-3. cat LICENSING.md          # current license matrix
-4. cat ARCHITECTURE.md       # current layer cake
-5. cat SECURITY.md           # current policy
-6. Now edit — keep all 4 in sync.
+1. cat AGENTS.md             # this file — read section 3 (sovereignty) FIRST
+2. cat README.md             # install + quick start + demo creds
+3. cat DEPLOYMENT.md         # install + backup + transfer procedure
+4. cat HANDOFF.md            # prior implementation slices, by phase
+5. cat package.json          # look at `check` script — your gate
+6. ls evals/karpathy/        # locked contracts — do not break
+7. npm ci && npm run check   # confirm baseline green BEFORE editing
+8. Now edit.
 ```
 
-## 9. Roadmap Items (Track Here)
-
-The following are **known portfolio gaps** that this repo will track:
-
-- [ ] `docs/CONTRIBUTING.md` — how to file issues against the right repo
-- [ ] `docs/RELEASE-PROCESS.md` — how releases are cut (tag, notes, publishing)
-- [ ] `docs/PRODUCTS.md` — naming matrix: which repo is canonical for X
-- [ ] AGPL-3.0 dual-license migration for engines (2026 H2)
-- [ ] Portfolio drift CI (drift between docs and actual repos)
-- [ ] Cross-repo evaluation report (which repos have AGENTS.md, program.md,
-      .orchestration/, Karpathy eval lanes — vs which don't)
-
-## 10. Ownership
-
-**Armosphera LLC** · contact: ops@a1-suite.local · security: ops@a1-suite.local
+If `npm run check` baseline fails on a fresh clone: STOP, file an issue. Do not edit
+around a broken baseline.
 
 ---
 
-*Adapted from `armosphera/SBOS-A1-ERP/AGENTS.md`. Specializes for "this repo IS the
-documentation." License: Proprietary (`LicenseRef-Armosphera-Proprietary`). See `LICENSE`.*
+*Adapted from `armosphera/SBOS-A1-ERP/AGENTS.md`. Specializes for: live-deploy
+discipline, sovereignty-first reading order, dual-path deploy story.*
+*License: Proprietary (`LicenseRef-Armosphera-Proprietary`). See `LICENSE`.*
