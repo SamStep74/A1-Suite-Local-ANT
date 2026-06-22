@@ -138,8 +138,8 @@ Source: [the reference ERP Helpdesk](https://www.the reference ERP.com/documenta
 
 Comparison to A1:
 
-- A1 has projects, project template evidence, recurring task evidence, tasks, subtask hierarchy evidence, task dependency evidence, milestones, time entries, project billing, project-level profitability evidence, service cases, SLA policy evidence and editing UX, field service visit planning evidence, worksheet summaries, support replies, escalations, and Customer 360.
-- Missing the reference ERP-style depth: dispatch/mobile technician flows and profitability reporting below project level, including task/product cost basis.
+- A1 has projects, project template evidence, recurring task evidence, tasks, subtask hierarchy evidence, task dependency evidence, milestones, time entries, project billing, project-level profitability evidence, service cases, SLA policy evidence and editing UX, field service visit planning evidence, worksheet summaries, assigned-technician visit workflow, support replies, escalations, and Customer 360.
+- Missing the reference ERP-style depth: dedicated mobile/offline dispatch tooling and profitability reporting below project level, including task/product cost basis.
 
 ### Documents, Sign, Knowledge, Spreadsheet, Dashboards
 

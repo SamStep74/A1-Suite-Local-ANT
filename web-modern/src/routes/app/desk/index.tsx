@@ -25,11 +25,14 @@ import {
   CalendarClock,
   ChevronDown,
   ChevronLeft,
+  CheckCircle2,
   ClipboardCheck,
   Filter,
   Headphones,
   Inbox,
   MapPin,
+  Navigation,
+  PlayCircle,
   Plus,
   Search,
   Send,
@@ -44,9 +47,11 @@ import {
   ServiceConsoleSchema,
   ServiceFieldVisitsResponseSchema,
   ServiceSlaPoliciesResponseSchema,
+  UpdateServiceFieldVisitTechnicianStatusInputSchema,
   type CreateServiceCaseInput,
   type ServiceCase,
   type ServiceFieldVisit,
+  type ServiceFieldVisitTechnicianStatus,
   type ServiceSlaPolicy,
   type ServiceCaseStatus as Status,
 } from "../../../lib/api/schemas";
@@ -81,6 +86,7 @@ const STATUS_TABS: { value: "all" | Status; label: string }[] = [
 const CHANNELS = ["WhatsApp", "Telegram", "Email", "Phone", "Manual"];
 const SLA_POLICY_CHANNELS = ["", ...CHANNELS];
 const FIELD_VISIT_PREVIEW_LIMIT = 4;
+const MY_FIELD_VISIT_PREVIEW_LIMIT = 5;
 const VISIT_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
   month: "short",
   day: "numeric",
@@ -180,6 +186,20 @@ function DeskList() {
     staleTime: 30_000,
   });
   const fieldVisits = consoleFieldVisits ?? fieldVisitsQuery.data?.visits ?? [];
+  const myFieldVisitsQuery = useQuery({
+    queryKey: ["service", "my-field-visits"],
+    queryFn: () => getJson("/api/service/my-field-visits", ServiceFieldVisitsResponseSchema),
+    enabled: consoleQuery.isSuccess,
+    refetchOnWindowFocus: true,
+    retry: false,
+    staleTime: 30_000,
+  });
+  const myFieldVisits = myFieldVisitsQuery.data?.visits ?? [];
+  const invalidateVisitQueries = () => {
+    void qc.invalidateQueries({ queryKey: ["service", "console"] });
+    void qc.invalidateQueries({ queryKey: ["service", "field-visits"] });
+    void qc.invalidateQueries({ queryKey: ["service", "my-field-visits"] });
+  };
 
   const [query, setQuery] = useState("");
   const visible = useMemo(() => {
@@ -215,11 +235,19 @@ function DeskList() {
           void qc.invalidateQueries({ queryKey: ["service", "sla-policies"] });
         }}
       />
-      <FieldVisitsPanel
-        visits={fieldVisits}
-        loading={consoleQuery.isLoading || fieldVisitsQuery.isLoading}
-        unavailable={fieldVisitsQuery.isError && consoleFieldVisits == null}
-      />
+      <div className="grid gap-3 lg:grid-cols-2">
+        <FieldVisitsPanel
+          visits={fieldVisits}
+          loading={consoleQuery.isLoading || fieldVisitsQuery.isLoading}
+          unavailable={fieldVisitsQuery.isError && consoleFieldVisits == null}
+        />
+        <MyVisitsPanel
+          visits={myFieldVisits}
+          loading={consoleQuery.isLoading || myFieldVisitsQuery.isLoading}
+          unavailable={myFieldVisitsQuery.isError}
+          onStatusUpdated={invalidateVisitQueries}
+        />
+      </div>
 
       {/* Filter row — search + tabs + (Phase 2: mass-update) */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -453,10 +481,229 @@ function FieldVisitRow({ visit }: { visit: ServiceFieldVisit }) {
   );
 }
 
+type TechnicianVisitMutationInput = {
+  visitId: string;
+  status: ServiceFieldVisitTechnicianStatus;
+  worksheetSummary?: string;
+};
+
+const TECHNICIAN_VISIT_ACTIONS: { status: ServiceFieldVisitTechnicianStatus; label: string }[] = [
+  { status: "en-route", label: "En route" },
+  { status: "in-progress", label: "Start" },
+  { status: "completed", label: "Complete" },
+];
+
+function MyVisitsPanel({
+  visits,
+  loading,
+  unavailable,
+  onStatusUpdated,
+}: {
+  visits: ServiceFieldVisit[];
+  loading?: boolean;
+  unavailable?: boolean;
+  onStatusUpdated: () => void;
+}) {
+  const activeCount = visits.filter((visit) => !isTerminalVisitStatus(visit.status)).length;
+  const previewVisits = visits.slice(0, MY_FIELD_VISIT_PREVIEW_LIMIT);
+  const extraCount = Math.max(0, visits.length - previewVisits.length);
+
+  return (
+    <section
+      className={cn(
+        "rounded-[var(--radius-xl)] border border-[var(--color-line)]",
+        "bg-[var(--color-surface)] p-3",
+      )}
+      aria-label="My assigned field visits"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-center gap-2">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--color-surface-soft)] text-[var(--color-brand)]">
+            <Navigation className="size-4" aria-hidden />
+          </span>
+          <div>
+            <h2 className="text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+              My Visits
+            </h2>
+            <p className="text-[11px] text-[var(--color-muted)]">
+              Technician field workflow
+            </p>
+          </div>
+        </div>
+        <dl className="grid grid-cols-2 gap-2 text-left sm:min-w-40 sm:text-right">
+          <SlaSummaryMetric label="Assigned" value={loading ? "..." : String(visits.length)} />
+          <SlaSummaryMetric label="Active" value={loading ? "..." : String(activeCount)} />
+        </dl>
+      </div>
+
+      {loading && visits.length === 0 ? (
+        <p className="mt-3 border-t border-[var(--color-line)] pt-3 text-[11px] text-[var(--color-muted)]">
+          Loading assigned visits...
+        </p>
+      ) : unavailable ? (
+        <p className="mt-3 border-t border-[var(--color-line)] pt-3 text-[11px] text-[var(--color-muted)]">
+          Assigned visits are unavailable.
+        </p>
+      ) : visits.length === 0 ? (
+        <p className="mt-3 border-t border-[var(--color-line)] pt-3 text-[11px] text-[var(--color-muted)]">
+          No assigned field visits.
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-[var(--color-line)] border-t border-[var(--color-line)]">
+          {previewVisits.map((visit) => (
+            <MyVisitRow key={visit.id} visit={visit} onStatusUpdated={onStatusUpdated} />
+          ))}
+          {extraCount > 0 && (
+            <li className="py-2 text-[11px] text-[var(--color-muted)]">
+              +{extraCount} more assigned {extraCount === 1 ? "visit" : "visits"}
+            </li>
+          )}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function MyVisitRow({
+  visit,
+  onStatusUpdated,
+}: {
+  visit: ServiceFieldVisit;
+  onStatusUpdated: () => void;
+}) {
+  const [worksheetSummary, setWorksheetSummary] = useState(visit.worksheetSummary);
+  const normalizedStatus = normalizeVisitStatus(visit.status);
+  const statusTone = FIELD_VISIT_STATUS_TONE[normalizedStatus] ?? FIELD_VISIT_STATUS_TONE.default;
+  const caseLabel = visit.caseNumber ?? visit.subject ?? visit.caseId;
+  const customerLabel = visit.customerName ?? visit.customerId;
+  const terminal = isTerminalVisitStatus(visit.status);
+  const updateMut = useMutation({
+    mutationFn: async ({ visitId, status, worksheetSummary: nextSummary }: TechnicianVisitMutationInput) => {
+      const trimmedSummary = nextSummary?.trim();
+      const payload = UpdateServiceFieldVisitTechnicianStatusInputSchema.parse({
+        status,
+        ...(trimmedSummary ? { worksheetSummary: trimmedSummary } : {}),
+      });
+      return postJson(`/api/service/field-visits/${visitId}/technician-status`, payload);
+    },
+    onSuccess: onStatusUpdated,
+  });
+
+  useEffect(() => {
+    setWorksheetSummary(visit.worksheetSummary);
+  }, [visit.id, visit.worksheetSummary]);
+
+  return (
+    <li className="grid gap-2 py-2 xl:grid-cols-[minmax(0,1fr)_minmax(9rem,0.75fr)_minmax(12rem,1fr)] xl:items-start">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="truncate text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+            {caseLabel}
+          </span>
+          <span
+            className={cn(
+              "rounded-[var(--radius-sm)] px-1.5 py-0.5",
+              "text-[10px] font-semibold uppercase tracking-wider",
+              statusTone.bg,
+              statusTone.fg,
+            )}
+          >
+            {visit.status}
+          </span>
+        </div>
+        {visit.subject && visit.subject !== caseLabel && (
+          <p className="mt-0.5 line-clamp-1 text-[11px] text-[var(--color-muted)]">
+            {visit.subject}
+          </p>
+        )}
+        <p className="mt-1 line-clamp-1 text-[11px] text-[var(--color-muted)]">
+          {customerLabel}
+        </p>
+      </div>
+
+      <div className="space-y-1 text-[11px] text-[var(--color-muted)]">
+        <p className="flex items-center gap-1.5">
+          <CalendarClock className="size-3.5 shrink-0" aria-hidden />
+          <span>{formatVisitWindow(visit.scheduledStartAt, visit.scheduledEndAt)}</span>
+        </p>
+        <p className="flex items-center gap-1.5">
+          <MapPin className="size-3.5 shrink-0" aria-hidden />
+          <span className="line-clamp-1">{visit.location}</span>
+        </p>
+      </div>
+
+      <div className="min-w-0">
+        <label>
+          <span className="sr-only">Worksheet summary for {caseLabel}</span>
+          <textarea
+            value={worksheetSummary}
+            onChange={(event) => setWorksheetSummary(event.target.value)}
+            disabled={terminal || updateMut.isPending}
+            rows={2}
+            className={cn(
+              "h-14 w-full resize-none rounded-[var(--radius-md)] border border-[var(--color-line)]",
+              "bg-[var(--color-surface)] px-2 py-1 text-[11px] text-[var(--color-ink)]",
+              "placeholder:text-[var(--color-muted)] disabled:bg-[var(--color-surface-soft)]",
+            )}
+            placeholder="Worksheet summary"
+          />
+        </label>
+        <div className="mt-1 flex flex-wrap gap-1">
+          {TECHNICIAN_VISIT_ACTIONS.map((action) => {
+            const disabled =
+              updateMut.isPending || !canApplyTechnicianStatus(visit.status, action.status);
+            return (
+              <button
+                key={action.status}
+                type="button"
+                disabled={disabled}
+                onClick={() =>
+                  updateMut.mutate({
+                    visitId: visit.id,
+                    status: action.status,
+                    worksheetSummary,
+                  })
+                }
+                className={cn(
+                  "inline-flex h-7 items-center gap-1 rounded-[var(--radius-md)] px-2",
+                  "text-[11px] font-medium",
+                  disabled
+                    ? "bg-[var(--color-surface-soft)] text-[var(--color-muted)] opacity-60"
+                    : "bg-[var(--color-brand)] text-white hover:opacity-90",
+                )}
+              >
+                <TechnicianActionIcon status={action.status} />
+                {updateMut.isPending && updateMut.variables?.status === action.status
+                  ? "Saving"
+                  : action.label}
+              </button>
+            );
+          })}
+        </div>
+        {updateMut.isError && (
+          <p className="mt-1 text-[11px] text-[var(--color-ruby)]">
+            {updateMut.error instanceof Error ? updateMut.error.message : "Update failed"}
+          </p>
+        )}
+      </div>
+    </li>
+  );
+}
+
+function TechnicianActionIcon({ status }: { status: ServiceFieldVisitTechnicianStatus }) {
+  if (status === "en-route") return <Navigation className="size-3" aria-hidden />;
+  if (status === "in-progress") return <PlayCircle className="size-3" aria-hidden />;
+  return <CheckCircle2 className="size-3" aria-hidden />;
+}
+
 const FIELD_VISIT_STATUS_TONE: Record<string, { bg: string; fg: string }> = {
   scheduled: {
     bg: "bg-[color-mix(in_srgb,var(--color-tag-blue)_15%,transparent)]",
     fg: "text-[var(--color-tag-blue)]",
+  },
+  "en-route": {
+    bg: "bg-[color-mix(in_srgb,var(--color-tag-orange)_15%,transparent)]",
+    fg: "text-[var(--color-tag-orange)]",
   },
   "in-progress": {
     bg: "bg-[color-mix(in_srgb,var(--color-tag-violet)_15%,transparent)]",
@@ -478,6 +725,22 @@ const FIELD_VISIT_STATUS_TONE: Record<string, { bg: string; fg: string }> = {
 
 function normalizeVisitStatus(status: string): string {
   return status.trim().toLowerCase();
+}
+
+function isTerminalVisitStatus(status: string): boolean {
+  const normalized = normalizeVisitStatus(status);
+  return normalized === "completed" || normalized === "cancelled" || normalized === "canceled";
+}
+
+function canApplyTechnicianStatus(
+  currentStatus: string,
+  nextStatus: ServiceFieldVisitTechnicianStatus,
+): boolean {
+  const current = normalizeVisitStatus(currentStatus);
+  if (isTerminalVisitStatus(current)) return false;
+  if (nextStatus === "en-route") return current !== "en-route" && current !== "in-progress";
+  if (nextStatus === "in-progress") return current === "en-route";
+  return current === "in-progress";
 }
 
 function formatVisitWindow(startAt: string, endAt: string): string {

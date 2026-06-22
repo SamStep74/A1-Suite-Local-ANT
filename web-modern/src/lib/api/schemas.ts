@@ -113,6 +113,19 @@ export const ServiceFieldVisitsResponseSchema = z
   .passthrough();
 export type ServiceFieldVisitsResponse = z.infer<typeof ServiceFieldVisitsResponseSchema>;
 
+export const ServiceFieldVisitTechnicianStatus = z.enum(["en-route", "in-progress", "completed"]);
+export type ServiceFieldVisitTechnicianStatus = z.infer<typeof ServiceFieldVisitTechnicianStatus>;
+
+export const UpdateServiceFieldVisitTechnicianStatusInputSchema = z
+  .object({
+    status: ServiceFieldVisitTechnicianStatus,
+    worksheetSummary: z.string().max(2000).optional(),
+  })
+  .strict();
+export type UpdateServiceFieldVisitTechnicianStatusInput = z.infer<
+  typeof UpdateServiceFieldVisitTechnicianStatusInputSchema
+>;
+
 export const ServiceCaseSchema = z.object({
   id: z.string(),
   customerId: z.string(),

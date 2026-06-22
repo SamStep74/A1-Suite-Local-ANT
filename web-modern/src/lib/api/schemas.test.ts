@@ -11,6 +11,7 @@ import {
   ServiceCaseSchema,
   ServiceConsoleSchema,
   ServiceFieldVisitSchema,
+  ServiceFieldVisitTechnicianStatus,
   ServiceFieldVisitsResponseSchema,
   ServiceSlaPoliciesResponseSchema,
   ServiceSlaPolicySchema,
@@ -46,6 +47,7 @@ import {
   ProjectRecurringTasksResponseSchema,
   ProjectTemplateResponseSchema,
   ProjectTemplatesResponseSchema,
+  UpdateServiceFieldVisitTechnicianStatusInputSchema,
 } from "./schemas";
 
 const VALID_CASE = {
@@ -261,6 +263,36 @@ describe("ServiceFieldVisitSchema", () => {
 
     expect(response.visits).toHaveLength(1);
     expect(response.visits[0]?.status).toBe("scheduled");
+  });
+
+  it("keeps field visit wire status open for server-side additions", () => {
+    const r = ServiceFieldVisitSchema.safeParse({
+      ...VALID_FIELD_VISIT,
+      status: "needs-parts",
+    });
+
+    expect(r.success).toBe(true);
+  });
+});
+
+describe("UpdateServiceFieldVisitTechnicianStatusInputSchema", () => {
+  it("accepts technician status transitions for the POST body", () => {
+    for (const status of ServiceFieldVisitTechnicianStatus.options) {
+      const r = UpdateServiceFieldVisitTechnicianStatusInputSchema.safeParse({
+        status,
+        worksheetSummary: "Checklist signed on site.",
+      });
+      expect(r.success, `status ${status}`).toBe(true);
+    }
+  });
+
+  it("rejects non-technician statuses for the POST body", () => {
+    const r = UpdateServiceFieldVisitTechnicianStatusInputSchema.safeParse({
+      status: "scheduled",
+      worksheetSummary: "Not a technician transition.",
+    });
+
+    expect(r.success).toBe(false);
   });
 });
 

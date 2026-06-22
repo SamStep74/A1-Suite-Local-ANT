@@ -21,6 +21,7 @@ const SEMANTIC_LAYER_VERSION = "2026-05-27";
 const ARMENIA_TIME_ZONE = "Asia/Yerevan";
 const SYSTEM_APP_ASSIGNMENT_ROLES = new Set(["Admin"]);
 const SERVICE_FIELD_VISIT_STATUSES = ["scheduled", "en-route", "in-progress", "completed", "cancelled"];
+const SERVICE_FIELD_VISIT_TECHNICIAN_STATUSES = ["en-route", "in-progress", "completed"];
 const APP_ASSIGNMENT_ROLE_GUARDS = {
   inventory: new Set(["Owner", "Admin", "Operator", "Accountant"]),
   purchase: new Set(["Owner", "Admin", "Operator", "Accountant"])
@@ -6489,6 +6490,12 @@ function registerApi(app, db, options = {}) {
     return { visits: getServiceFieldVisits(db, user.org_id) };
   });
 
+  app.get("/api/service/my-field-visits", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "desk");
+    return { visits: getServiceFieldVisits(db, user.org_id, "", user.id) };
+  });
+
   app.post("/api/service/field-visits", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "desk");
@@ -6503,6 +6510,14 @@ function registerApi(app, db, options = {}) {
     requireServiceSupervisor(user);
     const visitId = normalizeServiceFieldVisitPathId(request.params.id);
     const visit = updateServiceFieldVisit(db, user, visitId, request.body === undefined ? {} : request.body);
+    return { ok: true, visit };
+  });
+
+  app.post("/api/service/field-visits/:id/technician-status", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "desk");
+    const visitId = normalizeServiceFieldVisitPathId(request.params.id);
+    const visit = updateServiceFieldVisitTechnicianStatus(db, user, visitId, request.body === undefined ? {} : request.body);
     return { ok: true, visit };
   });
 
@@ -49249,6 +49264,34 @@ function normalizeServiceFieldVisitPatchInput(body, existing) {
   return input;
 }
 
+function normalizeServiceFieldVisitTechnicianStatusInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  const input = {
+    status: normalizeServiceChoice(body, "status", SERVICE_FIELD_VISIT_TECHNICIAN_STATUSES, "")
+  };
+  if (!input.status) throwInvalidServiceFieldVisitMetadata();
+  if (Object.prototype.hasOwnProperty.call(body, "worksheetSummary")) {
+    input.worksheetSummary = normalizeServiceText(body, "worksheetSummary", { fallback: "", maxLength: 2000, allowMultiline: true });
+  }
+  return input;
+}
+
+function assertServiceFieldVisitTechnicianTransition(currentStatus, nextStatus) {
+  const current = typeof currentStatus === "string" ? currentStatus.trim().toLowerCase() : "";
+  const allowed = {
+    scheduled: ["en-route"],
+    "en-route": ["en-route", "in-progress"],
+    "in-progress": ["in-progress", "completed"],
+    completed: ["completed"],
+    cancelled: []
+  };
+  if (!allowed[current]?.includes(nextStatus)) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+}
+
 function normalizeServiceFieldVisitTimestamp(body, field) {
   const text = normalizeServiceText(body, field, { required: true, minLength: 10, maxLength: 40 });
   const parsed = new Date(text);
@@ -56828,12 +56871,16 @@ function formatServiceCase(row) {
   };
 }
 
-function getServiceFieldVisits(db, orgId, customerId = "") {
+function getServiceFieldVisits(db, orgId, customerId = "", assignedUserId = "") {
   const params = [orgId];
   let where = "WHERE service_field_visits.org_id = ?";
   if (customerId) {
     where += " AND service_field_visits.customer_id = ?";
     params.push(customerId);
+  }
+  if (assignedUserId) {
+    where += " AND service_field_visits.assigned_user_id = ?";
+    params.push(assignedUserId);
   }
   return db.prepare(`
     SELECT service_field_visits.*, service_cases.case_number, service_cases.subject,
@@ -56981,6 +57028,42 @@ function updateServiceFieldVisit(db, user, visitId, body) {
     caseId: existing.caseId,
     customerId: existing.customerId,
     changedFields
+  });
+  return getServiceFieldVisit(db, user.org_id, existing.id);
+}
+
+function updateServiceFieldVisitTechnicianStatus(db, user, visitId, body) {
+  const existing = getServiceFieldVisit(db, user.org_id, visitId);
+  if (!existing) {
+    const err = new Error("Service field visit not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (existing.assignedUserId !== user.id && !["Owner", "Admin", "Service Manager"].includes(user.role)) {
+    const err = new Error("Assigned technician or service supervisor role required");
+    err.statusCode = 403;
+    throw err;
+  }
+  const input = normalizeServiceFieldVisitTechnicianStatusInput(body);
+  assertServiceFieldVisitTechnicianTransition(existing.status, input.status);
+  const worksheetSummaryChanged = Object.prototype.hasOwnProperty.call(input, "worksheetSummary")
+    && input.worksheetSummary !== existing.worksheetSummary;
+  const now = new Date().toISOString();
+  const sets = ["status = ?", "updated_at = ?"];
+  const values = [input.status, now];
+  if (Object.prototype.hasOwnProperty.call(input, "worksheetSummary")) {
+    sets.splice(1, 0, "worksheet_summary = ?");
+    values.splice(1, 0, input.worksheetSummary);
+  }
+  db.prepare(`UPDATE service_field_visits SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`)
+    .run(...values, user.org_id, existing.id);
+  audit(db, user.org_id, user.id, "service.field_visit.technician_status", {
+    visitId: existing.id,
+    caseId: existing.caseId,
+    customerId: existing.customerId,
+    status: input.status,
+    actorUserId: user.id,
+    worksheetSummaryChanged
   });
   return getServiceFieldVisit(db, user.org_id, existing.id);
 }

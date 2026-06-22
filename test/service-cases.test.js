@@ -9,6 +9,35 @@ async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
   return res.headers["set-cookie"];
 }
 
+async function createFieldVisit(app, cookie, {
+  serviceCase,
+  assignedUserId,
+  startOffsetHours = 12,
+  location = "Customer site",
+  worksheetSummary = "Technician worksheet prepared for service evidence.",
+  status = "scheduled"
+}) {
+  const scheduledStartAt = new Date(Date.now() + startOffsetHours * 60 * 60 * 1000).toISOString();
+  const scheduledEndAt = new Date(Date.now() + (startOffsetHours + 1) * 60 * 60 * 1000).toISOString();
+  const response = await app.inject({
+    method: "POST",
+    url: "/api/service/field-visits",
+    headers: { cookie },
+    payload: {
+      caseId: serviceCase.id,
+      customerId: serviceCase.customerId,
+      assignedUserId,
+      scheduledStartAt,
+      scheduledEndAt,
+      status,
+      location,
+      worksheetSummary
+    }
+  });
+  assert.strictEqual(response.statusCode, 200, response.body);
+  return response.json().visit;
+}
+
 test("service console exposes customers + agents pickers; create + PATCH a case", async () => {
   const app = buildApp({ dbPath: ":memory:" });
   try {
@@ -159,6 +188,249 @@ test("PATCH updates service field visit worksheet, status, time, and assignee", 
     assert.strictEqual(badWindow.statusCode, 400);
     const auditCount = app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.field_visit.updated").count;
     assert.strictEqual(auditCount, 1);
+  } finally { await app.close(); }
+});
+
+test("assigned technician lists own visits and records technician status audit", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const support = console1.agents.find(agent => agent.role === "Support");
+    const manager = console1.agents.find(agent => agent.role === "Service Manager");
+    assert.ok(support);
+    assert.ok(manager);
+
+    const supportVisit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 14,
+      location: "Nare Clinic printer desk",
+      worksheetSummary: "Initial technician worksheet."
+    });
+    const managerVisit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: manager.id,
+      startOffsetHours: 16,
+      location: "Nare Clinic server closet"
+    });
+
+    const listed = await app.inject({ method: "GET", url: "/api/service/my-field-visits", headers: { cookie: supportCookie } });
+    assert.strictEqual(listed.statusCode, 200, listed.body);
+    const visits = listed.json().visits;
+    assert.ok(visits.some(visit => visit.id === supportVisit.id));
+    assert.ok(!visits.some(visit => visit.id === managerVisit.id));
+    assert.ok(visits.every(visit => visit.assignedUserId === support.id));
+
+    const moves = [
+      { status: "en-route", worksheetSummary: "Technician is en route with replacement paper tray.", changed: true },
+      { status: "in-progress", changed: false },
+      { status: "completed", worksheetSummary: "Printer queue cleared and customer confirmed output.", changed: true }
+    ];
+    for (const move of moves) {
+      const moved = await app.inject({
+        method: "POST",
+        url: `/api/service/field-visits/${supportVisit.id}/technician-status`,
+        headers: { cookie: supportCookie },
+        payload: Object.prototype.hasOwnProperty.call(move, "worksheetSummary")
+          ? { status: move.status, worksheetSummary: move.worksheetSummary }
+          : { status: move.status }
+      });
+      assert.strictEqual(moved.statusCode, 200, moved.body);
+      assert.strictEqual(moved.json().visit.status, move.status);
+      if (move.worksheetSummary) assert.strictEqual(moved.json().visit.worksheetSummary, move.worksheetSummary);
+    }
+
+    const auditRows = app.db.prepare(`
+      SELECT user_id, details
+      FROM audit_events
+      WHERE type = ?
+      ORDER BY id ASC
+    `).all("service.field_visit.technician_status");
+    assert.strictEqual(auditRows.length, 3);
+    assert.ok(auditRows.every(row => row.user_id === support.id));
+    const details = auditRows.map(row => JSON.parse(row.details));
+    assert.deepStrictEqual(details.map(detail => detail.status), ["en-route", "in-progress", "completed"]);
+    assert.deepStrictEqual(details.map(detail => detail.worksheetSummaryChanged), [true, false, true]);
+    for (const detail of details) {
+      assert.strictEqual(detail.visitId, supportVisit.id);
+      assert.strictEqual(detail.caseId, serviceCase.id);
+      assert.strictEqual(detail.customerId, serviceCase.customerId);
+      assert.strictEqual(detail.actorUserId, support.id);
+    }
+  } finally { await app.close(); }
+});
+
+test("unassigned support user cannot update another technician visit, but supervisor can", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const manager = console1.agents.find(agent => agent.role === "Service Manager");
+    assert.ok(manager);
+    const managerVisit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: manager.id,
+      startOffsetHours: 18,
+      worksheetSummary: "Manager-owned worksheet."
+    });
+
+    const blocked = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${managerVisit.id}/technician-status`,
+      headers: { cookie: supportCookie },
+      payload: { status: "en-route", worksheetSummary: "Support should not change this." }
+    });
+    assert.strictEqual(blocked.statusCode, 403);
+    const unchanged = app.db.prepare("SELECT status, worksheet_summary FROM service_field_visits WHERE id = ?").get(managerVisit.id);
+    assert.strictEqual(unchanged.status, "scheduled");
+    assert.strictEqual(unchanged.worksheet_summary, "Manager-owned worksheet.");
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.field_visit.technician_status").count, 0);
+
+    const allowed = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${managerVisit.id}/technician-status`,
+      headers: { cookie: ownerCookie },
+      payload: { status: "en-route" }
+    });
+    assert.strictEqual(allowed.statusCode, 200, allowed.body);
+    assert.strictEqual(allowed.json().visit.status, "en-route");
+  } finally { await app.close(); }
+});
+
+test("malformed technician status requests have no side effects and no secret echo", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const console1 = (await app.inject({ method: "GET", url: "/api/service/console", headers: { cookie: ownerCookie } })).json();
+    const serviceCase = console1.cases[0];
+    const support = console1.agents.find(agent => agent.role === "Support");
+    assert.ok(support);
+    const visit = await createFieldVisit(app, ownerCookie, {
+      serviceCase,
+      assignedUserId: support.id,
+      startOffsetHours: 20,
+      worksheetSummary: "Original worksheet remains."
+    });
+    const secret = "sk-live-technician-status-secret";
+
+    const badPath = await app.inject({
+      method: "POST",
+      url: "/api/service/field-visits/NOT-SAFE/technician-status",
+      headers: { cookie: supportCookie },
+      payload: { status: "completed", worksheetSummary: secret }
+    });
+    assert.strictEqual(badPath.statusCode, 400);
+    assert.ok(!badPath.body.includes(secret), badPath.body);
+
+    const badBody = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-status`,
+      headers: { cookie: supportCookie },
+      payload: { status: secret, worksheetSummary: secret }
+    });
+    assert.strictEqual(badBody.statusCode, 400);
+    assert.ok(!badBody.body.includes(secret), badBody.body);
+
+    const badTransition = await app.inject({
+      method: "POST",
+      url: `/api/service/field-visits/${visit.id}/technician-status`,
+      headers: { cookie: supportCookie },
+      payload: { status: "completed", worksheetSummary: "Skipped dispatch state." }
+    });
+    assert.strictEqual(badTransition.statusCode, 400);
+
+    const unchanged = app.db.prepare("SELECT status, worksheet_summary FROM service_field_visits WHERE id = ?").get(visit.id);
+    assert.strictEqual(unchanged.status, "scheduled");
+    assert.strictEqual(unchanged.worksheet_summary, "Original worksheet remains.");
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM audit_events WHERE type = ?").get("service.field_visit.technician_status").count, 0);
+  } finally { await app.close(); }
+});
+
+test("technician field visit routes preserve tenant isolation", async () => {
+  const app = buildApp({ dbPath: ":memory:" });
+  try {
+    await app.ready();
+    const ownerCookie = await login(app);
+    const supportCookie = await login(app, "support@armosphera.local");
+    const ownerOrgId = app.db.prepare("SELECT org_id FROM users WHERE email = ?").get(DEFAULT_EMAIL).org_id;
+    const supportId = app.db.prepare("SELECT id FROM users WHERE email = ?").get("support@armosphera.local").id;
+    const now = new Date().toISOString();
+
+    app.db.prepare("INSERT INTO organizations (id, name, legal_name, tax_id, currency, created_at) VALUES (?, ?, ?, ?, ?, ?)")
+      .run("org-tech-foreign", "Technician Foreign Org", "Technician Foreign Org LLC", "98989898", "AMD", now);
+    app.db.prepare(`
+      INSERT INTO customers (id, org_id, name, tax_id, email, phone, segment, health_score, lifetime_value, open_receivables, last_touch)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run("cust-tech-foreign", "org-tech-foreign", "Technician Foreign Customer", "98989899", "tech.foreign@example.com", "", "Other", 50, 0, 0, "2026-05-01");
+    app.db.prepare(`
+      INSERT INTO service_cases (
+        id, org_id, customer_id, ticket_id, case_number, subject, status, priority,
+        channel, owner_user_id, sla_due_at, sla_status, ai_suggestion,
+        knowledge_article, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "case-tech-foreign",
+      "org-tech-foreign",
+      "cust-tech-foreign",
+      null,
+      "TECH-FOREIGN-1",
+      "Foreign technician case",
+      "open",
+      "medium",
+      "Email",
+      null,
+      new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+      "on-track",
+      "Foreign technician suggestion",
+      "KB-GENERAL-SERVICE",
+      now,
+      now
+    );
+    app.db.prepare(`
+      INSERT INTO service_field_visits (
+        id, org_id, case_id, customer_id, assigned_user_id,
+        scheduled_start_at, scheduled_end_at, status, location,
+        worksheet_summary, created_at, updated_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `).run(
+      "visit-tech-foreign",
+      "org-tech-foreign",
+      "case-tech-foreign",
+      "cust-tech-foreign",
+      supportId,
+      new Date(Date.now() + 22 * 60 * 60 * 1000).toISOString(),
+      new Date(Date.now() + 23 * 60 * 60 * 1000).toISOString(),
+      "scheduled",
+      "Foreign customer site",
+      "Foreign worksheet should remain isolated.",
+      now,
+      now
+    );
+
+    const hiddenList = await app.inject({ method: "GET", url: "/api/service/my-field-visits", headers: { cookie: supportCookie } });
+    assert.strictEqual(hiddenList.statusCode, 200, hiddenList.body);
+    assert.ok(!hiddenList.json().visits.some(visit => visit.id === "visit-tech-foreign"));
+
+    const crossOrgUpdate = await app.inject({
+      method: "POST",
+      url: "/api/service/field-visits/visit-tech-foreign/technician-status",
+      headers: { cookie: ownerCookie },
+      payload: { status: "en-route" }
+    });
+    assert.strictEqual(crossOrgUpdate.statusCode, 404);
+    assert.strictEqual(app.db.prepare("SELECT status FROM service_field_visits WHERE org_id = ? AND id = ?").get("org-tech-foreign", "visit-tech-foreign").status, "scheduled");
+    assert.strictEqual(app.db.prepare("SELECT COUNT(*) AS count FROM service_field_visits WHERE org_id = ? AND id = ?").get(ownerOrgId, "visit-tech-foreign").count, 0);
   } finally { await app.close(); }
 });
 
