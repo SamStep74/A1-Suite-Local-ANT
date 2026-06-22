@@ -359,13 +359,39 @@ const VALID_PARTIAL_REFUND_RESPONSE = {
       ...VALID_REFUND_RESPONSE.refund.postings,
       inventoryPosting: "not-posted",
     },
+    lineCount: 0,
+    lines: [],
+  },
+  sale: {
+    ...VALID_SALE_RESPONSE.sale,
+    status: "refunded",
+  },
+  session: {
+    ...OPEN_SESSION,
+    expectedCash: 80000,
+  },
+};
+
+const VALID_LINE_REFUND_RESPONSE = {
+  ...VALID_REFUND_RESPONSE,
+  refund: {
+    ...VALID_REFUND_RESPONSE.refund,
+    id: "pos-sale-refund-line-return-1",
+    refundReference: "RF-LINE-001",
+    sourceKey: "pos-refund-ui-pos-sale-1-1782113400000",
+    reason: "Customer returned one scanner.",
+    refundedTotal: 25000,
+    cashAdjustment: 25000,
+    inventoryPostingStatus: "posted",
+    lineCount: 1,
     lines: [
       {
         ...VALID_REFUND_RESPONSE.refund.lines[0],
-        id: "pos-sale-refund-line-partial-1",
-        subtotal: 20000,
-        total: 20000,
-        returnStockMoveId: null,
+        id: "pos-sale-refund-line-return-1",
+        quantity: 1,
+        subtotal: 25000,
+        total: 25000,
+        returnStockMoveId: "stock-move-return-line-1",
       },
     ],
   },
@@ -375,7 +401,7 @@ const VALID_PARTIAL_REFUND_RESPONSE = {
   },
   session: {
     ...OPEN_SESSION,
-    expectedCash: 80000,
+    expectedCash: 75000,
   },
 };
 
@@ -942,6 +968,81 @@ describe("POS route", () => {
     );
     expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
       /Refund amount evidence is recorded without stock return moves/,
+    );
+  });
+
+  it("records a partial line return refund and renders stock-return evidence", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+    mocks.postJson
+      .mockResolvedValueOnce(VALID_SALE_RESPONSE)
+      .mockResolvedValueOnce(VALID_LINE_REFUND_RESPONSE);
+
+    renderRoute();
+
+    fireEvent.change(screen.getByTestId("pos-sale-quantity"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-receipt-number"), {
+      target: { value: "R-2026-0002" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-payment-method"), {
+      target: { value: "cash" },
+    });
+    fireEvent.click(screen.getByTestId("pos-sale-submit"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-refund-form")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByTestId("pos-refund-reference"), {
+      target: { value: " rf-line-001 " },
+    });
+    fireEvent.change(screen.getByTestId("pos-refund-line-quantity-pos-sale-line-1"), {
+      target: { value: "1" },
+    });
+    fireEvent.change(screen.getByTestId("pos-refund-reason"), {
+      target: { value: " Customer returned one scanner. " },
+    });
+
+    expect(screen.getByTestId("pos-refund-line-return-total")).toHaveTextContent(
+      /Line return total\s*25[,\s]000 ֏/,
+    );
+    fireEvent.click(screen.getByTestId("pos-refund-submit"));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(2);
+    });
+    const [path, body] = mocks.postJson.mock.calls[1]!;
+    expect(path).toBe("/api/pos/sales/pos-sale-1/refund");
+    expect(body).toEqual({
+      idempotencyKey: expect.stringMatching(/^pos-refund-ui-pos-sale-1-\d+$/),
+      refundReference: "rf-line-001",
+      refundMethod: "cash",
+      reason: "Customer returned one scanner.",
+      lines: [{ saleLineId: "pos-sale-line-1", quantity: 1 }],
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+        /Refund evidence posted/,
+      );
+    });
+    expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(/status refunded/);
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+      /Refunded total\s*25[,\s]000 ֏/,
+    );
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+      /Return stock moves\s*1/,
+    );
+    expect(screen.getByTestId("pos-refund-line-evidence")).toHaveTextContent(
+      /returned 1 \/ sold 2/,
+    );
+    expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
+      /Return stock evidence is recorded for tracked lines/,
     );
   });
 
