@@ -1089,6 +1089,22 @@ export const PosRefundRequestSchema = z
     refundedTotal: z.number().int().min(1).max(100_000_000_000).optional(),
     reason: z.string().min(1).max(500).refine((value) => !/[\x00-\x1f\x7f]/.test(value)),
     refundedAt: z.string().min(1).optional(),
+    lines: z
+      .array(
+        z
+          .object({
+            saleLineId: z
+              .string()
+              .min(1)
+              .max(160)
+              .regex(/^[a-z0-9-]+$/),
+            quantity: z.number().int().min(1).max(1_000_000),
+          })
+          .strict(),
+      )
+      .min(1)
+      .max(100)
+      .optional(),
   })
   .strict();
 export type PosRefundRequest = z.infer<typeof PosRefundRequestSchema>;

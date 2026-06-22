@@ -55592,9 +55592,8 @@ function createPosSaleRefund(db, user, saleId, body) {
     }
     const saleTotal = Number(source.sale.total_amd || 0);
     if (saleTotal <= 0) throwInvalidPosMetadata();
-    const refundedTotal = input.refundedTotal === null
-      ? saleTotal
-      : input.refundedTotal;
+    const refundEvidence = buildPosRefundLineEvidence(source.lines, saleTotal, input.refundedTotal, input.lines);
+    const refundedTotal = refundEvidence.refundedTotal;
     if (refundedTotal <= 0 || refundedTotal > saleTotal) throwInvalidPosMetadata();
     if (input.refundMethod === "cash" && source.sale.session_status !== "open") {
       const err = new Error("POS cash refund requires an open cash session");
@@ -55604,17 +55603,19 @@ function createPosSaleRefund(db, user, saleId, body) {
 
     const now = new Date().toISOString();
     const refundedAt = input.refundedAt || now;
-    const refundAmounts = splitPosRefundAmounts(source.sale, refundedTotal);
-    const refundLines = buildPosRefundLineEvidence(source.lines, saleTotal, refundedTotal);
+    const refundLines = refundEvidence.lines;
+    const refundAmounts = refundEvidence.hasRequestedLines
+      ? sumPosRefundLineAmounts(refundLines)
+      : splitPosRefundAmounts(source.sale, refundedTotal);
     const isFullRefund = refundedTotal === saleTotal;
     const paidCash = Number(source.sale.paid_cash_amd || 0);
     const cashAdjustment = input.refundMethod === "cash" && paidCash > 0
       ? Math.min(paidCash, refundedTotal)
       : 0;
-    const returnStockMoves = isFullRefund
-      ? createPosRefundReturnStockMoves(db, user, source, input)
+    const returnStockMoves = refundLines.length > 0
+      ? createPosRefundReturnStockMoves(db, user, source, input, refundLines)
       : new Map();
-    const inventoryPostingStatus = isFullRefund && returnStockMoves.size > 0
+    const inventoryPostingStatus = returnStockMoves.size > 0
       ? "posted"
       : "not-posted";
     const ledgerPostingStatus = source.sale.ledger_posting_status === "posted"
@@ -56121,10 +56122,56 @@ function splitPosRefundAmounts(sale, refundedTotal) {
   };
 }
 
-function buildPosRefundLineEvidence(lines, saleTotal, refundedTotal) {
+function buildPosRefundLineEvidence(lines, saleTotal, requestedRefundedTotal, requestedLines = []) {
   if (!Array.isArray(lines) || lines.length === 0) throwInvalidPosMetadata();
+  if (requestedLines.length > 0) {
+    const sourceById = new Map(lines.map(line => [line.id, line]));
+    const evidenceLines = requestedLines.map(requestedLine => {
+      const line = sourceById.get(requestedLine.saleLineId);
+      if (!line) throwInvalidPosMetadata();
+      const sourceQuantity = Number(line.quantity || 0);
+      if (!Number.isSafeInteger(sourceQuantity) || sourceQuantity <= 0 || requestedLine.quantity > sourceQuantity) {
+        throwInvalidPosMetadata();
+      }
+      if (!line.stock_move_id) {
+        const err = new Error("POS refund line is not restockable");
+        err.statusCode = 409;
+        throw err;
+      }
+      return buildPosRefundLineEvidenceRow(line, requestedLine.quantity, sourceQuantity);
+    });
+    const amounts = sumPosRefundLineAmounts(evidenceLines);
+    if (requestedRefundedTotal !== null && requestedRefundedTotal !== amounts.total) {
+      throwInvalidPosMetadata();
+    }
+    return {
+      refundedTotal: amounts.total,
+      lines: evidenceLines,
+      hasRequestedLines: true
+    };
+  }
+  const refundedTotal = requestedRefundedTotal === null ? saleTotal : requestedRefundedTotal;
   if (refundedTotal === saleTotal) {
-    return lines.map(line => ({
+    return {
+      refundedTotal,
+      lines: lines.map(line => buildPosRefundLineEvidenceRow(line, Number(line.quantity || 0), Number(line.quantity || 0))),
+      hasRequestedLines: false
+    };
+  }
+  return {
+    refundedTotal,
+    lines: [],
+    hasRequestedLines: false
+  };
+}
+
+function buildPosRefundLineEvidenceRow(line, quantity, sourceQuantity) {
+  if (!Number.isSafeInteger(quantity) || quantity <= 0) throwInvalidPosMetadata();
+  if (!Number.isSafeInteger(sourceQuantity) || sourceQuantity <= 0 || quantity > sourceQuantity) {
+    throwInvalidPosMetadata();
+  }
+  if (quantity === sourceQuantity) {
+    return {
       sourceLineId: line.id,
       lineNumber: line.line_number,
       catalogItemId: line.catalog_item_id,
@@ -56140,27 +56187,86 @@ function buildPosRefundLineEvidence(lines, saleTotal, refundedTotal) {
       vatMode: line.vat_mode,
       fiscalReceiptRequired: Boolean(line.fiscal_receipt_required),
       sourceStockMoveId: line.stock_move_id || null
-    }));
+    };
   }
-  return [];
+  const sourceTotal = Number(line.total_amd || 0);
+  const sourceVat = Number(line.vat_amd || 0);
+  const sourceSubtotal = Number(line.subtotal_amd || 0);
+  if (
+    !Number.isSafeInteger(sourceTotal)
+    || !Number.isSafeInteger(sourceVat)
+    || !Number.isSafeInteger(sourceSubtotal)
+    || sourceTotal <= 0
+    || sourceVat < 0
+    || sourceSubtotal < 0
+    || sourceSubtotal + sourceVat !== sourceTotal
+  ) {
+    throwInvalidPosMetadata();
+  }
+  const total = Math.round((sourceTotal * quantity) / sourceQuantity);
+  const vat = Math.min(sourceVat, Math.round((sourceVat * quantity) / sourceQuantity));
+  const subtotal = total - vat;
+  if (!Number.isSafeInteger(total) || !Number.isSafeInteger(vat) || !Number.isSafeInteger(subtotal) || total <= 0 || subtotal < 0) {
+    throwInvalidPosMetadata();
+  }
+  return {
+    sourceLineId: line.id,
+    lineNumber: line.line_number,
+    catalogItemId: line.catalog_item_id,
+    catalogItemVariantId: line.catalog_item_variant_id || null,
+    sku: line.sku,
+    name: line.name,
+    description: line.description || "",
+    quantity,
+    unitPrice: line.unit_price_amd,
+    subtotal,
+    vat,
+    total,
+    vatMode: line.vat_mode,
+    fiscalReceiptRequired: Boolean(line.fiscal_receipt_required),
+    sourceStockMoveId: line.stock_move_id || null
+  };
 }
 
-function createPosRefundReturnStockMoves(db, user, source, input) {
+function sumPosRefundLineAmounts(lines) {
+  return lines.reduce((total, line) => {
+    const subtotal = Number(line.subtotal || 0);
+    const vat = Number(line.vat || 0);
+    const amount = Number(line.total || 0);
+    if (
+      !Number.isSafeInteger(subtotal)
+      || !Number.isSafeInteger(vat)
+      || !Number.isSafeInteger(amount)
+      || subtotal < 0
+      || vat < 0
+      || amount <= 0
+      || subtotal + vat !== amount
+    ) {
+      throwInvalidPosMetadata();
+    }
+    total.subtotal += subtotal;
+    total.vat += vat;
+    total.total += amount;
+    return total;
+  }, { subtotal: 0, vat: 0, total: 0 });
+}
+
+function createPosRefundReturnStockMoves(db, user, source, input, refundLines) {
   const returnStockMoves = new Map();
-  for (const line of source.lines) {
-    if (!line.stock_move_id) continue;
+  for (const line of refundLines) {
+    if (!line.sourceStockMoveId) continue;
     const sourceMove = db.prepare(`
       SELECT *
       FROM stock_moves
       WHERE org_id = ? AND id = ? AND catalog_item_id = ? AND status = 'posted'
-    `).get(user.org_id, line.stock_move_id, line.catalog_item_id);
+    `).get(user.org_id, line.sourceStockMoveId, line.catalogItemId);
     if (!sourceMove || sourceMove.move_type !== "delivery") {
       const err = new Error("POS refund source stock move is not restockable");
       err.statusCode = 409;
       throw err;
     }
     const move = createStockMoveFromInput(db, user, {
-      catalogItemId: line.catalog_item_id,
+      catalogItemId: line.catalogItemId,
       sourceLocationId: sourceMove.destination_location_id || "",
       destinationLocationId: sourceMove.source_location_id || source.sale.stock_location_id,
       serviceFieldVisitId: "",
@@ -56168,9 +56274,9 @@ function createPosRefundReturnStockMoves(db, user, source, input) {
       quantity: line.quantity,
       unitCost: sourceMove.unit_cost || 0,
       reason: `POS refund stock return for ${source.sale.receipt_number}`,
-      reference: `POS refund ${input.refundReference} line ${line.line_number}`
+      reference: `POS refund ${input.refundReference} line ${line.lineNumber}`
     });
-    returnStockMoves.set(line.id, move.id);
+    returnStockMoves.set(line.sourceLineId, move.id);
   }
   return returnStockMoves;
 }
@@ -57062,7 +57168,8 @@ function normalizePosSaleRefundBody(body) {
     refundedAt: normalizePosTimestamp(body, "refundedAt", ""),
     refundedTotal: hasRefundedTotal
       ? normalizePosMoney(body, "refundedTotal", { required: true, min: 1, max: 100000000000 })
-      : null
+      : null,
+    lines: normalizePosSaleRefundLines(body)
   };
 }
 
@@ -57117,6 +57224,23 @@ function normalizePosCashSaleLine(line) {
     catalogItemVariantId,
     quantity: normalizePosInteger(line, "quantity", { required: true, min: 1, max: 1000000 })
   };
+}
+
+function normalizePosSaleRefundLines(body) {
+  const value = Object.prototype.hasOwnProperty.call(body, "lines") ? body.lines : undefined;
+  if (value === undefined || value === "") return [];
+  if (!Array.isArray(value) || value.length === 0 || value.length > 100) throwInvalidPosMetadata();
+  const seen = new Set();
+  return value.map(line => {
+    if (!isPlainObject(line)) throwInvalidPosMetadata();
+    const saleLineId = normalizePosText(line, "saleLineId", { required: true, idLike: true, maxLength: 160 });
+    if (seen.has(saleLineId)) throwInvalidPosMetadata();
+    seen.add(saleLineId);
+    return {
+      saleLineId,
+      quantity: normalizePosInteger(line, "quantity", { required: true, min: 1, max: 1000000 })
+    };
+  });
 }
 
 function normalizePosTextAlias(body, fields, options = {}) {
