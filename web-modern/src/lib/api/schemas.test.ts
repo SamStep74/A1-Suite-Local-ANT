@@ -56,6 +56,14 @@ import {
   ProjectTemplatesResponseSchema,
   ProcurementBlanketOrderCreateResponseSchema,
   ProcurementCoverageResponseSchema,
+  ProcurementRequisitionCreateRequestSchema,
+  ProcurementRequisitionCreateResponseSchema,
+  ProcurementRfqAwardRequestSchema,
+  ProcurementRfqAwardResponseSchema,
+  ProcurementRfqConvertRequestSchema,
+  ProcurementRfqConvertResponseSchema,
+  ProcurementRfqQuoteCreateRequestSchema,
+  ProcurementRfqQuoteCreateResponseSchema,
   ProcurementReplenishmentResponseSchema,
   PurchaseAnalyticsResponseSchema,
   PurchaseAnalyticsSummarySchema,
@@ -563,6 +571,142 @@ describe("Procurement blanket-order schemas", () => {
       expect(r.data.coverage.blanketOrders[0]?.consumedQty).toBe(10);
       expect(r.data.coverage.remainingQty).toBe(90);
     }
+  });
+});
+
+describe("Procurement RFQ tender schemas", () => {
+  const requisitionLine = {
+    id: "prl-scanner-001",
+    catalogItemId: "catitem-pos-barcode-scanner",
+    quantity: 5,
+    uom: "հատ",
+    estUnitPrice: 95_000,
+    suggestedVendorId: "vendor-yerevan-hardware-supply",
+  };
+
+  it("requires non-empty requisition create lines with estimated pricing", () => {
+    const valid = ProcurementRequisitionCreateRequestSchema.safeParse({
+      neededBy: "2026-07-01",
+      justification: "Restock warehouse",
+      lines: [
+        {
+          catalogItemId: "catitem-pos-barcode-scanner",
+          quantity: 5,
+          uom: "հատ",
+          estUnitPrice: 95_000,
+          suggestedVendorId: "vendor-yerevan-hardware-supply",
+        },
+      ],
+      idempotencyKey: "requisition-ui-test",
+    });
+    const empty = ProcurementRequisitionCreateRequestSchema.safeParse({
+      neededBy: "2026-07-01",
+      lines: [],
+      idempotencyKey: "requisition-ui-test-empty",
+    });
+
+    expect(valid.success).toBe(true);
+    expect(empty.success).toBe(false);
+  });
+
+  it("accepts backend requisition responses with line ids and optional uom", () => {
+    const r = ProcurementRequisitionCreateResponseSchema.safeParse({
+      ok: true,
+      requisition: {
+        id: "pr-scanner-001",
+        status: "open",
+        neededBy: "2026-07-01",
+        justification: "",
+        requesterId: "user-1",
+        lines: [{ ...requisitionLine, uom: undefined }],
+        createdAt: "2026-06-22T08:00:00.000Z",
+      },
+    });
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.requisition.lines[0]?.id).toBe("prl-scanner-001");
+      expect(r.data.requisition.lines[0]?.estUnitPrice).toBe(95_000);
+    }
+  });
+
+  it("accepts RFQ conversion requests and backend RFQ shapes", () => {
+    const request = ProcurementRfqConvertRequestSchema.safeParse({
+      dueAt: "2026-07-15",
+      idempotencyKey: "rfq-ui-test",
+    });
+    const response = ProcurementRfqConvertResponseSchema.safeParse({
+      ok: true,
+      rfq: {
+        id: "rfq-scanner-001",
+        requisitionId: "pr-scanner-001",
+        sentAt: "2026-06-22T08:00:00.000Z",
+        dueAt: "2026-07-15",
+        status: "open",
+        shortlistedVendors: [
+          {
+            vendorId: "vendor-yerevan-hardware-supply",
+            name: "Yerevan Hardware Supply",
+            score: 1,
+            avgPrice: 90_000,
+            leadTimeDays: 0,
+          },
+        ],
+        quotes: null,
+        award: null,
+      },
+    });
+
+    expect(request.success).toBe(true);
+    expect(response.success).toBe(true);
+    if (response.success) {
+      expect(response.data.rfq.shortlistedVendors[0]?.vendorId).toBe(
+        "vendor-yerevan-hardware-supply",
+      );
+    }
+  });
+
+  it("accepts nested quote and award envelopes", () => {
+    const quoteRequest = ProcurementRfqQuoteCreateRequestSchema.safeParse({
+      vendorId: "vendor-yerevan-hardware-supply",
+      requisitionLineId: "prl-scanner-001",
+      unitPrice: 90_000,
+      currency: "AMD",
+      validUntil: "2026-06-30",
+      idempotencyKey: "quote-ui-test",
+    });
+    const quoteResponse = ProcurementRfqQuoteCreateResponseSchema.safeParse({
+      ok: true,
+      quote: {
+        id: "rfqq-scanner-001",
+        rfqId: "rfq-scanner-001",
+        vendorId: "vendor-yerevan-hardware-supply",
+        requisitionLineId: "prl-scanner-001",
+        unitPrice: 90_000,
+        currency: "AMD",
+        validUntil: "2026-06-30",
+        createdAt: "2026-06-22T08:00:00.000Z",
+      },
+    });
+    const awardResponse = ProcurementRfqAwardResponseSchema.safeParse({
+      ok: true,
+      purchaseOrder: {
+        id: "po-scanner-001",
+        orderNumber: "PO-RFQ-ER-001",
+        status: "rfq",
+        vendorId: "vendor-yerevan-hardware-supply",
+        total: 0,
+      },
+    });
+    const awardRequest = ProcurementRfqAwardRequestSchema.safeParse({
+      vendorId: "vendor-yerevan-hardware-supply",
+      idempotencyKey: "award-ui-test",
+    });
+
+    expect(quoteRequest.success).toBe(true);
+    expect(quoteResponse.success).toBe(true);
+    expect(awardRequest.success).toBe(true);
+    expect(awardResponse.success).toBe(true);
   });
 });
 

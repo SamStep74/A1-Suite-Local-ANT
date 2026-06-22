@@ -3,6 +3,7 @@ const test = require("node:test");
 const assert = require("node:assert");
 const { buildApp } = require("../server/app");
 const { DEFAULT_EMAIL, DEFAULT_PASSWORD } = require("../server/db");
+const procurement = require("../server/procurement");
 
 async function login(app, email = DEFAULT_EMAIL, password = DEFAULT_PASSWORD) {
   const res = await app.inject({ method: "POST", url: "/api/login", payload: { email, password } });
@@ -83,6 +84,7 @@ test("procurement/requisitions happy path + audit + idempotency", async () => {
     const body = first.json();
     assert.ok(body.requisition.id);
     assert.strictEqual(body.requisition.status, "open");
+    assert.strictEqual(body.requisition.lines[0].uom, "հատ");
   } finally { await app.close(); }
 });
 
@@ -92,7 +94,8 @@ test("procurement/convert-to-rfq creates RFQ and scores vendors", async () => {
     await app.ready();
     const { cookie, itemId, vendorId } = await seedPurchaseFixtures(app);
     const prRes = await app.inject({ method: "POST", url: "/api/procurement/requisitions", headers: { cookie },
-      payload: { neededBy: "2026-06-15", idempotencyKey: "pr-2", lines: [{ catalogItemId: itemId, quantity: 5, estUnitPrice: 95000, suggestedVendorId: vendorId }] } });
+      payload: { neededBy: "2026-06-15", idempotencyKey: "pr-2", lines: [{ catalogItemId: itemId, quantity: 5, uom: "pcs", estUnitPrice: 95000, suggestedVendorId: vendorId }] } });
+    assert.strictEqual(prRes.json().requisition.lines[0].uom, "pcs");
     const prId = prRes.json().requisition.id;
     const res = await app.inject({ method: "POST", url: `/api/procurement/requisitions/${prId}/convert-to-rfq`, headers: { cookie },
       payload: { dueAt: "2026-06-12", idempotencyKey: "rfq-1" } });
@@ -100,6 +103,29 @@ test("procurement/convert-to-rfq creates RFQ and scores vendors", async () => {
     const body = res.json();
     assert.ok(body.rfq.id);
     assert.ok(Array.isArray(body.rfq.shortlistedVendors) && body.rfq.shortlistedVendors.length >= 1);
+    assert.strictEqual(body.rfq.requisitionId, prId);
+    assert.strictEqual(body.rfq.dueAt, "2026-06-12");
+    assert.strictEqual(body.rfq.neededBy, "2026-06-12");
+    assert.ok(body.rfq.createdAt);
+    assert.deepStrictEqual(body.rfq.quotes, []);
+    assert.strictEqual(body.rfq.quoteCount, 0);
+    assert.strictEqual(body.rfq.award, null);
+    assert.strictEqual(body.rfq.awarded, false);
+    assert.strictEqual(body.rfq.shortlistedVendors[0].vendorId, vendorId);
+    assert.strictEqual(body.rfq.shortlistedVendors[0].name, "Yerevan Hardware Supply");
+    assert.strictEqual(body.rfq.shortlistedVendors[0].vendorName, "Yerevan Hardware Supply");
+    assert.strictEqual(body.rfq.shortlistedVendors[0].label, "Yerevan Hardware Supply");
+    assert.strictEqual(body.rfq.shortlistedVendors[0].sentAt.length > 0, true);
+    assert.deepStrictEqual(body.rfq.vendors, body.rfq.shortlistedVendors);
+    assert.deepStrictEqual(body.rfq.shortlisted, body.rfq.shortlistedVendors);
+
+    const detail = procurement.getRfq(app.db, "org-armosphera-demo", body.rfq.id);
+    assert.strictEqual(detail.id, body.rfq.id);
+    assert.deepStrictEqual(detail.quotes, []);
+    assert.strictEqual(detail.award, null);
+    assert.strictEqual(detail.shortlistedVendors[0].label, "Yerevan Hardware Supply");
+    const list = procurement.listRfqs(app.db, "org-armosphera-demo");
+    assert.ok(list.some(item => item.id === body.rfq.id && Array.isArray(item.quotes) && item.award === null));
   } finally { await app.close(); }
 });
 
@@ -109,20 +135,71 @@ test("procurement/rfqs/:id/quotes records quote and award creates draft PO", asy
     await app.ready();
     const { cookie, itemId, vendorId } = await seedPurchaseFixtures(app);
     const prRes = await app.inject({ method: "POST", url: "/api/procurement/requisitions", headers: { cookie },
-      payload: { neededBy: "2026-06-15", idempotencyKey: "pr-3", lines: [{ catalogItemId: itemId, quantity: 5, estUnitPrice: 95000, suggestedVendorId: vendorId }] } });
+      payload: { neededBy: "2026-06-15", idempotencyKey: "pr-3", lines: [{ catalogItemId: itemId, quantity: 5, uom: "pcs", estUnitPrice: 95000, suggestedVendorId: vendorId }] } });
     const prId = prRes.json().requisition.id;
     const rfqRes = await app.inject({ method: "POST", url: `/api/procurement/requisitions/${prId}/convert-to-rfq`, headers: { cookie },
       payload: { dueAt: "2026-06-12", idempotencyKey: "rfq-2" } });
     const rfqId = rfqRes.json().rfq.id;
+    assert.deepStrictEqual(rfqRes.json().rfq.quotes, []);
+    assert.strictEqual(rfqRes.json().rfq.award, null);
     const lines = prRes.json().requisition.lines;
     const quoteRes = await app.inject({ method: "POST", url: `/api/procurement/rfqs/${rfqId}/quotes`, headers: { cookie },
-      payload: { vendorId, requisitionLineId: lines[0].id, unitPrice: 90000, currency: "AMD", validUntil: "2026-06-30", idempotencyKey: "quote-1" } });
+      payload: { vendorId, requisitionLineId: lines[0].id, unitPrice: 90000, currency: "AMD", validUntil: "2026-06-30", paymentTerms: "Net 15", notes: "Supplier confirmed stock", idempotencyKey: "quote-1" } });
     assert.strictEqual(quoteRes.statusCode, 200, quoteRes.body);
+    const quote = quoteRes.json().quote;
+    assert.ok(quote.id);
+    assert.strictEqual(quote.quoteId, quote.id);
+    assert.strictEqual(quote.rfqId, rfqId);
+    assert.strictEqual(quote.vendorId, vendorId);
+    assert.strictEqual(quote.vendorName, "Yerevan Hardware Supply");
+    assert.strictEqual(quote.requisitionLineId, lines[0].id);
+    assert.strictEqual(quote.unitPrice, 90000);
+    assert.strictEqual(quote.amount, 90000);
+    assert.strictEqual(quote.paymentTerms, "Net 15");
+    assert.strictEqual(quote.notes, "Supplier confirmed stock");
+    assert.strictEqual(quote.line.uom, "pcs");
+    assert.deepStrictEqual(quote.evidence, {
+      kind: "rfq_quote",
+      quoteId: quote.id,
+      rfqId,
+      vendorId,
+      requisitionLineId: lines[0].id,
+      unitPrice: 90000,
+      currency: "AMD",
+      recordedAt: quote.createdAt
+    });
+
+    const quotedDetail = procurement.getRfq(app.db, "org-armosphera-demo", rfqId);
+    assert.strictEqual(quotedDetail.quotes.length, 1);
+    assert.strictEqual(quotedDetail.quotes[0].id, quote.id);
+    assert.strictEqual(quotedDetail.quotes[0].line.uom, "pcs");
+    assert.strictEqual(quotedDetail.award, null);
+
     const awardRes = await app.inject({ method: "POST", url: `/api/procurement/rfqs/${rfqId}/award`, headers: { cookie },
       payload: { vendorId, idempotencyKey: "award-1" } });
     assert.strictEqual(awardRes.statusCode, 200, awardRes.body);
     const body = awardRes.json();
     assert.strictEqual(body.purchaseOrder.status, "rfq");
+    assert.strictEqual(body.purchaseOrder.id, body.purchaseOrder.purchaseOrderId);
+    assert.strictEqual(body.purchaseOrder.rfqId, rfqId);
+    assert.strictEqual(body.purchaseOrder.vendorId, vendorId);
+    assert.strictEqual(body.purchaseOrder.vendorName, "Yerevan Hardware Supply");
+    assert.strictEqual(body.purchaseOrder.subtotal, 450000);
+    assert.strictEqual(body.purchaseOrder.total, 450000);
+    assert.strictEqual(body.purchaseOrder.currency, "AMD");
+    assert.strictEqual(body.purchaseOrder.lines[0].quoteId, quote.id);
+    assert.strictEqual(body.purchaseOrder.lines[0].requisitionLineId, lines[0].id);
+    assert.strictEqual(body.purchaseOrder.lines[0].uom, "pcs");
+    assert.strictEqual(body.purchaseOrder.award.purchaseOrderId, body.purchaseOrder.id);
+    assert.strictEqual(body.purchaseOrder.award.rfqId, rfqId);
+    assert.deepStrictEqual(body.purchaseOrder.award.quoteIds, [quote.id]);
+    assert.deepStrictEqual(body.purchaseOrder.awardEvidence, body.purchaseOrder.award);
+
+    const awardedDetail = procurement.getRfq(app.db, "org-armosphera-demo", rfqId);
+    assert.strictEqual(awardedDetail.status, "awarded");
+    assert.strictEqual(awardedDetail.quotes.length, 1);
+    assert.strictEqual(awardedDetail.award.purchaseOrderId, body.purchaseOrder.id);
+    assert.strictEqual(awardedDetail.award.total, 450000);
   } finally { await app.close(); }
 });
 

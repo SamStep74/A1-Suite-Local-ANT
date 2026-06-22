@@ -10,32 +10,24 @@
  *     visible and contains an Armenian glyph
  *   - The English subtitle (data-testid="procurement-subtitle")
  *     contains "Procurement"
- *   - The 5 tab buttons render (requisition, rfq, quote, po,
- *     receipt) and the default active tab is Requisition
+ *   - The tender tab buttons render (requisition, rfq, quote,
+ *     award, receipt) and the default active tab is Requisition
  *   - Clicking each tab button switches the visible form
- *   - The cross-tab flow posts once per tab in sequence
- *     (Requisition → RFQ → Quote → PO → Receipt) and the 5 id
- *     pills (data-testid="procurement-{tab}-id-pill") flip to
- *     data-state="ready" with non-empty content
+ *   - The cross-tab flow posts once per live tender action in
+ *     sequence (Requisition → RFQ → Quote → Award), the draft PO
+ *     id pill flips to ready, and receipt stays deferred to the
+ *     purchase-order receiving screen
  *   - The back link points to /app/purchase
  *   - The 403 access-denied card is NOT rendered for a default
  *     session (the route hardcodes userAccess="purchase"; this
  *     assertion guards against a future regression that would
  *     surface the forbidden card to a paying user)
  *
- * Mocking strategy: the modern route POSTs to a set of flat
- * procurement endpoints (/api/procurement/{requisitions,rfqs,
- * quotes,purchase-orders,receipts}). The legacy Fastify backend
- * exposes a chained flow (POST /api/procurement/requisitions,
- * then /api/procurement/requisitions/:id/convert-to-rfq, etc.)
- * that is incompatible with the new flat contract. Until the
- * procurement tier of the server is migrated (a separate plan
- * from Phase 8.4), the e2e suite intercepts the five POSTs via
- * Playwright route() handlers and replies with a stable
- * `ok: true` envelope + a per-tab id. This keeps the spec
- * deterministic without coupling it to server-side migration
- * state. The co-located vitest spec (-index.test.tsx) covers
- * the same shape at the unit tier.
+ * Mocking strategy: the modern route now follows the backend RFQ
+ * chain: requisition create, requisition convert-to-rfq, RFQ quote
+ * capture, and RFQ award to a draft PO. The e2e suite intercepts
+ * those nested POSTs via Playwright route() handlers and replies
+ * with stable `ok: true` envelopes + per-step ids.
  *
  * NOT asserted here (deferred to 8.4b–8.4f sub-plans):
  *   - Server-side validation of the procurement request
@@ -52,60 +44,111 @@ import { authedPage, waitForHydration } from "./_helpers";
 
 /** Stable per-tab ids used by the route interception handlers. */
 const REQUISITION_ID = "req-e2e-001";
+const REQUISITION_LINE_ID = "prl-e2e-001";
 const RFQ_ID = "rfq-e2e-002";
 const QUOTE_ID = "quote-e2e-003";
 const PO_ID = "po-e2e-004";
-const RECEIPT_ID = "receipt-e2e-005";
+const VENDOR_ID = "vendor-e2e-001";
 
-/** Install route handlers that reply to the five flat procurement
+/** Install route handlers that reply to the nested procurement
  *  POSTs the modern route issues. Each handler returns the
  *  `ok: true` envelope the route's Zod schema expects. */
 function installProcurementApiMocks(route: Route): void {
-  // Requisition — body is { neededBy, justification?, idempotencyKey }
+  // Requisition — body is { neededBy, justification?, lines, idempotencyKey }
   if (requestMatchesPath(route.request(), "/api/procurement/requisitions")) {
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ ok: true, requisition: { id: REQUISITION_ID } }),
-    });
-    return;
-  }
-  // RFQ — body is { neededBy, justification?, idempotencyKey }
-  if (requestMatchesPath(route.request(), "/api/procurement/rfqs")) {
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ ok: true, rfq: { id: RFQ_ID } }),
-    });
-    return;
-  }
-  // Quote — body is { rfqId, amount, idempotencyKey }
-  if (requestMatchesPath(route.request(), "/api/procurement/quotes")) {
-    route.fulfill({
-      status: 200,
-      contentType: "application/json",
-      body: JSON.stringify({ ok: true, quote: { id: QUOTE_ID } }),
-    });
-    return;
-  }
-  // PO — body is { quoteId, idempotencyKey }
-  if (requestMatchesPath(route.request(), "/api/procurement/purchase-orders")) {
     route.fulfill({
       status: 200,
       contentType: "application/json",
       body: JSON.stringify({
         ok: true,
-        purchaseOrder: { id: PO_ID },
+        requisition: {
+          id: REQUISITION_ID,
+          neededBy: "2026-07-01",
+          justification: "",
+          status: "open",
+          createdAt: "2026-06-22T00:00:00.000Z",
+          lines: [
+            {
+              id: REQUISITION_LINE_ID,
+              catalogItemId: "catitem-e2e-001",
+              quantity: 5,
+              uom: "հատ",
+              estUnitPrice: 95000,
+              suggestedVendorId: VENDOR_ID,
+            },
+          ],
+        },
       }),
     });
     return;
   }
-  // Receipt — body is { poId, idempotencyKey }
-  if (requestMatchesPath(route.request(), "/api/procurement/receipts")) {
+  // RFQ conversion — body is { dueAt, idempotencyKey }
+  if (
+    requestMatchesPath(
+      route.request(),
+      `/api/procurement/requisitions/${REQUISITION_ID}/convert-to-rfq`,
+    )
+  ) {
     route.fulfill({
       status: 200,
       contentType: "application/json",
-      body: JSON.stringify({ ok: true, receipt: { id: RECEIPT_ID } }),
+      body: JSON.stringify({
+        ok: true,
+        rfq: {
+          id: RFQ_ID,
+          requisitionId: REQUISITION_ID,
+          sentAt: "2026-06-22T00:00:00.000Z",
+          dueAt: "2026-07-15",
+          status: "open",
+          shortlistedVendors: [
+            {
+              vendorId: VENDOR_ID,
+              name: "Yerevan Hardware Supply",
+              score: 1,
+              avgPrice: 90000,
+            },
+          ],
+        },
+      }),
+    });
+    return;
+  }
+  // Quote — body is { vendorId, requisitionLineId, unitPrice, currency, validUntil, idempotencyKey }
+  if (requestMatchesPath(route.request(), `/api/procurement/rfqs/${RFQ_ID}/quotes`)) {
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        quote: {
+          id: QUOTE_ID,
+          rfqId: RFQ_ID,
+          vendorId: VENDOR_ID,
+          requisitionLineId: REQUISITION_LINE_ID,
+          unitPrice: 90000,
+          currency: "AMD",
+          validUntil: "2026-06-30",
+          createdAt: "2026-06-22T00:00:00.000Z",
+        },
+      }),
+    });
+    return;
+  }
+  // Award — body is { vendorId, idempotencyKey }
+  if (requestMatchesPath(route.request(), `/api/procurement/rfqs/${RFQ_ID}/award`)) {
+    route.fulfill({
+      status: 200,
+      contentType: "application/json",
+      body: JSON.stringify({
+        ok: true,
+        purchaseOrder: {
+          id: PO_ID,
+          orderNumber: "PO-RFQ-E2E-002",
+          status: "rfq",
+          vendorId: VENDOR_ID,
+          total: 0,
+        },
+      }),
     });
     return;
   }
@@ -126,18 +169,13 @@ function requestMatchesPath(req: Request, path: string): boolean {
 }
 
 test.describe("Procurement — Phase 8.4 Pattern A skeleton", () => {
-  test("loads, renders 5 tabs, defaults to Requisition, and points back to /app/purchase", async ({
+  test("loads, renders tender tabs, defaults to Requisition, and points back to /app/purchase", async ({
     browser,
     request,
-    page,
   }) => {
-    // Mock the five flat procurement POSTs so the page works
-    // without depending on a server-side migration of the
-    // procurement tier.
-    await page.route("**/api/procurement/**", installProcurementApiMocks);
-
     const ctx = await authedPage(browser, request);
     try {
+      await ctx.page.route("**/api/procurement/**", installProcurementApiMocks);
       const response = await ctx.page.goto("/app/purchase/procurement");
       expect(
         response,
@@ -165,7 +203,7 @@ test.describe("Procurement — Phase 8.4 Pattern A skeleton", () => {
       await expect(subtitle).toBeVisible();
       expect((await subtitle.textContent()) ?? "").toContain("Procurement");
 
-      // 5 tab buttons render in the strip, in route-local order.
+      // Tender tab buttons render in the strip, in route-local order.
       const tabs = [
         "requisition",
         "rfq",
@@ -208,15 +246,13 @@ test.describe("Procurement — Phase 8.4 Pattern A skeleton", () => {
 });
 
 test.describe("Procurement — cross-tab POST flow", () => {
-  test("chains Requisition → RFQ → Quote → PO → Receipt and fills all 5 id pills", async ({
+  test("chains Requisition → RFQ → Quote → Award and defers receipt", async ({
     browser,
     request,
-    page,
   }) => {
-    await page.route("**/api/procurement/**", installProcurementApiMocks);
-
     const ctx = await authedPage(browser, request);
     try {
+      await ctx.page.route("**/api/procurement/**", installProcurementApiMocks);
       await ctx.page.goto("/app/purchase/procurement");
       await waitForHydration(ctx.page);
 
@@ -227,6 +263,16 @@ test.describe("Procurement — cross-tab POST flow", () => {
       await ctx.page
         .getByTestId("procurement-requisition-neededBy")
         .fill("2026-07-01");
+      await ctx.page
+        .getByTestId("procurement-requisition-catalogItemId")
+        .fill("catitem-e2e-001");
+      await ctx.page.getByTestId("procurement-requisition-quantity").fill("5");
+      await ctx.page
+        .getByTestId("procurement-requisition-estUnitPrice")
+        .fill("95000");
+      await ctx.page
+        .getByTestId("procurement-requisition-suggestedVendorId")
+        .fill(VENDOR_ID);
       await ctx.page.getByTestId("procurement-requisition-submit").click();
       await expect(reqPill).toHaveAttribute("data-state", "ready");
       expect((await reqPill.textContent()) ?? "").toContain(REQUISITION_ID);
@@ -240,7 +286,7 @@ test.describe("Procurement — cross-tab POST flow", () => {
       await ctx.page.getByTestId("procurement-tab-rfq").click();
       await expect(rfqPill).toHaveAttribute("data-state", "empty");
       await ctx.page
-        .getByTestId("procurement-rfq-neededBy")
+        .getByTestId("procurement-rfq-dueAt")
         .fill("2026-07-15");
       await ctx.page.getByTestId("procurement-rfq-submit").click();
       await expect(rfqPill).toHaveAttribute("data-state", "ready");
@@ -250,29 +296,32 @@ test.describe("Procurement — cross-tab POST flow", () => {
       const quotePill = ctx.page.getByTestId("procurement-quote-id-pill");
       await ctx.page.getByTestId("procurement-tab-quote").click();
       await expect(quotePill).toHaveAttribute("data-state", "empty");
-      await ctx.page.getByTestId("procurement-quote-rfqId").fill(RFQ_ID);
-      await ctx.page.getByTestId("procurement-quote-amount").fill("100000");
+      await ctx.page.getByTestId("procurement-quote-vendorId").fill(VENDOR_ID);
+      await ctx.page
+        .getByTestId("procurement-quote-requisitionLineId")
+        .fill(REQUISITION_LINE_ID);
+      await ctx.page.getByTestId("procurement-quote-unitPrice").fill("90000");
+      await ctx.page
+        .getByTestId("procurement-quote-validUntil")
+        .fill("2026-06-30");
       await ctx.page.getByTestId("procurement-quote-submit").click();
       await expect(quotePill).toHaveAttribute("data-state", "ready");
       expect((await quotePill.textContent()) ?? "").toContain(QUOTE_ID);
 
-      // Step 4 — PO. Same click-then-assert pattern.
+      // Step 4 — Award. Same click-then-assert pattern.
       const poPill = ctx.page.getByTestId("procurement-po-id-pill");
       await ctx.page.getByTestId("procurement-tab-po").click();
       await expect(poPill).toHaveAttribute("data-state", "empty");
-      await ctx.page.getByTestId("procurement-po-quoteId").fill(QUOTE_ID);
+      await ctx.page.getByTestId("procurement-po-vendorId").fill(VENDOR_ID);
       await ctx.page.getByTestId("procurement-po-submit").click();
       await expect(poPill).toHaveAttribute("data-state", "ready");
       expect((await poPill.textContent()) ?? "").toContain(PO_ID);
 
-      // Step 5 — Receipt. Same click-then-assert pattern.
-      const receiptPill = ctx.page.getByTestId("procurement-receipt-id-pill");
+      // Step 5 — Receipt is intentionally deferred to the existing PO flow.
       await ctx.page.getByTestId("procurement-tab-receipt").click();
-      await expect(receiptPill).toHaveAttribute("data-state", "empty");
-      await ctx.page.getByTestId("procurement-receipt-poId").fill(PO_ID);
-      await ctx.page.getByTestId("procurement-receipt-submit").click();
-      await expect(receiptPill).toHaveAttribute("data-state", "ready");
-      expect((await receiptPill.textContent()) ?? "").toContain(RECEIPT_ID);
+      await expect(
+        ctx.page.getByTestId("procurement-receipt-deferred"),
+      ).toBeVisible();
     } finally {
       await ctx.page.context().close();
     }
@@ -283,7 +332,6 @@ test.describe("Procurement — 403 access gate", () => {
   test("does not render the 403 card for a default authenticated user @smoke", async ({
     browser,
     request,
-    page,
   }) => {
     // The 403 path is a no-op for the live route today: the
     // default `ProcurementRoutePage` hardcodes
@@ -295,10 +343,9 @@ test.describe("Procurement — 403 access gate", () => {
     // will fail loudly and the maintainer can decide whether
     // to (a) keep the 403 visible in the e2e (preferred) or
     // (b) update the assertion to match the new behavior.
-    await page.route("**/api/procurement/**", installProcurementApiMocks);
-
     const ctx = await authedPage(browser, request);
     try {
+      await ctx.page.route("**/api/procurement/**", installProcurementApiMocks);
       await ctx.page.goto("/app/purchase/procurement");
       await waitForHydration(ctx.page);
 

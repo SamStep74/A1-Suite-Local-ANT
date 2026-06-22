@@ -11,8 +11,12 @@ import {
   ProcurementReplenishmentResponseSchema,
   ProcurementRequisitionCreateRequestSchema,
   ProcurementRequisitionCreateResponseSchema,
+  ProcurementRfqAwardRequestSchema,
+  ProcurementRfqAwardResponseSchema,
   ProcurementRfqConvertRequestSchema,
   ProcurementRfqConvertResponseSchema,
+  ProcurementRfqQuoteCreateRequestSchema,
+  ProcurementRfqQuoteCreateResponseSchema,
   type ProcurementBlanketOrder,
   type ProcurementCoverage,
   type ProcurementReplenishmentSuggestion,
@@ -29,7 +33,7 @@ export const Route = createFileRoute("/app/purchase/procurement/")({
 
 // ---------------------------------------------------------------------------
 // Tabs (route-local). This route owns the modern procurement vocabulary:
-// requisition → rfq → quote → po → receipt → blanket coverage → demand.
+// requisition → rfq → quote → award → deferred receiving → blanket coverage → demand.
 // ---------------------------------------------------------------------------
 
 export const PROCUREMENT_ROUTE_TABS = [
@@ -116,31 +120,11 @@ const PROCUREMENT_TAB_LABELS: Readonly<
   requisition: { armenian: "Requisitions", english: "Requisition" },
   rfq: { armenian: "RFQs", english: "RFQ" },
   quote: { armenian: "Quotes", english: "Quote" },
-  po: { armenian: "POs", english: "PO" },
-  receipt: { armenian: "Receipts", english: "Receipt" },
+  po: { armenian: "Award", english: "Draft PO" },
+  receipt: { armenian: "Receiving", english: "Deferred" },
   blanket: { armenian: "Blanket", english: "Coverage" },
   replenishment: { armenian: "Replenishment", english: "Demand" },
 };
-
-// ---------------------------------------------------------------------------
-// Response schemas (quote/po/receipt are not in the schema registry, so
-// we own minimal envelopes here for the route mutations.)
-// ---------------------------------------------------------------------------
-
-const ProcurementQuoteCreateResponseSchema = z.object({
-  ok: z.literal(true),
-  quote: z.object({ id: z.string().min(1) }),
-});
-
-const ProcurementPurchaseOrderCreateResponseSchema = z.object({
-  ok: z.literal(true),
-  purchaseOrder: z.object({ id: z.string().min(1) }),
-});
-
-const ProcurementReceiptCreateResponseSchema = z.object({
-  ok: z.literal(true),
-  receipt: z.object({ id: z.string().min(1) }),
-});
 
 // ---------------------------------------------------------------------------
 // ID pill
@@ -242,6 +226,7 @@ interface ProcurementFormShellProps {
   pending: boolean;
   error: string | null;
   success: string | null;
+  submitLabel?: string;
 }
 
 function ProcurementFormShell({
@@ -256,6 +241,7 @@ function ProcurementFormShell({
   pending,
   error,
   success,
+  submitLabel = "Submit",
 }: ProcurementFormShellProps) {
   return (
     <form
@@ -315,7 +301,7 @@ function ProcurementFormShell({
           disabled={disabled || pending}
           className="rounded-[var(--radius-md)] border border-[var(--color-accent)] bg-[var(--color-accent)] px-3 py-1.5 text-sm font-medium text-[var(--color-surface)] disabled:cursor-not-allowed disabled:opacity-50"
         >
-          {pending ? "Submitting..." : "Submit"}
+          {pending ? "Submitting..." : submitLabel}
         </button>
       </div>
     </form>
@@ -374,26 +360,43 @@ export function ProcurementRequisitionForm({
 }: {
   disabled: boolean;
   pill: React.ReactNode;
-  onCreated: (id: string) => void;
+  onCreated: (id: string, firstLineId: string | null) => void;
 }) {
   const mutation = useMutation({
     mutationFn: async (formData: FormData) => {
-      const neededBy = String(formData.get("neededBy") ?? "");
-      const justification = String(formData.get("justification") ?? "");
+      const neededBy = String(formData.get("neededBy") ?? "").trim();
+      const justification = String(formData.get("justification") ?? "").trim();
+      const suggestedVendorId = String(
+        formData.get("suggestedVendorId") ?? "",
+      ).trim();
       const payload: z.infer<typeof ProcurementRequisitionCreateRequestSchema> =
         {
           neededBy,
           ...(justification.length > 0 ? { justification } : {}),
-          idempotencyKey: `requisition-ui-${Date.now()}`,  
+          lines: [
+            {
+              catalogItemId: String(
+                formData.get("catalogItemId") ?? "",
+              ).trim(),
+              quantity: Number(formData.get("quantity") ?? 0),
+              uom: String(formData.get("uom") ?? "").trim(),
+              estUnitPrice: Number(formData.get("estUnitPrice") ?? 0),
+              ...(suggestedVendorId.length > 0 ? { suggestedVendorId } : {}),
+            },
+          ],
+          idempotencyKey: `requisition-ui-${Date.now()}`,
         };
       const result = await postJson(
         "/api/procurement/requisitions",
         payload,
         ProcurementRequisitionCreateResponseSchema,
       );
-      return result.requisition.id;
+      return {
+        id: result.requisition.id,
+        firstLineId: result.requisition.lines[0]?.id ?? null,
+      };
     },
-    onSuccess: (id) => onCreated(id),
+    onSuccess: ({ id, firstLineId }) => onCreated(id, firstLineId),
   });
 
   return (
@@ -407,6 +410,7 @@ export function ProcurementRequisitionForm({
       pending={mutation.isPending}
       error={mutation.isError ? errorMessage(mutation.error) : null}
       success={mutation.isSuccess ? "Requisition created" : null}
+      submitLabel="Create requisition"
       onSubmit={(event) => {
         event.preventDefault();
         const form = event.currentTarget;
@@ -434,6 +438,63 @@ export function ProcurementRequisitionForm({
           placeholder="Restock warehouse"
         />
       </div>
+      <div className="grid gap-3 sm:grid-cols-[minmax(0,1.5fr)_0.7fr_0.7fr_1fr]">
+        <div className="space-y-1">
+          <ProcurementFieldLabel htmlFor="procurement-requisition-catalogItemId">
+            Catalog item id
+          </ProcurementFieldLabel>
+          <ProcurementTextInput
+            id="procurement-requisition-catalogItemId"
+            name="catalogItemId"
+            required
+            placeholder="catitem-..."
+          />
+        </div>
+        <div className="space-y-1">
+          <ProcurementFieldLabel htmlFor="procurement-requisition-quantity">
+            Qty
+          </ProcurementFieldLabel>
+          <ProcurementTextInput
+            id="procurement-requisition-quantity"
+            name="quantity"
+            required
+            placeholder="5"
+          />
+        </div>
+        <div className="space-y-1">
+          <ProcurementFieldLabel htmlFor="procurement-requisition-uom">
+            UOM
+          </ProcurementFieldLabel>
+          <ProcurementTextInput
+            id="procurement-requisition-uom"
+            name="uom"
+            required
+            defaultValue="հատ"
+            placeholder="հատ"
+          />
+        </div>
+        <div className="space-y-1">
+          <ProcurementFieldLabel htmlFor="procurement-requisition-estUnitPrice">
+            Est unit price
+          </ProcurementFieldLabel>
+          <ProcurementTextInput
+            id="procurement-requisition-estUnitPrice"
+            name="estUnitPrice"
+            required
+            placeholder="95000"
+          />
+        </div>
+      </div>
+      <div className="space-y-1">
+        <ProcurementFieldLabel htmlFor="procurement-requisition-suggestedVendorId">
+          Suggested vendor id
+        </ProcurementFieldLabel>
+        <ProcurementTextInput
+          id="procurement-requisition-suggestedVendorId"
+          name="suggestedVendorId"
+          placeholder="vendor-..."
+        />
+      </div>
     </ProcurementFormShell>
   );
 }
@@ -442,24 +503,26 @@ export function ProcurementRequisitionForm({
 
 export function ProcurementRfqForm({
   disabled,
+  requisitionId,
   pill,
   onCreated,
 }: {
   disabled: boolean;
+  requisitionId: string | null;
   pill: React.ReactNode;
   onCreated: (id: string) => void;
 }) {
   const mutation = useMutation({
     mutationFn: async (formData: FormData) => {
-      const neededBy = String(formData.get("neededBy") ?? "");
-      const justification = String(formData.get("justification") ?? "");
+      if (requisitionId === null) {
+        throw new Error("Create a requisition before converting to RFQ.");
+      }
       const payload: z.infer<typeof ProcurementRfqConvertRequestSchema> = {
-        neededBy,
-        ...(justification.length > 0 ? { justification } : {}),
+        dueAt: String(formData.get("dueAt") ?? "").trim(),
         idempotencyKey: `rfq-ui-${Date.now()}`,
       };
       const result = await postJson(
-        "/api/procurement/rfqs",
+        `/api/procurement/requisitions/${requisitionId}/convert-to-rfq`,
         payload,
         ProcurementRfqConvertResponseSchema,
       );
@@ -478,7 +541,8 @@ export function ProcurementRfqForm({
       pill={pill}
       pending={mutation.isPending}
       error={mutation.isError ? errorMessage(mutation.error) : null}
-      success={mutation.isSuccess ? "RFQ created" : null}
+      success={mutation.isSuccess ? "RFQ converted" : null}
+      submitLabel="Convert to RFQ"
       onSubmit={(event) => {
         event.preventDefault();
         const form = event.currentTarget;
@@ -486,24 +550,14 @@ export function ProcurementRfqForm({
       }}
     >
       <div className="space-y-1">
-        <ProcurementFieldLabel htmlFor="procurement-rfq-neededBy">
-          Needed by
+        <ProcurementFieldLabel htmlFor="procurement-rfq-dueAt">
+          Due at
         </ProcurementFieldLabel>
         <ProcurementTextInput
-          id="procurement-rfq-neededBy"
-          name="neededBy"
+          id="procurement-rfq-dueAt"
+          name="dueAt"
           required
-          placeholder="2026-07-01"
-        />
-      </div>
-      <div className="space-y-1">
-        <ProcurementFieldLabel htmlFor="procurement-rfq-justification">
-          Justification
-        </ProcurementFieldLabel>
-        <ProcurementTextInput
-          id="procurement-rfq-justification"
-          name="justification"
-          placeholder="Restock warehouse"
+          placeholder="2026-07-15"
         />
       </div>
     </ProcurementFormShell>
@@ -514,30 +568,43 @@ export function ProcurementRfqForm({
 
 export function ProcurementQuoteForm({
   disabled,
+  rfqId,
+  requisitionLineId,
   pill,
   onCreated,
 }: {
   disabled: boolean;
+  rfqId: string | null;
+  requisitionLineId: string | null;
   pill: React.ReactNode;
-  onCreated: (id: string) => void;
+  onCreated: (id: string, vendorId: string) => void;
 }) {
   const mutation = useMutation({
     mutationFn: async (formData: FormData) => {
-      const rfqId = String(formData.get("rfqId") ?? "");
-      const amount = Number(formData.get("amount") ?? 0);
-      const payload = {
-        rfqId,
-        amount,
-        idempotencyKey: `quote-ui-${Date.now()}`,  
+      if (rfqId === null) {
+        throw new Error("Create an RFQ before recording a quote.");
+      }
+      const vendorId = String(formData.get("vendorId") ?? "").trim();
+      const payload: z.infer<typeof ProcurementRfqQuoteCreateRequestSchema> = {
+        vendorId,
+        requisitionLineId: String(
+          formData.get("requisitionLineId") ?? "",
+        ).trim(),
+        unitPrice: Number(formData.get("unitPrice") ?? 0),
+        currency: String(formData.get("currency") ?? "AMD")
+          .trim()
+          .toUpperCase(),
+        validUntil: String(formData.get("validUntil") ?? "").trim(),
+        idempotencyKey: `quote-ui-${Date.now()}`,
       };
       const result = await postJson(
-        "/api/procurement/quotes",
+        `/api/procurement/rfqs/${rfqId}/quotes`,
         payload,
-        ProcurementQuoteCreateResponseSchema,
+        ProcurementRfqQuoteCreateResponseSchema,
       );
-      return result.quote.id;
+      return { id: result.quote.id, vendorId };
     },
-    onSuccess: (id) => onCreated(id),
+    onSuccess: ({ id, vendorId }) => onCreated(id, vendorId),
   });
 
   return (
@@ -551,6 +618,7 @@ export function ProcurementQuoteForm({
       pending={mutation.isPending}
       error={mutation.isError ? errorMessage(mutation.error) : null}
       success={mutation.isSuccess ? "Quote created" : null}
+      submitLabel="Record quote"
       onSubmit={(event) => {
         event.preventDefault();
         const form = event.currentTarget;
@@ -558,53 +626,96 @@ export function ProcurementQuoteForm({
       }}
     >
       <div className="space-y-1">
-        <ProcurementFieldLabel htmlFor="procurement-quote-rfqId">
-          RFQ id
+        <ProcurementFieldLabel htmlFor="procurement-quote-vendorId">
+          Vendor id
         </ProcurementFieldLabel>
         <ProcurementTextInput
-          id="procurement-quote-rfqId"
-          name="rfqId"
+          id="procurement-quote-vendorId"
+          name="vendorId"
           required
-          placeholder="rfq-..."
+          placeholder="vendor-..."
         />
       </div>
       <div className="space-y-1">
-        <ProcurementFieldLabel htmlFor="procurement-quote-amount">
-          Amount
+        <ProcurementFieldLabel htmlFor="procurement-quote-requisitionLineId">
+          Requisition line id
         </ProcurementFieldLabel>
         <ProcurementTextInput
-          id="procurement-quote-amount"
-          name="amount"
+          id="procurement-quote-requisitionLineId"
+          name="requisitionLineId"
           required
-          placeholder="100000"
+          defaultValue={requisitionLineId ?? ""}
+          placeholder="prl-..."
         />
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <div className="space-y-1">
+          <ProcurementFieldLabel htmlFor="procurement-quote-unitPrice">
+            Unit price
+          </ProcurementFieldLabel>
+          <ProcurementTextInput
+            id="procurement-quote-unitPrice"
+            name="unitPrice"
+            required
+            placeholder="90000"
+          />
+        </div>
+        <div className="space-y-1">
+          <ProcurementFieldLabel htmlFor="procurement-quote-currency">
+            Currency
+          </ProcurementFieldLabel>
+          <ProcurementTextInput
+            id="procurement-quote-currency"
+            name="currency"
+            required
+            defaultValue="AMD"
+            placeholder="AMD"
+          />
+        </div>
+        <div className="space-y-1">
+          <ProcurementFieldLabel htmlFor="procurement-quote-validUntil">
+            Valid until
+          </ProcurementFieldLabel>
+          <ProcurementTextInput
+            id="procurement-quote-validUntil"
+            name="validUntil"
+            required
+            placeholder="2026-06-30"
+          />
+        </div>
       </div>
     </ProcurementFormShell>
   );
 }
 
-// ----- PO form -------------------------------------------------------------
+// ----- Award form ----------------------------------------------------------
 
 export function ProcurementPoForm({
   disabled,
+  rfqId,
+  defaultVendorId,
   pill,
   onCreated,
 }: {
   disabled: boolean;
+  rfqId: string | null;
+  defaultVendorId: string | null;
   pill: React.ReactNode;
   onCreated: (id: string) => void;
 }) {
   const mutation = useMutation({
     mutationFn: async (formData: FormData) => {
-      const quoteId = String(formData.get("quoteId") ?? "");
-      const payload = {
-        quoteId,
-        idempotencyKey: `po-ui-${Date.now()}`,  
+      if (rfqId === null) {
+        throw new Error("Create an RFQ before awarding it.");
+      }
+      const payload: z.infer<typeof ProcurementRfqAwardRequestSchema> = {
+        vendorId: String(formData.get("vendorId") ?? "").trim(),
+        idempotencyKey: `award-ui-${Date.now()}`,
       };
       const result = await postJson(
-        "/api/procurement/purchase-orders",
+        `/api/procurement/rfqs/${rfqId}/award`,
         payload,
-        ProcurementPurchaseOrderCreateResponseSchema,
+        ProcurementRfqAwardResponseSchema,
       );
       return result.purchaseOrder.id;
     },
@@ -614,14 +725,15 @@ export function ProcurementPoForm({
   return (
     <ProcurementFormShell
       tab="po"
-      titleArmenian="PO"
-      titleEnglish="Purchase Order"
+      titleArmenian="Award RFQ"
+      titleEnglish="Create draft PO from awarded vendor"
       disabled={disabled}
-      disabledReason="Create a quote first to enable PO issuance."
+      disabledReason="Record a quote first to enable award."
       pill={pill}
       pending={mutation.isPending}
       error={mutation.isError ? errorMessage(mutation.error) : null}
-      success={mutation.isSuccess ? "Purchase order created" : null}
+      success={mutation.isSuccess ? "RFQ awarded; draft PO created" : null}
+      submitLabel="Award"
       onSubmit={(event) => {
         event.preventDefault();
         const form = event.currentTarget;
@@ -629,14 +741,15 @@ export function ProcurementPoForm({
       }}
     >
       <div className="space-y-1">
-        <ProcurementFieldLabel htmlFor="procurement-po-quoteId">
-          Quote id
+        <ProcurementFieldLabel htmlFor="procurement-po-vendorId">
+          Award vendor id
         </ProcurementFieldLabel>
         <ProcurementTextInput
-          id="procurement-po-quoteId"
-          name="quoteId"
+          id="procurement-po-vendorId"
+          name="vendorId"
           required
-          placeholder="quote-..."
+          defaultValue={defaultVendorId ?? ""}
+          placeholder="vendor-..."
         />
       </div>
     </ProcurementFormShell>
@@ -648,58 +761,36 @@ export function ProcurementPoForm({
 export function ProcurementReceiptForm({
   disabled,
   pill,
-  onCreated,
 }: {
   disabled: boolean;
   pill: React.ReactNode;
-  onCreated: (id: string) => void;
 }) {
-  const mutation = useMutation({
-    mutationFn: async (formData: FormData) => {
-      const poId = String(formData.get("poId") ?? "");
-      const payload = {
-        poId,
-        idempotencyKey: `receipt-ui-${Date.now()}`,  
-      };
-      const result = await postJson(
-        "/api/procurement/receipts",
-        payload,
-        ProcurementReceiptCreateResponseSchema,
-      );
-      return result.receipt.id;
-    },
-    onSuccess: (id) => onCreated(id),
-  });
-
   return (
-    <ProcurementFormShell
-      tab="receipt"
-      titleArmenian="Receipt"
-      titleEnglish="Receipt"
-      disabled={disabled}
-      disabledReason="Create a PO first to enable goods receipt."
-      pill={pill}
-      pending={mutation.isPending}
-      error={mutation.isError ? errorMessage(mutation.error) : null}
-      success={mutation.isSuccess ? "Receipt recorded" : null}
-      onSubmit={(event) => {
-        event.preventDefault();
-        const form = event.currentTarget;
-        mutation.mutate(new FormData(form));
-      }}
+    <section
+      data-testid="procurement-receipt-form"
+      data-entity="procurement-receipt-form"
+      className="space-y-4 rounded-[var(--radius-md)] border border-[var(--color-border)] bg-[var(--color-surface)] p-4"
     >
-      <div className="space-y-1">
-        <ProcurementFieldLabel htmlFor="procurement-receipt-poId">
-          PO id
-        </ProcurementFieldLabel>
-        <ProcurementTextInput
-          id="procurement-receipt-poId"
-          name="poId"
-          required
-          placeholder="po-..."
-        />
-      </div>
-    </ProcurementFormShell>
+      <header className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="text-base font-semibold text-[var(--color-text)]">
+            Receiving
+          </h3>
+          <p className="text-xs text-[var(--color-text-muted)]">
+            Deferred from tender alignment
+          </p>
+        </div>
+        {pill}
+      </header>
+      <p
+        data-testid="procurement-receipt-deferred"
+        className="rounded-[var(--radius-sm)] border border-dashed border-[var(--color-border)] bg-[var(--color-surface-muted)] p-2 text-xs text-[var(--color-text-muted)]"
+      >
+        {disabled
+          ? "Award an RFQ to create the draft PO first."
+          : "Tender flow stops at RFQ award. Receive goods from the existing purchase order receiving screen."}
+      </p>
+    </section>
   );
 }
 
@@ -1153,10 +1244,11 @@ export function ProcurementWorkspace({
       : procurementRouteTabFromHash(window.location.hash)),
   );
   const [requisitionId, setRequisitionId] = useState<string | null>(null);
+  const [requisitionLineId, setRequisitionLineId] = useState<string | null>(null);
   const [rfqId, setRfqId] = useState<string | null>(null);
   const [quoteId, setQuoteId] = useState<string | null>(null);
+  const [quoteVendorId, setQuoteVendorId] = useState<string | null>(null);
   const [poId, setPoId] = useState<string | null>(null);
-  const [receiptId, setReceiptId] = useState<string | null>(null);
   const [blanketId, setBlanketId] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1186,7 +1278,7 @@ export function ProcurementWorkspace({
       >
         <ProcurementHeader
           titleArmenian="Գ Procurement"
-          titleEnglish="Procurement requisitions · RFQs · quotes · POs · receipts · blanket coverage · replenishment"
+          titleEnglish="Procurement requisitions · RFQs · quotes · awards · blanket coverage · replenishment"
         />
         <ProcurementAccessDeniedCard resource="procurement" />
       </main>
@@ -1201,7 +1293,7 @@ export function ProcurementWorkspace({
     >
       <ProcurementHeader
         titleArmenian="Գ Procurement"
-        titleEnglish="Procurement requisitions · RFQs · quotes · POs · receipts · blanket coverage · replenishment"
+        titleEnglish="Procurement requisitions · RFQs · quotes · awards · blanket coverage · replenishment"
       />
       <ProcurementTabStrip active={activeTab} onChange={setActiveTabWithHash} />
 
@@ -1211,29 +1303,50 @@ export function ProcurementWorkspace({
           pill={
             <ProcurementIdPill tab="requisition" id={requisitionId} />
           }
-          onCreated={setRequisitionId}
+          onCreated={(id, firstLineId) => {
+            setRequisitionId(id);
+            setRequisitionLineId(firstLineId);
+            setRfqId(null);
+            setQuoteId(null);
+            setQuoteVendorId(null);
+            setPoId(null);
+          }}
         />
       ) : null}
 
       {activeTab === "rfq" ? (
         <ProcurementRfqForm
           disabled={requisitionId === null}
+          requisitionId={requisitionId}
           pill={<ProcurementIdPill tab="rfq" id={rfqId} />}
-          onCreated={setRfqId}
+          onCreated={(id) => {
+            setRfqId(id);
+            setQuoteId(null);
+            setQuoteVendorId(null);
+            setPoId(null);
+          }}
         />
       ) : null}
 
       {activeTab === "quote" ? (
         <ProcurementQuoteForm
           disabled={rfqId === null}
+          rfqId={rfqId}
+          requisitionLineId={requisitionLineId}
           pill={<ProcurementIdPill tab="quote" id={quoteId} />}
-          onCreated={setQuoteId}
+          onCreated={(id, vendorId) => {
+            setQuoteId(id);
+            setQuoteVendorId(vendorId);
+            setPoId(null);
+          }}
         />
       ) : null}
 
       {activeTab === "po" ? (
         <ProcurementPoForm
-          disabled={quoteId === null}
+          disabled={rfqId === null || quoteId === null}
+          rfqId={rfqId}
+          defaultVendorId={quoteVendorId}
           pill={<ProcurementIdPill tab="po" id={poId} />}
           onCreated={setPoId}
         />
@@ -1242,8 +1355,7 @@ export function ProcurementWorkspace({
       {activeTab === "receipt" ? (
         <ProcurementReceiptForm
           disabled={poId === null}
-          pill={<ProcurementIdPill tab="receipt" id={receiptId} />}
-          onCreated={setReceiptId}
+          pill={<ProcurementIdPill tab="receipt" id={null} />}
         />
       ) : null}
 

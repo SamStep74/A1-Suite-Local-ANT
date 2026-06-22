@@ -3489,8 +3489,10 @@ export type ProcurementAllocationMethod = z.infer<
 >;
 
 export const ProcurementRequisitionStatusSchema = z.enum([
+  "draft",
   "open",
   "rfq",
+  "awarded",
   "closed",
   "cancelled",
 ]);
@@ -3501,10 +3503,13 @@ export type ProcurementRequisitionStatus = z.infer<
 /* ── requisitions ── */
 
 export const ProcurementRequisitionLineSchema = z.object({
+  id: z.string().min(1).optional(),
   catalogItemId: z.string().min(1).max(80),
   quantity: z.number().int().positive(),
-  uom: z.string().min(1).max(20),
-});
+  uom: z.string().min(1).max(20).nullable().optional(),
+  estUnitPrice: z.number().nonnegative().optional(),
+  suggestedVendorId: z.string().min(1).nullable().optional(),
+}).passthrough();
 export type ProcurementRequisitionLine = z.infer<
   typeof ProcurementRequisitionLineSchema
 >;
@@ -3512,11 +3517,11 @@ export type ProcurementRequisitionLine = z.infer<
 export const ProcurementRequisitionSchema = z.object({
   id: z.string(),
   neededBy: z.string(),
-  justification: z.string().nullable(),
+  justification: z.string().nullable().optional(),
   lines: z.array(ProcurementRequisitionLineSchema),
   createdAt: z.string(),
   status: ProcurementRequisitionStatusSchema,
-});
+}).passthrough();
 export type ProcurementRequisition = z.infer<
   typeof ProcurementRequisitionSchema
 >;
@@ -3528,19 +3533,35 @@ export const ProcurementRfqShortlistedVendorSchema = z.object({
   name: z.string(),
   score: z.number(),
   avgPrice: z.number(),
-});
+  leadTimeDays: z.number().nullable().optional(),
+}).passthrough();
 export type ProcurementRfqShortlistedVendor = z.infer<
   typeof ProcurementRfqShortlistedVendorSchema
 >;
 
+export const ProcurementRfqQuoteSchema = z.object({
+  id: z.string(),
+  rfqId: z.string(),
+  vendorId: z.string(),
+  requisitionLineId: z.string(),
+  unitPrice: z.number().nonnegative(),
+  currency: z.string().min(3).max(3),
+  validUntil: z.string(),
+  createdAt: z.string().optional(),
+}).passthrough();
+export type ProcurementRfqQuote = z.infer<typeof ProcurementRfqQuoteSchema>;
+
 export const ProcurementRfqSchema = z.object({
   id: z.string(),
   requisitionId: z.string(),
+  sentAt: z.string().optional(),
+  dueAt: z.string().optional(),
+  status: z.string().optional(),
   shortlistedVendors: z.array(ProcurementRfqShortlistedVendorSchema),
-  quotes: z.array(z.unknown()),
-  award: z.unknown().nullable(),
-  createdAt: z.string(),
-});
+  quotes: z.array(ProcurementRfqQuoteSchema).nullable().optional(),
+  award: z.unknown().nullable().optional(),
+  createdAt: z.string().optional(),
+}).passthrough();
 export type ProcurementRfq = z.infer<typeof ProcurementRfqSchema>;
 
 /* ── blanket orders ── */
@@ -3645,14 +3666,25 @@ export type ProcurementReplenishmentSuggestion = z.infer<
   typeof ProcurementReplenishmentSuggestionSchema
 >;
 
-/* ── request payloads (5 create endpoints — all with idempotencyKey) ── */
+/* ── request payloads (create endpoints — all with idempotencyKey) ── */
 
 const ProcurementIdempotencyKeySchema = z.string().min(1).max(200);
+
+export const ProcurementRequisitionCreateLineSchema = z.object({
+  catalogItemId: z.string().min(1).max(80),
+  quantity: z.number().int().positive(),
+  uom: z.string().min(1).max(20),
+  estUnitPrice: z.number().nonnegative(),
+  suggestedVendorId: z.string().min(1).optional(),
+});
+export type ProcurementRequisitionCreateLine = z.infer<
+  typeof ProcurementRequisitionCreateLineSchema
+>;
 
 export const ProcurementRequisitionCreateRequestSchema = z.object({
   neededBy: z.string().min(1),
   justification: z.string().max(500).optional(),
-  lines: z.array(ProcurementRequisitionLineSchema).optional(),
+  lines: z.array(ProcurementRequisitionCreateLineSchema).min(1),
   idempotencyKey: ProcurementIdempotencyKeySchema,
 });
 export type ProcurementRequisitionCreateRequest = z.infer<
@@ -3660,12 +3692,31 @@ export type ProcurementRequisitionCreateRequest = z.infer<
 >;
 
 export const ProcurementRfqConvertRequestSchema = z.object({
-  neededBy: z.string().min(1),
-  justification: z.string().max(500).optional(),
+  dueAt: z.string().min(1),
   idempotencyKey: ProcurementIdempotencyKeySchema,
 });
 export type ProcurementRfqConvertRequest = z.infer<
   typeof ProcurementRfqConvertRequestSchema
+>;
+
+export const ProcurementRfqQuoteCreateRequestSchema = z.object({
+  vendorId: z.string().min(1),
+  requisitionLineId: z.string().min(1),
+  unitPrice: z.number().nonnegative(),
+  currency: z.string().min(3).max(3),
+  validUntil: z.string().min(1),
+  idempotencyKey: ProcurementIdempotencyKeySchema,
+});
+export type ProcurementRfqQuoteCreateRequest = z.infer<
+  typeof ProcurementRfqQuoteCreateRequestSchema
+>;
+
+export const ProcurementRfqAwardRequestSchema = z.object({
+  vendorId: z.string().min(1),
+  idempotencyKey: ProcurementIdempotencyKeySchema,
+});
+export type ProcurementRfqAwardRequest = z.infer<
+  typeof ProcurementRfqAwardRequestSchema
 >;
 
 export const ProcurementBlanketOrderCreateRequestSchema = z.object({
@@ -3720,6 +3771,33 @@ export const ProcurementRfqConvertResponseSchema = z.object({
 });
 export type ProcurementRfqConvertResponse = z.infer<
   typeof ProcurementRfqConvertResponseSchema
+>;
+
+export const ProcurementRfqQuoteCreateResponseSchema = z.object({
+  ok: z.literal(true),
+  quote: ProcurementRfqQuoteSchema,
+});
+export type ProcurementRfqQuoteCreateResponse = z.infer<
+  typeof ProcurementRfqQuoteCreateResponseSchema
+>;
+
+export const ProcurementRfqAwardPurchaseOrderSchema = z.object({
+  id: z.string(),
+  orderNumber: z.string().optional(),
+  status: z.string().optional(),
+  vendorId: z.string().optional(),
+  total: z.number().optional(),
+}).passthrough();
+export type ProcurementRfqAwardPurchaseOrder = z.infer<
+  typeof ProcurementRfqAwardPurchaseOrderSchema
+>;
+
+export const ProcurementRfqAwardResponseSchema = z.object({
+  ok: z.literal(true),
+  purchaseOrder: ProcurementRfqAwardPurchaseOrderSchema,
+});
+export type ProcurementRfqAwardResponse = z.infer<
+  typeof ProcurementRfqAwardResponseSchema
 >;
 
 export const ProcurementBlanketOrderCreateResponseSchema = z.object({

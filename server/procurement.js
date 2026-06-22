@@ -50,6 +50,226 @@ function nonNegativeInt(value, name) {
   return n;
 }
 
+function formatRequisitionLine(row) {
+  const catalogItemId = row.catalog_item_id ?? row.catalogItemId;
+  const suggestedVendorId = row.suggested_vendor_id ?? row.suggestedVendorId ?? null;
+  const createdAt = row.created_at ?? row.createdAt;
+  return {
+    id: row.id,
+    catalogItemId,
+    quantity: Number(row.quantity || 0),
+    uom: String(row.uom || "հատ"),
+    estUnitPrice: Number(row.est_unit_price ?? row.estUnitPrice ?? 0),
+    suggestedVendorId,
+    ...(createdAt ? { createdAt } : {})
+  };
+}
+
+function formatRequisition(row, lines = []) {
+  return {
+    id: row.id,
+    status: row.status,
+    neededBy: row.needed_by,
+    justification: row.justification || "",
+    requesterId: row.requester_id || "",
+    rfqId: row.rfq_id || null,
+    lines,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function getRequisition(db, orgId, id) {
+  const row = db.prepare("SELECT * FROM purchase_requisitions WHERE org_id = ? AND id = ?").get(orgId, id);
+  if (!row) return null;
+  const lines = db.prepare(`
+    SELECT *
+    FROM purchase_requisition_lines
+    WHERE org_id = ? AND requisition_id = ?
+    ORDER BY created_at, id
+  `).all(orgId, id).map(formatRequisitionLine);
+  return formatRequisition(row, lines);
+}
+
+function listRequisitions(db, orgId) {
+  return db.prepare(`
+    SELECT *
+    FROM purchase_requisitions
+    WHERE org_id = ?
+    ORDER BY needed_by ASC, created_at DESC, id
+  `).all(orgId).map(row => getRequisition(db, orgId, row.id));
+}
+
+function formatShortlistedVendor(row) {
+  const vendorId = row.vendorId ?? row.vendor_id ?? "";
+  const name = row.name || row.vendorName || row.vendor_name || vendorId;
+  const label = row.label || name || vendorId;
+  return {
+    vendorId,
+    name,
+    vendorName: name,
+    label,
+    score: Number(row.score || 0),
+    avgPrice: Number(row.avgPrice ?? row.avg_price ?? 0),
+    leadTimeDays: Number(row.leadTimeDays ?? row.lead_time_days ?? 0),
+    sentAt: row.sentAt ?? row.sent_at ?? "",
+    respondedAt: row.respondedAt ?? row.responded_at ?? ""
+  };
+}
+
+function formatQuote(row) {
+  const id = row.id;
+  const rfqId = row.rfq_id ?? row.rfqId;
+  const vendorId = row.vendor_id ?? row.vendorId;
+  const vendorName = row.vendor_name ?? row.vendorName ?? "";
+  const requisitionLineId = row.requisition_line_id ?? row.requisitionLineId;
+  const unitPrice = Number(row.unit_price ?? row.unitPrice ?? row.amount ?? 0);
+  const currency = String(row.currency || "AMD").toUpperCase();
+  const validUntil = row.valid_until ?? row.validUntil;
+  const createdAt = row.created_at ?? row.createdAt;
+  const quote = {
+    id,
+    quoteId: id,
+    rfqId,
+    vendorId,
+    vendorName,
+    label: vendorName ? `${vendorName} quote` : id,
+    requisitionLineId,
+    unitPrice,
+    amount: unitPrice,
+    currency,
+    validUntil,
+    paymentTerms: row.payment_terms ?? row.paymentTerms ?? "",
+    notes: row.notes || "",
+    createdAt,
+    evidence: {
+      kind: "rfq_quote",
+      quoteId: id,
+      rfqId,
+      vendorId,
+      requisitionLineId,
+      unitPrice,
+      currency,
+      recordedAt: createdAt
+    }
+  };
+  const catalogItemId = row.catalog_item_id ?? row.catalogItemId;
+  if (catalogItemId) {
+    quote.line = {
+      id: requisitionLineId,
+      catalogItemId,
+      quantity: Number(row.quantity || 0),
+      uom: String(row.uom || "հատ")
+    };
+  }
+  return quote;
+}
+
+function getRfqQuotes(db, orgId, rfqId) {
+  return db.prepare(`
+    SELECT rfq_quotes.*, purchase_vendors.name AS vendor_name,
+      purchase_requisition_lines.catalog_item_id,
+      purchase_requisition_lines.quantity,
+      purchase_requisition_lines.uom
+    FROM rfq_quotes
+    LEFT JOIN purchase_vendors ON purchase_vendors.id = rfq_quotes.vendor_id
+      AND purchase_vendors.org_id = rfq_quotes.org_id
+    LEFT JOIN purchase_requisition_lines ON purchase_requisition_lines.id = rfq_quotes.requisition_line_id
+      AND purchase_requisition_lines.org_id = rfq_quotes.org_id
+    WHERE rfq_quotes.org_id = ? AND rfq_quotes.rfq_id = ?
+    ORDER BY rfq_quotes.created_at, rfq_quotes.id
+  `).all(orgId, rfqId).map(formatQuote);
+}
+
+function getRfqVendors(db, orgId, rfqId, requisitionId) {
+  let scoredByVendor = new Map();
+  try {
+    scoredByVendor = new Map(scoreVendors(db, orgId, requisitionId).map(vendor => [vendor.vendorId, vendor]));
+  } catch (_) {
+    scoredByVendor = new Map();
+  }
+  return db.prepare(`
+    SELECT rfq_request_vendors.*, purchase_vendors.name AS vendor_name
+    FROM rfq_request_vendors
+    LEFT JOIN purchase_vendors ON purchase_vendors.id = rfq_request_vendors.vendor_id
+      AND purchase_vendors.org_id = rfq_request_vendors.org_id
+    WHERE rfq_request_vendors.org_id = ? AND rfq_request_vendors.rfq_id = ?
+    ORDER BY rfq_request_vendors.sent_at, purchase_vendors.name, rfq_request_vendors.vendor_id
+  `).all(orgId, rfqId).map(row => formatShortlistedVendor({
+    ...row,
+    ...(scoredByVendor.get(row.vendor_id) || {})
+  }));
+}
+
+function getRfqAward(db, orgId, row) {
+  if (row.status !== "awarded") return null;
+  const orderNumber = `PO-RFQ-${row.id.slice(-6).toUpperCase()}`;
+  const order = db.prepare(`
+    SELECT purchase_orders.*, purchase_vendors.name AS vendor_name
+    FROM purchase_orders
+    LEFT JOIN purchase_vendors ON purchase_vendors.id = purchase_orders.vendor_id
+      AND purchase_vendors.org_id = purchase_orders.org_id
+    WHERE purchase_orders.org_id = ? AND purchase_orders.order_number = ?
+    ORDER BY purchase_orders.created_at DESC
+    LIMIT 1
+  `).get(orgId, orderNumber);
+  if (!order) {
+    return { rfqId: row.id, status: "awarded", awarded: true };
+  }
+  return {
+    rfqId: row.id,
+    status: "awarded",
+    awarded: true,
+    purchaseOrderId: order.id,
+    orderNumber: order.order_number,
+    vendorId: order.vendor_id || "",
+    vendorName: order.vendor_name || order.supplier || "",
+    total: Number(order.total || 0),
+    currency: order.currency,
+    awardedAt: order.created_at
+  };
+}
+
+function formatRfq(db, orgId, row, shortlistedOverride = null) {
+  const quotes = getRfqQuotes(db, orgId, row.id);
+  const shortlistedVendors = Array.isArray(shortlistedOverride)
+    ? shortlistedOverride.map(formatShortlistedVendor)
+    : getRfqVendors(db, orgId, row.id, row.requisition_id);
+  const award = getRfqAward(db, orgId, row);
+  return {
+    id: row.id,
+    rfqId: row.id,
+    requisitionId: row.requisition_id,
+    sentAt: row.sent_at,
+    dueAt: row.due_at,
+    neededBy: row.due_at,
+    status: row.status,
+    createdByUserId: row.created_by_user_id || "",
+    createdAt: row.created_at || row.sent_at,
+    shortlistedVendors,
+    shortlisted: shortlistedVendors,
+    vendors: shortlistedVendors,
+    quotes,
+    quoteCount: quotes.length,
+    award,
+    awarded: award !== null
+  };
+}
+
+function getRfq(db, orgId, id) {
+  const row = db.prepare("SELECT * FROM rfq_requests WHERE org_id = ? AND id = ?").get(orgId, id);
+  return row ? formatRfq(db, orgId, row) : null;
+}
+
+function listRfqs(db, orgId) {
+  return db.prepare(`
+    SELECT *
+    FROM rfq_requests
+    WHERE org_id = ?
+    ORDER BY created_at DESC, id
+  `).all(orgId).map(row => formatRfq(db, orgId, row));
+}
+
 function createRequisition(db, user, body) {
   const lines = Array.isArray(body.lines) ? body.lines : [];
   if (lines.length === 0) {
@@ -66,16 +286,19 @@ function createRequisition(db, user, body) {
       .run(id, user.org_id, user.id, "open", required(body.neededBy, "neededBy"), String(body.justification || ""), now, now);
     for (const line of lines) {
       const lineId = newId("prl");
+      const quantity = positiveInt(line.quantity, "quantity");
+      const uom = String(line.uom || "հատ");
+      const estUnitPrice = nonNegativeInt(line.estUnitPrice, "estUnitPrice");
       db.prepare("INSERT INTO purchase_requisition_lines (id, org_id, requisition_id, catalog_item_id, quantity, uom, est_unit_price, suggested_vendor_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)")
-        .run(lineId, user.org_id, id, required(line.catalogItemId, "catalogItemId"), positiveInt(line.quantity, "quantity"), String(line.uom || "հատ"), nonNegativeInt(line.estUnitPrice, "estUnitPrice"), line.suggestedVendorId || null, now);
-      lineRows.push({ id: lineId, catalogItemId: line.catalogItemId, quantity: line.quantity, estUnitPrice: line.estUnitPrice || 0, suggestedVendorId: line.suggestedVendorId || null });
+        .run(lineId, user.org_id, id, required(line.catalogItemId, "catalogItemId"), quantity, uom, estUnitPrice, line.suggestedVendorId || null, now);
+      lineRows.push(formatRequisitionLine({ id: lineId, catalogItemId: line.catalogItemId, quantity, uom, estUnitPrice, suggestedVendorId: line.suggestedVendorId || null, createdAt: now }));
     }
     db.exec("COMMIT");
   } catch (err) {
     db.exec("ROLLBACK");
     throw err;
   }
-  return {
+  return getRequisition(db, user.org_id, id) || {
     id,
     status: "open",
     neededBy: body.neededBy,
@@ -123,7 +346,7 @@ function scoreVendors(db, orgId, requisitionId) {
 }
 
 function convertRequisitionToRfq(db, user, requisitionId, body) {
-  const dueAt = required(body.dueAt, "dueAt");
+  const dueAt = required(body.dueAt || body.neededBy, "dueAt");
   const now = new Date().toISOString();
   const rfqId = newId("rfq");
   let shortlisted = [];
@@ -143,13 +366,22 @@ function convertRequisitionToRfq(db, user, requisitionId, body) {
     db.exec("ROLLBACK");
     throw err;
   }
-  return { id: rfqId, requisitionId, sentAt: now, dueAt, status: "open", shortlistedVendors: shortlisted };
+  const rfq = getRfq(db, user.org_id, rfqId);
+  return rfq || formatRfq(db, user.org_id, {
+    id: rfqId,
+    requisition_id: requisitionId,
+    sent_at: now,
+    due_at: dueAt,
+    status: "open",
+    created_by_user_id: user.id,
+    created_at: now
+  }, shortlisted);
 }
 
 function recordQuote(db, user, rfqId, body) {
   const lineId = required(body.requisitionLineId, "requisitionLineId");
   const vendorId = required(body.vendorId, "vendorId");
-  const unitPrice = nonNegativeInt(body.unitPrice, "unitPrice");
+  const unitPrice = nonNegativeInt(body.unitPrice ?? body.amount, "unitPrice");
   const currency = String(body.currency || "AMD").toUpperCase();
   const validUntil = required(body.validUntil, "validUntil");
   const now = new Date().toISOString();
@@ -158,7 +390,8 @@ function recordQuote(db, user, rfqId, body) {
     .run(id, user.org_id, rfqId, vendorId, lineId, unitPrice, currency, validUntil, String(body.paymentTerms || ""), String(body.notes || ""), now);
   db.prepare("UPDATE rfq_request_vendors SET responded_at = ? WHERE org_id = ? AND rfq_id = ? AND vendor_id = ?")
     .run(now, user.org_id, rfqId, vendorId);
-  return { id, rfqId, vendorId, requisitionLineId: lineId, unitPrice, currency, validUntil, createdAt: now };
+  const quote = getRfqQuotes(db, user.org_id, rfqId).find(item => item.id === id);
+  return quote || formatQuote({ id, rfqId, vendorId, requisitionLineId: lineId, unitPrice, currency, validUntil, createdAt: now });
 }
 
 function awardRfq(db, user, rfqId, body) {
@@ -170,7 +403,7 @@ function awardRfq(db, user, rfqId, body) {
     throw err;
   }
   const lines = db.prepare(`
-    SELECT ql.requisition_line_id AS requisitionLineId, ql.unit_price AS unitPrice, ql.currency,
+    SELECT ql.id AS quoteId, ql.requisition_line_id AS requisitionLineId, ql.unit_price AS unitPrice, ql.currency,
            rl.catalog_item_id AS catalogItemId, rl.quantity, rl.uom
     FROM rfq_quotes ql
     JOIN purchase_requisition_lines rl ON rl.id = ql.requisition_line_id
@@ -185,11 +418,12 @@ function awardRfq(db, user, rfqId, body) {
   const orderId = newId("po");
   const orderNumber = `PO-RFQ-${rfqId.slice(-6).toUpperCase()}`;
   const vendor = db.prepare("SELECT name FROM purchase_vendors WHERE org_id = ? AND id = ?").get(user.org_id, vendorId);
+  const currency = String(lines[0]?.currency || "AMD").toUpperCase();
+  let subtotal = 0;
   db.exec("BEGIN");
   try {
     db.prepare("INSERT INTO purchase_orders (id, org_id, vendor_id, order_number, supplier, supplier_tax_id, status, subtotal, vat, total, currency, order_date, expected_date, created_by_user_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
-      .run(orderId, user.org_id, vendorId, orderNumber, vendor?.name || "", "", "rfq", 0, 0, 0, "AMD", now.slice(0, 10), now.slice(0, 10), user.id, now, now);
-    let subtotal = 0;
+      .run(orderId, user.org_id, vendorId, orderNumber, vendor?.name || "", "", "rfq", 0, 0, 0, currency, now.slice(0, 10), now.slice(0, 10), user.id, now, now);
     for (const line of lines) {
       const lineSubtotal = line.unitPrice * line.quantity;
       subtotal += lineSubtotal;
@@ -204,7 +438,44 @@ function awardRfq(db, user, rfqId, body) {
     db.exec("ROLLBACK");
     throw err;
   }
-  return { id: orderId, orderNumber, status: "rfq", vendorId, total: 0 };
+  const award = {
+    rfqId,
+    status: "awarded",
+    awarded: true,
+    purchaseOrderId: orderId,
+    orderNumber,
+    vendorId,
+    vendorName: vendor?.name || "",
+    quoteIds: lines.map(line => line.quoteId),
+    total: subtotal,
+    currency,
+    awardedAt: now
+  };
+  return {
+    id: orderId,
+    purchaseOrderId: orderId,
+    orderNumber,
+    status: "rfq",
+    vendorId,
+    vendorName: vendor?.name || "",
+    subtotal,
+    total: subtotal,
+    currency,
+    rfqId,
+    award,
+    awardEvidence: award,
+    lines: lines.map(line => ({
+      quoteId: line.quoteId,
+      requisitionLineId: line.requisitionLineId,
+      catalogItemId: line.catalogItemId,
+      quantity: Number(line.quantity || 0),
+      uom: String(line.uom || "հատ"),
+      unitCost: Number(line.unitPrice || 0),
+      subtotal: Number(line.unitPrice || 0) * Number(line.quantity || 0),
+      total: Number(line.unitPrice || 0) * Number(line.quantity || 0),
+      currency
+    }))
+  };
 }
 
 function createBlanketOrder(db, user, body) {
@@ -690,6 +961,10 @@ function selectVendor(db, orgId, catalogItemId, quantity) {
 }
 
 module.exports = {
+  getRequisition,
+  listRequisitions,
+  getRfq,
+  listRfqs,
   createRequisition,
   scoreVendors,
   convertRequisitionToRfq,
