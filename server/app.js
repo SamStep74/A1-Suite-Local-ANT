@@ -754,6 +754,22 @@ function registerApi(app, db, options = {}) {
     return createPosSaleRefund(db, user, saleId, request.body === undefined ? {} : request.body);
   });
 
+  app.get("/api/pos/cash-sessions/:id/terminal-settlement-preview", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosReader(user);
+    const sessionId = normalizePosCashSessionPathId(request.params.id);
+    return { ok: true, preview: getPosTerminalSettlementPreview(db, user.org_id, sessionId) };
+  });
+
+  app.post("/api/pos/cash-sessions/:id/terminal-settlements", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "pos");
+    requirePosWriter(user);
+    const sessionId = normalizePosCashSessionPathId(request.params.id);
+    return createPosTerminalSettlement(db, user, sessionId, request.body === undefined ? {} : request.body);
+  });
+
   app.post("/api/pos/cash-sessions/:id/close", async request => {
     const user = await app.auth(request);
     requireAppAccess(db, user, "pos");
@@ -47090,6 +47106,7 @@ const ORG_BACKUP_TABLES = [
   "pos_sale_lines",
   "pos_receipt_packets",
   "pos_sale_refunds",
+  "pos_terminal_settlements",
   "pos_sale_refund_lines",
   "stock_locations",
   "stock_quants",
@@ -54843,9 +54860,15 @@ function getPosWorkspace(db, user) {
     .filter(item => item.fiscalReceiptRequired);
   const activeStockLocations = getStockLocations(db, user.org_id)
     .filter(location => location.status === "active" && location.locationType === "internal");
+  const terminalSettlementPreviews = sessions
+    .filter(session => session.status === "closed")
+    .slice(0, 5)
+    .map(session => getPosTerminalSettlementPreview(db, user.org_id, session.id));
   return {
     openSession: getOpenPosCashSession(db, user.org_id, user.id),
     sessions,
+    terminalSettlementPreviews,
+    terminalSettlement: terminalSettlementPreviews[0] || null,
     catalogItems: activeFiscalCatalogItems,
     activeFiscalCatalogItems,
     activeStockLocations,
@@ -54874,7 +54897,8 @@ function getPosWorkspace(db, user) {
       offlineReplay: "not-implemented",
       receiptPrinting: "not-implemented",
       inventoryPosting: "available",
-      ledgerPosting: "available"
+      ledgerPosting: "available",
+      terminalSettlement: "available"
     }
   };
 }
@@ -54962,12 +54986,70 @@ function buildPosSaleRefundResponse(db, orgId, refundId, saleId, sessionId, idem
   };
 }
 
+function buildPosTerminalSettlementResponse(db, orgId, settlementId, sessionId, idempotent = false) {
+  return {
+    ok: true,
+    idempotent,
+    settlement: getPosTerminalSettlementById(db, orgId, settlementId),
+    preview: getPosTerminalSettlementPreview(db, orgId, sessionId),
+    session: getPosCashSession(db, orgId, sessionId)
+  };
+}
+
 function getPosSaleRefundSourceRow(db, orgId, sourceKey) {
   return db.prepare(`
     SELECT id, sale_id, cash_session_id
     FROM pos_sale_refunds
     WHERE org_id = ? AND source_key = ?
   `).get(orgId, sourceKey) || null;
+}
+
+function getPosTerminalSettlementSourceRow(db, orgId, sourceKey) {
+  return db.prepare(`
+    SELECT id, cash_session_id
+    FROM pos_terminal_settlements
+    WHERE org_id = ? AND source_key = ?
+  `).get(orgId, sourceKey) || null;
+}
+
+function getPosTerminalSettlementPreview(db, orgId, sessionId) {
+  const session = getPosCashSessionRow(db, orgId, sessionId);
+  if (!session) throwPosCashSessionNotFound();
+  const cardSales = db.prepare(`
+    SELECT COALESCE(SUM(total_amd), 0) AS total, COUNT(*) AS count
+    FROM pos_sales
+    WHERE org_id = ? AND cash_session_id = ? AND payment_method = 'card'
+      AND status IN ('posted', 'refunded', 'refunded_full')
+  `).get(orgId, sessionId);
+  const cardRefunds = db.prepare(`
+    SELECT COALESCE(SUM(refunded_total_amd), 0) AS total, COUNT(*) AS count
+    FROM pos_sale_refunds
+    WHERE org_id = ? AND cash_session_id = ? AND refund_method = 'card' AND status = 'posted'
+  `).get(orgId, sessionId);
+  const postedSettlements = db.prepare(`
+    SELECT COALESCE(SUM(settled_total_amd), 0) AS total, COUNT(*) AS count
+    FROM pos_terminal_settlements
+    WHERE org_id = ? AND cash_session_id = ? AND payment_method = 'card' AND status = 'posted'
+  `).get(orgId, sessionId);
+  const netCardClearing = Number(cardSales.total || 0) - Number(cardRefunds.total || 0);
+  const outstandingAmount = netCardClearing - Number(postedSettlements.total || 0);
+  return {
+    cashSessionId: sessionId,
+    sessionStatus: session.status,
+    paymentMethod: "card",
+    clearingAccountCode: "255",
+    bankAccountCode: "252",
+    cardSalesTotal: Number(cardSales.total || 0),
+    cardSalesCount: Number(cardSales.count || 0),
+    cardRefundsTotal: Number(cardRefunds.total || 0),
+    cardRefundsCount: Number(cardRefunds.count || 0),
+    settledTotal: Number(postedSettlements.total || 0),
+    settlementCount: Number(postedSettlements.count || 0),
+    netCardClearing,
+    outstandingAmount,
+    ready: session.status === "closed" && outstandingAmount > 0,
+    recentSettlements: getPosTerminalSettlements(db, orgId, sessionId, 5)
+  };
 }
 
 function buildPosSaleLines(db, orgId, lines) {
@@ -55545,6 +55627,118 @@ function createPosSaleRefund(db, user, saleId, body) {
   return buildPosSaleRefundResponse(db, user.org_id, refundId, saleId, sourceForReplay.sale.cash_session_id, false);
 }
 
+function createPosTerminalSettlement(db, user, sessionId, body) {
+  const input = normalizePosTerminalSettlementBody(body);
+  const settlementId = randomId("pos-terminal-settlement");
+  db.exec("BEGIN");
+  try {
+    const preview = getPosTerminalSettlementPreview(db, user.org_id, sessionId);
+    const existingSource = getPosTerminalSettlementSourceRow(db, user.org_id, input.idempotencyKey);
+    if (existingSource) {
+      if (existingSource.cash_session_id !== sessionId) {
+        const err = new Error("POS terminal settlement source key already exists");
+        err.statusCode = 409;
+        throw err;
+      }
+      db.exec("COMMIT");
+      return buildPosTerminalSettlementResponse(db, user.org_id, existingSource.id, sessionId, true);
+    }
+    if (preview.sessionStatus !== "closed") {
+      const err = new Error("POS terminal settlement requires a closed cash session");
+      err.statusCode = 409;
+      throw err;
+    }
+    if (preview.outstandingAmount <= 0) {
+      const err = new Error("POS terminal settlement has no outstanding card clearing amount");
+      err.statusCode = 409;
+      throw err;
+    }
+    const settledTotal = input.settledTotal === null ? preview.outstandingAmount : input.settledTotal;
+    if (settledTotal <= 0 || settledTotal > preview.outstandingAmount) throwInvalidPosMetadata();
+    const now = new Date().toISOString();
+    const settledAt = input.settledAt || now;
+    const difference = settledTotal - preview.outstandingAmount;
+    const ledgerPostingStatus = "posted";
+
+    db.prepare(`
+      INSERT INTO pos_terminal_settlements (
+        id, org_id, cash_session_id, settlement_reference, source_key,
+        provider, payment_method, expected_total_amd, settled_total_amd,
+        difference_amd, clearing_account_code, bank_account_code, status,
+        ledger_posting_status, settled_at, note, created_by_user_id, created_at
+      )
+      VALUES (?, ?, ?, ?, ?, ?, 'card', ?, ?, ?, '255', '252', 'posted', ?, ?, ?, ?, ?)
+    `).run(
+      settlementId,
+      user.org_id,
+      sessionId,
+      input.settlementReference,
+      input.idempotencyKey,
+      input.provider,
+      preview.outstandingAmount,
+      settledTotal,
+      difference,
+      ledgerPostingStatus,
+      settledAt,
+      input.note,
+      user.id,
+      now
+    );
+
+    ledger.postPosTerminalSettlement(db, user.org_id, {
+      id: settlementId,
+      settlementReference: input.settlementReference,
+      paymentMethod: "card",
+      amount: settledTotal,
+      date: settledAt,
+      period_key: settledAt.slice(0, 7)
+    });
+
+    emitSuiteEvent(db, {
+      orgId: user.org_id,
+      actorUserId: user.id,
+      eventType: "pos.terminal_settlement.posted",
+      subjectType: "pos_terminal_settlement",
+      subjectId: settlementId,
+      status: "posted",
+      payload: {
+        cashSessionId: sessionId,
+        settlementReference: input.settlementReference,
+        provider: input.provider,
+        expectedTotal: preview.outstandingAmount,
+        settledTotal,
+        difference,
+        ledgerPostingStatus
+      }
+    });
+    audit(db, user.org_id, user.id, "pos.terminal_settlement.posted", {
+      settlementId,
+      cashSessionId: sessionId,
+      settlementReference: input.settlementReference,
+      provider: input.provider,
+      expectedTotal: preview.outstandingAmount,
+      settledTotal,
+      difference,
+      idempotencyKey: input.idempotencyKey,
+      ledgerPostingStatus
+    });
+    db.exec("COMMIT");
+  } catch (err) {
+    try { db.exec("ROLLBACK"); } catch {}
+    if (isPosTerminalSettlementUniqueConstraint(err)) {
+      const existingSource = getPosTerminalSettlementSourceRow(db, user.org_id, input.idempotencyKey);
+      if (existingSource && existingSource.cash_session_id === sessionId) {
+        return buildPosTerminalSettlementResponse(db, user.org_id, existingSource.id, sessionId, true);
+      }
+      const conflict = new Error("POS terminal settlement already exists");
+      conflict.statusCode = 409;
+      throw conflict;
+    }
+    throw err;
+  }
+  return buildPosTerminalSettlementResponse(db, user.org_id, settlementId, sessionId, false);
+}
+
 function createPosRefundReturnStockMoves(db, user, source, input) {
   const returnStockMoves = new Map();
   for (const line of source.lines) {
@@ -55870,6 +56064,75 @@ function getPosSaleRefundById(db, orgId, refundId, includeLines = false) {
   return formatPosSaleRefund(row, lines);
 }
 
+function getPosTerminalSettlementById(db, orgId, settlementId) {
+  const row = db.prepare(`
+    SELECT pos_terminal_settlements.*, users.name AS created_by_name,
+      (
+        SELECT GROUP_CONCAT(ledger_journal.id)
+        FROM ledger_journal
+        WHERE ledger_journal.org_id = pos_terminal_settlements.org_id
+          AND ledger_journal.source_type = 'pos_terminal_settlement'
+          AND ledger_journal.source_id = pos_terminal_settlements.id
+      ) AS ledger_posting_ids
+    FROM pos_terminal_settlements
+    LEFT JOIN users ON users.id = pos_terminal_settlements.created_by_user_id
+      AND users.org_id = pos_terminal_settlements.org_id
+    WHERE pos_terminal_settlements.org_id = ? AND pos_terminal_settlements.id = ?
+  `).get(orgId, settlementId);
+  return row ? formatPosTerminalSettlement(row) : null;
+}
+
+function getPosTerminalSettlements(db, orgId, sessionId, limit = 20) {
+  return db.prepare(`
+    SELECT pos_terminal_settlements.*, users.name AS created_by_name,
+      (
+        SELECT GROUP_CONCAT(ledger_journal.id)
+        FROM ledger_journal
+        WHERE ledger_journal.org_id = pos_terminal_settlements.org_id
+          AND ledger_journal.source_type = 'pos_terminal_settlement'
+          AND ledger_journal.source_id = pos_terminal_settlements.id
+      ) AS ledger_posting_ids
+    FROM pos_terminal_settlements
+    LEFT JOIN users ON users.id = pos_terminal_settlements.created_by_user_id
+      AND users.org_id = pos_terminal_settlements.org_id
+    WHERE pos_terminal_settlements.org_id = ? AND pos_terminal_settlements.cash_session_id = ?
+    ORDER BY pos_terminal_settlements.settled_at DESC, pos_terminal_settlements.id DESC
+    LIMIT ?
+  `).all(orgId, sessionId, limit).map(formatPosTerminalSettlement);
+}
+
+function formatPosTerminalSettlement(row) {
+  const ledgerPostingIds = row.ledger_posting_ids
+    ? String(row.ledger_posting_ids).split(",").filter(Boolean)
+    : [];
+  return {
+    id: row.id,
+    cashSessionId: row.cash_session_id,
+    settlementReference: row.settlement_reference,
+    sourceKey: row.source_key,
+    provider: row.provider || "",
+    paymentMethod: row.payment_method,
+    expectedTotal: row.expected_total_amd,
+    settledTotal: row.settled_total_amd,
+    difference: row.difference_amd,
+    clearingAccountCode: row.clearing_account_code,
+    bankAccountCode: row.bank_account_code,
+    status: row.status,
+    ledgerPostingStatus: row.ledger_posting_status || "not-posted",
+    postings: {
+      settlementPosting: row.status,
+      ledgerPosting: row.ledger_posting_status || "not-posted",
+      ledgerPostingIds,
+      ledgerPostingCount: ledgerPostingIds.length
+    },
+    settledAt: row.settled_at,
+    note: row.note || "",
+    createdByUserId: row.created_by_user_id || "",
+    createdByName: row.created_by_name || "",
+    createdAt: row.created_at
+  };
+}
+
 function formatPosSaleRefund(row, lines) {
   const inventoryPostingStatus = row.inventory_posting_status || "not-posted";
   const ledgerPostingStatus = row.ledger_posting_status || "not-posted";
@@ -56171,6 +56434,23 @@ function normalizePosSaleRefundBody(body) {
   };
 }
 
+function normalizePosTerminalSettlementBody(body) {
+  if (!isPlainObject(body)) throwInvalidPosMetadata();
+  const hasSettledTotal = Object.prototype.hasOwnProperty.call(body, "settledTotal")
+    && body.settledTotal !== undefined
+    && body.settledTotal !== "";
+  return {
+    idempotencyKey: normalizePosSourceKey(body, "idempotencyKey"),
+    settlementReference: normalizePosReceiptNumber(body, "settlementReference"),
+    provider: normalizePosText(body, "provider", { fallback: "manual", maxLength: 120 }) || "manual",
+    settledTotal: hasSettledTotal
+      ? normalizePosMoney(body, "settledTotal", { required: true, min: 1, max: 100000000000 })
+      : null,
+    settledAt: normalizePosTimestamp(body, "settledAt", ""),
+    note: normalizePosText(body, "note", { fallback: "", maxLength: 500 })
+  };
+}
+
 function normalizePosCashSaleLine(line) {
   if (!isPlainObject(line)) throwInvalidPosMetadata();
   let catalogItemVariantId = "";
@@ -56373,6 +56653,10 @@ function isPosReceiptPacketUniqueConstraint(err) {
 
 function isPosSaleRefundUniqueConstraint(err) {
   return Boolean(err && /UNIQUE constraint failed: pos_sale_refunds\./.test(String(err.message || "")));
+}
+
+function isPosTerminalSettlementUniqueConstraint(err) {
+  return Boolean(err && /UNIQUE constraint failed: pos_terminal_settlements\./.test(String(err.message || "")));
 }
 
 function getPurchaseVendors(db, orgId, asOfDate = armeniaDateString()) {

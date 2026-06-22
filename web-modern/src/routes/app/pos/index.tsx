@@ -13,6 +13,7 @@ import {
   BadgeDollarSign,
   ChevronLeft,
   ClipboardCheck,
+  CreditCard,
   Lock,
   ReceiptText,
   RotateCcw,
@@ -31,6 +32,8 @@ import {
   PosReceiptPacketResponseSchema,
   PosRefundRequestSchema,
   PosRefundResponseSchema,
+  PosTerminalSettlementRequestSchema,
+  PosTerminalSettlementResponseSchema,
   PosWorkspaceResponseSchema,
   type CatalogItem,
   type PosCashSession,
@@ -39,6 +42,8 @@ import {
   type PosReceiptPacketResponse,
   type PosRefund,
   type PosRefundMethod,
+  type PosTerminalSettlement,
+  type PosTerminalSettlementPreview,
   type PosWorkspaceResponse,
   type PosFiscalCloseoutLabels,
   type StockLocation,
@@ -70,6 +75,8 @@ function PosWorkspace() {
   const [lastReceiptPacket, setLastReceiptPacket] =
     useState<PosReceiptPacketResponse["receiptPacket"] | null>(null);
   const [lastRefund, setLastRefund] = useState<PosRefund | null>(null);
+  const [lastTerminalSettlement, setLastTerminalSettlement] =
+    useState<PosTerminalSettlement | null>(null);
 
   const workspaceQ = useQuery({
     queryKey: POS_WORKSPACE_QUERY_KEY,
@@ -233,6 +240,37 @@ function PosWorkspace() {
     },
   });
 
+  const terminalSettlementMutation = useMutation({
+    mutationFn: async (input: {
+      sessionId: string;
+      idempotencyKey: string;
+      settlementReference: string;
+      provider: string;
+      settledTotal: string;
+      settledAt: string;
+      note: string;
+    }) => {
+      const payload = PosTerminalSettlementRequestSchema.parse({
+        idempotencyKey: input.idempotencyKey.trim(),
+        settlementReference: input.settlementReference.trim(),
+        provider: input.provider.trim(),
+        settledTotal: toAmount(input.settledTotal),
+        settledAt: optionalText(input.settledAt),
+        note: optionalText(input.note),
+      });
+      return postJson(
+        `/api/pos/cash-sessions/${input.sessionId}/terminal-settlements`,
+        payload,
+        PosTerminalSettlementResponseSchema,
+      );
+    },
+    onSuccess: (response) => {
+      setLastTerminalSettlement(response.settlement);
+      updateWorkspaceSession(response.session);
+      refreshWorkspace();
+    },
+  });
+
   if (!hasAccess) {
     return (
       <div
@@ -253,6 +291,9 @@ function PosWorkspace() {
   const catalogItems = workspace?.catalogItems ?? [];
   const stockLocations = workspace?.stockLocations ?? [];
   const fiscalCloseoutLabels = workspace?.fiscalCloseoutLabels ?? {};
+  const terminalSettlementPreviews =
+    workspace?.terminalSettlementPreviews ??
+    (workspace?.terminalSettlement ? [workspace.terminalSettlement] : []);
 
   return (
     <div
@@ -365,10 +406,23 @@ function PosWorkspace() {
               </section>
             )}
 
-            <FiscalEvidencePanel
-              openSession={openSession}
-              labels={fiscalCloseoutLabels}
-            />
+            <div className="space-y-4">
+              <FiscalEvidencePanel
+                openSession={openSession}
+                labels={fiscalCloseoutLabels}
+              />
+              <TerminalSettlementPanel
+                previews={terminalSettlementPreviews}
+                postedSettlement={lastTerminalSettlement}
+                onSubmit={(input) => terminalSettlementMutation.mutate(input)}
+                isPending={terminalSettlementMutation.isPending}
+                error={
+                  terminalSettlementMutation.error
+                    ? (terminalSettlementMutation.error as Error).message
+                    : ""
+                }
+              />
+            </div>
           </div>
 
           <div className="grid gap-4 xl:grid-cols-[minmax(0,1.15fr)_minmax(360px,0.85fr)]">

@@ -793,6 +793,35 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_pos_sale_refunds_status
       ON pos_sale_refunds(org_id, status, created_at DESC);
 
+    CREATE TABLE IF NOT EXISTS pos_terminal_settlements (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      cash_session_id TEXT NOT NULL REFERENCES pos_cash_sessions(id) ON DELETE CASCADE,
+      settlement_reference TEXT NOT NULL,
+      source_key TEXT NOT NULL,
+      provider TEXT NOT NULL DEFAULT '',
+      payment_method TEXT NOT NULL DEFAULT 'card',
+      expected_total_amd INTEGER NOT NULL DEFAULT 0,
+      settled_total_amd INTEGER NOT NULL DEFAULT 0,
+      difference_amd INTEGER NOT NULL DEFAULT 0,
+      clearing_account_code TEXT NOT NULL DEFAULT '255',
+      bank_account_code TEXT NOT NULL DEFAULT '252',
+      status TEXT NOT NULL DEFAULT 'posted',
+      ledger_posting_status TEXT NOT NULL DEFAULT 'posted',
+      settled_at TEXT NOT NULL,
+      note TEXT NOT NULL DEFAULT '',
+      created_by_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      created_at TEXT NOT NULL,
+      UNIQUE(org_id, source_key),
+      UNIQUE(org_id, settlement_reference)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_pos_terminal_settlements_status
+      ON pos_terminal_settlements(org_id, status, settled_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_pos_terminal_settlements_session
+      ON pos_terminal_settlements(org_id, cash_session_id, settled_at DESC);
+
     CREATE TABLE IF NOT EXISTS pos_sale_refund_lines (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,

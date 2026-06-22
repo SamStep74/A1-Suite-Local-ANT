@@ -298,6 +298,17 @@ function posSettlementAccountCode(paymentMethod) {
   return C.cash;
 }
 
+function posTerminalSettlementAccounts(paymentMethod = "card") {
+  const C = postingCodesFor(locale.activeLocale());
+  if (locale.activeLocale() === "am" && paymentMethod === "card") {
+    return { clearingCode: "255", bankCode: "252" };
+  }
+  if (locale.activeLocale() === "ru" && paymentMethod === "card") {
+    return { clearingCode: "57", bankCode: C.cash };
+  }
+  return { clearingCode: posSettlementAccountCode(paymentMethod), bankCode: C.cash };
+}
+
 function postPosSale(db, orgId, sale) {
   const total = assertMinorUnitInteger(sale.total);
   const vat = assertMinorUnitInteger(sale.vat || 0);
@@ -362,6 +373,25 @@ function postPosRefund(db, orgId, refund) {
     periodKey
   }));
   return ids.filter(Boolean);
+}
+
+function postPosTerminalSettlement(db, orgId, settlement) {
+  const amount = assertMinorUnitInteger(settlement.amount ?? settlement.settledTotal ?? settlement.settled_total_amd);
+  const date = settlement.date || settlement.settled_at || new Date().toISOString().slice(0, 10);
+  const periodKey = settlement.period_key || String(date).slice(0, 7);
+  const accounts = posTerminalSettlementAccounts(settlement.paymentMethod || settlement.payment_method || "card");
+  const clearingCode = settlement.clearingAccountCode || settlement.clearing_account_code || accounts.clearingCode;
+  const bankCode = settlement.bankAccountCode || settlement.bank_account_code || accounts.bankCode;
+  return [postEntry(db, orgId, {
+    date,
+    debitCode: bankCode,
+    creditCode: clearingCode,
+    amount,
+    memo: `POS terminal settlement ${settlement.settlementReference || settlement.settlement_reference || settlement.id}`,
+    sourceType: "pos_terminal_settlement",
+    sourceId: settlement.id,
+    periodKey
+  })].filter(Boolean);
 }
 
 function buildLedgerModel(db, orgId) {
@@ -502,4 +532,4 @@ function payablesReport(db, orgId, asOf) {
   return accounting.calculatePayables(buildPayablesModel(db, orgId), { asOf: asOf || new Date().toISOString().slice(0, 10) });
 }
 
-module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, OPENING_BALANCE_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postPosSale, postPosRefund, postExpensePosted, postPayrollRun, postBillPosted, postBillCreditNote, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, openingBalanceAccountByCode, openingBalanceSideForCode, postOpeningBalance, postOpeningBalances, openingBalances };
+module.exports = { CHART, CHART_SOURCE, INPUT_VAT_ACCOUNT_CODE, LEGACY_INPUT_VAT_ACCOUNT_CODE, INPUT_VAT_ACCOUNT_CODES, OPENING_BALANCE_ACCOUNT_CODES, chartOfAccounts, ensureChartOfAccounts, postEntry, postInvoicePosted, postPaymentReceived, postPosSale, postPosRefund, postPosTerminalSettlement, postExpensePosted, postPayrollRun, postBillPosted, postBillCreditNote, postBillPayment, buildPayablesModel, payablesReport, vatReport, buildLedgerModel, trialBalance, assertPeriodOpen, PeriodLockedError, OPENING_BALANCE_EQUITY_CODE, openingBalanceAccountByCode, openingBalanceSideForCode, postOpeningBalance, postOpeningBalances, openingBalances };
