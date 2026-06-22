@@ -247,6 +247,7 @@ function openDatabase(dbPath) {
   db.exec("PRAGMA foreign_keys = ON");
   db.exec("PRAGMA journal_mode = WAL");
   initSchema(db);
+  ensurePosTerminalSettlementLayer(db);
   ensureCrmTubeSchema(db);
   ensureRbacSchema(db);
   ensureSmbCrmFoundationSchema(db);
@@ -815,12 +816,6 @@ function initSchema(db) {
       UNIQUE(org_id, source_key),
       UNIQUE(org_id, settlement_reference)
     );
-
-    CREATE INDEX IF NOT EXISTS idx_pos_terminal_settlements_status
-      ON pos_terminal_settlements(org_id, status, settled_at DESC);
-
-    CREATE INDEX IF NOT EXISTS idx_pos_terminal_settlements_session
-      ON pos_terminal_settlements(org_id, cash_session_id, settled_at DESC);
 
     CREATE TABLE IF NOT EXISTS pos_sale_refund_lines (
       id TEXT PRIMARY KEY,
@@ -8918,6 +8913,43 @@ function ensureInventoryLayer(db) {
   for (const org of orgs) {
     seedInventoryCore(db, org.id);
   }
+}
+
+function ensurePosTerminalSettlementLayer(db) {
+  const columns = new Set(db.prepare("PRAGMA table_info(pos_terminal_settlements)").all().map(column => column.name));
+  const additions = {
+    cash_session_id: "TEXT NOT NULL DEFAULT ''",
+    settlement_reference: "TEXT NOT NULL DEFAULT ''",
+    source_key: "TEXT NOT NULL DEFAULT ''",
+    provider: "TEXT NOT NULL DEFAULT ''",
+    payment_method: "TEXT NOT NULL DEFAULT 'card'",
+    expected_total_amd: "INTEGER NOT NULL DEFAULT 0",
+    settled_total_amd: "INTEGER NOT NULL DEFAULT 0",
+    difference_amd: "INTEGER NOT NULL DEFAULT 0",
+    clearing_account_code: "TEXT NOT NULL DEFAULT '255'",
+    bank_account_code: "TEXT NOT NULL DEFAULT '252'",
+    status: "TEXT NOT NULL DEFAULT 'posted'",
+    ledger_posting_status: "TEXT NOT NULL DEFAULT 'posted'",
+    settled_at: "TEXT NOT NULL DEFAULT ''",
+    note: "TEXT NOT NULL DEFAULT ''",
+    created_by_user_id: "TEXT",
+    created_at: "TEXT NOT NULL DEFAULT ''"
+  };
+  for (const [name, definition] of Object.entries(additions)) {
+    if (!columns.has(name)) db.exec(`ALTER TABLE pos_terminal_settlements ADD COLUMN ${name} ${definition}`);
+  }
+  db.exec(`
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pos_terminal_settlements_source_key
+      ON pos_terminal_settlements(org_id, source_key)
+      WHERE source_key <> '';
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_pos_terminal_settlements_reference
+      ON pos_terminal_settlements(org_id, settlement_reference)
+      WHERE settlement_reference <> '';
+    CREATE INDEX IF NOT EXISTS idx_pos_terminal_settlements_status
+      ON pos_terminal_settlements(org_id, status, settled_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_pos_terminal_settlements_session
+      ON pos_terminal_settlements(org_id, cash_session_id, settled_at DESC);
+  `);
 }
 
 function ensurePurchaseLayer(db) {
