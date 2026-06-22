@@ -77,26 +77,18 @@ export const getActiveLocale = (): Locale => {
 /**
  * Static map of every supported locale to its compiled catalog
  * loader. Using a static map (instead of a templated
- * `import(\`../locales/${l}/messages\`)`) lets Vite/Rollup
+ * `import(`../locales/${l}/messages`)`) lets Vite/Rollup
  * discover the three chunks at build time and emit a separate
  * lazy-loaded chunk for each. The templated form would either
  * pull all three into the initial bundle (worst case) or trip
  * `vite:dynamic-import-vars`' "file extension required" rule.
  *
- * Dev-mode CJS workaround: `lingui compile` emits CJS
- * (`module.exports = { messages: ... }`), but Vite's dev server
- * serves the file verbatim to the browser, where `module` is
- * undefined. We sidestep that with `import.meta.glob`, which
- * tells Vite to bundle the matching files as raw strings
- * (`?raw`). We then evaluate the CJS in an isolated `Function`
- * scope to extract `module.exports`. The production build
- * bundles the catalogs into proper ESM chunks, so the raw path
- * is only hit in dev.
- *
- * Security note: the `raw` string is a build artifact from
- * `lingui compile` (derived from the committed `.po` files in
- * the source tree) — not user input. The content is
- * deterministic and reviewed via the `.po` files in git.
+ * The `ant-lingui-catalogs` Vite plugin (see
+ * `vite-plugins/lingui-catalogs.ts`) rewrites each
+ * `messages.js` CJS catalog into a clean ESM
+ * `export default { messages: ... }` at request time, so we
+ * import the module directly and read its default export —
+ * no `?raw` + `new Function` eval needed.
  */
 type CatalogModule = {
   default?: { messages: Record<string, string> };
