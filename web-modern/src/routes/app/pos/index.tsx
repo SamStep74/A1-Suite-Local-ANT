@@ -2,10 +2,11 @@
  * /app/pos — POS cash-session spine.
  *
  * Slice 427 frontend scope: open/close cash sessions, one-line sale
- * capture, receipt packet handoff, full-sale refund evidence, and tracked-line
- * stock return evidence with POS ledger journal visibility, plus closed-session
- * card terminal settlement evidence. Terminal refunds, fiscal submission,
- * receipt printing, and offline replay stay outside this surface.
+ * capture, receipt packet handoff, refund evidence, pre-receipt void evidence,
+ * and tracked-line stock return evidence with POS ledger journal visibility,
+ * plus closed-session card terminal settlement evidence. Terminal refunds,
+ * fiscal submission, receipt printing, and offline replay stay outside this
+ * surface.
  */
 import { createFileRoute, Link } from "@tanstack/react-router";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";

@@ -379,6 +379,65 @@ const VALID_PARTIAL_REFUND_RESPONSE = {
   },
 };
 
+const VALID_VOID_RESPONSE = {
+  ok: true,
+  idempotent: false,
+  void: {
+    id: "pos-sale-void-1",
+    saleId: "pos-sale-1",
+    cashSessionId: "pos-session-1",
+    voidReference: "VOID-CASH-001",
+    sourceKey: "pos-void-ui-pos-sale-1-1782113400000",
+    reason: "Cashier caught the receipt before fiscal handoff.",
+    voidedTotal: 50000,
+    cashAdjustment: 50000,
+    status: "posted",
+    inventoryPostingStatus: "posted",
+    ledgerPostingStatus: "posted",
+    postings: {
+      voidPosting: "posted",
+      inventoryPosting: "posted",
+      ledgerPosting: "posted",
+      ledgerPostingIds: ["ledger-pos-void-net", "ledger-pos-void-vat"],
+      ledgerPostingCount: 2,
+    },
+    voidedAt: "2026-06-22T10:15:00.000Z",
+    lineCount: 1,
+    lines: [
+      {
+        id: "pos-sale-void-line-1",
+        saleLineId: "pos-sale-line-1",
+        catalogItemId: "catitem-pos-scanner",
+        catalogItemVariantId: null,
+        sku: "POS-SCANNER",
+        name: "POS barcode scanner",
+        description: "",
+        quantity: 2,
+        unitPrice: 25000,
+        subtotal: 50000,
+        vat: 0,
+        total: 50000,
+        vatMode: "exempt",
+        fiscalReceiptRequired: true,
+        sourceStockMoveId: "stock-move-1",
+        returnStockMoveId: "stock-move-void-return-1",
+        createdAt: "2026-06-22T10:15:01.000Z",
+      },
+    ],
+    createdByUserId: "user-1",
+    createdByName: "Ani Petrosyan",
+    createdAt: "2026-06-22T10:15:01.000Z",
+  },
+  sale: {
+    ...VALID_SALE_RESPONSE.sale,
+    status: "voided",
+  },
+  session: {
+    ...OPEN_SESSION,
+    expectedCash: 50000,
+  },
+};
+
 const VALID_TERMINAL_SETTLEMENT_PREVIEW = {
   cashSessionId: CLOSED_SESSION.id,
   sessionStatus: "closed",
@@ -883,6 +942,88 @@ describe("POS route", () => {
     );
     expect(screen.getByTestId("pos-refund-success")).toHaveTextContent(
       /Refund amount evidence is recorded without stock return moves/,
+    );
+  });
+
+  it("records pre-receipt void evidence for the last posted sale", async () => {
+    mocks.workspace = {
+      ...WORKSPACE_NO_OPEN,
+      openSession: OPEN_SESSION,
+      sessions: [OPEN_SESSION, CLOSED_SESSION],
+    };
+    mocks.postJson
+      .mockResolvedValueOnce(VALID_SALE_RESPONSE)
+      .mockResolvedValueOnce(VALID_VOID_RESPONSE);
+
+    renderRoute();
+
+    fireEvent.change(screen.getByTestId("pos-sale-quantity"), {
+      target: { value: "2" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-receipt-number"), {
+      target: { value: "R-2026-0002" },
+    });
+    fireEvent.change(screen.getByTestId("pos-sale-payment-method"), {
+      target: { value: "cash" },
+    });
+    fireEvent.click(screen.getByTestId("pos-sale-submit"));
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-void-form")).toBeInTheDocument();
+    });
+
+    fireEvent.change(screen.getByTestId("pos-void-reference"), {
+      target: { value: " void-cash-001 " },
+    });
+    fireEvent.change(screen.getByTestId("pos-void-reason"), {
+      target: { value: " Cashier caught the receipt before fiscal handoff. " },
+    });
+    fireEvent.change(screen.getByTestId("pos-void-voided-at"), {
+      target: { value: "2026-06-22T10:15" },
+    });
+    fireEvent.click(screen.getByTestId("pos-void-submit"));
+
+    await waitFor(() => {
+      expect(mocks.postJson).toHaveBeenCalledTimes(2);
+    });
+    const [path, body] = mocks.postJson.mock.calls[1]!;
+    expect(path).toBe("/api/pos/sales/pos-sale-1/void");
+    expect(body).toEqual({
+      idempotencyKey: expect.stringMatching(/^pos-void-ui-pos-sale-1-\d+$/),
+      voidReference: "void-cash-001",
+      reason: "Cashier caught the receipt before fiscal handoff.",
+      voidedAt: "2026-06-22T10:15",
+    });
+    expect(mocks.mutateImpls[6]).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(screen.getByTestId("pos-void-success")).toHaveTextContent(
+        /Void evidence posted/,
+      );
+    });
+    expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(/Voided sale/);
+    expect(screen.getByTestId("pos-sale-success")).toHaveTextContent(/status voided/);
+    expect(screen.getByTestId("pos-void-success")).toHaveTextContent(
+      /Reference\s*VOID-CASH-001/,
+    );
+    expect(screen.getByTestId("pos-void-success")).toHaveTextContent(
+      /Cash adjustment\s*50[,\s]000 ֏/,
+    );
+    expect(screen.getByTestId("pos-void-success")).toHaveTextContent(
+      /Return stock moves\s*1/,
+    );
+    expect(screen.getByTestId("pos-void-success")).toHaveTextContent(
+      /Ledger journals\s*posted \(2 journals\)/,
+    );
+    expect(screen.queryByTestId("pos-void-form")).toBeNull();
+    expect(screen.queryByTestId("pos-refund-form")).toBeNull();
+    expect(screen.queryByTestId("pos-receipt-packet-form")).toBeNull();
+    expect(screen.getByTestId("pos-refund-locked")).toHaveTextContent(
+      /Refund or void evidence is already recorded/,
+    );
+    expect(mocks.setQueryData).toHaveBeenCalledWith(
+      ["pos", "workspace"],
+      expect.any(Function),
     );
   });
 
