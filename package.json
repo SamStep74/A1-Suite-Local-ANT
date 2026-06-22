@@ -24,7 +24,7 @@
     "backup": "bash deploy/backup.sh"
   },
   "engines": {
-    "node": ">=22.5"
+    "node": ">=22.13"
   },
   "dependencies": {
     "@fastify/cookie": "^11.0.2",
@@ -33,6 +33,6 @@
   },
   "devDependencies": {
     "@playwright/test": "^1.60.0",
-    "concurrently": "^9.0.0"
+    "concurrently": "^10.0.3"
   }
 }

@@ -48,12 +48,13 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22.5"
+          node-version: "22.13"
           cache: "npm"
           cache-dependency-path: web-modern/package-lock.json
 
       - name: Install root (for Fastify + node --test deps)
         run: npm ci --no-audit --no-fund
+        working-directory: ${{ github.workspace }}
 
       - name: Install web-modern
         run: npm ci --no-audit --no-fund
