@@ -2053,6 +2053,35 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_service_case_resolutions_customer
       ON service_case_resolutions(org_id, customer_id, resolved_at DESC);
 
+    CREATE TABLE IF NOT EXISTS service_field_visits (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      case_id TEXT NOT NULL REFERENCES service_cases(id) ON DELETE CASCADE,
+      customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      scheduled_start_at TEXT NOT NULL,
+      scheduled_end_at TEXT NOT NULL,
+      status TEXT NOT NULL,
+      location TEXT NOT NULL,
+      worksheet_summary TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (status IN ('scheduled', 'en-route', 'in-progress', 'completed', 'cancelled')),
+      CHECK (scheduled_start_at < scheduled_end_at)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_service_field_visits_schedule
+      ON service_field_visits(org_id, status, scheduled_start_at);
+
+    CREATE INDEX IF NOT EXISTS idx_service_field_visits_case
+      ON service_field_visits(org_id, case_id);
+
+    CREATE INDEX IF NOT EXISTS idx_service_field_visits_customer
+      ON service_field_visits(org_id, customer_id, scheduled_start_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_service_field_visits_assignee
+      ON service_field_visits(org_id, assigned_user_id, scheduled_start_at);
+
     CREATE TABLE IF NOT EXISTS automation_rules (
       id TEXT PRIMARY KEY,
       org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
@@ -8337,6 +8366,7 @@ function ensureProfileLayer(db) {
 }
 
 function ensureServiceLayer(db) {
+  ensureServiceFieldVisitSchema(db);
   ensureServiceSlaPolicySchema(db);
   const orgs = db.prepare("SELECT id FROM organizations").all();
   for (const org of orgs) {
@@ -8345,9 +8375,45 @@ function ensureServiceLayer(db) {
     const caseCount = db.prepare("SELECT COUNT(*) AS count FROM service_cases WHERE org_id = ?").get(org.id).count;
     if (caseCount === 0) seedServiceCases(db, org.id);
 
+    const visitCount = db.prepare("SELECT COUNT(*) AS count FROM service_field_visits WHERE org_id = ?").get(org.id).count;
+    if (visitCount === 0) seedServiceFieldVisits(db, org.id);
+
     const approvalCount = db.prepare("SELECT COUNT(*) AS count FROM workflow_approvals WHERE org_id = ?").get(org.id).count;
     if (approvalCount === 0) seedWorkflowApprovals(db, org.id);
   }
+}
+
+function ensureServiceFieldVisitSchema(db) {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS service_field_visits (
+      id TEXT PRIMARY KEY,
+      org_id TEXT NOT NULL REFERENCES organizations(id) ON DELETE CASCADE,
+      case_id TEXT NOT NULL REFERENCES service_cases(id) ON DELETE CASCADE,
+      customer_id TEXT NOT NULL REFERENCES customers(id) ON DELETE CASCADE,
+      assigned_user_id TEXT REFERENCES users(id) ON DELETE SET NULL,
+      scheduled_start_at TEXT NOT NULL,
+      scheduled_end_at TEXT NOT NULL,
+      status TEXT NOT NULL,
+      location TEXT NOT NULL,
+      worksheet_summary TEXT NOT NULL DEFAULT '',
+      created_at TEXT NOT NULL,
+      updated_at TEXT NOT NULL,
+      CHECK (status IN ('scheduled', 'en-route', 'in-progress', 'completed', 'cancelled')),
+      CHECK (scheduled_start_at < scheduled_end_at)
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_service_field_visits_schedule
+      ON service_field_visits(org_id, status, scheduled_start_at);
+
+    CREATE INDEX IF NOT EXISTS idx_service_field_visits_case
+      ON service_field_visits(org_id, case_id);
+
+    CREATE INDEX IF NOT EXISTS idx_service_field_visits_customer
+      ON service_field_visits(org_id, customer_id, scheduled_start_at DESC);
+
+    CREATE INDEX IF NOT EXISTS idx_service_field_visits_assignee
+      ON service_field_visits(org_id, assigned_user_id, scheduled_start_at);
+  `);
 }
 
 function ensureServiceSlaPolicySchema(db) {
@@ -9264,6 +9330,50 @@ function seedServiceCases(db, orgId) {
       now
     );
   }
+}
+
+function seedServiceFieldVisits(db, orgId) {
+  const serviceCase = db.prepare(`
+    SELECT id, customer_id
+    FROM service_cases
+    WHERE org_id = ?
+    ORDER BY CASE priority WHEN 'high' THEN 0 ELSE 1 END, created_at ASC
+    LIMIT 1
+  `).get(orgId);
+  if (!serviceCase) return;
+
+  const assignee = db.prepare(`
+    SELECT id
+    FROM users
+    WHERE org_id = ?
+    ORDER BY CASE role WHEN 'Service Manager' THEN 0 WHEN 'Support' THEN 1 ELSE 2 END, created_at ASC
+    LIMIT 1
+  `).get(orgId);
+  const nowMs = Date.now();
+  const now = new Date(nowMs).toISOString();
+  const scheduledStartAt = new Date(nowMs + 2 * 60 * 60 * 1000).toISOString();
+  const scheduledEndAt = new Date(nowMs + 3 * 60 * 60 * 1000).toISOString();
+  db.prepare(`
+    INSERT OR IGNORE INTO service_field_visits (
+      id, org_id, case_id, customer_id, assigned_user_id,
+      scheduled_start_at, scheduled_end_at, status, location,
+      worksheet_summary, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    `visit-${serviceCase.id}`,
+    orgId,
+    serviceCase.id,
+    serviceCase.customer_id,
+    assignee?.id || null,
+    scheduledStartAt,
+    scheduledEndAt,
+    "scheduled",
+    "Customer site",
+    "Initial worksheet prepared for on-site service evidence capture.",
+    now,
+    now
+  );
 }
 
 function seedWorkflowApprovals(db, orgId) {

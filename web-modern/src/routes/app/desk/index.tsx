@@ -22,11 +22,14 @@ import { createFileRoute, Link, notFound } from "@tanstack/react-router";
 import { useEffect, useMemo, useState } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
+  CalendarClock,
   ChevronDown,
   ChevronLeft,
+  ClipboardCheck,
   Filter,
   Headphones,
   Inbox,
+  MapPin,
   Plus,
   Search,
   Send,
@@ -39,9 +42,11 @@ import {
   ServiceCaseSchema,
   ServiceCaseStatus,
   ServiceConsoleSchema,
+  ServiceFieldVisitsResponseSchema,
   ServiceSlaPoliciesResponseSchema,
   type CreateServiceCaseInput,
   type ServiceCase,
+  type ServiceFieldVisit,
   type ServiceSlaPolicy,
   type ServiceCaseStatus as Status,
 } from "../../../lib/api/schemas";
@@ -75,6 +80,13 @@ const STATUS_TABS: { value: "all" | Status; label: string }[] = [
 
 const CHANNELS = ["WhatsApp", "Telegram", "Email", "Phone", "Manual"];
 const SLA_POLICY_CHANNELS = ["", ...CHANNELS];
+const FIELD_VISIT_PREVIEW_LIMIT = 4;
+const VISIT_TIME_FORMATTER = new Intl.DateTimeFormat(undefined, {
+  month: "short",
+  day: "numeric",
+  hour: "2-digit",
+  minute: "2-digit",
+});
 
 const PRIORITY_TONE: Record<string, { bg: string; fg: string; ring: string }> = {
   high: {
@@ -158,6 +170,16 @@ function DeskList() {
   const customers = consoleQuery.data?.customers ?? [];
   const agents = consoleQuery.data?.agents ?? [];
   const slaPolicies = consoleSlaPolicies ?? slaPoliciesQuery.data?.policies ?? [];
+  const consoleFieldVisits = consoleQuery.data?.fieldVisits;
+  const fieldVisitsQuery = useQuery({
+    queryKey: ["service", "field-visits"],
+    queryFn: () => getJson("/api/service/field-visits", ServiceFieldVisitsResponseSchema),
+    enabled: consoleQuery.isSuccess && consoleFieldVisits == null,
+    refetchOnWindowFocus: true,
+    retry: false,
+    staleTime: 30_000,
+  });
+  const fieldVisits = consoleFieldVisits ?? fieldVisitsQuery.data?.visits ?? [];
 
   const [query, setQuery] = useState("");
   const visible = useMemo(() => {
@@ -192,6 +214,11 @@ function DeskList() {
           void qc.invalidateQueries({ queryKey: ["service", "console"] });
           void qc.invalidateQueries({ queryKey: ["service", "sla-policies"] });
         }}
+      />
+      <FieldVisitsPanel
+        visits={fieldVisits}
+        loading={consoleQuery.isLoading || fieldVisitsQuery.isLoading}
+        unavailable={fieldVisitsQuery.isError && consoleFieldVisits == null}
       />
 
       {/* Filter row — search + tabs + (Phase 2: mass-update) */}
@@ -299,6 +326,172 @@ function DeskList() {
       />
     </div>
   );
+}
+
+function FieldVisitsPanel({
+  visits,
+  loading,
+  unavailable,
+}: {
+  visits: ServiceFieldVisit[];
+  loading?: boolean;
+  unavailable?: boolean;
+}) {
+  const scheduledCount = visits.filter((visit) => normalizeVisitStatus(visit.status) === "scheduled").length;
+  const completedCount = visits.filter((visit) => normalizeVisitStatus(visit.status) === "completed").length;
+  const previewVisits = visits.slice(0, FIELD_VISIT_PREVIEW_LIMIT);
+  const extraCount = Math.max(0, visits.length - previewVisits.length);
+
+  return (
+    <section
+      className={cn(
+        "rounded-[var(--radius-xl)] border border-[var(--color-line)]",
+        "bg-[var(--color-surface)] p-3",
+      )}
+      aria-label="Field visit evidence"
+    >
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+        <div className="flex items-center gap-2">
+          <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[var(--radius-lg)] bg-[var(--color-surface-soft)] text-[var(--color-brand)]">
+            <CalendarClock className="size-4" aria-hidden />
+          </span>
+          <div>
+            <h2 className="text-[var(--text-sm)] font-semibold text-[var(--color-ink)]">
+              Field Visits
+            </h2>
+            <p className="text-[11px] text-[var(--color-muted)]">
+              Worksheet evidence from service appointments
+            </p>
+          </div>
+        </div>
+        <dl className="grid grid-cols-3 gap-2 text-left sm:min-w-64 sm:text-right">
+          <SlaSummaryMetric label="Visits" value={loading ? "..." : String(visits.length)} />
+          <SlaSummaryMetric label="Scheduled" value={loading ? "..." : String(scheduledCount)} />
+          <SlaSummaryMetric label="Completed" value={loading ? "..." : String(completedCount)} />
+        </dl>
+      </div>
+
+      {loading && visits.length === 0 ? (
+        <p className="mt-3 border-t border-[var(--color-line)] pt-3 text-[11px] text-[var(--color-muted)]">
+          Loading field visits...
+        </p>
+      ) : unavailable ? (
+        <p className="mt-3 border-t border-[var(--color-line)] pt-3 text-[11px] text-[var(--color-muted)]">
+          Field visit evidence is unavailable.
+        </p>
+      ) : visits.length === 0 ? (
+        <p className="mt-3 border-t border-[var(--color-line)] pt-3 text-[11px] text-[var(--color-muted)]">
+          No field visits scheduled.
+        </p>
+      ) : (
+        <ul className="mt-3 divide-y divide-[var(--color-line)] border-t border-[var(--color-line)]">
+          {previewVisits.map((visit) => (
+            <FieldVisitRow key={visit.id} visit={visit} />
+          ))}
+          {extraCount > 0 && (
+            <li className="py-2 text-[11px] text-[var(--color-muted)]">
+              +{extraCount} more field {extraCount === 1 ? "visit" : "visits"}
+            </li>
+          )}
+        </ul>
+      )}
+    </section>
+  );
+}
+
+function FieldVisitRow({ visit }: { visit: ServiceFieldVisit }) {
+  const status = normalizeVisitStatus(visit.status);
+  const statusTone = FIELD_VISIT_STATUS_TONE[status] ?? FIELD_VISIT_STATUS_TONE.default;
+  const caseLabel = visit.caseNumber ?? visit.subject ?? visit.caseId;
+  const customerLabel = visit.customerName ?? visit.customerId;
+  const assignedLabel = visit.assignedUserName ?? visit.assignedUserId ?? "Unassigned";
+
+  return (
+    <li className="grid gap-2 py-2 lg:grid-cols-[minmax(0,1.1fr)_minmax(10rem,0.9fr)_minmax(10rem,1fr)] lg:items-start">
+      <div className="min-w-0">
+        <div className="flex flex-wrap items-center gap-1.5">
+          <span className="truncate text-[var(--text-sm)] font-medium text-[var(--color-ink)]">
+            {caseLabel}
+          </span>
+          <span
+            className={cn(
+              "rounded-[var(--radius-sm)] px-1.5 py-0.5",
+              "text-[10px] font-semibold uppercase tracking-wider",
+              statusTone.bg,
+              statusTone.fg,
+            )}
+          >
+            {visit.status}
+          </span>
+        </div>
+        {visit.subject && visit.subject !== caseLabel && (
+          <p className="mt-0.5 line-clamp-1 text-[11px] text-[var(--color-muted)]">
+            {visit.subject}
+          </p>
+        )}
+        <p className="mt-1 line-clamp-1 text-[11px] text-[var(--color-muted)]">
+          {customerLabel} · {assignedLabel}
+        </p>
+      </div>
+
+      <div className="space-y-1 text-[11px] text-[var(--color-muted)]">
+        <p className="flex items-center gap-1.5">
+          <CalendarClock className="size-3.5 shrink-0" aria-hidden />
+          <span>{formatVisitWindow(visit.scheduledStartAt, visit.scheduledEndAt)}</span>
+        </p>
+        <p className="flex items-center gap-1.5">
+          <MapPin className="size-3.5 shrink-0" aria-hidden />
+          <span className="line-clamp-1">{visit.location}</span>
+        </p>
+      </div>
+
+      <p className="flex items-start gap-1.5 text-[11px] text-[var(--color-ink)]">
+        <ClipboardCheck className="mt-0.5 size-3.5 shrink-0 text-[var(--color-muted)]" aria-hidden />
+        <span className="line-clamp-2">{visit.worksheetSummary}</span>
+      </p>
+    </li>
+  );
+}
+
+const FIELD_VISIT_STATUS_TONE: Record<string, { bg: string; fg: string }> = {
+  scheduled: {
+    bg: "bg-[color-mix(in_srgb,var(--color-tag-blue)_15%,transparent)]",
+    fg: "text-[var(--color-tag-blue)]",
+  },
+  "in-progress": {
+    bg: "bg-[color-mix(in_srgb,var(--color-tag-violet)_15%,transparent)]",
+    fg: "text-[var(--color-tag-violet)]",
+  },
+  completed: {
+    bg: "bg-[color-mix(in_srgb,var(--color-tag-green)_15%,transparent)]",
+    fg: "text-[var(--color-tag-green)]",
+  },
+  cancelled: {
+    bg: "bg-[var(--color-surface-soft)]",
+    fg: "text-[var(--color-muted)]",
+  },
+  default: {
+    bg: "bg-[var(--color-surface-soft)]",
+    fg: "text-[var(--color-muted)]",
+  },
+};
+
+function normalizeVisitStatus(status: string): string {
+  return status.trim().toLowerCase();
+}
+
+function formatVisitWindow(startAt: string, endAt: string): string {
+  const start = formatVisitDateTime(startAt);
+  const end = formatVisitDateTime(endAt);
+
+  if (start && end) return `${start} - ${end}`;
+  return start || end || "Unscheduled";
+}
+
+function formatVisitDateTime(value: string): string {
+  const timestamp = Date.parse(value);
+  if (Number.isNaN(timestamp)) return value.trim();
+  return VISIT_TIME_FORMATTER.format(new Date(timestamp));
 }
 
 function SlaPoliciesPanel({

@@ -10,6 +10,8 @@ import {
   CreateServiceCaseInputSchema,
   ServiceCaseSchema,
   ServiceConsoleSchema,
+  ServiceFieldVisitSchema,
+  ServiceFieldVisitsResponseSchema,
   ServiceSlaPoliciesResponseSchema,
   ServiceSlaPolicySchema,
   ServiceCaseStatus,
@@ -77,6 +79,24 @@ const VALID_SLA_POLICY = {
   active: true,
   createdAt: "2026-06-10T00:00:00.000Z",
   updatedAt: "2026-06-11T00:00:00.000Z",
+};
+
+const VALID_FIELD_VISIT = {
+  id: "visit-1",
+  caseId: "case-1",
+  customerId: "cust-1",
+  assignedUserId: "user-1",
+  scheduledStartAt: "2026-06-22T09:00:00.000Z",
+  scheduledEndAt: "2026-06-22T10:00:00.000Z",
+  status: "scheduled",
+  location: "Yerevan service desk",
+  worksheetSummary: "Inspect fiscal printer and attach signed checklist.",
+  createdAt: "2026-06-20T00:00:00.000Z",
+  updatedAt: "2026-06-21T00:00:00.000Z",
+  caseNumber: "AO-CASE-1001",
+  subject: "Fiscal printer field check",
+  customerName: "Ani Beauty",
+  assignedUserName: "Samvel",
 };
 
 describe("ServiceCaseSchema", () => {
@@ -157,6 +177,7 @@ describe("ServiceConsoleSchema", () => {
       dryRuns: [],
       testEvents: [],
       slaPolicies: [VALID_SLA_POLICY],
+      fieldVisits: [VALID_FIELD_VISIT],
       customers: [{ id: "cust-1", name: "Ani Beauty" }],
       agents: [{ id: "user-1", name: "Samvel", role: "Owner" }],
     };
@@ -207,6 +228,39 @@ describe("ServiceSlaPolicySchema", () => {
     expect(withPolicies.policies).toHaveLength(1);
     expect(withSlaPolicies.policies[0]?.active).toBe(0);
     expect(empty.policies).toEqual([]);
+  });
+});
+
+describe("ServiceFieldVisitSchema", () => {
+  it("accepts the field visit wire shape with joined display fields", () => {
+    const r = ServiceFieldVisitSchema.safeParse(VALID_FIELD_VISIT);
+
+    expect(r.success).toBe(true);
+    if (r.success) {
+      expect(r.data.caseNumber).toBe("AO-CASE-1001");
+      expect(r.data.customerName).toBe("Ani Beauty");
+      expect(r.data.assignedUserName).toBe("Samvel");
+    }
+  });
+
+  it("accepts field visit payloads without optional joined display fields", () => {
+    const visit: Record<string, unknown> = { ...VALID_FIELD_VISIT, assignedUserId: null };
+    delete visit.caseNumber;
+    delete visit.subject;
+    delete visit.customerName;
+    delete visit.assignedUserName;
+    const r = ServiceFieldVisitSchema.safeParse(visit);
+
+    expect(r.success).toBe(true);
+  });
+
+  it("accepts standalone field visit response envelopes", () => {
+    const response = ServiceFieldVisitsResponseSchema.parse({
+      visits: [VALID_FIELD_VISIT],
+    });
+
+    expect(response.visits).toHaveLength(1);
+    expect(response.visits[0]?.status).toBe("scheduled");
   });
 });
 

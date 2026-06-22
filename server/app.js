@@ -20,6 +20,7 @@ const DEFAULT_REPORT_DATE = "2026-05-26";
 const SEMANTIC_LAYER_VERSION = "2026-05-27";
 const ARMENIA_TIME_ZONE = "Asia/Yerevan";
 const SYSTEM_APP_ASSIGNMENT_ROLES = new Set(["Admin"]);
+const SERVICE_FIELD_VISIT_STATUSES = ["scheduled", "en-route", "in-progress", "completed", "cancelled"];
 const APP_ASSIGNMENT_ROLE_GUARDS = {
   inventory: new Set(["Owner", "Admin", "Operator", "Accountant"]),
   purchase: new Set(["Owner", "Admin", "Operator", "Accountant"])
@@ -6468,6 +6469,7 @@ function registerApi(app, db, options = {}) {
       slaPolicies: getServiceSlaPolicies(db, user.org_id),
       escalations: getServiceEscalations(db, user.org_id),
       resolutions: getServiceResolutions(db, user.org_id),
+      fieldVisits: getServiceFieldVisits(db, user.org_id),
       approvals: getWorkflowApprovals(db, user.org_id).filter(approval => ["pending", "approved"].includes(approval.status)),
       runs: getWorkflowRuns(db, user.org_id),
       rules: getAutomationRules(db, user.org_id, { includeLastDryRun: true }),
@@ -6479,6 +6481,29 @@ function registerApi(app, db, options = {}) {
       customers: db.prepare("SELECT id, name FROM customers WHERE org_id = ? ORDER BY name").all(user.org_id),
       agents: db.prepare("SELECT id, name, role FROM users WHERE org_id = ? ORDER BY name").all(user.org_id)
     };
+  });
+
+  app.get("/api/service/field-visits", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "desk");
+    return { visits: getServiceFieldVisits(db, user.org_id) };
+  });
+
+  app.post("/api/service/field-visits", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "desk");
+    requireServiceSupervisor(user);
+    const visit = createServiceFieldVisit(db, user, request.body === undefined ? {} : request.body);
+    return { ok: true, visit };
+  });
+
+  app.patch("/api/service/field-visits/:id", async request => {
+    const user = await app.auth(request);
+    requireAppAccess(db, user, "desk");
+    requireServiceSupervisor(user);
+    const visitId = normalizeServiceFieldVisitPathId(request.params.id);
+    const visit = updateServiceFieldVisit(db, user, visitId, request.body === undefined ? {} : request.body);
+    return { ok: true, visit };
   });
 
   app.get("/api/service/sla-policies", async request => {
@@ -46557,6 +46582,7 @@ const ORG_BACKUP_TABLES = [
   "case_messages",
   "service_case_escalations",
   "service_case_resolutions",
+  "service_field_visits",
   "automation_rules",
   "automation_rule_versions",
   "webhook_endpoints",
@@ -49169,6 +49195,75 @@ function normalizeServiceCaseUpdateInput(body) {
   return input;
 }
 
+function normalizeServiceFieldVisitCreateInput(body) {
+  if (!isPlainObject(body)) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  const input = {
+    caseId: normalizeServiceText(body, "caseId", { required: true, minLength: 1, maxLength: 120 }),
+    customerId: normalizeServiceText(body, "customerId", { required: true, minLength: 1, maxLength: 120 }),
+    assignedUserId: normalizeServiceText(body, "assignedUserId", { required: true, minLength: 1, maxLength: 120 }),
+    scheduledStartAt: normalizeServiceFieldVisitTimestamp(body, "scheduledStartAt"),
+    scheduledEndAt: normalizeServiceFieldVisitTimestamp(body, "scheduledEndAt"),
+    status: normalizeServiceChoice(body, "status", SERVICE_FIELD_VISIT_STATUSES, "scheduled"),
+    location: normalizeServiceText(body, "location", { required: true, minLength: 2, maxLength: 240 }),
+    worksheetSummary: normalizeServiceText(body, "worksheetSummary", { fallback: "", maxLength: 2000, allowMultiline: true })
+  };
+  assertServiceFieldVisitTimeOrder(input.scheduledStartAt, input.scheduledEndAt);
+  return input;
+}
+
+function normalizeServiceFieldVisitPatchInput(body, existing) {
+  if (!isPlainObject(body)) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  const input = {};
+  if (Object.prototype.hasOwnProperty.call(body, "status")) {
+    input.status = normalizeServiceChoice(body, "status", SERVICE_FIELD_VISIT_STATUSES, "");
+    if (!input.status) throwInvalidServiceFieldVisitMetadata();
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "location")) {
+    input.location = normalizeServiceText(body, "location", { required: true, minLength: 2, maxLength: 240 });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "worksheetSummary")) {
+    input.worksheetSummary = normalizeServiceText(body, "worksheetSummary", { fallback: "", maxLength: 2000, allowMultiline: true });
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "scheduledStartAt")) {
+    input.scheduledStartAt = normalizeServiceFieldVisitTimestamp(body, "scheduledStartAt");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "scheduledEndAt")) {
+    input.scheduledEndAt = normalizeServiceFieldVisitTimestamp(body, "scheduledEndAt");
+  }
+  if (Object.prototype.hasOwnProperty.call(body, "assignedUserId")) {
+    input.assignedUserId = normalizeServiceText(body, "assignedUserId", { required: true, minLength: 1, maxLength: 120 });
+  }
+  if (Object.keys(input).length === 0) {
+    const err = new Error("No updatable fields provided");
+    err.statusCode = 400;
+    throw err;
+  }
+  assertServiceFieldVisitTimeOrder(
+    input.scheduledStartAt || existing.scheduledStartAt,
+    input.scheduledEndAt || existing.scheduledEndAt
+  );
+  return input;
+}
+
+function normalizeServiceFieldVisitTimestamp(body, field) {
+  const text = normalizeServiceText(body, field, { required: true, minLength: 10, maxLength: 40 });
+  const parsed = new Date(text);
+  if (Number.isNaN(parsed.getTime())) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+  return parsed.toISOString();
+}
+
+function assertServiceFieldVisitTimeOrder(startAt, endAt) {
+  if (new Date(startAt).getTime() >= new Date(endAt).getTime()) {
+    throwInvalidServiceFieldVisitMetadata();
+  }
+}
+
 function normalizeServiceEscalationInput(body) {
   if (!isPlainObject(body)) {
     throwInvalidServiceMetadata();
@@ -49302,6 +49397,10 @@ function throwInvalidServiceSlaPolicyMetadata() {
   throwInvalidServiceMetadata("SLA policy requires safe metadata");
 }
 
+function throwInvalidServiceFieldVisitMetadata() {
+  throwInvalidServiceMetadata("Field visit requires safe metadata");
+}
+
 function normalizeServiceCasePathId(value) {
   if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
     throwInvalidServiceCasePathId();
@@ -49315,6 +49414,23 @@ function normalizeServiceCasePathId(value) {
 
 function throwInvalidServiceCasePathId() {
   const err = new Error("Invalid service case id");
+  err.statusCode = 400;
+  throw err;
+}
+
+function normalizeServiceFieldVisitPathId(value) {
+  if (typeof value !== "string" || /[\x00-\x1f\x7f]/.test(value)) {
+    throwInvalidServiceFieldVisitPathId();
+  }
+  const text = value.trim();
+  if (!text || text.length > 160 || !/^[a-z0-9-]+$/.test(text)) {
+    throwInvalidServiceFieldVisitPathId();
+  }
+  return text;
+}
+
+function throwInvalidServiceFieldVisitPathId() {
+  const err = new Error("Invalid service field visit id");
   err.statusCode = 400;
   throw err;
 }
@@ -56710,6 +56826,190 @@ function formatServiceCase(row) {
     updatedAt: row.updated_at,
     createdAt: row.created_at
   };
+}
+
+function getServiceFieldVisits(db, orgId, customerId = "") {
+  const params = [orgId];
+  let where = "WHERE service_field_visits.org_id = ?";
+  if (customerId) {
+    where += " AND service_field_visits.customer_id = ?";
+    params.push(customerId);
+  }
+  return db.prepare(`
+    SELECT service_field_visits.*, service_cases.case_number, service_cases.subject,
+      customers.name AS customer_name, users.name AS assigned_user_name
+    FROM service_field_visits
+    JOIN service_cases
+      ON service_cases.org_id = service_field_visits.org_id
+      AND service_cases.id = service_field_visits.case_id
+    JOIN customers
+      ON customers.org_id = service_field_visits.org_id
+      AND customers.id = service_field_visits.customer_id
+    LEFT JOIN users
+      ON users.org_id = service_field_visits.org_id
+      AND users.id = service_field_visits.assigned_user_id
+    ${where}
+    ORDER BY service_field_visits.scheduled_start_at ASC, service_field_visits.created_at DESC
+  `).all(...params).map(formatServiceFieldVisit);
+}
+
+function getServiceFieldVisit(db, orgId, visitId) {
+  const row = db.prepare(`
+    SELECT service_field_visits.*, service_cases.case_number, service_cases.subject,
+      customers.name AS customer_name, users.name AS assigned_user_name
+    FROM service_field_visits
+    JOIN service_cases
+      ON service_cases.org_id = service_field_visits.org_id
+      AND service_cases.id = service_field_visits.case_id
+    JOIN customers
+      ON customers.org_id = service_field_visits.org_id
+      AND customers.id = service_field_visits.customer_id
+    LEFT JOIN users
+      ON users.org_id = service_field_visits.org_id
+      AND users.id = service_field_visits.assigned_user_id
+    WHERE service_field_visits.org_id = ? AND service_field_visits.id = ?
+  `).get(orgId, visitId);
+  return row ? formatServiceFieldVisit(row) : null;
+}
+
+function formatServiceFieldVisit(row) {
+  return {
+    id: row.id,
+    caseId: row.case_id,
+    caseNumber: row.case_number,
+    subject: row.subject,
+    customerId: row.customer_id,
+    customerName: row.customer_name,
+    assignedUserId: row.assigned_user_id,
+    assignedUserName: row.assigned_user_name,
+    scheduledStartAt: row.scheduled_start_at,
+    scheduledEndAt: row.scheduled_end_at,
+    status: row.status,
+    location: row.location,
+    worksheetSummary: row.worksheet_summary,
+    createdAt: row.created_at,
+    updatedAt: row.updated_at
+  };
+}
+
+function createServiceFieldVisit(db, user, body) {
+  const input = normalizeServiceFieldVisitCreateInput(body);
+  assertCustomer(db, user.org_id, input.customerId);
+  const serviceCase = assertServiceFieldVisitCase(db, user.org_id, input.caseId, input.customerId);
+  const assignedUser = assertServiceFieldVisitAssignedUser(db, user.org_id, input.assignedUserId);
+  const now = new Date().toISOString();
+  const visitId = randomId("svc-visit");
+  db.prepare(`
+    INSERT INTO service_field_visits (
+      id, org_id, case_id, customer_id, assigned_user_id,
+      scheduled_start_at, scheduled_end_at, status, location,
+      worksheet_summary, created_at, updated_at
+    )
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    visitId,
+    user.org_id,
+    serviceCase.id,
+    input.customerId,
+    assignedUser.id,
+    input.scheduledStartAt,
+    input.scheduledEndAt,
+    input.status,
+    input.location,
+    input.worksheetSummary,
+    now,
+    now
+  );
+  audit(db, user.org_id, user.id, "service.field_visit.created", {
+    visitId,
+    caseId: serviceCase.id,
+    customerId: input.customerId,
+    assignedUserId: assignedUser.id,
+    status: input.status
+  });
+  return getServiceFieldVisit(db, user.org_id, visitId);
+}
+
+function updateServiceFieldVisit(db, user, visitId, body) {
+  const existing = getServiceFieldVisit(db, user.org_id, visitId);
+  if (!existing) {
+    const err = new Error("Service field visit not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  const input = normalizeServiceFieldVisitPatchInput(body, existing);
+  const sets = [];
+  const values = [];
+  const changedFields = [];
+  if (Object.prototype.hasOwnProperty.call(input, "status")) {
+    sets.push("status = ?");
+    values.push(input.status);
+    changedFields.push("status");
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "location")) {
+    sets.push("location = ?");
+    values.push(input.location);
+    changedFields.push("location");
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "worksheetSummary")) {
+    sets.push("worksheet_summary = ?");
+    values.push(input.worksheetSummary);
+    changedFields.push("worksheetSummary");
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "scheduledStartAt")) {
+    sets.push("scheduled_start_at = ?");
+    values.push(input.scheduledStartAt);
+    changedFields.push("scheduledStartAt");
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "scheduledEndAt")) {
+    sets.push("scheduled_end_at = ?");
+    values.push(input.scheduledEndAt);
+    changedFields.push("scheduledEndAt");
+  }
+  if (Object.prototype.hasOwnProperty.call(input, "assignedUserId")) {
+    const assignedUser = assertServiceFieldVisitAssignedUser(db, user.org_id, input.assignedUserId);
+    sets.push("assigned_user_id = ?");
+    values.push(assignedUser.id);
+    changedFields.push("assignedUserId");
+  }
+  const now = new Date().toISOString();
+  sets.push("updated_at = ?");
+  values.push(now);
+  db.prepare(`UPDATE service_field_visits SET ${sets.join(", ")} WHERE org_id = ? AND id = ?`).run(...values, user.org_id, existing.id);
+  audit(db, user.org_id, user.id, "service.field_visit.updated", {
+    visitId: existing.id,
+    caseId: existing.caseId,
+    customerId: existing.customerId,
+    changedFields
+  });
+  return getServiceFieldVisit(db, user.org_id, existing.id);
+}
+
+function assertServiceFieldVisitCase(db, orgId, caseId, customerId) {
+  const safeCaseId = normalizeServiceCasePathId(caseId);
+  const serviceCase = getServiceCase(db, orgId, safeCaseId);
+  if (!serviceCase) {
+    const err = new Error("Service case not found");
+    err.statusCode = 404;
+    throw err;
+  }
+  if (serviceCase.customerId !== customerId) {
+    const err = new Error("Service case/customer mismatch");
+    err.statusCode = 400;
+    throw err;
+  }
+  return serviceCase;
+}
+
+function assertServiceFieldVisitAssignedUser(db, orgId, userId) {
+  const safeUserId = normalizeServiceText({ userId }, "userId", { required: true, minLength: 1, maxLength: 120 });
+  const assignedUser = db.prepare("SELECT id FROM users WHERE org_id = ? AND id = ?").get(orgId, safeUserId);
+  if (!assignedUser) {
+    const err = new Error("Assigned user must be a user in this organization");
+    err.statusCode = 400;
+    throw err;
+  }
+  return assignedUser;
 }
 
 function getCaseMessages(db, orgId, caseId) {

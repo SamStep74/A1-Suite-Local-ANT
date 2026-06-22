@@ -85,6 +85,34 @@ export const ServiceSlaPoliciesResponseSchema = z.union([
 ]);
 export type ServiceSlaPoliciesResponse = z.infer<typeof ServiceSlaPoliciesResponseSchema>;
 
+export const ServiceFieldVisitSchema = z
+  .object({
+    id: z.string(),
+    caseId: z.string(),
+    customerId: z.string(),
+    assignedUserId: z.string().nullable(),
+    scheduledStartAt: z.string(),
+    scheduledEndAt: z.string(),
+    status: z.string(),
+    location: z.string(),
+    worksheetSummary: z.string(),
+    createdAt: z.string(),
+    updatedAt: z.string(),
+    caseNumber: z.string().nullable().optional(),
+    subject: z.string().nullable().optional(),
+    customerName: z.string().nullable().optional(),
+    assignedUserName: z.string().nullable().optional(),
+  })
+  .passthrough();
+export type ServiceFieldVisit = z.infer<typeof ServiceFieldVisitSchema>;
+
+export const ServiceFieldVisitsResponseSchema = z
+  .object({
+    visits: z.array(ServiceFieldVisitSchema),
+  })
+  .passthrough();
+export type ServiceFieldVisitsResponse = z.infer<typeof ServiceFieldVisitsResponseSchema>;
+
 export const ServiceCaseSchema = z.object({
   id: z.string(),
   customerId: z.string(),
@@ -202,6 +230,7 @@ export const ServiceConsoleSchema = z.object({
   workflowBuilderSuggestions: z.array(z.unknown()).optional(),
   knowledge: z.array(z.unknown()).optional(),
   slaPolicies: z.array(ServiceSlaPolicySchema).optional(),
+  fieldVisits: z.array(ServiceFieldVisitSchema).optional(),
   customers: z.array(CustomerOptionSchema),
   agents: z.array(AgentOptionSchema),
 });
