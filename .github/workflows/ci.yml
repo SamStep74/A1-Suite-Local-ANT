@@ -58,11 +58,11 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22.5"
+          node-version: "22"
           cache: "npm"
 
-      - name: Install (production only — fast path)
-        run: npm ci --omit=dev=false --no-audit --no-fund
+      - name: Install
+        run: npm ci --no-audit --no-fund
 
       - name: Typecheck server (sanity)
         # Server is JS (CommonJS), so no real typecheck — we just
@@ -88,7 +88,7 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22.5"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: web-modern/package-lock.json
 
@@ -150,11 +150,12 @@ jobs:
       - name: Set up Node
         uses: actions/setup-node@v4
         with:
-          node-version: "22.5"
+          node-version: "22"
           cache: "npm"
           cache-dependency-path: web-modern/package-lock.json
 
       - name: Install root (for Fastify + node --test deps)
+        working-directory: .
         run: npm ci --no-audit --no-fund
 
       - name: Install web-modern
@@ -169,6 +170,7 @@ jobs:
         # CI runner it doesn't, and the in-process seeder runs on
         # first boot. We delete any leftover so seedUsers() is
         # guaranteed to run.
+        working-directory: .
         run: rm -rf data && mkdir -p data
 
       - name: Start Vite dev server (background)

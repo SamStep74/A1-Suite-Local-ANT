@@ -10,7 +10,7 @@
 # To go from this image to a self-hostable, network-isolated deploy, run with
 #   --network=none   (after the build)   and   no --publish.
 
-ARG NODE_VERSION=22.5
+ARG NODE_VERSION=22.12.0
 
 # ─────────────────────────────────────────────────────────────────────────────
 # Stage 1: install dependencies

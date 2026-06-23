@@ -244,7 +244,7 @@ function eSignAdapterFor({ db, orgId, userId }) {
       }
       // Route through the hub. The cabinet adapter (see
       // server/stateIntegrations/cabinet.js) is the non-strict
-      // sibling of eGov.js — it accepts the cabinet's broader
+      // sibling of egov.js — it accepts the cabinet's broader
       // signer pool but still funnels the call through the hub so
       // the audit row + PII scrubbing fire.
       const out = await dispatch({

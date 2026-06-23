@@ -23,9 +23,13 @@ fi
 echo "==> Armosphera One Claude installer ($MODE, DEPLOY_DEFAULT=$DEPLOY_DEFAULT)"
 
 # --- Prereqs ---
-command -v node >/dev/null || { echo "ERROR: Node.js >=22.5 is required."; exit 1; }
+command -v node >/dev/null || { echo "ERROR: Node.js >=22.12 is required."; exit 1; }
 NODE_MAJOR="$(node -p 'process.versions.node.split(".")[0]')"
-if [ "$NODE_MAJOR" -lt 22 ]; then echo "ERROR: Node.js >=22.5 required (found $(node -v))."; exit 1; fi
+NODE_MINOR="$(node -p 'process.versions.node.split(".")[1]')"
+if [ "$NODE_MAJOR" -lt 22 ] || { [ "$NODE_MAJOR" -eq 22 ] && [ "$NODE_MINOR" -lt 12 ]; }; then
+  echo "ERROR: Node.js >=22.12 required (found $(node -v))."
+  exit 1
+fi
 echo "  node $(node -v) OK"
 
 # --- Build ---
