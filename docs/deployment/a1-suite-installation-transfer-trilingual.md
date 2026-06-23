@@ -65,7 +65,7 @@ npm run install:server
 npm run backup
 ```
 
-Node.js `>=22.5` is required.
+Node.js `>=22.12` is required.
 
 Default local URL:
 
@@ -117,7 +117,7 @@ Mac Studio host
 
 ### 3.1 Install prerequisites
 
-Install Node.js 22.5 or newer and Git.
+Install Node.js 22.12 or newer and Git.
 
 Check:
 
@@ -180,7 +180,7 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y git curl sqlite3 ca-certificates
 ```
 
-Install Node.js `>=22.5`.
+Install Node.js `>=22.12`.
 
 Clone and build:
 
@@ -416,7 +416,7 @@ Use this for disaster recovery or full infrastructure migration.
 4. Archive all tenant data directories.
 5. Archive launchd/systemd unit files and environment files.
 6. Clone the same repository on the target server.
-7. Install Node.js >=22.5.
+7. Install Node.js >=22.12.
 8. Run npm install and npm run build:ui.
 9. Restore tenant data directories.
 10. Recreate services.
@@ -468,7 +468,7 @@ npm run install:server
 npm run backup
 ```
 
-Требуется Node.js `>=22.5`.
+Требуется Node.js `>=22.12`.
 
 Локальный URL по умолчанию:
 
@@ -520,7 +520,7 @@ Mac Studio host
 
 ### 3.1 Установить зависимости
 
-Установить Node.js 22.5 или новее и Git.
+Установить Node.js 22.12 или новее и Git.
 
 Проверка:
 
@@ -583,7 +583,7 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y git curl sqlite3 ca-certificates
 ```
 
-Установить Node.js `>=22.5`.
+Установить Node.js `>=22.12`.
 
 Клонирование и сборка:
 
@@ -819,7 +819,7 @@ latest backup доступен
 4. Архивировать все tenant data directories.
 5. Архивировать launchd/systemd unit files и environment files.
 6. Клонировать тот же repository на target server.
-7. Установить Node.js >=22.5.
+7. Установить Node.js >=22.12.
 8. Выполнить npm install и npm run build:ui.
 9. Восстановить tenant data directories.
 10. Воссоздать services.
@@ -871,7 +871,7 @@ npm run install:server
 npm run backup
 ```
 
-Պահանջվում է Node.js `>=22.5`։
+Պահանջվում է Node.js `>=22.12`։
 
 Լոկալ URL՝
 
@@ -923,7 +923,7 @@ Mac Studio host
 
 ### 3.1 Install prerequisites
 
-Տեղադրել Node.js 22.5 կամ ավելի նոր և Git։
+Տեղադրել Node.js 22.12 կամ ավելի նոր և Git։
 
 Ստուգում՝
 
@@ -986,7 +986,7 @@ sudo apt update && sudo apt upgrade -y
 sudo apt install -y git curl sqlite3 ca-certificates
 ```
 
-Տեղադրել Node.js `>=22.5`։
+Տեղադրել Node.js `>=22.12`։
 
 Clone և build՝
 
@@ -1222,7 +1222,7 @@ after:  ararat.a1suite.am -> target server
 4. Archive անել բոլոր tenant data directories-ը։
 5. Archive անել launchd/systemd unit files և environment files։
 6. Clone անել նույն repository-ն target server-ի վրա։
-7. Տեղադրել Node.js >=22.5։
+7. Տեղադրել Node.js >=22.12։
 8. Կատարել npm install և npm run build:ui։
 9. Restore անել tenant data directories-ը։
 10. Recreate անել services-ը։

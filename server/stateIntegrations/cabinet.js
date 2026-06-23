@@ -10,7 +10,7 @@ const crypto = require("node:crypto");
  * call lands in `state_integration_calls` with the same PII-scrubbing
  * guarantees as the new state-int endpoints, without coupling the
  * cabinet to the strict `AN\d{7}` idNumber validation that
- * `server/stateIntegrations/eGov.js` enforces for the production
+ * `server/stateIntegrations/egov.js` enforces for the production
  * e-gov.am sign endpoint.
  *
  * Real endpoint: still n/a — cabinet e-sign in this codebase is a
