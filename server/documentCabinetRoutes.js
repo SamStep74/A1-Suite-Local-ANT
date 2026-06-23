@@ -302,13 +302,34 @@ function ftsSearch(db, orgId, query) {
   if (!term) return [];
   // FTS5 phrase match: wrap in quotes for safety.
   const safe = term.replace(/"/g, "");
-  const rows = db.prepare(`
-    SELECT cabinet_id AS cabinetId, title
-    FROM cabinet_fts
-    WHERE org_id = ? AND cabinet_fts MATCH ?
-    ORDER BY rank
-  `).all(orgId, `"${safe}"`);
-  return rows;
+  try {
+    return db.prepare(`
+      SELECT cabinet_id AS cabinetId, title
+      FROM cabinet_fts
+      WHERE org_id = ? AND cabinet_fts MATCH ?
+      ORDER BY rank
+    `).all(orgId, `"${safe}"`);
+  } catch (error) {
+    if (!isFtsMatchUnavailable(error)) throw error;
+    const like = `%${escapeLikeTerm(term)}%`;
+    return db.prepare(`
+      SELECT cabinet_id AS cabinetId, title
+      FROM cabinet_fts
+      WHERE org_id = ? AND (title LIKE ? ESCAPE '\\' OR body LIKE ? ESCAPE '\\')
+      ORDER BY title
+    `).all(orgId, like, like);
+  }
+}
+
+function isFtsMatchUnavailable(error) {
+  const message = String(error && error.message || "");
+  return message.includes("unable to use function MATCH") ||
+    message.includes("no such column: cabinet_fts") ||
+    message.includes("no such module: fts5");
+}
+
+function escapeLikeTerm(term) {
+  return String(term).replace(/[\\%_]/g, (char) => `\\${char}`);
 }
 
 function recordAiAnnotation(db, orgId, cabinetId, kind, payload, confidence, randomId) {
