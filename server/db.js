@@ -284,6 +284,21 @@ function openDatabase(dbPath) {
   return db;
 }
 
+// node:sqlite DatabaseSync has no .transaction() helper (better-sqlite3-only).
+// Polyfill: wrap fn in BEGIN IMMEDIATE / COMMIT / ROLLBACK so callers can use
+// the same `withTx(db, fn, ...args)` pattern. Pass args through to fn.
+function withTx(db, fn, ...args) {
+  db.exec("BEGIN IMMEDIATE");
+  try {
+    const out = fn(...args);
+    db.exec("COMMIT");
+    return out;
+  } catch (e) {
+    try { db.exec("ROLLBACK"); } catch {}
+    throw e;
+  }
+}
+
 function initSchema(db) {
   db.exec(`
     CREATE TABLE IF NOT EXISTS organizations (
@@ -8815,6 +8830,7 @@ function ensureServiceSlaPolicySchema(db) {
 }
 
 function seedServiceSlaPolicies(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const policies = [
     [`sla-${orgId}-high`, "High priority default", "high", "", 60, 240, 1],
@@ -8931,6 +8947,7 @@ function ensureDocsTemplateLayer(db) {
 }
 
 function seedDocumentTemplates(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const existing = db.prepare("SELECT COUNT(*) AS count FROM document_templates WHERE org_id = ?").get(orgId).count;
   if (existing > 0) return;
   const now = new Date().toISOString();
@@ -8966,6 +8983,7 @@ function seedDocumentTemplates(db, orgId) {
 }
 
 function seedTaxRates(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   // Effective-dated tax rates so recomputing a historical period uses the rate that applied
   // THEN, not today's. The CURRENT rates are seeded effective 2024-01-01 (before every test
   // fixture + demo date), so an "as-of" lookup for any present date resolves to today's values
@@ -9825,6 +9843,7 @@ function ensureAnalyticsLayer(db) {
 }
 
 function seedCustomerProfiles(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const customers = db.prepare("SELECT * FROM customers WHERE org_id = ? ORDER BY id").all(orgId);
   const profileMeta = {
@@ -9889,6 +9908,7 @@ function seedCustomerProfiles(db, orgId) {
 }
 
 function seedSuiteEvents(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const base = Date.now() - 1000 * 60 * 60 * 24;
   const currency = currencyForOrg(db, orgId);
   const events = [
@@ -9917,6 +9937,7 @@ function seedSuiteEvents(db, orgId) {
 }
 
 function seedServiceCases(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const ticketRows = db.prepare("SELECT * FROM tickets WHERE org_id = ? ORDER BY id").all(orgId);
   const caseMeta = {
@@ -10017,6 +10038,7 @@ function seedServiceCases(db, orgId) {
 }
 
 function seedServiceFieldVisits(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const serviceCase = db.prepare(`
     SELECT id, customer_id
     FROM service_cases
@@ -10061,6 +10083,10 @@ function seedServiceFieldVisits(db, orgId) {
 }
 
 function seedWorkflowApprovals(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
+  // Seed data is demo-org-specific (references cust-nare, the HayHashvapah
+  // test customer). Other orgs should not inherit these hardcoded rows.
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const currency = currencyForOrg(db, orgId);
   const approvals = [
@@ -10128,6 +10154,7 @@ function seedWorkflowApprovals(db, orgId) {
 }
 
 function seedCrmTasks(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   db.prepare(`
     INSERT INTO crm_tasks (
@@ -10154,6 +10181,7 @@ function seedCrmTasks(db, orgId) {
 }
 
 function seedFinancePeriods(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const periods = [
     ["period-2026-04", "2026-04", "2026-04-01", "2026-04-30", "closed", "2026-05-08T09:00:00.000Z", "user-owner", "Monthly VAT reporting submitted"],
@@ -10181,6 +10209,7 @@ function seedFinancePeriods(db, orgId) {
 }
 
 function seedDealInvoiceApproval(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const exists = db.prepare("SELECT id FROM workflow_approvals WHERE org_id = ? AND id = ?")
     .get(orgId, "approval-deal-nare-invoice");
   if (exists) return;
@@ -10227,6 +10256,7 @@ function seedDealInvoiceApproval(db, orgId) {
 }
 
 function seedQuotes(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const currency = currencyForOrg(db, orgId);
   const insertQuote = db.prepare(`
@@ -10296,6 +10326,7 @@ function seedQuotes(db, orgId) {
 }
 
 function seedCrmLeads(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const currency = currencyForOrg(db, orgId);
   db.prepare(`
@@ -10334,6 +10365,7 @@ function seedCrmLeads(db, orgId) {
 }
 
 function seedCatalogItems(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const currency = currencyForOrg(db, orgId);
   const categorySeedId = baseId => catalogSeedId(orgId, baseId);
@@ -10448,6 +10480,7 @@ function seedCatalogItems(db, orgId) {
 }
 
 function seedCatalogUnitsOfMeasure(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const unitSeedId = baseId => catalogSeedId(orgId, baseId);
   const insertUnit = db.prepare(`
@@ -10492,6 +10525,7 @@ function backfillCatalogUnitsOfMeasureFromItems(db, orgId) {
 }
 
 function seedCatalogItemVariants(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const variantSeedId = baseId => catalogSeedId(orgId, baseId);
   const itemSeedId = baseId => catalogSeedId(orgId, baseId);
@@ -10548,6 +10582,7 @@ function seedCatalogItemVariants(db, orgId) {
 }
 
 function seedCatalogMarginRules(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const insertRule = db.prepare(`
     INSERT OR IGNORE INTO catalog_margin_rules (
@@ -10579,6 +10614,7 @@ function seedCatalogMarginRules(db, orgId) {
 }
 
 function seedCatalogPriceLists(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const priceLists = [
     {
@@ -10732,6 +10768,9 @@ function catalogSeedId(orgId, baseId) {
 }
 
 function seedInventoryCore(db, orgId) {
+  // Locations are per-tenant baseline (every org needs the 6 standard
+  // stock locations to operate). The stock_moves / stock_quants
+  // opening stock below is demo-specific — gated by its own check.
   const now = new Date().toISOString();
   const seedId = baseId => stockSeedId(orgId, baseId);
   const insertLocation = db.prepare(`
@@ -10792,6 +10831,7 @@ function seedInventoryCore(db, orgId) {
 }
 
 function seedPurchaseVendors(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const currency = currencyForOrg(db, orgId);
@@ -10857,6 +10897,7 @@ function purchaseSeedId(orgId, baseId) {
 }
 
 function seedMarketingCampaigns(db, orgId) {
+  if (orgId !== "org-armosphera-demo") return;
   const now = new Date().toISOString();
   const currency = currencyForOrg(db, orgId);
   db.prepare(`
@@ -11994,6 +12035,7 @@ module.exports = {
   getUserBySession,
   openDatabase,
   verifyPassword,
+  withTx,
   resolveTaxRate,
   resolvePayrollConfig,
   resolveVatRate,

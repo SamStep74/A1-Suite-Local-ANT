@@ -13,7 +13,8 @@ const {
   openDatabase,
   verifyPassword,
   resolvePayrollConfig,
-  resolveVatRate
+  resolveVatRate,
+  withTx
 } = require("./db");
 
 const DEFAULT_REPORT_DATE = "2026-05-26";
@@ -4957,14 +4958,13 @@ function registerApi(app, db, options = {}) {
     if (!idem) { const e = new Error("idempotencyKey is required"); e.statusCode = 400; throw e; }
     const existing = db.prepare("SELECT response_json FROM idempotency_keys WHERE org_id = ? AND key = ?").get(user.org_id, idem);
     if (existing) return JSON.parse(existing.response_json);
-    const tx = db.transaction(() => {
+    withTx(db, () => {
       db.prepare("DELETE FROM export_document_lines WHERE export_doc_id = ?").run(doc.id);
       for (const l of body.lines) {
         db.prepare("INSERT INTO export_document_lines (id, export_doc_id, product_id, hs_code, description, quantity, uom, unit_price, net_weight_kg, gross_weight_kg, packages, marks) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)")
           .run(randomId("expln"), doc.id, l.productId || null, l.hsCode || "", l.description || "", Number(l.quantity || 0), l.uom || "kg", Number(l.unitPrice || 0), Number(l.netWeightKg || 0), Number(l.grossWeightKg || 0), Number(l.packages || 0), l.marks || "");
       }
     });
-    tx();
     const envelope = { ok: true, exportDocId: doc.id, lineCount: body.lines.length };
     db.prepare("INSERT INTO idempotency_keys (id, org_id, key, response_json, created_at) VALUES (?, ?, ?, ?, ?)").run(randomId("idem"), user.org_id, idem, JSON.stringify(envelope), new Date().toISOString());
     audit(db, user.org_id, user.id, "exportDocs.linesUpdated", { exportDocId: doc.id, lineCount: body.lines.length, idempotencyKey: idem });
@@ -8260,18 +8260,18 @@ ${controls}
       const err = new Error("periodKey must be YYYY-MM"); err.statusCode = 400; throw err;
     }
     const weeks = db.prepare(`
-      SELECT strftime('%Y-W%W', posted_at) AS weekKey,
+      SELECT strftime('%Y-W%W', transaction_date) AS weekKey,
              SUM(CASE WHEN amount > 0 THEN amount ELSE 0 END) AS inflow,
              SUM(CASE WHEN amount < 0 THEN -amount ELSE 0 END) AS outflow
-      FROM bank_transactions
-      WHERE org_id = ? AND substr(posted_at, 1, 7) = ?
+      FROM finance_bank_transactions
+      WHERE org_id = ? AND substr(transaction_date, 1, 7) = ?
       GROUP BY weekKey
       ORDER BY weekKey
     `).all(user.org_id, periodKey);
     const opening = db.prepare(`
       SELECT COALESCE(SUM(amount), 0) AS opening
-      FROM bank_transactions
-      WHERE org_id = ? AND substr(posted_at, 1, 7) < ?
+      FROM finance_bank_transactions
+      WHERE org_id = ? AND substr(transaction_date, 1, 7) < ?
     `).get(user.org_id, periodKey).opening;
     return { ok: true, cashFlow: cfo.computeCashFlow({ openingAmd: opening, weeks }) };
   });
@@ -8316,12 +8316,11 @@ ${controls}
     assertPeriodOpen(user.org_id, budget.period_key);
     return cfoCachedOrRun(user, idem, () => {
       const insertLine = db.prepare("INSERT INTO budget_lines (id, org_id, budget_id, account_id, planned_amount) VALUES (?, ?, ?, ?, ?)");
-      const insertLineTx = db.transaction(lines => {
+      withTx(db, lines => {
         for (const ln of lines) {
           insertLine.run(randomId("bline"), user.org_id, budgetId, String(ln.accountId), Math.trunc(Number(ln.planned) || 0));
         }
-      });
-      insertLineTx(body.lines);
+      }, body.lines);
       recordCfoAudit(user, "cfo.budget.lines.upsert", "budget", budgetId, { lineCount: body.lines.length, idempotencyKey: idem });
       return { ok: true, budgetId, lineCount: body.lines.length };
     });
@@ -8439,8 +8438,7 @@ ${controls}
         .run(id, user.org_id, String(body.lender), Math.trunc(Number(body.principalAmd)), String(body.currency), Number(body.ratePct), Math.trunc(Number(body.termMonths)), String(body.startDate), String(body.scheduleKind), now, user.id);
       const schedule = cfo.amortizeLoan({ principalAmd: body.principalAmd, ratePct: body.ratePct, termMonths: body.termMonths, startDate: body.startDate, kind: body.scheduleKind });
       const insertSched = db.prepare("INSERT INTO loan_schedules (id, org_id, loan_id, period_key, principal_due, interest_due, balance_after, status) VALUES (?, ?, ?, ?, ?, ?, ?, 'planned')");
-      const insertSchedTx = db.transaction(rows => { for (const r of rows) insertSched.run(randomId("lsched"), user.org_id, id, r.periodKey, r.principalDue, r.interestDue, r.balanceAfter); });
-      insertSchedTx(schedule);
+      withTx(db, rows => { for (const r of rows) insertSched.run(randomId("lsched"), user.org_id, id, r.periodKey, r.principalDue, r.interestDue, r.balanceAfter); }, schedule);
       recordCfoAudit(user, "cfo.loan.create", "loan", id, { lender: body.lender, principalAmd: body.principalAmd, idempotencyKey: idem });
       return { ok: true, loan: { id, lender: body.lender, principalAmd: Math.trunc(Number(body.principalAmd)), scheduleRows: schedule.length } };
     });
@@ -60068,7 +60066,7 @@ function createCrmQuote(db, user, body) {
   const dealId = quoteInput.dealId;
   const deal = dealId ? getDeal(db, user.org_id, dealId) : null;
   if (!deal || deal.customerId !== customerId) {
-    const err = new Error("Deal is required for quote creation");
+    const err = new Error("Deal not found, or deal does not belong to this customer");
     err.statusCode = 422;
     throw err;
   }
