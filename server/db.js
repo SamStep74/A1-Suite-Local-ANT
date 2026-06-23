@@ -718,8 +718,10 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_pos_sales_status
       ON pos_sales(org_id, status, sold_at DESC);
 
-    CREATE INDEX IF NOT EXISTS idx_pos_sales_customer
-      ON pos_sales(org_id, customer_id, sold_at DESC);
+    -- idx_pos_sales_customer + idx_pos_sale_refunds_customer are
+    -- created in ensurePosCustomerLinkLayer (post-initSchema ALTER)
+    -- so existing DBs without the customer_id column get the column
+    -- BEFORE the index that references it.
 
     CREATE TABLE IF NOT EXISTS pos_sale_payments (
       id TEXT PRIMARY KEY,
@@ -800,8 +802,10 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_pos_receipt_packets_status
       ON pos_receipt_packets(org_id, packet_status, created_at DESC);
 
-    CREATE INDEX IF NOT EXISTS idx_pos_receipt_packets_print_status
-      ON pos_receipt_packets(org_id, receipt_print_status, receipt_printed_at DESC);
+    -- idx_pos_receipt_packets_print_status is created in
+    -- ensurePosReceiptPrintLayer (post-initSchema ALTER) so existing
+    -- DBs without the receipt_print_status column get the column
+    -- BEFORE the index that references it.
 
     CREATE TABLE IF NOT EXISTS pos_sale_refunds (
       id TEXT PRIMARY KEY,
@@ -831,8 +835,8 @@ function initSchema(db) {
     CREATE INDEX IF NOT EXISTS idx_pos_sale_refunds_status
       ON pos_sale_refunds(org_id, status, created_at DESC);
 
-    CREATE INDEX IF NOT EXISTS idx_pos_sale_refunds_customer
-      ON pos_sale_refunds(org_id, customer_id, created_at DESC);
+    -- idx_pos_sale_refunds_customer is created in
+    -- ensurePosCustomerLinkLayer (see note above idx_pos_sales_customer).
 
     CREATE TABLE IF NOT EXISTS pos_sale_voids (
       id TEXT PRIMARY KEY,
